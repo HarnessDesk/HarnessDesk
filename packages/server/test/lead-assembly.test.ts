@@ -4,10 +4,12 @@ import { join } from 'node:path'
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { readChecks } from '../src/evidence/checks-file.js'
 import test from 'node:test'
-import { createLeadJournal, evaluateLeadAcceptance, type LeadJournalRecord, type LeadPermissionCall } from '@harnessdesk/lead'
+import { createLeadJournal, evaluateLeadAcceptance, LEAD_SEATS_PER_ROLE, parseLeadSeatChoices, type LeadJournalRecord, type LeadPermissionCall } from '@harnessdesk/lead'
 import { LEAD_LIMITS, parseLeadAcceptanceContract } from '@harnessdesk/protocol'
 import { freezeLeadPlan, LEAD_DEFAULT_CAPS, LEAD_LEGACY_DEFAULT_USD_MICROS, LeadAssembly, leadSpendLimitMigration, leadPreviewUnfit, leadProjectOf, leadSeatable, leadSeatChoices, readLeadEvidence, type LeadAssemblyOptions } from '../src/lead/assembly.js'
 import { tempDir } from './scratch.js'
+import { LeadFileJournal } from '../src/lead/journal.js'
+import { LeadContextStore } from '../src/lead/context-store.js'
 
 const project = { id: 'acme', path: '/work/acme' }
 const contract = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Make the retry list complete', project, policyRevision: 1,
@@ -272,4 +274,63 @@ test('assembly refuses a new legacy reviewed recipe before seating previews', as
   assert.equal(seatingReads, 0, 'the unsupported new recipe is refused before any seating preview')
   assert.match((await freeze(contract)).digest, /^[0-9a-f]{64}$/)
   assert.equal(seatingReads, contract.steps.length)
+})
+
+
+test('twelve ready runtimes retain registration priority within the bounded Lead roster on ensure and restore', async t => {
+  const ready = Array.from({ length: 12 }, (_, index) => `fixture-${index + 1}`)
+  const expected = ready.slice(0, LEAD_SEATS_PER_ROLE).map(runtime => ({ runtime }))
+  assert.deepEqual(leadSeatChoices(ready), { implement: expected, review: expected })
+  assert.throws(() => parseLeadSeatChoices({ implement: ready.map(runtime => ({ runtime })), review: expected }), /lead-ipc-invalid/)
+  const created: Parameters<LeadAssemblyOptions['create']>[0][] = []
+  const options: LeadAssemblyOptions = { home: tempDir('lead-assembly-roster-'), now: () => 100,
+    workspace: async () => project.path, readySeats: () => ready, heldPreview: () => null,
+    create: async inputs => { created.push(inputs) } }
+  const first = new LeadAssembly(options)
+  t.after(() => first.close())
+  await first.ensure()
+  await first.close()
+  const restored = new LeadAssembly({ ...options, workspace: async () => null })
+  t.after(() => restored.close())
+  await restored.restore()
+  assert.equal(created.length, 2)
+  for (const inputs of created) assert.deepEqual(inputs.seats, { implement: expected, review: expected })
+  assert.equal(created[1]!.journal.state.seq, created[0]!.journal.state.seq, 'restore keeps the initialized journal')
+})
+
+test('a pre-owner assembly failure releases its journal before the same assembly retries', async t => {
+  const failure = new Error('synthetic context open failure'), open = LeadContextStore.open
+  let attempts = 0, created = 0
+  t.mock.method(LeadContextStore, 'open', async (...args: Parameters<typeof open>) => {
+    if (++attempts === 1) throw failure
+    return open(...args)
+  })
+  const assembly = new LeadAssembly({ home: tempDir('lead-assembly-pre-owner-'), now: () => 100,
+    workspace: async () => project.path, readySeats: () => ['fixture'], heldPreview: () => null,
+    create: async () => { created++ } })
+  t.after(() => assembly.close())
+  await assert.rejects(assembly.ensure(), error => error === failure)
+  await assembly.ensure()
+  assert.equal(attempts, 2)
+  assert.equal(created, 1)
+})
+
+test('an owner creation failure stays original on retry and keeps its journal leased until host close', async t => {
+  const home = tempDir('lead-assembly-owner-'), failure = new Error('synthetic owner creation failure')
+  let created = 0, inputs!: Parameters<LeadAssemblyOptions['create']>[0]
+  const options: LeadAssemblyOptions = { home, now: () => 100, workspace: async () => project.path,
+    readySeats: () => ['fixture'], heldPreview: () => null,
+    create: async value => { created++; inputs = value; throw failure } }
+  const assembly = new LeadAssembly(options)
+  t.after(() => assembly.close())
+  await assert.rejects(assembly.ensure(), error => error === failure)
+  await assert.rejects(assembly.ensure(), error => error === failure)
+  assert.equal(created, 1, 'retry cannot construct another partially owned service')
+  await assert.rejects(LeadFileJournal.open(home, 'desk'), /lead-journal-open-refused/)
+  await inputs.journal.setSpendLimit(100, inputs.journal.state.seq, 101)
+  await assembly.close()
+  const restored = new LeadAssembly({ ...options, create: async value => { inputs = value } })
+  t.after(() => restored.close())
+  await restored.restore()
+  assert.deepEqual(inputs.journal.state.spendLimit, { usdMicros: 100 }, 'the partial owner could still persist before close')
 })

@@ -355,3 +355,18 @@ test('a message the person sends asks the Lead as the person, and a scheduled me
     else assert.deepEqual([...new Set(seen)], [expected])
   }
 })
+
+test('a schedule gate released after its lifetime ends cannot start or consume the slot', { timeout: 5000 }, async () => {
+  const home = await mkdtemp(join(tmpdir(), 'lead-repeat-lifetime-')), planner = new LeadPlanner(home), journal = await memoryJournal()
+  await planner.writeSchedule({ version: 1, tasks: [{ ...task, approved: undefined, perRunCaps: undefined }], quiet: null })
+  await planner.markRan(task.id, task.lastRunAt!)
+  let available = true, started = 0, entered!: () => void, release!: () => void
+  const inside = new Promise<void>(resolve => { entered = resolve }), held = new Promise<void>(resolve => { release = resolve })
+  const repeats = new LeadRepeats({ planner, journal, available: () => available, now: () => new Date(2026, 9, 26, 10).getTime(),
+    gate: async () => { entered(); await held; return 'act' }, start: async () => { started++; return { logicalGoalId: 'demo', approved: true } } })
+  const ticking = repeats.tick(); await inside
+  available = false; release(); await ticking
+  assert.equal(started, 0)
+  assert.equal((await planner.readSchedule()).tasks[0]!.runs?.length ?? 0, 0)
+  await rm(home, { recursive: true, force: true })
+})

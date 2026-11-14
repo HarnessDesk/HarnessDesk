@@ -69,6 +69,8 @@ const MAX_FAILURE_REMOTES = 1024
  * phone?". Nothing here depends on the cloud.
  */
 export class PhoneLinkService {
+  #closed = false
+  readonly #draining = new Set<Promise<void>>()
   readonly #endpoints = new Set<PhoneEndpoint>()
   readonly #sockets = new Map<PhoneEndpoint, WebSocket>()
   readonly #routes = new Map<PhoneEndpoint, PhoneRoute>()
@@ -174,6 +176,10 @@ export class PhoneLinkService {
    * the key the account linked; the relay carries its frames and can read none of them.
    */
   attachRelay(conn: number, dev: string, transport: EndpointTransport): RelayAttachment {
+    if (this.#closed) {
+      transport.close(1001, 'desk-closed')
+      return { receive: () => {}, gone: () => {} }
+    }
     const remote = `relay:${dev}`
     const failures = this.#failures.get(remote)
     if (failures && failures.resetAt > this.#now() && failures.count >= FAILURES_PER_MINUTE) {
@@ -224,14 +230,26 @@ export class PhoneLinkService {
     return [...this.#endpoints].some(endpoint => endpoint.device !== null && endpoint.open && (this.registry.get(endpoint.device.id)?.tiers.includes(tier) ?? false))
   }
 
-  async close(): Promise<void> {
+  /** Stop admission immediately, even while already-admitted controls still drain. */
+  seal(): void {
+    this.#closed = true
     for (const id of [...this.#pending.keys()]) this.#settle(id, null)
     for (const socket of this.wss.clients) socket.close(1001, 'desk-closed')
-    for (const endpoint of this.#endpoints) endpoint.dispose()
-    await new Promise<void>(resolve => this.wss.close(() => resolve()))
+    for (const endpoint of [...this.#endpoints]) this.#gone(endpoint)
+  }
+
+  async close(): Promise<void> {
+    this.seal()
+    await new Promise<void>((resolve, reject) => this.wss.close(error => {
+      if (error && (error as NodeJS.ErrnoException).code !== 'ERR_SERVER_NOT_RUNNING' && error.message !== 'The server is not running') reject(error)
+      else resolve()
+    }))
+    while (this.#draining.size) await Promise.allSettled([...this.#draining])
+    await this.registry.idle()
   }
 
   #accept(socket: WebSocket, remote: string): void {
+    if (this.#closed) return void socket.close(1001, 'desk-closed')
     const limit = this.options.maxSockets ?? 16
     if (this.#sockets.size >= limit) return void socket.close(CloseCode.RATE_LIMITED, 'busy')
     const failures = this.#failures.get(remote)
@@ -268,6 +286,9 @@ export class PhoneLinkService {
     if (!this.#endpoints.delete(endpoint)) return
     const signedIn = endpoint.device !== null
     endpoint.dispose()
+    const draining = endpoint.idle()
+    this.#draining.add(draining)
+    void draining.finally(() => this.#draining.delete(draining)).catch(() => {})
     this.#sockets.delete(endpoint)
     this.#routes.delete(endpoint)
     // The window shows how each phone is connected, so a phone leaving is a change too.

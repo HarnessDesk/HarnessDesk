@@ -1482,3 +1482,19 @@ test('a receipt between a question and the person\'s reply leaves the question o
   await settle!(true)
   assert.deepEqual((await r.store.read(desktop, { active: true })).asks, [{ id: 'message-3', status: 'answered', answer: { option: 'Start it', by: 'Desktop', at: r.now() } }])
 })
+
+test('a brief whose observer returns after its lifetime ends is neither saved nor pushed', async t => {
+  let available = true, entered!: () => void, release!: () => void
+  const inside = new Promise<void>(resolve => { entered = resolve }), held = new Promise<void>(resolve => { release = resolve })
+  const r = await rig(t, { observe: async () => { entered(); await held; return { text: 'Three items need attention.', usdMicros: 10 } } })
+  await r.store.updateBrief({ enabled: true, at: '07:30' })
+  await r.store.read(desktop, { active: true })
+  r.tick(60 * MIN)
+  r.setItems([1, 2, 3].map(id => work(`work-${id}`, 'needs-you', r.now())))
+  r.tick(31 * MIN)
+  const ticking = r.store.tick(() => available); await inside
+  available = false; release()
+  assert.equal(await ticking, false)
+  assert.equal(r.pushes.length, 0)
+  assert.equal(JSON.parse(await readFile(r.file, 'utf8')).briefDigest, undefined)
+})

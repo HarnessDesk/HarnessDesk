@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { runtimeId, type ConfigOption, type OptionValue } from '@harnessdesk/protocol'
-import { Banner, PageOptions, Row, Rows, RowValue, SectionHead } from '../design'
+import { Banner, PageOptions, Row, Rows, RowValue, Section } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { explainedBySignIn } from '../lib/sign-in-refusal'
 
@@ -59,8 +59,7 @@ export default function SettingsNewConversations() {
   }]} />
   // A signed-out default's refusal is what its banner already says (#1775).
   const shown = error !== null && runtime && explainedBySignIn(error, snapshot.accountsByRuntime[runtime]) ? null : error
-  return <>
-    <SectionHead level="label" name="New conversations" />
+  return <Section title="New conversations">
     {shown && <Banner tone="warning">{shown}</Banner>}
     <Rows>
       <Row title="Default runtime" control={snapshot.runtimes.length === 0 ? <RowValue>No runtime added</RowValue> : <PageOptions choices={[{
@@ -72,5 +71,5 @@ export default function SettingsNewConversations() {
       {model && <Row title="Default model" control={control(model, 'Default model')} />}
       {effort && <Row title="Default reasoning effort" control={control(effort, 'Default reasoning effort')} />}
     </Rows>
-  </>
+  </Section>
 }

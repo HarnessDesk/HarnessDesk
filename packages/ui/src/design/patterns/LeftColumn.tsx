@@ -92,6 +92,13 @@ export const LeftColumnGroup = forwardRef<HTMLElement, ComponentProps<'section'>
     {heading && <GroupLabel className={styles.label}><span data-left-group-text>{label}</span></GroupLabel>}{children}
   </SidebarMenu>)
 LeftColumnGroup.displayName = 'LeftColumnGroup'
+/** Settings owns a fixed Back/search header and one independently scrolling destination list. */
+export const LeftColumnSettings = ({ header, children, onKeyDown }: {
+  readonly header: ReactNode; readonly children: ReactNode; readonly onKeyDown?: ComponentProps<'nav'>['onKeyDown']
+}) => <nav aria-label="Settings navigation" data-left-settings className={`${styles.settings} ${styles.inset}`} onKeyDown={onKeyDown}>
+  <div data-left-settings-header className={styles.settingsHeader}>{header}</div>
+  <div data-left-settings-list className={styles.settingsList}>{children}</div>
+</nav>
 export const LeftColumnHead = ({ label, controls, search }: {
   label?: string; controls?: ReactNode; search?: ReactNode
 }) => <div data-left-head className={search ? styles.head : `${styles.head} ${styles.inset}`}>

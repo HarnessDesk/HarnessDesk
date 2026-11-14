@@ -126,7 +126,7 @@ it('a reshuffle cannot move the highlight off the row the user saw', async () =>
   type('settings')
 
   // First paint of the query: an action leads and holds the highlight.
-  expect(activeLabel()).toContain('Settings › Runtimes')
+  expect(activeLabel()).toContain('Settings › Lead')
 
   await settle()
 
@@ -134,10 +134,10 @@ it('a reshuffle cannot move the highlight off the row the user saw', async () =>
   const first = document.body.querySelector('[aria-label="Command palette"] [role="option"]')
   expect(first?.textContent).toContain('Settings expedition')
   // …but the highlight stayed where the user left it.
-  expect(activeLabel()).toContain('Settings › Runtimes')
+  expect(activeLabel()).toContain('Settings › Lead')
 
   press('Enter')
-  expect(openSettings).toHaveBeenCalledWith('runtimes')
+  expect(openSettings).toHaveBeenCalledWith('lead')
   expect(openSession).not.toHaveBeenCalled()
 })
 

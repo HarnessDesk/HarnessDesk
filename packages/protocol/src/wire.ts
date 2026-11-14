@@ -1,3 +1,4 @@
+import type { DeskFeatureState } from './features.js'
 import type { LeadStage } from './lead-stage.js'
 import type { CarryOnDecision, CarryOnIncidentView, CarryOnKey } from './carry-on.js'
 import type { ForgeGitEntry, ForgeRequester } from './forge.js'
@@ -200,6 +201,8 @@ export interface BackupFile {
   readonly hostVersion: string
   readonly agents: readonly Readonly<Record<string, unknown>>[]
   readonly preferences: Readonly<Record<string, unknown>>
+  /** Explicit acknowledged choices only; no launch defaults, transition intents or repair markers. */
+  readonly features?: { readonly version: 1; readonly choices: { readonly lead?: boolean; readonly mobile?: boolean } }
   readonly transcripts: readonly {
     readonly runtime: string
     readonly id: string
@@ -294,6 +297,7 @@ export interface MemoryBackupReport {
  */
 export interface BackupReport {
   readonly agents: { readonly restored: number; readonly skipped: number }
+  /** Ordinary preferences plus acknowledged feature choices that match after restoration. */
   readonly preferences: number
   readonly transcripts: { readonly restored: number; readonly skipped: number }
   readonly agentFolders: { readonly restored: number; readonly skipped: number }
@@ -2956,6 +2960,9 @@ export interface HostMethods {
     result: null
   }
 
+  'app/features/repair': { params: Record<string, never>; result: DeskFeatureState }
+  'app/features/read': { params: Record<string, never>; result: DeskFeatureState }
+  'app/features/set': { params: { feature: 'lead' | 'mobile'; enabled: boolean }; result: DeskFeatureState }
   'app/state/get': { params: Record<string, never>; result: Readonly<Record<string, unknown>> }
   /** Merge one quiet message with the host's current read, clear and mute memory. */
   'app/inbox/keepInfo': { params: { readonly entry: RuntimeInboxEntry }; result: Readonly<Record<string, unknown>> }
@@ -3085,6 +3092,7 @@ export interface ChatRootsSnapshot {
 }
 
 export type WireNotification =
+  | { readonly method: 'app/features/changed'; readonly params: DeskFeatureState }
   | { readonly method: 'chats/rootsChanged'; readonly params: ChatRootsSnapshot }
   | {
       /** The window's current Lead chat holders, verification keys and control-read problem. */

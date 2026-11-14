@@ -103,7 +103,7 @@ describe('the Settings route split', () => {
   })
 })
 
-it('Lead settings are routable only with the host capability', () => {
+it('Lead settings remain routable while the feature is off', () => {
   expect((destinationForSettings as any)('lead', null, true)).toEqual({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: null } })
-  expect(destinationForSettings('lead')).toEqual(destinationForSettings('unknown'))
+  expect(destinationForSettings('lead')).toEqual(destinationForSettings('lead', null, true))
 })

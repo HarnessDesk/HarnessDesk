@@ -257,7 +257,7 @@ export { ToolBody, ToolBodySections, ToolBodyControls, ToolSection, ToolGroup, T
 export { ToolFooterProvider, ToolFooterScope, ToolFooterPublisher, ToolFooterOutlet, ToolFooterSuppressed, type ToolFoot } from './patterns/ToolFooter'
 
 export { SeatList, type SeatListRow } from './patterns/SeatList'
-export { LeftColumnBulkBar, LeftColumn, LeftColumnBody, LeftColumnGroup, LeftColumnHead, LeftColumnRow, LeftColumnSeat, LeftColumnTop,
+export { LeftColumnSettings, LeftColumnBulkBar, LeftColumn, LeftColumnBody, LeftColumnGroup, LeftColumnHead, LeftColumnRow, LeftColumnSeat, LeftColumnTop,
   type LeftColumnRowProps, type LeftColumnTrail, type LeftColumnAction, type LeftColumnTopProps } from './patterns/LeftColumn'
 
 export type { LeftColumnMenu } from './patterns/LeftColumn'

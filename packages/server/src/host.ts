@@ -1,3 +1,6 @@
+import { LeadLifetime } from './lead/lifetime.js'
+import { DeskFeatures } from './features.js'
+import { startPhoneLink, type RunningPhoneLink, type PhoneLinkOptions } from './phone-link.js'
 import type { DispatchAdmission } from './dispatch-admission.js'
 import { isDeepStrictEqual } from 'node:util'
 import { firstAsk, leadMessageWords, isLeadMessageSource, leadDisplayName, leadMessageKey, splitContextContent, wrapContext, type LeadChatControlList, type LeadChatHolder } from '@harnessdesk/protocol'
@@ -551,8 +554,10 @@ export interface HostOptions {
   readonly transcriptDescriptorBudgetBytes?: number
   /** Inject the same gateway for isolated local-remote rigs. */
   readonly gitGateway?: GitGateway
-  /** Explicit startup capability; the host never reads an environment flag. */
+  /** Launch default only; an explicit saved feature choice takes precedence. */
   readonly leadEnabled?: boolean
+  readonly mobileEnabled?: boolean
+  readonly phoneLink?: Omit<PhoneLinkOptions, 'home' | 'account'>
   /** Replaces the fixed provider destination for the Lead's model requests; tests script it, the app never sets it. */
   readonly leadMessagesTransport?: MessagesTransport
   /** The runtimes the Lead's child may run on, in order; the first to pass the capability probe is used.
@@ -918,6 +923,15 @@ export class Host {
   readonly #laneStore: LaneStore
   readonly #lanes: LaneAllocator
   readonly #harnessDeskAccount: HarnessDeskAccount
+  readonly #features: DeskFeatures
+  #leadEnabled = false
+  #leadClosing = false
+  #leadLifetime: LeadLifetime | null = null
+  readonly #leadStores: { idle(): Promise<void> }[] = []
+  readonly #leadDisposers: (() => Promise<void> | void)[] = []
+  #leadRestoring: Promise<void> = Promise.resolve()
+  #mobileService: RunningPhoneLink | null = null
+  #phoneUnsubscribe: (() => void) | null = null
   #leadService: LeadService | null = null
   #leadHasWorkerRules: (() => boolean) | null = null
   #leadAutoApproval: ((runtime: string, sessionId: string, approvalId: string) => Promise<boolean>) | null = null
@@ -1080,6 +1094,7 @@ export class Host {
   readonly #findings: FindingsPlane
   /** Host enforcement outlives the child; a missing journal refuses recovered dispatch. */
   readonly #leadBudgets = new LeadBudgets({
+    available: () => !this.#features.read().problem && this.#features.read().lead && this.#leadReady && !this.#disposed,
     now: () => Date.now(),
     deadlinePassed: async id => await this.#leadAutonomy?.deadlineElapsed(id) ?? false,
     usage: (project, from, to, sessions) => this.#usageOf(project, from, to, sessions),
@@ -1236,6 +1251,15 @@ export class Host {
     this.registry.onDetached((record, previous) => this.#recordRegistryMutation(record, previous))
     this.#logger = options.logger.child('host')
     this.#state = options.state ?? new StateStore()
+    this.#features = new DeskFeatures(join(this.#state.directory, 'features.json'),
+      { lead: options.leadEnabled === true, mobile: options.mobileEnabled === true },
+      (feature, enabled) => this.#setFeature(feature, enabled),
+      state => {
+        if (state.problem) { this.#leadReady = false; this.#leadLifetime?.seal() }
+        this.#push({ method: 'app/features/changed', params: state })
+        void this.#intake.followingChanged().catch(() => {})
+      })
+    this.#leadEnabled = !this.#features.read().problem && this.#features.read().lead
     this.#unsubscribeChatRoots = this.#state.onChatRootsChanged(snapshot => {
       this.#push({ method: 'chats/rootsChanged', params: snapshot })
     })
@@ -2580,7 +2604,7 @@ export class Host {
     this.#intake = new IntakePlane({
       home: this.#state.directory,
       lead: async operation => {
-        if (!this.options.leadEnabled || !this.#leadReady) return { delivered: false, reason: 'Lead is disabled; this firing waits.' }
+        if (!this.#features.read().lead || !this.#leadEnabled || !this.#leadReady) return { delivered: false, reason: 'Lead is disabled; this firing waits.' }
         if (!operation.payload) return { delivered: false, reason: 'The firing payload is unavailable; this firing waits.' }
         // Built once, on the first firing; a Lead already running is the one it is handed to.
         if (!this.#leadAutomatic) await this.#leadAssembly?.ensure(operation.project)
@@ -2651,7 +2675,7 @@ export class Host {
         // The Lead's observer model, with the Lead's own key: none while the Lead is off or has no key, so a request waits for the person.
         assess: options.intake?.mentions?.assess !== undefined ? options.intake.mentions.assess : observerAssessor({
           transport: this.options.leadMessagesTransport ?? leadProviderTransport,
-          key: async () => this.options.leadEnabled && (await this.#credentials.leadStatus('anthropic')).configured ? this.#credentials.resolveLead('anthropic') : null,
+          key: async () => this.#features.read().lead && this.#leadEnabled && this.#leadReady && (await this.#credentials.leadStatus('anthropic')).configured ? this.#credentials.resolveLead('anthropic') : null,
           model: LEAD_MESSAGES_DEFAULTS.observerModel,
           account: { reserve: (requestId, inputTokens, maxOutputTokens) => this.#holdLeadSpend(requestId, inputTokens, maxOutputTokens) },
         }),
@@ -3170,7 +3194,7 @@ export class Host {
     }
     this.#goalWriter = writer
     this.options.startToolGateway?.()
-    if (this.options.leadEnabled === true) await cleanupLeadClientDoors(this.#state.directory).catch(() => {
+    if (this.#leadEnabled === true) await cleanupLeadClientDoors(this.#state.directory).catch(() => {
       this.#leadListenersAvailable = false
       this.#logger.warn('Lead listener cleanup is unavailable; ordinary desk startup continues')
     })
@@ -3282,7 +3306,7 @@ export class Host {
         error: error instanceof Error ? error.message : String(error),
       })
     })
-    if (this.options.leadEnabled === true) await this.#leadBudgets.recover().catch((error: unknown) => {
+    if (this.#leadEnabled === true) await this.#leadBudgets.recover().catch((error: unknown) => {
       this.#logger.warn('Lead recovery cleanup remains pending', { error: error instanceof Error ? error.message : String(error) })
     })
     // After the runs: a finding command a stop left part-way is settled from
@@ -3397,12 +3421,8 @@ export class Host {
     })().catch(resumeFailed)
     if ((this.options.catalogRefreshMs ?? 1) > 0) this.#catalogs.start()
     this.#startIdleReaper()
-    this.#leadReady = this.options.leadEnabled === true
-    if (this.#leadReady) {
-      this.#leadAssembly = this.#assembleLead()
-      this.onDispose(() => this.#leadAssembly?.close())
-      void this.#leadAssembly.restore().catch(() => { this.#logger.warn('Lead could not restore its saved thread') })
-    }
+    this.onDispose(() => this.#closeLead())
+    await this.#features.initialize()
   }
 
   /**
@@ -3914,6 +3934,9 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    const featuresClosed = this.#features.close()
+    this.#leadLifetime?.seal()
+    this.#mobileService?.service.seal()
     this.#retiredPersonTurns.clear()
     this.#seenTurnIds = new WeakMap()
     this.#unsubscribeChatRoots()
@@ -3997,6 +4020,11 @@ export class Host {
         this.#logger.warn('a removed runtime still did not shut down cleanly', { runtime: runtime.info.id, error: String(error) })
       })))
     })
+    // Every runtime is now fenced. Drain a pending feature transition before reading
+    // its final Mobile owner: an already-admitted enable may still publish that owner.
+    await featuresClosed
+    await this.#mobileService?.close().catch(() => { this.#logger.warn('Mobile shutdown cleanup remains pending') })
+    this.#mobileService = null
     await leadClosed
     for (const disposer of this.#disposers.splice(0)) {
       await Promise.resolve()
@@ -4063,17 +4091,113 @@ export class Host {
     if (transcriptFailure) throw transcriptFailure
   }
 
+  #onLeadDispose(disposer: () => Promise<void> | void): void { this.#leadDisposers.push(disposer) }
+
+  async #closeLead(): Promise<void> {
+    this.#leadLifetime?.seal()
+    await this.#leadRestoring.catch(() => {})
+    await this.#leadAssembly?.idle()
+    this.#leadClosing = true
+    await this.#leadService?.close()
+    await this.#leadLifetime?.drain()
+    this.#leadControls?.close()
+    await this.#leadControls?.idle()
+    await this.#leadMemoryOpen?.catch(() => {})
+    // Drain listeners and timers before releasing the journal lease. Failed cleanup remains retryable.
+    while (this.#leadDisposers.length) {
+      await this.#leadDisposers[0]!()
+      this.#leadDisposers.shift()
+    }
+    // Disposers remove producers first. Stores may have queued writes from journal callbacks
+    // or a refresh which began before the fence; the lease still belongs to them here.
+    for (const store of this.#leadStores) await store.idle()
+    this.#leadStores.length = 0
+    await this.#leadAssembly?.close()
+    this.#leadLifetime = null
+    this.#leadAssembly = null
+    this.#leadService = null
+    this.#leadClosing = false
+    this.#leadControls = null
+    this.#leadChats = null
+    this.#leadAutomatic = null
+    this.#leadRepeats = null
+    this.#leadTick = null
+    this.#leadHasWorkerRules = null
+    this.#leadAutoApproval = null
+    this.#leadOwnsWorker = null
+    this.#leadMemoryOpen = null
+    this.#leadMemoryReady = null
+  }
+
+  async #stopFeatureOwnedRuns(): Promise<void> {
+    // Corrupt preferences may have prevented journal assembly. The Flow's own binding still proves ownership.
+    const results = await Promise.allSettled(this.#flows.leadRuns().map(async run => {
+      this.#flows.interruptChecks(run.goal)
+      await this.#flows.stopRun(run.id, 'lead-disabled', 'desk')
+    }))
+    if (results.some(result => result.status === 'rejected')) throw Error('Lead work still needs shutdown cleanup.')
+  }
+
+  async #setFeature(feature: 'lead' | 'mobile', enabled: boolean): Promise<void> {
+    if (this.#disposed) throw new Error('The desk is closing.')
+    if (feature === 'mobile') {
+      if (enabled) this.#mobileService ??= await startPhoneLink(this, this.#logger,
+        { ...this.options.phoneLink, home: this.#state.directory, account: this.phoneRelayAccount(), available: () => !this.#disposed && !this.#features.read().problem })
+      else { await this.#mobileService?.close(); this.#mobileService = null }
+      return
+    }
+    if (!enabled) {
+      // Fence admissions before waiting for the in-flight restore or stop. Failure stays visible and retryable.
+      this.#leadReady = false
+      this.#leadLifetime?.seal()
+      await this.#leadRestoring.catch(() => {})
+      await this.#leadAssembly?.idle()
+      if (!this.#leadClosing) await this.#leadService?.setEnabled(false)
+      await this.#closeLead()
+      this.#leadEnabled = false
+      if (this.#features.read().problem) {
+        await this.#stopFeatureOwnedRuns()
+        await cleanupLeadClientDoors(this.#state.directory)
+      }
+      return
+    }
+    if (this.#leadEnabled && this.#leadReady) return
+    if (this.#leadService || this.#leadAssembly) {
+      if (!this.#leadClosing) await this.#leadService?.setEnabled(false)
+      await this.#closeLead()
+    }
+    await cleanupLeadClientDoors(this.#state.directory)
+    await this.#leadBudgets.recover()
+    this.#leadListenersAvailable = true
+    this.#leadEnabled = true
+    this.#leadReady = true
+    this.#leadLifetime = new LeadLifetime(() => !this.#features.read().problem && this.#features.read().lead && this.#leadReady && !this.#disposed)
+    this.#leadAssembly = this.#assembleLead()
+    try {
+      this.#leadRestoring = this.#leadAssembly.restore()
+      await this.#leadRestoring
+    } catch (error) {
+      this.#leadReady = false
+      await this.#closeLead()
+      this.#leadEnabled = false
+      throw error
+    }
+  }
+
   /** One host-owned supervisor, enabled explicitly by the authenticated Lead
    * service owner in the next slice step. Construction itself never spawns. */
   createLeadService(options: Pick<LeadServiceOptions, 'journal' | 'project' | 'model' | 'seats' | 'prices' | 'resolveTool' | 'freezePlan' | 'readEvidence' | 'createSupervisor' | 'messagesTransport' | 'probeRuntime'> & { readonly recovery?: { readonly now: () => number; readonly schedule: (run: () => void, delay: number) => () => void }
     /** The stored conversation (the context engine); absent, each request is rebuilt from the thread's words. */
     readonly context?: LeadContextStore }): LeadService {
-    if (this.options.leadEnabled !== true) throw leadRefusal('lead-unavailable')
+    if (this.#leadEnabled !== true) throw leadRefusal('lead-unavailable')
     if (this.#disposed) throw new Error('lead-host-closed')
     if (!this.#leadListenersAvailable) throw new Error('lead-listener-unavailable')
     if (!this.#leadReady) throw new Error('lead-host-starting')
     if (this.#leadService) throw new Error('lead-service-exists')
     const { journal, project } = options
+    const lifetime = this.#leadLifetime ?? new LeadLifetime(() => !this.#features.read().problem && this.#features.read().lead && this.#leadReady && !this.#disposed)
+    this.#leadLifetime = lifetime
+    const leadAvailable = lifetime.available
     const chatControl = this.#chatControlStore()
     this.#leadChatControl = chatControl
     this.#leadChatProject = project
@@ -4121,20 +4245,21 @@ export class Host {
       publish: board => { this.#push({ method: 'lead/work/changed', params: board }); void reminderTimer?.arm() },
     })
     this.#leadWork = work
-    this.onDispose(() => { if (this.#leadWork === work) this.#leadWork = null })
+    this.#leadStores.push(work)
+    this.#onLeadDispose(() => { if (this.#leadWork === work) this.#leadWork = null })
     // #2144: each reply the Lead writes says the reminders its turn's cards called owed, so they are marked said once,
     // on the board both surfaces read and in the cards of every later turn. The turn is the newest user message before
     // the reply (the person's, a wake's or a trigger's); a reminder that fired after it began waits for the next reply.
     // Only the Lead model's own reply counts: a notice the host writes meanwhile (a takeover, a refused repeat) told
     // the person nothing about the reminder.
     let repliedAt = journal.state.messages.reduce((mark, message) => message.role === 'assistant' ? Math.max(mark, message.revision) : mark, 0)
-    this.onDispose(journal.onChange(() => {
+    this.#onLeadDispose(journal.onChange(() => {
       const messages = journal.state.messages
       for (const [index, message] of messages.entries()) {
         if (message.role !== 'assistant' || message.revision <= repliedAt) continue
         repliedAt = message.revision
         const turn = messages.slice(0, index).findLast(earlier => earlier.role === 'user')
-        if (turn && journal.isModelReply(message.id)) void work.saidInReply(turn.revision).catch(() => { this.#logger.warn('The Lead work ledger could not mark a reminder said') })
+        if (turn && journal.isModelReply(message.id)) void lifetime.run(() => work.saidInReply(turn.revision)).catch(() => { this.#logger.warn('The Lead work ledger could not mark a reminder said') })
       }
     }))
     // Presence: seen marks per device, the away digest, the morning brief and the state of each ask. Built from the
@@ -4153,6 +4278,7 @@ export class Host {
       push: notice => this.#push({ method: 'lead/presence/changed', params: { notice } }),
       changed: () => this.#push({ method: 'lead/presence/changed', params: {} }) })
     this.#leadPresence = presence
+    this.#leadStores.push(presence)
     // Autonomy: Off / Observe / Act per proactive kind, the person's rule sections and the goal deadline. Host-enforced.
     const autonomy = new LeadAutonomyStore({ file: join(this.#state.directory, 'lead', 'autonomy.json'), now: () => Date.now(), journal,
       goal: () => { const budget = journal.state.budget; return budget ? { id: budget.logicalGoalId, open: !['accepted', 'declined', 'stopped'].includes(journal.state.phase) } : null },
@@ -4161,19 +4287,20 @@ export class Host {
       // Where a proposal card sits (under the Lead's next reply), and whether the person has written since a No.
       seq: () => journal.state.seq, personSeq: () => this.#leadPersonSeq(), receipt: text => this.#leadReceipt(text) })
     this.#leadAutonomy = autonomy
+    this.#leadStores.push(autonomy)
     void autonomy.attach().catch(() => { this.#logger.warn('The Lead autonomy settings could not be read') })
-    this.onDispose(() => { if (this.#leadAutonomy === autonomy) this.#leadAutonomy = null })
+    this.#onLeadDispose(() => { if (this.#leadAutonomy === autonomy) this.#leadAutonomy = null })
     // An ask's clock starts when the journal appends it, not when somebody first looks at the thread.
-    this.onDispose(journal.onChange(() => { void presence.observe().catch(() => {}) }))
-    this.onDispose(() => { if (this.#leadPresence === presence) this.#leadPresence = null })
+    this.#onLeadDispose(journal.onChange(() => { void lifetime.run(() => presence.observe()).catch(() => {}) }))
+    this.#onLeadDispose(() => { if (this.#leadPresence === presence) this.#leadPresence = null })
     let workTimer: ReturnType<typeof setTimeout> | null = null
     const pokeWork = () => {
       work.stale()
-      if (workTimer || this.#disposed) return
-      workTimer = setTimeout(() => { workTimer = null; void work.refresh().catch(() => { this.#logger.warn('The Lead work ledger could not refresh') }) }, 250)
+      if (workTimer || this.#disposed || !this.#leadReady) return
+      workTimer = setTimeout(() => { workTimer = null; void lifetime.run(() => work.refresh()).catch(() => { this.#logger.warn('The Lead work ledger could not refresh') }) }, 250)
       workTimer.unref?.()
     }
-    this.onDispose(() => { if (workTimer) clearTimeout(workTimer) })
+    this.#onLeadDispose(() => { if (workTimer) clearTimeout(workTimer) })
     // An approved plan is work too: its Teams and pull request join one item, made once per goal.
     let goalLinks = ''
     const syncGoal = () => {
@@ -4190,11 +4317,11 @@ export class Host {
       if (signature === goalLinks) return
       goalLinks = signature
       const kind = state.origin?.source === 'schedule' ? 'repeat' as const : state.origin ? 'trigger' as const : 'person' as const
-      void work.attach({ kind, ref: `goal:${goal}`, title: contract.goal }, { teams, prs, issues }).then(pokeWork, () => { goalLinks = '' })
+      void lifetime.run(() => work.attach({ kind, ref: `goal:${goal}`, title: contract.goal }, { teams, prs, issues })).then(pokeWork, () => { goalLinks = '' })
     }
-    this.onDispose(journal.onChange(() => { syncGoal(); pokeWork() }))
+    this.#onLeadDispose(journal.onChange(() => { syncGoal(); pokeWork() }))
     const WORK_EVENTS = new Set(['session/started', 'session/status', 'session/closed', 'turn/started', 'turn/completed', 'approval/requested', 'approval/resolved'])
-    this.onDispose(this.addBroadcaster(notification => {
+    this.#onLeadDispose(this.addBroadcaster(notification => {
       if (notification.method === 'goal/changed' || notification.method === 'session/indexChanged' || notification.method === 'session/removed' ||
         (notification.method === 'event' && WORK_EVENTS.has(notification.params.event.type))) pokeWork()
     }))
@@ -4296,11 +4423,12 @@ export class Host {
       ledger: work,
     })
     this.#leadChatsRestored = false
-    void this.#leadChats.restore().catch(() => { this.#logger.warn('Lead incidents could not be restored') }).finally(() => { this.#leadChatsRestored = true })
-    this.onDispose(() => this.#leadChats?.close())
+    const leadChats = this.#leadChats
+    const chatsRestored = leadChats.restore().catch(() => { this.#logger.warn('Lead incidents could not be restored') }).finally(() => { if (this.#leadChats === leadChats) this.#leadChatsRestored = true })
+    this.#onLeadDispose(async () => { await chatsRestored; await leadChats.close() })
     let budgetOwner = this.registerLead(journal, project), budgetGoal = journal.state.budget!.logicalGoalId
-    this.onDispose(() => { budgetOwner.close(); this.#leadChatControl = null; this.#leadChatProject = null; this.#leadJournal = null; this.#leadChatCancellation = null; this.#leadCanRerunChecks = null })
-    this.onDispose(journal.onChange(() => {
+    this.#onLeadDispose(() => { budgetOwner.close(); this.#leadChatControl = null; this.#leadChatProject = null; this.#leadJournal = null; this.#leadChatCancellation = null; this.#leadCanRerunChecks = null })
+    this.#onLeadDispose(journal.onChange(() => {
       if (['stopped', 'accepted', 'declined'].includes(journal.state.phase)) this.#leadChats?.incidents?.cancel()
       const id = journal.state.budget!.logicalGoalId
       if (id !== budgetGoal) { this.#leadChats?.incidents?.cancel(); budgetOwner.close(); budgetOwner = this.registerLead(journal, project); budgetGoal = id }
@@ -4330,7 +4458,7 @@ export class Host {
       for (const runId of previous) if (!next.has(runId)) withdraw(runId)
     }
     const detach = journal.onChange(trackOwned)
-    this.onDispose(detach)
+    this.#onLeadDispose(detach)
     const personActions = new LeadPersonActions(journal, this, this.#evidence, async value => { await this.#leadService!.assertPublic(value) })
     this.#leadCanRerunChecks = runId => personActions.canRerunChecks(runId)
     this.#leadHasWorkerRules = () => journal.state.workerApprovals.length > 0
@@ -4419,9 +4547,10 @@ export class Host {
     let leadPresence: LeadPresence | null = null
     const { context: leadContext, ...serviceOptions } = options
     this.#leadContextStore = leadContext ?? null
-    this.onDispose(() => { if (this.#leadContextStore === leadContext) this.#leadContextStore = null })
+    this.#onLeadDispose(() => { if (this.#leadContextStore === leadContext) this.#leadContextStore = null })
     this.#connectLeadMemory(journal, options)
     this.#leadService = new LeadService({ ...serviceOptions,
+      available: leadAvailable,
       ...(leadContext ? {
         recordContext: async (record: LeadContextRecordInput) => { await leadContext.record(record); this.#leadControls?.contextChanged() },
         readContext: (epoch: number, room: number) => leadContext.read(epoch, room),
@@ -4515,7 +4644,7 @@ export class Host {
     const repairs = new LeadHandbacks({ journal, now: () => Date.now(),
       gate: async op => {
         const run = this.#flows.leadRuns().find(run => run.id === op.runId)
-        return this.#disposed || !run || run.goal !== op.teamId || run.lead?.logicalGoalId !== journal.state.budget?.logicalGoalId ||
+        return !leadAvailable() || !run || run.goal !== op.teamId || run.lead?.logicalGoalId !== journal.state.budget?.logicalGoalId ||
           !await this.#leadBudgets.port.member(project) ? 'lead-project-withdrawn' : null
       },
       round: id => (this.#flows.leadRuns().find(run => run.id === id)?.rounds.length ?? 0) + 1,
@@ -4540,7 +4669,7 @@ export class Host {
     })
     let repairRefresh: Promise<void> | null = null
     const refreshRepairsOnce = async (): Promise<void> => {
-      if (this.#disposed) return
+      if (!leadAvailable()) return
       await repairs.recover()
       const op = journal.state.handbacks.at(-1)
       if (!op || !leadHandbackTerminal(op) || !leadRepairResultReady(journal.state) || journal.state.handbackLimit ||
@@ -4577,16 +4706,26 @@ export class Host {
       return repairRefresh ??= refreshRepairsOnce().finally(() => { repairRefresh = null })
     }
     const repairTimer = setInterval(() => { void refreshRepairs().catch(() => {}) }, 1000)
-    repairTimer.unref(); this.onDispose(async () => { clearInterval(repairTimer); await repairRefresh?.catch(() => {}) })
-    this.#intake.followPullRequests({ watches: () => follow.watches(), deliver: async (_watch, batch) => {
-      for (const observation of batch.observations ?? []) await follow.observe(observation)
+    repairTimer.unref(); this.#onLeadDispose(async () => { clearInterval(repairTimer); await repairRefresh?.catch(() => {}) })
+    const followWork = new Set<Promise<void>>()
+    const trackFollow = (work: Promise<void>): Promise<void> => {
+      followWork.add(work)
+      void work.finally(() => followWork.delete(work)).catch(() => {})
+      return work
+    }
+    const unfollow = this.#intake.followPullRequests({ watches: () => leadAvailable() ? follow.watches() : [], deliver: (_watch, batch) => trackFollow((async () => {
+      if (!leadAvailable()) return
+      for (const observation of batch.observations ?? []) { if (!leadAvailable()) return; await follow.observe(observation) }
+      if (!leadAvailable()) return
       await follow.observeFacts(batch.facts)
+      if (!leadAvailable()) return
       await repairs.observe(batch.facts)
       await refreshRepairs()
-    } })
-    this.onDispose(journal.onChange(() => { void this.#intake.followingChanged().catch(() => {}) }))
+    })()) })
+    this.#onLeadDispose(async () => { unfollow?.(); await Promise.allSettled([...followWork]) })
+    this.#onLeadDispose(journal.onChange(() => { void this.#intake.followingChanged().catch(() => {}) }))
     // Recovery uses only journaled person authority and freshly verified worker/forge identity.
-    void follow.reconcile().then(refreshRepairs).catch(() => { this.#logger.warn('Lead publication needs attention') })
+    void trackFollow(follow.reconcile().then(refreshRepairs)).catch(() => { this.#logger.warn('Lead publication needs attention') })
     // The store opened before the ledger and the reply screen existed: checkpoints name the open work and are shown
     // only once they pass the screen a reply does.
     if (leadContext) void leadContext.connect({
@@ -4679,18 +4818,19 @@ export class Host {
       meterSpend: () => this.#leadBudgets.meter(journal),
       stopEffects: () => stopOwned('lead-budget-stopped'),
     })
-    this.onDispose(() => this.#leadControls?.close())
-    const automatic = new LeadAutomaticGoals({ journal, send: (input, origin, root, trigger) => this.#leadControls!.send(input, origin, root, trigger),
-      enabled: () => this.options.leadEnabled === true && !this.#disposed,
+    const controls = this.#leadControls
+    this.#onLeadDispose(async () => { controls.close(); await controls.idle() })
+    const automatic = new LeadAutomaticGoals({ journal, send: async (input, origin, root, trigger) => { const result = await lifetime.run(() => controls.send(input, origin, root, trigger)); if (!result) throw leadRefusal('lead-unavailable'); return result },
+      enabled: leadAvailable,
       quiet: async () => leadQuietAt(await this.#leadPlanner().readSchedule(), new Date()),
       gateMention: () => autonomy.gate('mention'),
     })
     this.#leadAutomatic = { project, owner: automatic }
     const repeats = new LeadRepeats({ planner: this.#leadPlanner(), journal, now: () => Date.now(),
-      start: (task, slot) => this.#leadControls!.runScheduled(task, slot), gate: () => autonomy.gate('repeat') })
+      available: leadAvailable, start: (task, slot) => { if (!leadAvailable()) return Promise.reject(leadRefusal('lead-unavailable')); return controls.runScheduled(task, slot) }, gate: () => autonomy.gate('repeat') })
     this.#leadRepeats = repeats
     let lastSettled: string | null = null
-    const settleRepeat = async () => {
+    const settleRepeat = () => lifetime.run(async () => {
       const state = journal.state, budget = state.budget
       if (!budget || !['accepted', 'declined', 'stopped'].includes(state.phase)) return
       const spend = leadBudgetProjection(budget, Date.now())
@@ -4702,55 +4842,64 @@ export class Host {
         spend.spend === 'known' && !budget.requests.length && state.stopEffectsPending === null ? spend.leadUsdMicros + spend.workerUsdMicros : undefined, spend.roundsAdmitted) }
       catch (error) { if (lastSettled === signature) lastSettled = null; throw error }
       if (!settled.tasks.some(task => task.runs?.some(run => run.logicalGoalId === budget.logicalGoalId)) && lastSettled === signature) lastSettled = null
-    }
-    this.onDispose(journal.onChange(() => { void settleRepeat().catch(() => {}) }))
+    })
+    this.#onLeadDispose(journal.onChange(() => { void settleRepeat().catch(() => {}) }))
     // A reminder wakes the Lead as a desk wake, never as the person's message: a closed thread opens a goal first, as a
     // scheduled run does, and an open conversation takes the wake as a turn. One pass at a time, from the minute tick or
     // the reminder's own timer.
     const wakeOf = (due: { readonly id: string; readonly note: string; readonly for: 'person' | 'lead' }) => ({ reminder: due.id, text: due.note, person: due.for === 'person' })
     let reminding: Promise<unknown> = Promise.resolve()
-    const remindWork = () => (reminding = reminding.catch(() => {}).then(() => wakeForLeadWork(work, {
-      quiet: async () => leadQuietAt(await this.#leadPlanner().readSchedule(), new Date()),
-      canBegin: () => canBeginLeadGoal(journal.state),
-      offer: (key, text, _id, due) => this.#leadControls!.remind(key, text, wakeOf(due), true),
-      remind: (key, text, due) => this.#leadControls!.remind(key, text, wakeOf(due)),
-      gate: () => autonomy.gate('repeat'),
-    })))
+    const remindWork = () => {
+      const previous = reminding
+      return reminding = lifetime.run(async () => {
+        await previous.catch(() => {})
+        if (!leadAvailable()) return
+        return wakeForLeadWork(work, {
+          available: leadAvailable,
+          quiet: async () => leadQuietAt(await this.#leadPlanner().readSchedule(), new Date()),
+          canBegin: () => canBeginLeadGoal(journal.state),
+          offer: (key, text, _id, due) => controls.remind(key, text, wakeOf(due), true),
+          remind: (key, text, due) => controls.remind(key, text, wakeOf(due)),
+          gate: () => autonomy.gate('repeat'),
+        })
+      })
+    }
     // A person's reminder counts as said only once the Lead's message is written; a silent wake is tried once more,
     // then marked missed. Checked as the journal moves and on the minute tick, one pass at a time.
     let settling: Promise<void> | null = null, settleAgain = false
     const settleWork = (): Promise<void> => {
+      if (!leadAvailable()) return Promise.resolve()
       if (settling) { settleAgain = true; return settling }
-      settling = settleLeadReminders(work, {
-        outcome: key => this.#leadControls?.wakeOutcome(key) ?? 'pending',
-        retry: (key, text, due) => this.#leadControls ? this.#leadControls.remind(key, text, wakeOf(due)) : Promise.resolve(false),
-      }).catch(() => { this.#logger.warn('A Lead reminder\'s delivery could not be settled') }).finally(() => {
+      settling = lifetime.run(() => settleLeadReminders(work, {
+        available: leadAvailable,
+        outcome: key => controls.wakeOutcome(key) ?? 'pending',
+        retry: (key, text, due) => leadAvailable() ? controls.remind(key, text, wakeOf(due)) : Promise.resolve(false),
+      })).then(() => {}).catch(() => { this.#logger.warn('A Lead reminder\'s delivery could not be settled') }).finally(() => {
         settling = null
-        if (settleAgain && !this.#disposed) { settleAgain = false; void settleWork() }
+        if (settleAgain && leadAvailable()) { settleAgain = false; void settleWork() }
       })
       return settling
     }
-    this.onDispose(journal.onChange(() => { void settleWork() }))
+    this.#onLeadDispose(journal.onChange(() => { void settleWork() }))
     // The minute timer's whole body, so a test can fire the same tick the timer does.
-    const tick = (): Promise<unknown> => {
-      const done = settleRepeat().then(() => repeats.tick()).catch(() => { this.#logger.warn('A scheduled Lead task could not start') })
-        .then(() => remindWork()).catch(() => { this.#logger.warn('A Lead work reminder could not wake the Lead') })
-        .then(() => settleWork())
-        .then(() => autonomy.checkDeadline()).catch(() => { this.#logger.warn('A Lead goal deadline could not be checked') })
-        .then(() => presence.tick()).catch(() => { this.#logger.warn('The Lead morning brief could not be made') })
-      pokeWork()
-      return done
-    }
+    const tick = (): Promise<unknown> => lifetime.run(async () => {
+      for (const step of [settleRepeat, () => repeats.tick(), remindWork, settleWork,
+        () => autonomy.checkDeadline(leadAvailable), () => presence.tick(leadAvailable)]) {
+        if (!leadAvailable()) return
+        try { await step() } catch { this.#logger.warn('An automatic Lead task could not finish') }
+      }
+      if (leadAvailable()) pokeWork()
+    })
     this.#leadTick = tick
     const timer = setInterval(() => { void tick() }, 60_000)
     timer.unref?.()
-    this.onDispose(() => clearInterval(timer))
+    this.#onLeadDispose(() => clearInterval(timer))
     const due = new LeadReminderTimer({ next: () => work.nextDue(), now: () => Date.now(),
-      fire: () => { void remindWork().catch(() => { this.#logger.warn('A Lead work reminder could not wake the Lead') }).then(() => due.arm()) },
+      fire: () => { if (!leadAvailable()) return; void remindWork().catch(() => { this.#logger.warn('A Lead work reminder could not wake the Lead') }).then(() => due.arm()) },
       setTimer: (run, ms) => { const one = setTimeout(run, ms); one.unref?.(); return () => clearTimeout(one) } })
     reminderTimer = due
     void due.arm()
-    this.onDispose(() => { due.close(); if (reminderTimer === due) reminderTimer = null })
+    this.#onLeadDispose(() => { due.close(); if (reminderTimer === due) reminderTimer = null })
     return this.#leadService
   }
 
@@ -4824,12 +4973,13 @@ export class Host {
   /** The Lead's memory: Core, Archive, the inbox and their versions, beside the journal. Opened once; the first open
    * carries today's kept and offered lines across from the planner's file, which is left where it is. */
   #leadMemory(): Promise<LeadMemoryStore> {
-    if (this.options.leadEnabled !== true) return Promise.reject(leadRefusal('lead-unavailable'))
+    if (this.#leadEnabled !== true) return Promise.reject(leadRefusal('lead-unavailable'))
     return this.#leadMemoryOpen ??= LeadMemoryStore.open({ dir: join(this.#state.directory, 'lead'), legacy: () => this.#leadPlanner().readMemory(),
       // Forgotten is forgotten in search too: the conversation the desk kept loses the passages that said it.
       onForget: async texts => { const corpus = await this.#leadCorpus(); await (texts === 'all' ? corpus.clear() : corpus.forget(texts)) } }).then(store => {
+      this.#leadStores.push(store)
       this.#leadMemoryReady = store
-      this.onDispose(store.onChange(revision => this.#push({ method: 'lead/memory/changed', params: { revision } })))
+      this.#onLeadDispose(store.onChange(revision => this.#push({ method: 'lead/memory/changed', params: { revision } })))
       return store
     }, error => { this.#leadMemoryOpen = null; throw error })
   }
@@ -4869,7 +5019,7 @@ export class Host {
    */
   #connectLeadMemory(journal: LeadJournal, options: { readonly prices: LeadServiceOptions['prices']; readonly messagesTransport?: LeadServiceOptions['messagesTransport'] }): void {
     let closed = false
-    this.onDispose(async () => { closed = true; await Promise.all([...this.#leadMemoryWork]) })
+    this.#onLeadDispose(async () => { closed = true; await Promise.all([...this.#leadMemoryWork]) })
     const fault = (next: 'journal' | null, revision: number) => {
       if (this.#leadMemoryFault === next) return
       this.#leadMemoryFault = next
@@ -4890,7 +5040,7 @@ export class Host {
     }
     this.#leadMemoryTrack(this.#leadMemory().then(store => {
       if (closed) return
-      this.onDispose(store.onChange(() => { if (!closed) this.#leadMemoryTrack(publish(store), 'Lead memory could not reach the journal') }))
+      this.#onLeadDispose(store.onChange(() => { if (!closed) this.#leadMemoryTrack(publish(store), 'Lead memory could not reach the journal') }))
       return publish(store)
     }), 'Lead memory could not be opened')
     // Messages carry no time of their own: each is dated when the desk first sees it, which is when it was sent for
@@ -4904,16 +5054,16 @@ export class Host {
       this.#leadMemoryTrack(this.#leadCorpus().then(corpus => closed ? undefined : corpus.add(messages, id => seen.get(id))), 'The Lead conversation was not copied for search')
     }
     copy()
-    this.onDispose(journal.onChange(copy))
+    this.#onLeadDispose(journal.onChange(copy))
     const tidier = createLeadMemoryTidier({ prices: options.prices, transport: options.messagesTransport ?? leadProviderTransport,
       resolveKey: async () => (await this.#credentials.leadStatus('anthropic')).configured ? await this.#credentials.resolveLead('anthropic') : null })
     const tidy = setInterval(() => {
       const phase = journal.state.phase
-      if (closed || this.#leadService?.requestInFlight || phase === 'running' || phase === 'planning' || phase === 'following') return
+      if (closed || !this.#leadReady || !this.#features.read().lead || this.#leadService?.requestInFlight || phase === 'running' || phase === 'planning' || phase === 'following') return
       this.#leadMemoryTrack(this.#leadMemory().then(store => runLeadMemoryTidy(store, tidier)), 'Lead memory tidy did not run')
     }, 60 * 60 * 1000)
     tidy.unref?.()
-    this.onDispose(() => clearInterval(tidy))
+    this.#onLeadDispose(() => clearInterval(tidy))
   }
 
   /** Search for the Lead: Archive, the conversation the desk kept, and the summaries that replaced parts of it. */
@@ -4930,12 +5080,12 @@ export class Host {
 
   /** The timetable and kept lines live beside the journal and stay readable while no Lead goal is open. */
   #leadPlanner(): LeadPlanner {
-    if (this.options.leadEnabled !== true) throw leadRefusal('lead-unavailable')
+    if (this.#leadEnabled !== true) throw leadRefusal('lead-unavailable')
     return this.#leadPlannerFiles ??= new LeadPlanner(this.#state.directory)
   }
 
   async #leadWindow(): Promise<LeadControls> {
-    if (this.options.leadEnabled !== true) throw leadRefusal('lead-unavailable')
+    if (this.#leadEnabled !== true) throw leadRefusal('lead-unavailable')
     if (!this.#leadControls) await this.#leadAssembly?.ensure()
     if (!this.#leadControls) throw leadRefusal('lead-unavailable')
     return this.#leadControls
@@ -4944,7 +5094,7 @@ export class Host {
   /** The supervisor registers before recovery and unregisters after exit.
    * No wire field can create this host owner. */
   registerLead(journal: LeadJournal, project: LeadProject): { admission: LeadAdmission; close: () => void } {
-    if (this.options.leadEnabled !== true) throw leadRefusal('lead-unavailable')
+    if (this.#leadEnabled !== true) throw leadRefusal('lead-unavailable')
     const close = this.#leadBudgets.register(journal)
     return { admission: new LeadAdmission({ journal, project, budgets: this.#leadBudgets, previews: this.#flowPreviews,
       readIntents: goal => this.#team.stateFor(goal).intents,
@@ -5168,6 +5318,12 @@ export class Host {
   // ------------------------------------------------------------------ methods
 
   async call<M extends HostMethodName>(method: M, params: HostParams<M>): Promise<HostResult<M>> {
+    if (method.startsWith('lead/') && (this.#features.read().problem || !this.#features.read().lead || !this.#leadEnabled || !this.#leadReady || this.#disposed)) throw leadRefusal('lead-unavailable')
+    if (method.startsWith('lead/')) return this.#leadLifetime!.track(() => this.#call(method, params))
+    return this.#call(method, params)
+  }
+
+  async #call<M extends HostMethodName>(method: M, params: HostParams<M>): Promise<HostResult<M>> {
     try { this.#noteReach(params) }
     catch (error) {
       if (method === 'approval/respond' && error instanceof Error) Object.assign(error, { approvalNotDelivered: true })
@@ -6511,6 +6667,7 @@ export class Host {
       flows: this.#flows,
       flowPreviews: this.#flowPreviews,
       // These closures deliberately repeat the service's availability guard.
+      features: this.#features,
       phone: {
         state: () => this.#phoneLink?.state() ?? phoneLinkOff,
         pairing: () => this.#requirePhoneLink().pairing(),
@@ -7218,7 +7375,7 @@ export class Host {
    */
   async #backupExport(): Promise<BackupFile> {
     await this.#goalStore.flush()
-    return {
+    const backup: BackupFile = {
       kind: 'harnessdesk-backup',
       version: 1,
       exportedAt: Date.now(),
@@ -7242,6 +7399,9 @@ export class Host {
       },
       memory: await exportMemory(this.#memoryBackupPort()),
     }
+    // Read the acknowledged snapshot last: other export stores may have awaited a live transition.
+    const choices = this.#features.choices()
+    return { ...backup, ...(choices === null ? {} : { features: { version: 1, choices } }) }
   }
 
   /**
@@ -7292,6 +7452,28 @@ export class Host {
       }
     }
 
+    // Like Goal preflight, reject the entire sidecar before any mutation. An absent key
+    // is not an explicit Off; older backups leave this desk's feature choices alone.
+    let featureChoices: NonNullable<BackupFile['features']>['choices'] = {}
+    if (file.features !== undefined) {
+      const payload: unknown = file.features
+      const record = (value: unknown): value is Record<string, unknown> =>
+        value !== null && typeof value === 'object' && !Array.isArray(value)
+      if (!record(payload) || payload['version'] !== 1 || !record(payload['choices']) ||
+        Object.keys(payload).some(key => key !== 'version' && key !== 'choices') ||
+        Object.entries(payload['choices']).some(([key, value]) => (key !== 'lead' && key !== 'mobile') || typeof value !== 'boolean')) {
+        throw new Error('The feature backup cannot be read.')
+      }
+      featureChoices = payload['choices']
+    }
+    for (const feature of ['lead', 'mobile'] as const) {
+      const enabled = featureChoices[feature]
+      if (enabled !== undefined) await this.#features.set(feature, enabled)
+    }
+    const acknowledged = this.#features.choices()
+    const featurePreferences = Object.entries(featureChoices).filter(([feature, enabled]) =>
+      acknowledged?.[feature as keyof typeof featureChoices] === enabled).length
+
     const agents = { restored: 0, skipped: 0 }
     const directory = this.options.agents
     const storedAgent = (id: string): boolean => directory?.entries().some(entry => entry['id'] === id) ?? false
@@ -7318,14 +7500,14 @@ export class Host {
       else agents.skipped += 1
     }
 
-    let preferences = 0
+    let preferences = featurePreferences
     const patch =
       typeof file.preferences === 'object' && file.preferences !== null ? file.preferences : {}
     if (Object.keys(patch).length > 0) {
       await this.#state.setPreferences(patch)
       if ('browserPrefs' in patch) this.#applyBrowserSettings()
       const applied = this.#state.state.preferences
-      preferences = Object.entries(patch).filter(
+      preferences += Object.entries(patch).filter(
         ([key, value]) => JSON.stringify(applied[key]) === JSON.stringify(value),
       ).length
     }
@@ -12464,7 +12646,7 @@ export class Host {
 
   /** A passive read never builds the Lead or pins a new project. */
   async #chatControlList(): Promise<LeadChatControlList> {
-    if (this.options.leadEnabled !== true || this.#disposed) return { project: null, chats: [] }
+    if (this.#leadEnabled !== true || this.#disposed) return { project: null, chats: [] }
     const project = this.#leadChatProject ?? await readRememberedLeadProject(this.#state.directory)
     if (!project) return { project: null, chats: [] }
     const store = this.#chatControlStore(), failure = store.failure
@@ -12477,7 +12659,7 @@ export class Host {
   }
 
   async #resetChatControl(): Promise<LeadChatControlList> {
-    if (this.options.leadEnabled !== true || this.#disposed) return { project: null, chats: [] }
+    if (this.#leadEnabled !== true || this.#disposed) return { project: null, chats: [] }
     await this.#chatControlStore().reset()
     const list = await this.#chatControlList()
     this.#push({ method: 'lead/chats/controlChanged', params: list })
@@ -12507,7 +12689,7 @@ export class Host {
   }
 
   async #setChatHolder(id: string, holder: LeadChatHolder): Promise<LeadChatControlList> {
-    if (this.options.leadEnabled !== true || this.#disposed) return { project: null, chats: [] }
+    if (this.#leadEnabled !== true || this.#disposed) return { project: null, chats: [] }
     // An active Lead already has its selected project. Install its fence before
     // yielding, even if a final path check is currently completing.
     const project = this.#leadChatProject ?? await readRememberedLeadProject(this.#state.directory)
@@ -12703,13 +12885,22 @@ export class Host {
   /** The account, as the phone link uses it: relay credentials, pairing invites and unlinking. */
   phoneRelayAccount(): import('./phone-link.js').PhoneRelayAccount { return this.#harnessDeskAccount }
 
-  attachPhoneLink(control: import('./phone-link.js').PhoneLinkControl): void {
+  attachPhoneLink(control: import('./phone-link.js').PhoneLinkControl): () => void {
+    this.#phoneUnsubscribe?.()
     this.#phoneLink = control
-    this.onDispose(control.onChange(() => this.#push({ method: 'phone/changed', params: control.state() })))
+    const unsubscribe = control.onChange(() => this.#push({ method: 'phone/changed', params: control.state() }))
+    this.#phoneUnsubscribe = unsubscribe
+    return () => {
+      unsubscribe()
+      if (this.#phoneLink !== control) return
+      this.#phoneLink = null
+      this.#phoneUnsubscribe = null
+      this.#push({ method: 'phone/changed', params: phoneLinkOff })
+    }
   }
 
   #requirePhoneLink(): import('./phone-link.js').PhoneLinkControl {
-    if (!this.#phoneLink) throw Object.assign(new Error('phone-link-unavailable'), { wireCode: 'phone-link-unavailable' })
+    if (!this.#phoneLink || this.#features.read().problem) throw Object.assign(new Error('phone-link-unavailable'), { wireCode: 'phone-link-unavailable' })
     return this.#phoneLink
   }
 

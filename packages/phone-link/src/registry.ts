@@ -49,6 +49,9 @@ export class DeviceRegistry {
     return registry
   }
 
+  /** All endpoint enrollment/touch and control mutations share this queue. */
+  async idle(): Promise<void> { await this.#write }
+
   list(): readonly Device[] { return [...this.#devices.values()] }
   get(id: string): Device | null { return this.#devices.get(id) ?? null }
   isRevoked(id: string): boolean { return this.#revoked.has(id) }

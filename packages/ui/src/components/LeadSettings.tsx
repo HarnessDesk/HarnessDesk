@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { FeatureSettings } from './FeatureSettings'
+import { useSnapshot } from '../state/context'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { focusWhenDrawn } from '../lib/focus-when-drawn'
 import { LEAD_LIMITS, leadNoSpendLimit, type ClientMethodName, type LeadWindowProjection, type LeadPermissionPolicy, type LeadSettingsProjection, type LeadSettingsUpdate, type LeadCard } from '@harnessdesk/protocol'
 import { Banner, Button, Chip, ConfirmDialog, FormStack, InlineParts, Input, NativeSelect, Row, Rows, Section, LeadNameChoice, Switch, Text } from '../design'
@@ -28,7 +30,8 @@ export const leadPolicyWidens = (previous: LeadPermissionPolicy, next: LeadPermi
 const spendLimitOf = (settings: LeadSettingsProjection): number | null => settings.spendLimitUsdMicros !== undefined ? settings.spendLimitUsdMicros
   : leadNoSpendLimit(settings.caps.usdMicros) ? null : settings.caps.usdMicros
 
-export const LeadSettings = ({ settings, expiry, update, setSpendLimit, onError, error, cards = [], onOpen }: {
+export const LeadSettings = ({ settings, expiry, update, setSpendLimit, onError, error, cards = [], onOpen, children }: {
+  readonly children?: ReactNode
   readonly error?: string | null
   readonly settings: LeadSettingsProjection
   readonly expiry: number | null
@@ -97,6 +100,7 @@ export const LeadSettings = ({ settings, expiry, update, setSpendLimit, onError,
       </Rows>
       {settings.key.protection !== 'encrypted' && <Banner>Encrypted key storage is unavailable.</Banner>}
       </Section>
+      {children}
       <Section title="Allowances">
       <Rows>
         <Row title="Spending limit" desc={limitOn ? 'Stops when reported spend reaches the limit. Applies to the goal in hand once saved.' : 'Off. No dollar limit; work still stops at the round allowance or when you stop it.'}
@@ -150,22 +154,30 @@ const useSettingsRowFocus = (focus: string | null | undefined, nonce?: number): 
   }, [focus, nonce, store])
 }
 
-/** Settings owns this route; the capability gate prevents mounting it while disabled. */
-export const LeadSettingsSection = ({ focus, nonce }: { readonly focus?: string | null; readonly nonce?: number }) => {
+/** Only the enabled body reads Lead-owned settings. */
+const EnabledLeadSettingsSection = ({ focus, nonce }: { readonly focus?: string | null; readonly nonce?: number }) => {
   const store = useStore(), active = useDestinationActive()
   const state = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => { if (active) void store.lead.readSettings().catch(error => setError(leadRefusalText(error))) }, [active, store])
   useSettingsRowFocus(active ? focus : null, nonce)
-  return state.settings ? <><LeadSettings settings={state.settings} expiry={state.planConsentExpiresAt} cards={state.thread?.cards}
+  return state.settings ? <LeadSettings settings={state.settings} expiry={state.planConsentExpiresAt} cards={state.thread?.cards}
     error={error} onError={error => setError(leadRefusalText(error))} update={value => { setError(null); return store.lead.updateSettings(value) }}
     setSpendLimit={usdMicros => { setError(null); return store.lead.setSpendLimit(usdMicros) }}
-    onOpen={focus => store.openDestination({ kind: 'lead', focus })} />
-    <LeadTriggerSettings follow={state.settings.follow} root={state.thread?.project?.path ?? null} update={value => store.lead.updateSettings(value)} onError={error => setError(leadRefusalText(error))} />
-    <LeadContextSection />
+    onOpen={focus => store.openDestination({ kind: 'lead', focus })}>
     <LeadAutonomySection />
     <LeadRulesSection />
+    <LeadContextSection />
+    <LeadTriggerSettings follow={state.settings.follow} root={state.thread?.project?.path ?? null} update={value => store.lead.updateSettings(value)} onError={error => setError(leadRefusalText(error))} />
     <LeadBriefSettingsSection label={state.settings.name === 'lex' ? 'Lex' : 'Dex'} />
     <LeadPlanSettingsSection focus={focus} label={state.settings.name === 'lex' ? 'Lex' : 'Dex'} />
-    <LeadMemorySection label={state.settings.name === 'lex' ? 'Lex' : 'Dex'} cards={state.thread?.cards} /></> : error ? <Banner role="alert" tone="warning">{error}</Banner> : null
+    <LeadMemorySection label={state.settings.name === 'lex' ? 'Lex' : 'Dex'} cards={state.thread?.cards} />
+  </LeadSettings> : error ? <Banner role="alert" tone="warning">{error}</Banner> : null
+}
+
+export const LeadSettingsSection = (props: { readonly focus?: string | null; readonly nonce?: number }) => {
+  const { features } = useSnapshot()
+  return <><FeatureSettings feature="lead" />
+    {features && !features.problem && (features.lead ? <EnabledLeadSettingsSection {...props} /> : null)}
+  </>
 }

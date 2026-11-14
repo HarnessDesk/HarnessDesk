@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { LEAD_LIMITS, type GoalView, type FlowPreview, type LeadAcceptanceContract, type LeadPermissionPolicy, type LeadProject, type Sha } from '@harnessdesk/protocol'
-import { createLeadJournal, leadBudgetProjection, leadDraftCaps, LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, parseLeadSeatChoices,
+import { createLeadJournal, leadBudgetProjection, leadDraftCaps, LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, LEAD_SEATS_PER_ROLE, parseLeadSeatChoices,
   type LeadAcceptanceEvidence, type LeadJournal, type LeadState, type LeadPermissionCall, type LeadResolvedTool, type LeadSeatChoices, type MessagesPrice } from '@harnessdesk/lead'
 import { readChecksAt } from '../evidence/checks-file.js'
 import { atomicJson } from '../goals/store.js'
@@ -162,10 +162,12 @@ export const leadPreviewUnfit = (preview: FlowPreview | null): LeadPlanUnfit | n
 export const leadSeatable = (health: { readonly state: string }): boolean =>
   health.state === 'ready' || health.state === 'idle' || health.state === 'starting'
 
-/** What the Lead may name in a plan: every runtime that answers now or starts on demand, once for each role. The host still
- * checks a plan against its real seating before a card and again before a start. */
-export const leadSeatChoices = (ready: readonly string[]): LeadSeatChoices | undefined =>
-  ready.length === 0 ? undefined : parseLeadSeatChoices({ implement: ready.map(runtime => ({ runtime })), review: ready.map(runtime => ({ runtime })) })
+/** What the Lead may name in a plan: ready runtimes in registration priority, within the portable per-role bound.
+ * The host still checks a plan against its real seating before a card and again before a start. */
+export const leadSeatChoices = (ready: readonly string[]): LeadSeatChoices | undefined => {
+  const seats = ready.slice(0, LEAD_SEATS_PER_ROLE).map(runtime => ({ runtime }))
+  return seats.length === 0 ? undefined : parseLeadSeatChoices({ implement: seats, review: seats })
+}
 
 export interface LeadAssemblyOptions {
   /** The host's state directory (`HARNESSDESK_HOME`); the journal and the chosen project live under it. */
@@ -197,10 +199,22 @@ export interface LeadAssemblyOptions {
 export class LeadAssembly {
   #built: Promise<void> | null = null
   #storage: LeadFileJournal | null = null
+  #ownerCreationStarted = false
   constructor(private readonly options: LeadAssemblyOptions) {}
 
   ensure(project?: string): Promise<void> {
-    this.#built ??= this.#build(project).catch((error: unknown) => { this.#built = null; throw error })
+    this.#built ??= this.#build(project).catch(async (error: unknown) => {
+      // Once create begins, even a rejected build may own services and listeners. The host must drain
+      // those before close releases storage; keep this rejection so another ensure cannot create again.
+      if (!this.#ownerCreationStarted) {
+        try {
+          await this.#storage?.close()
+          this.#storage = null
+          this.#built = null
+        } catch { /* Failed cleanup keeps the original rejection and storage for the host's close. */ }
+      }
+      throw error
+    })
     return this.#built
   }
 
@@ -216,12 +230,15 @@ export class LeadAssembly {
     if (await readRememberedLeadProject(this.options.home)) await this.ensure()
   }
 
+  /** Wait for an admitted build before stopping its service and releasing its lease. */
+  async idle(): Promise<void> { await this.#built?.catch(() => {}) }
+
   /** Releases the journal's lease once the host has closed the service; a restart reopens the same thread. */
   async close(): Promise<void> {
-    await this.#built?.catch(() => {})
+    await this.idle()
     const storage = this.#storage
-    this.#storage = null
     await storage?.close()
+    this.#storage = null
   }
 
   async #project(preferred?: string): Promise<LeadProject> {
@@ -240,6 +257,7 @@ export class LeadAssembly {
   async #build(preferred?: string): Promise<void> {
     const { options } = this
     const project = await this.#project(preferred)
+    const seats = leadSeatChoices(options.readySeats())
     const storage = await LeadFileJournal.open(options.home, LEAD_THREAD)
     this.#storage = storage
     const journal = await createLeadJournal(storage)
@@ -250,9 +268,9 @@ export class LeadAssembly {
     }
     if (!journal.state.budget) await journal.updateBudget({ version: 1, type: 'initialize', now: options.now(), logicalGoalId: 'lead-goal',
       caps: leadDraftCaps(journal.state.spendLimit, LEAD_DEFAULT_CAPS), freshnessMs: FRESHNESS_MS })
-    const seats = leadSeatChoices(options.readySeats())
     const context = await LeadContextStore.open({ directory: join(await realpath(options.home), 'lead'), journal, model: LEAD_MESSAGES_DEFAULTS.model,
       now: options.now, nextId: () => `context-${randomUUID()}` })
+    this.#ownerCreationStarted = true
     await options.create({ journal, project, model: LEAD_MESSAGES_DEFAULTS.model, prices: LEAD_PRICES, context,
       ...(seats ? { seats } : {}),
       // A plan whose seats cannot hold their ceilings would only fail at its start, after the person approved it.

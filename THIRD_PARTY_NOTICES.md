@@ -50,7 +50,7 @@ derives from Feather (MIT, Copyright (c) 2013-present Cole Bemis); the vendored
 licence text carries that notice.
 
 **lucide-animated — MIT** (`licenses/MIT-lucide-animated.txt`), Copyright (c)
-2024-2026 pqoqubbw. The motion for sixty-nine of those icons, vendored as source
+2024-2026 pqoqubbw. The motion for seventy of those icons, vendored as source
 in `packages/ui/src/components/glyphs`: one file per icon, with its variants and
 timings as published. What was changed — one shared frame, no per-icon hover
 handler, the app's code style — is listed in that folder's `index.ts`.

@@ -39,7 +39,15 @@ host binds a loopback socket the renderer talks to. Managed chat ownership
 paths, including canonical aliases, are stored in local preferences and sent to
 connected desktop clients as a versioned snapshot; the push carries no other
 preferences. A failed write can leave that ownership in memory until restart;
-backup import can replace it. Local phone access adds a
+backup import can replace it. Explicit Lead and Mobile choices live in
+`features.json` beside a separate transition intent and repair barrier. They
+travel only when the person exports a backup: the optional `features` sidecar
+contains acknowledged partial booleans, never launch defaults, pending intents,
+repair markers, provider keys or phone identities. Unknown or transitioning
+choices are omitted. Import validates the sidecar before any writes and applies
+choices through the live host lifecycle, so restoring an explicit On may open
+the corresponding lane below. Feature controls are desktop-only; phones and
+agent tools cannot change them. Local phone access adds a
 LAN listener only when explicitly enabled, as described below.
 The desktop cache snapshot request may return a conversation already held by
 the host, with its local revision, sequence and transcript identity. It is not
@@ -106,7 +114,9 @@ Settling review threads adds three GraphQL requests to the pinned GitHub reposit
 
 ### Optional local phone access
 
-`HARNESSDESK_PHONE_LINK=1` enables a LAN WebSocket listener. Settings › Phone
+Settings › Mobile › Enable Mobile enables a LAN WebSocket listener.
+`HARNESSDESK_PHONE_LINK=1` is only the default for a desk with no explicit choice.
+Settings › Mobile
 issues a code containing the desk's public key, local endpoints and an
 enrollment secret that works once for ten minutes. The phone proves its key;
 the person allows or declines it on the desk. Pairing requires no account link
@@ -150,12 +160,16 @@ history, including read-only revoked rows and an uncertainty flag for unacknowle
 encrypted session, and again on every later sign-in, so a phone that did not keep it has it again; the desk seals
 that phone's pushes with it (see the account section) and no service ever holds it. The desk identity, paired-device keys and push keys, grants, revocations and port
 live under `phone-link/` in the local state folder. Removing a phone closes its
-connection and requires pairing again; starting without the opt-in closes the
-LAN lane. Account sign-out and deletion do not remove this separate registry.
+connection and requires pairing again. Turning Mobile off closes LAN and relay
+connections but keeps the independent pairing registry; turning it back on uses
+the same identity and pairings. Account sign-out and deletion do not remove this
+separate registry or change the Mobile choice. Relay access retains its own
+account sign-in and Reachable requirements.
 
 ### Optional Lead provider requests
 
-Lead requires the startup opt-in `HARNESSDESK_LEAD=1`, a configured provider key
+Lead requires Settings › Lead › Enable Lead (or the launch default
+`HARNESSDESK_LEAD=1` when no explicit choice exists), a configured provider key
 and a runtime whose permission model blocks the network for its restricted
 child. The desktop app's bundled Node is downloaded from nodejs.org when the app
 is built or started from source, never by the installed app. Source startup
@@ -494,11 +508,11 @@ never become the desktop's desk token.
 | `GET /v1/desk/account` | Desk bearer token; no body | After approval, on restoring an existing sign-in and while signed in at intervals of 1–60 seconds, bounded by session renewal; transient background failures retry after 30 seconds |
 | Picture `GET` to the returned HTTPS picture URL | Raster accept header; no cookies, credentials or referrer | When account metadata names a picture not already cached; the host validates the public address and bounded image before supplying local image data |
 | `POST /v1/desk/rename` | Desk bearer token and new desk name | When Rename is confirmed while signed in; a signed-out rename only saves locally |
-| `POST /v1/links/revoke` | Desk bearer token, desk id and phone device id | When Unlink is confirmed in Account; followed by an account refresh |
+| `POST /v1/links/revoke` | Desk bearer token, desk id and phone device id | When Unlink is confirmed in Settings › Mobile; followed by an account refresh |
 | `POST /v1/desks/revoke` | Desk bearer token and this desk's id | On ordinary sign-out, or best-effort cleanup of an approved but unfinished sign-in; local-only sign-out makes no account request |
 | `POST /v1/account/delete` | Desk bearer token and an empty JSON object | After confirming Delete account; session renewal may first obtain a challenge and session |
-| `POST /v1/invites` | Desk bearer token and an empty JSON object | When Show code or New code is chosen in Settings › Phone while signed in, Reachable from your phone is on and the phone link runs; the one-time invite goes into the pairing code only |
-| `POST /v1/links/revoke` (queued) | As above | After a phone the account linked is removed in Settings › Phone; while the account cannot be reached, the device id waits in `relay-unlinks.json`, in the phone link's folder under the HarnessDesk home, and is sent once it can |
+| `POST /v1/invites` | Desk bearer token and an empty JSON object | When Show code or New code is chosen in Settings › Mobile while signed in, Reachable from your phone is on and the phone link runs; the one-time invite goes into the pairing code only |
+| `POST /v1/links/revoke` (queued) | As above | After a phone the account linked is removed in Settings › Mobile; while the account cannot be reached, the device id waits in `relay-unlinks.json`, in the phone link's folder under the HarnessDesk home, and is sent once it can |
 | `POST /v1/push/send` | Desk bearer token; the phone's device id, its push key's number (`kid`), a 12-byte nonce, the sealed push, priority `high`, and a collapse tag (22 characters of a SHA-256 hash of the item's Inbox id) | When something newly appears in the Inbox as needing you, while signed in with Reachable from your phone on and the phone link running: one request per phone the account linked to this desk that is also paired here with Read. An item is pushed once, and not again if it returns within ten minutes; what already waited when pushing began is not pushed. The desk sends at most 30 a minute, 12 a minute per phone, holds off for a minute after the service says too many, and leaves a phone alone for ten minutes after the service has no push token for it. A failure is logged and dropped |
 
 The sealed push is AES-GCM under that phone's own push key, bound to its device id and key number, and at most
@@ -549,7 +563,7 @@ Cancel or startup using the desk key, best effort.
 
 **Retention:** the cloud keeps the account's desk registration and phone-link
 revocation records; signing out revokes this desk and its links rather than
-deleting the cloud account. Settings › Account can unlink a phone or sign out
+deleting the cloud account. Settings › Mobile can unlink a phone; Settings › Account can sign out
 of HarnessDesk. Sign-out clears the local key, token and cached account
 identity and stops account polling. If the cloud cannot be reached, the
 confirmation offers **Sign out on this desk only**: it clears the local

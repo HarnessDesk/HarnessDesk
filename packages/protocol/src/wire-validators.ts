@@ -1776,6 +1776,9 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'runtime/imports/detect': shape({ runtime: isString, cwd: optional(isString) }),
   'runtime/imports/apply': shape({ runtime: isString, items: arrayOf(isUnknown) }),
 
+  'app/features/repair': isObject,
+  'app/features/read': isObject,
+  'app/features/set': shape({ feature: literalUnion('lead', 'mobile'), enabled: isBoolean }),
   'app/state/get': isObject,
   'app/inbox/keepInfo': shape({
     entry: shape({

@@ -1,3 +1,4 @@
+import { createLeadFixtureStore } from './frames-lead'
 import { installSkillPageFixture } from './skill-page-fixture'
 import { README_RUNTIME_NAMES } from './readme-names'
 import { installLibraryChangesFixture, LibraryWriteToastFixture } from './library-changes-fixture'
@@ -249,7 +250,33 @@ export const FrameWall = () => {
         ? frameDestinationStore(reviewPageStore('empty'))
       : destination === 'library' && (query.get('frame-library-state') === 'autopilot' || query.get('frame-library-state') === 'import')
         ? frameDestinationStore(showing(libraryAuditFixtureStore(query.get('frame-library-state') as 'autopilot' | 'import'), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY))
+      : destination === 'settings' && query.has('frame-features') ? createLeadFixtureStore('settings-configured')
       : frameDestinationStore(storeFor(destination), { workspaceOutsideGit: true })
+    const featureScene = query.get('frame-features')
+    if (featureScene) {
+      const features = featureScene === 'problem'
+        ? { lead: true, mobile: true, problem: { kind: 'preferences' as const, message: 'The saved feature settings could not be read. Repair them to continue.' } }
+        : { lead: featureScene === 'on', mobile: featureScene === 'on' }
+      Object.assign(next.getSnapshot(), { features, leadAvailable: features.lead && !features.problem, phoneLink: features.mobile && !features.problem })
+      const request = next.transport.request.bind(next.transport)
+      next.transport.request = async (method, params) => {
+        if (featureScene === 'save-error' && method === 'app/features/set') throw new Error('Feature settings could not be saved. Try again.')
+        if (method === 'lead/chats/control') return { project: null, chats: [] } as never
+        if (method === 'phone/state') return { ...next.phone.state, enabled: next.getSnapshot().features?.mobile === true && !next.getSnapshot().features?.problem, deskName: 'Studio', deskId: 'preview-desk', port: 4455 } as never
+        if (method === 'app/features/read') return next.getSnapshot().features as never
+        if (method === 'app/features/set' || method === 'app/features/repair') {
+          const nextFeatures = method === 'app/features/repair' ? { lead: false, mobile: false }
+            : { ...next.getSnapshot().features!, [(params as { feature: string }).feature]: (params as { enabled: boolean }).enabled }
+          if (nextFeatures.mobile && !nextFeatures.problem) await request('app/features/set', { feature: 'mobile', enabled: true })
+          ;(next.transport as unknown as { handlers: { onNotification(value: unknown): void } }).handlers.onNotification({ method: 'app/features/changed', params: nextFeatures })
+          return nextFeatures as never
+        }
+        return request(method, params)
+      }
+      if (features.mobile && !features.problem) {
+        next.phone.changed({ method: 'phone/changed', params: { enabled: true, deskName: 'Studio', deskId: 'preview-desk', port: 4455, relay: 'off', devices: [], pending: [] } })
+      }
+    }
     if (destination === 'library') installSkillPageFixture(next, query.get('frame-skill-state'))
     if (destination === 'library' && (query.get('frame-kind') === 'changes' || query.has('frame-write-toast'))) installLibraryChangesFixture(next, query.get('frame-changes-empty') === '1')
     if (destination === 'library' && query.get('frame-empty') === '1') {

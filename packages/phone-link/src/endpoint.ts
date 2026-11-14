@@ -67,6 +67,7 @@ export class PhoneEndpoint {
   #queue: Promise<void> = Promise.resolve()
   #timer: ReturnType<typeof setTimeout> | null = null
   #liveFrom = 0
+  readonly #requests = new Set<Promise<void>>()
   #inFlight = 0
   #queuedFrames = 0
   #queuedBytes = 0
@@ -102,6 +103,8 @@ export class PhoneEndpoint {
 
   /** End the session with a code the phone understands (4423: this phone was removed). */
   kick(code: number, reason: string): void { this.#close(code, reason) }
+
+  async idle(): Promise<void> { await this.#queue; await Promise.allSettled([...this.#requests]) }
 
   dispose(): void {
     this.#stage = 'closed'
@@ -201,7 +204,9 @@ export class PhoneEndpoint {
       return this.#send({ t: 'res', id: message.id, ok: false, error: { code: 'busy', message: 'Too many requests are waiting.' } })
     }
     this.#inFlight++
-    void this.#request(message.id, message.method, message.params).finally(() => { this.#inFlight-- })
+    const request = this.#request(message.id, message.method, message.params)
+    this.#requests.add(request)
+    void request.finally(() => { this.#inFlight--; this.#requests.delete(request) }).catch(() => {})
   }
 
   async #request(id: string, method: string, params: unknown): Promise<void> {

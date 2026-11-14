@@ -87,10 +87,10 @@ it('saves Name immediately and shows Lex in the page, empty state, composer and 
   expect(box.querySelector('button[title="Lead"]')?.getAttribute('aria-label')).toBe('Lex')
   expect(box.querySelector('h1')).toBeNull()
 })
-it('gates the Lead settings entry and its restored route with the host capability', async () => {
+it('keeps disabled Lead settings discoverable without reading enabled-only data', async () => {
   const store = previewStore({ leadAvailable: false }), snapshot = store.getSnapshot()
-  expect(settingsGroups(snapshot, snapshot.runtimes[0]!).flatMap(group => group.entries).some(entry => entry.id === 'lead')).toBe(false)
-  expect(readDestination({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: null } }, false)).toMatchObject({ kind: 'settings', route: { section: 'runtimes' } })
+  expect(settingsGroups(snapshot, snapshot.runtimes[0]!).flatMap(group => group.entries).some(entry => entry.id === 'lead')).toBe(true)
+  expect(readDestination({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: null } }, false)).toMatchObject({ kind: 'settings', route: { section: 'lead' } })
   const { box, request } = await mount('settings', false)
   expect(box.querySelector('[aria-label="Lead identity"]')).toBeNull()
   expect(request.mock.calls.some(([method]) => method.startsWith('lead/'))).toBe(false)

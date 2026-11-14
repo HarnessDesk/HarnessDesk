@@ -6197,3 +6197,32 @@ Every runtime reports delegation as `subagent` items, and the transcript drew ea
 - **Settled means ended.** Codex reports nothing more about a child no call addresses. Once a conversation is not busy and the adapter has not said a sub-agent outlived the turn (`subagentsRunning`), a child last called working is shown as Ended, not as working for ever. The same holds per turn: while a later turn runs, a child last named in an earlier one is Ended too, unless the adapter said sub-agents outlived the turn. The exception is a child whose own item is still open: the ACP agents keep one item per child and close it when the child ends, so an open one is the agent's live word, and a background child (Claude Code's) stays Working past a settled turn — `subagentsRunning` cannot carry that, because it also offers Stop, which only an agent whose cancel leaves its children can honour. Only the item that started a child can be its record — a call that addressed an earlier child (a wait) still settles if it never closed. An item a turn left open when it was cut short (interrupted, failed, recovered after a restart) is nobody's live word and settles; so does every item in a read-only copy. The ACP adapter closes such a row itself (member `notFound`, an end nobody can name) once nothing is left that could report on the child — the agent exited, the handle was released, or history was replayed into a fresh one — and the next live list reopens it if the child does still run. The fold is cached per conversation and redone only when a sub-agent item changed, so a streaming reply does not refold every child on each delta. DeepSeek's cancel marks the item failed and the member stopped; the member's word wins, so it reads Stopped.
 - **Four surfaces, one row.** The transcript card (`AgentFlowCard`, placed at the first call of each run of sub-agent calls — a reply from the agent ends a run, so a second batch gets its own card — reading the whole conversation so it keeps up with later waits), the strip over the composer, nested sidebar rows for children still working, and the Agents panel's groups and lanes (`AgentLanes`). The sidebar shows only working children so a finished delegation costs no height.
 - **Rejected:** a node graph of parent and children (delegation here is one level of fan-out and fan-in; a graph would spend a pane on a shape a list already says, and Flows already own the graph idiom); one card per call (the noise this replaces); a new wire method for child state (the items carry it, and a second source would disagree with the transcript).
+
+
+## Optional features belong in Settings — 2026-11-14
+
+Lead and Mobile stay discoverable under Agents and Access while off. Each page
+owns its enable control, and all windows read the host's acknowledged state.
+Explicit partial choices override launch defaults and apply live through one
+serialized lifecycle. A failed or interrupted change fences the feature until
+an explicit repair preserves the artifacts and stops both features. Off keeps
+Lead history and phone pairings. The account service has its own lifetime:
+signing in or out does not toggle either feature, and Mobile does not grant
+account relay access. Account and the existing local profile retain their
+separate identity controls; no new identity unification is part of this change.
+
+Backups carry only acknowledged explicit choices, including false, via an
+optional versioned sidecar. Unknown and live transition state are omitted.
+Import validates before mutation and uses the same lifecycle, surfacing failure
+without a success report; acknowledged matches count as preferences. An absent
+choice stays absent, and old backups leave choices alone. Rejected: backing up
+the raw feature file or its pending/repair state (machine-local uncertainty is
+not portable), folding features into ordinary renderer preferences (that skips
+service admission and shutdown), and another restore-only lifecycle.
+
+Navigation reads Preferences, Agents, Conversations, Access. Lead and Mobile
+stay reachable through older routes. Every Settings glyph uses the shared
+hover motion and reduced-motion policy rather than a page-specific
+animation. The screenshot rig clears feature preferences, preserved repair
+artifacts and feature-owned Lead/phone state only after its existing isolated
+home, ownership and symlink guards pass.
