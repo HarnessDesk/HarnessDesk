@@ -91,11 +91,28 @@ for the Lead's groups — and `--job <name>` runs one of them locally exactly as
 CI does. Each job uploads its files' measured seconds; fold a run's into the
 table with `node script/node-tests.mjs --refresh <files>` when the deal drifts.
 
-Browser integration has two tiers. Ordinary pull requests use the **bounded**
-tier, as do pushes to `development`. A push to `main`, a pull request whose
+Pull requests targeting `development` use **scoped** CI for allowlisted Markdown,
+test files and local component/panel source with complete affected coverage.
+Shared UI, authentication/approval surfaces, renderer state, host/adapters,
+protocol, persistence, lifecycle, build/CI and unclassified inputs start **full**
+CI immediately. Missing/stale impact evidence or an unresolved selection also
+starts full CI. Scoped runs execute every selected browser spec without a time
+budget or deferred sample; native smoke remains full-only. Core build,
+typecheck, Node tests and end-to-end, UI tests and gates remain in every tier.
+Local UI eligibility is limited to TSX and module stylesheets with at most one
+production component/panel consumer. Shared consumers and re-export barrels
+require full CI; a stylesheet inherits its owner's classification. Test and
+catalogue fixtures do not count as production consumers.
+Pushes to `development` retain their **bounded** selection. A push to `main`, a pull request whose
 head branch is `development` or starts with `batch/`, a pull request labelled
 `full-ci`, the nightly run and a manual dispatch use the **full** tier.
-Adding `full-ci` starts one full run on the head commit (`full-ci-label.yml`); no other label starts anything. The full tier runs every browser
+Adding `full-ci` starts PR CI directly on its merge commit; it no longer
+dispatches a second workflow against a mutable branch. The label and a
+synchronize event for the same labelled head share a concurrency group.
+Ordinary events cannot cancel that explicit full proof. Other labels run only
+skipped checks named `Label ignored: …` and cannot replace earned landing proof,
+even if the no-op workflow is cancelled before it finishes.
+The full tier runs every browser
 spec and native smoke. Its runs on `main` and `development` (main pushes, the
 nightly run and manual dispatches of either) read every spec in both themes on
 the dev server, recording what each spec ran; its other runs (batch branches,
@@ -103,16 +120,16 @@ the dev server, recording what each spec ran; its other runs (batch branches,
 spec in the `UI_SYSTEM_MATRIX=pr` matrix on the built pages. In nine days of
 full runs every dark-theme failure of a geometry spec came with the same case
 failing in light (21 of 21), and a recording made off those two branches was
-never saved. A check named `CI tier: bounded` or `CI tier: full`, the browser
+never saved. A check named `CI tier: scoped`, `CI tier: bounded` or `CI tier: full`, the browser
 aggregate's log and the job summary identify what ran. Required check names stay
-the same; bounded success satisfies branch protection, but landing requires full
-CI. The development release PR supplies full evidence; batch branches and
+the same. Landing into development accepts scoped or full evidence; bounded
+samples never authorize landing. Other targets and the development release PR
+require full evidence; batch branches and
 `full-ci` remain available for other full runs.
 
-Every bounded run includes core CI: build, typecheck, Node tests and end-to-end,
-UI unit tests, UI tests and gates. Ordinary pull requests stay core-only;
-their browser and native jobs are intentionally skipped, and their summary
-lists the specs local `pnpm check:push` selects.
+The CI summary names the tier and complete selected scope, or the input/reason
+that required full validation. A docs/test change with no browser readers can
+finish on core checks alone and earn scoped proof in that same run.
 
 A push to `development` also runs the browser specs reached by the pushed
 change, including server-facing specs when needed. It compares
@@ -163,8 +180,9 @@ cancel the nightly full run.
 Full-tier runs on `main` and `development` use `UI_SYSTEM_MATRIX=full`. Regressions beyond core
 CI, reached browser specs and local checks are caught by the nightly
 development run and the full release PR before main (or a batch or labelled pull request). Main also runs
-the full suite. `script/land-safe.mjs` refuses a bounded run even if all required checks pass; its newest full-tier
-proof must share the required checks' workflow check suite.
+the full suite. `script/land-safe.mjs` refuses bounded proof even if all required
+checks pass. Its newest scoped/full marker and successful input-selection job
+must share every required check's workflow check suite. Releases require full.
 
 Every full browser run on `main` or `development` records the UI modules each spec loaded and ran.
 `script/ui-impact.mjs merge` folds the records into a map; main and development
@@ -245,9 +263,10 @@ Changes to `.github/workflows/ci.yml` or `playwright.ui-system.config.ts` run
 every browser spec uncapped because they change how the suite runs. Unknown
 ranges, unreadable input graphs and unresolvable suite reads also run uncapped
 on development. These path rules remain in
-`script/ci-changes.mjs` for `check:push` and development pushes; its CLI
-suppresses browser integration only for ordinary bounded PRs, and native smoke
-for every bounded run. Full CI runs every browser spec and native smoke.
+`script/ci-changes.mjs` for `check:push` and development pushes. CI's separate
+admission boundary uses only complete selections for scoped PRs; a budgeted
+sample is never promoted. Native smoke runs in full CI, which also runs every
+browser spec.
 
 The required browser check accepts only the selected job's success and the
 other job's intentional skip (or both skips for `none`); failed selection,

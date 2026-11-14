@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 
 import { plan as deal, recordedSeconds, shardCount, specFiles } from './ci-browser-shards.mjs'
 import { IMPORT, SOURCE, SPEC, repositoryGraph, resolveHelper, specsReaching, uiPackages } from './ci-imports.mjs'
-import { environmentAt, filesAtBase, impactPlan, readMap, uiExternalImports, uiSource } from './ui-impact.mjs'
+import { environmentAt, filesAtBase, impactPlan, readMap, uiExternalImports, uiImporters, uiSource } from './ui-impact.mjs'
 
 export { uiPackages }
 
@@ -37,6 +37,9 @@ export const sharedInputs = paths => paths.filter(path => SHARED.some(pattern =>
 // plan's own tests (`script/ci-browser-plan.test.mjs`, in the gates job) check the
 // deal; no browser needs to open for it.
 const DEAL_ONLY = /^e2e\/ui-system\/durations(?:\.pr)?\.json$/
+const testInput = path => /^script\/[^/]+\.test\.mjs$/.test(path)
+  || /^packages\/[^/]+\/(?:test\/.+|src\/.+)\.test\.[cm]?[jt]sx?$/.test(path)
+  || /^e2e\/ui-system\/.+\.spec\.[cm]?[jt]sx?$/.test(path)
 
 const BROWSER = [
   ...SHARED,
@@ -192,7 +195,7 @@ function boundedSpecs(root, candidates, inputs, impact, graph, rotationKey = nul
   return { selected: selected.sort(), deferred: deferred.sort(), count, overBudget }
 }
 
-export function browserPlan(root, { browser, inputs, serverInputs, event, refName = '', tier = ciTier({ event, refName }), impact = null, unknownChange = false, unknownReason = 'change range unavailable', graph = null, packages = null, external = null, sha = '', before = '' }) {
+export function browserPlan(root, { browser, inputs, serverInputs, event, refName = '', tier = ciTier({ event, refName }), impact = null, unknownChange = false, unknownReason = 'change range unavailable', graph = null, packages = null, external = null, sha = '', before = '', completeSelection = false }) {
   const all = specFiles(root).map(spec => `e2e/ui-system/${spec}`)
   let selected = null
   let basis = unknownChange ? `${unknownReason}; running every browser spec` : ''
@@ -248,10 +251,10 @@ export function browserPlan(root, { browser, inputs, serverInputs, event, refNam
   // maps needed for UI reach, and unresolved suite reads still run uncapped.
   const unnarrowedDevelopment = event === 'push' && refName === 'development' && selected === null && !((impact || (globals.length > 0 && !inputs.some(path => uiSource(path)))) && resolvable)
   if (unnarrowedDevelopment && !basis.includes('running every browser spec')) basis = `${basis || 'no usable impact selection'}; running every browser spec`
-  const bounded = tier === 'bounded' && browser === 'all' && !unknownChange && !unnarrowedDevelopment && !executionConfig ? boundedSpecs(root, selected ?? all, inputs, impact, graph ?? repositoryGraph(root), globals.length > 0 ? sha || before : null) : null
+  const bounded = !completeSelection && tier === 'bounded' && browser === 'all' && !unknownChange && !unnarrowedDevelopment && !executionConfig ? boundedSpecs(root, selected ?? all, inputs, impact, graph ?? repositoryGraph(root), globals.length > 0 ? sha || before : null) : null
   if (bounded && (selected !== null || bounded.deferred.length > 0)) selected = bounded.selected
   const count = browser === 'all'
-    ? bounded?.count ?? shardCount(all.map(spec => spec.slice('e2e/ui-system/'.length)), recordedSeconds(root, matrix))
+    ? bounded?.count ?? shardCount((selected ?? all).map(spec => spec.slice('e2e/ui-system/'.length)), recordedSeconds(root, matrix))
     : 0
   return {
     browser, matrix, count, tier, deferred: bounded?.deferred ?? [],
@@ -274,7 +277,7 @@ export function changePlanner(root) {
 
 // CI's merge commit names its base as HEAD^1. A local caller can name its merge
 // base instead, so theme and impact-map freshness answer for the same change.
-export function planChange(root, { event, paths, headBranch = '', refName = '', labels = [], map = null, baseRevision = 'HEAD^1', sha = '', before = '' }, prepared = null) {
+export function planChange(root, { event, paths, headBranch = '', refName = '', labels = [], map = null, baseRevision = 'HEAD^1', sha = '', before = '', completeSelection = false }, prepared = null) {
   const tier = ciTier({ event, headBranch, refName, labels })
   const knownPaths = paths?.length > 0 && paths.every(path => path.length > 0 && !path.startsWith('/') && !path.split('/').includes('..') && !/[\u0000-\u001f\u007f]/.test(path))
   const inputs = prepared?.packages ?? uiPackages(root)
@@ -292,10 +295,11 @@ export function planChange(root, { event, paths, headBranch = '', refName = '', 
       if (knownPaths) {
         graph ??= repositoryGraph(root)
         external ??= uiExternalImports(root)
-        const uiInput = path => !DEAL_ONLY.test(path) && (!path.startsWith('script/shots/') || specsReaching(graph, [join(root, path)]).length > 0)
+        const unreadTest = path => completeSelection && testInput(path) && specsReaching(graph, [join(root, path)]).length === 0
+        const uiInput = path => !unreadTest(path) && !DEAL_ONLY.test(path) && (!path.startsWith('script/shots/') || specsReaching(graph, [join(root, path)]).length > 0)
           && (BROWSER.some(pattern => pattern.test(path)) || inputs.has(path.match(/^packages\/([^/]+)\//)?.[1]) || external.has(path) || graph.importers.has(join(root, path)))
         browserInputs = paths.filter(uiInput)
-        serverInputs = paths.some(path => /^packages\/(?!desktop\/)[^/]+\//.test(path) && !inputs.has(path.match(/^packages\/([^/]+)\//)?.[1]))
+        serverInputs = paths.some(path => !unreadTest(path) && /^packages\/(?!desktop\/)[^/]+\//.test(path) && !inputs.has(path.match(/^packages\/([^/]+)\//)?.[1]))
         decision = {
           browser: browserInputs.length > 0 ? 'all' : serverInputs ? 'server' : 'none',
           native: paths.some(path => NATIVE.some(pattern => pattern.test(path))),
@@ -308,13 +312,65 @@ export function planChange(root, { event, paths, headBranch = '', refName = '', 
     }
   }
   const plan = browserPlan(root, {
-    browser: decision.browser, inputs: browserInputs, serverInputs, event, refName, tier, unknownChange, unknownReason, graph, packages: inputs, external, sha, before: before || baseRevision,
+    browser: decision.browser, inputs: browserInputs, serverInputs, event, refName, tier, unknownChange, unknownReason, graph, packages: inputs, external, sha, before: before || baseRevision, completeSelection,
     impact: map ? { map, baseFiles: () => filesAtBase(root, baseRevision), baseEnvironment: () => environmentAt(root, baseRevision) } : null,
   })
   return {
     browser: plan.browser, native: decision.native, server_specs: JSON.stringify(specs),
     browser_specs: plan.specs, matrix: plan.matrix, shard_count: plan.count, shards: plan.shards,
     record: plan.record, tier, summary: plan.summary,
+  }
+}
+
+// CI admission is separate from the local/development budgeted sample. Unknown
+// inputs require full proof; only a complete selection may earn scoped proof.
+const localComponent = path => /^packages\/ui\/src\/(?:components|panels)\/.+\.(?:tsx|module\.css)$/.test(path)
+  && !/auth|account|approv|consent|permission|security|sign.?in|login|pair|relay|phone|credential|\/use[-A-Z]/i.test(path)
+const scopedInput = path => !SHARED.some(pattern => pattern.test(path))
+  && !/^script\/(?:ci-|ui-impact|ui-system|node-tests|full-ci)/.test(path)
+  && (testInput(path) || localComponent(path) || /^(?:docs\/.+|[^/]+)\.md$/.test(path))
+
+export function planCIChange(root, options) {
+  if (options.event !== 'pull_request') return planChange(root, options)
+  const full = reason => {
+    const plan = planChange(root, { ...options, labels: [...(options.labels ?? []), 'full-ci'] })
+    plan.summary += ` Full validation required: ${oneLine(reason)}.`
+    return plan
+  }
+  if (ciTier(options) === 'full') return planChange(root, options)
+  if (options.baseBranch !== 'development') return full('only development accepts scoped proof')
+  const { paths } = options
+  if (!Array.isArray(paths) || paths.length === 0 || paths.some(path => typeof path !== 'string'
+    || path.startsWith('/') || /[\\\u0000-\u001f\u007f]/.test(path)
+    || path.split('/').some(part => !part || part === '.' || part === '..'))) return full('change range unavailable or malformed')
+  const broad = paths.find(path => !scopedInput(path))
+  if (broad) return full(`high-risk or unclassified input ${broad}`)
+  const components = paths.filter(path => !testInput(path) && localComponent(path))
+  if (components.length) {
+    try {
+      const importers = uiImporters(root)
+      const fixture = path => /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path)
+        || /^packages\/ui\/(?:site-demo\/|src\/(?:preview|test|test-support)\/|src\/design\/(?:catalog|explorer|showcase|surfaces)\/)/.test(path)
+      const local = (path, seen = new Set()) => {
+        if (!localComponent(path) || seen.has(path)) return false
+        seen.add(path)
+        const consumers = [...(importers.get(path) ?? [])].filter(path => !fixture(path))
+        // A barrel hides its downstream consumers. Plain TS, shared controls,
+        // and re-exporting owners are not evidence of a local screen boundary.
+        if (consumers.length > 1 || consumers.some(consumer => !localComponent(consumer) || !consumer.endsWith('.tsx')
+          || /\bexport\s+(?:type\s+)?(?:\*|\{)[\s\S]*?\bfrom\s*['"]/.test(readFileSync(join(root, consumer), 'utf8')))) return false
+        // A module sheet has the reach of its owner, not merely one CSS import.
+        return path.endsWith('.module.css') ? consumers.length === 1 && local(consumers[0], seen) : true
+      }
+      for (const path of components) if (!local(path)) return full(`shared UI infrastructure ${path}`)
+    } catch { return full('UI importer graph unavailable') }
+  }
+  const plan = planChange(root, { ...options, completeSelection: true })
+  if (plan.browser === 'all' && plan.browser_specs === 'all') return full('complete affected selection unavailable')
+  return {
+    ...plan, tier: 'scoped', native: false, record: false,
+    summary: plan.summary.replace('CI tier: bounded.', 'CI tier: scoped.')
+      + ' Complete affected selection; no specs deferred by a time budget. Native smoke remains full-tier only.',
   }
 }
 
@@ -331,9 +387,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   }
   const mapFile = process.env.UI_IMPACT_MAP
   const developmentPush = process.env.GITHUB_EVENT_NAME === 'push' && process.env.CI_REF_NAME === 'development'
-  const plan = planChange(root, {
+  const plan = planCIChange(root, {
     event: process.env.GITHUB_EVENT_NAME, paths,
     headBranch: process.env.CI_HEAD_BRANCH ?? '', refName: process.env.CI_REF_NAME ?? '', labels: JSON.parse(process.env.CI_LABELS || '[]'),
+    baseBranch: process.env.CI_BASE_BRANCH ?? '',
     map: mapFile ? readMap(mapFile) : null,
     baseRevision: developmentPush ? process.env.CI_BEFORE || 'HEAD^1' : 'HEAD^1',
     sha: process.env.GITHUB_SHA ?? '', before: process.env.CI_BEFORE ?? '',
@@ -353,15 +410,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     // the shared bounded browser selection; native smoke remains full-tier only.
     plan.native = false
     plan.summary += ' Development push: selected from the pushed change. Native smoke runs in the full tier.'
-  } else if (plan.tier === 'bounded') {
-    const localSpecs = plan.browser === 'all'
-      ? plan.browser_specs === 'all' ? specFiles(root).map(spec => `e2e/ui-system/${spec}`) : JSON.parse(plan.browser_specs)
-      : plan.browser === 'server' ? JSON.parse(plan.server_specs) : []
-    Object.assign(plan, {
-      browser: 'none', native: false, browser_specs: '[]', shard_count: 0, shards: '[1]', record: false,
-      summary: 'CI tier: bounded. Core CI only. Browser suite and native smoke run in the full tier (batch/ or full-ci). '
-        + `Local check-push specs: ${localSpecs.length ? localSpecs.map(oneLine).join(', ') : 'none'}.`,
-    })
   }
   process.stdout.write([
     `browser=${plan.browser}`, `native=${plan.native}`, `server_specs=${plan.server_specs}`,

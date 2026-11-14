@@ -59,10 +59,11 @@ const workers =
         : 1
 
 /**
- * Local browser coverage, and the full tier required before landing.
+ * Local browser coverage and scoped/full CI proof.
  *
- * Ordinary pull-request CI runs core checks only; browser and native integration
- * run in the full tier. Local `check:push` still selects reached and edited specs
+ * Scoped pull-request CI runs every affected browser spec; unknown selection
+ * evidence and high-risk inputs start full CI. Native integration remains
+ * full-only. Local `check:push` still selects reached and edited specs
  * with `UI_SYSTEM_MATRIX=pr` (see `script/ci-changes.mjs`). The frame specs below
  * skip cases whose title names the dark theme: theme variables change colour,
  * not geometry. Colour contracts retain both themes in every browser run.

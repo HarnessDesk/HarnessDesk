@@ -292,15 +292,16 @@ export const missingFromCI = (gate, workflow) => {
 // proved. Keep the workflow's inputs and visible check tied to the planner.
 export const tierProblems = yaml => {
   const required = [
-    'types: [opened, synchronize, reopened]',
+    'types: [opened, synchronize, reopened, labeled]',
     'CI_HEAD_BRANCH: ${{ github.head_ref }}',
+    'CI_BASE_BRANCH: ${{ github.base_ref }}',
     'CI_REF_NAME: ${{ github.ref_name }}',
     'CI_BEFORE: ${{ github.event.before }}',
     'branches: [main, development]',
     'CI_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}',
     'tier: ${{ steps.paths.outputs.tier }}',
-    'name: UI integration inputs',
-    'name: "CI tier: ${{ needs.changes.outputs.tier }}"',
+    `name: "\${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && 'Label ignored: inputs' || 'UI integration inputs' }}"`,
+    `name: "\${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && 'Label ignored' || 'CI tier' }}: \${{ needs.changes.outputs.tier }}"`,
     'UI_SYSTEM_MATRIX: ${{ needs.changes.outputs.matrix }}',
   ]
   const executable = yaml.split('\n').filter(line => !line.trimStart().startsWith('#'))
