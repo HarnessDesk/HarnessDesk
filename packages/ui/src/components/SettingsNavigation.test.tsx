@@ -155,3 +155,14 @@ test('search finds the Lead page by the rows it holds', () => {
   expect(list.contains(row('Back'))).toBe(false)
   expect(list.contains(container.querySelector('input[aria-label="Search settings"]'))).toBe(false)
 })
+
+
+test('every Settings destination uses the shared animated glyph facade', () => {
+  act(() => root.render(<StoreProvider store={previewStore()}>
+    <SettingsNavigation section="general" onSection={vi.fn()} onBack={vi.fn()} />
+  </StoreProvider>))
+  const snapshot = previewStore().getSnapshot()
+  for (const entry of settingsGroups(snapshot, snapshot.runtimes[0]!).flatMap(group => group.entries)) {
+    expect(row(entry.label)?.querySelector('svg')?.getAttribute('data-glyph'), entry.label).toBe('animated')
+  }
+})

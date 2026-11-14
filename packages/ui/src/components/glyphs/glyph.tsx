@@ -5,7 +5,7 @@ import type { LucideProps } from 'lucide-react'
 /**
  * The frame every animated glyph is drawn in — Lucide's own: a 24 unit box,
  * a 2 unit round stroke, `currentColor`. It is the frame `lucide-react` builds,
- * written once here so the sixty-nine vendored drawings carry only their
+ * written once here so the seventy vendored drawings carry only their
  * paths and their motion.
  *
  * It keeps `lucide lucide-<name>` on the element because the static glyphs from
