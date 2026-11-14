@@ -35,6 +35,7 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
 
+import { Cdp } from '../../../script/lib/desk.mjs'
 import { stopProcessesUnder } from '../../../script/mounted-processes.mjs'
 import { binaryArchs, runsTranslated } from '../../../script/smoke-artifacts.mjs'
 import { verifyAppInterface } from '../../../script/verify-app-contents.mjs'
@@ -114,38 +115,30 @@ const targets = async () => {
   return response.json()
 }
 
-/** One Runtime.evaluate over the page's debugger socket, result by value. */
-const evaluate = (socketUrl, expression) =>
-  new Promise((resolve, reject) => {
-    const socket = new WebSocket(socketUrl)
-    const expiry = setTimeout(() => {
-      socket.close()
-      reject(new Error('the page did not answer'))
-    }, 10_000)
-    socket.onerror = () => {
-      clearTimeout(expiry)
-      reject(new Error('debugger socket refused'))
-    }
-    socket.onopen = () =>
-      socket.send(
-        JSON.stringify({
-          id: 1,
-          method: 'Runtime.evaluate',
-          params: { expression, awaitPromise: true, returnByValue: true },
-        }),
-      )
-    socket.onmessage = (event) => {
-      const message = JSON.parse(String(event.data))
-      if (message.id !== 1) return
-      clearTimeout(expiry)
-      socket.close()
-      if (message.result?.exceptionDetails) {
-        reject(new Error(message.result.exceptionDetails.exception?.description ?? 'threw'))
-      } else {
-        resolve(message.result?.result?.value)
-      }
-    }
+/**
+ * One evaluation over the page's debugger socket, result by value. It goes
+ * through the desk driver, which keeps an awaited promise alive until the
+ * debugger has read it (`script/lib/held-evaluation.mjs`).
+ */
+const evaluate = async (socketUrl, expression) => {
+  let expiry
+  const deadline = new Promise((_, reject) => {
+    expiry = setTimeout(() => reject(new Error('the page did not answer')), 10_000)
   })
+  let cdp
+  try {
+    cdp = await Promise.race([
+      Cdp.open(socketUrl).catch(() => {
+        throw new Error('debugger socket refused')
+      }),
+      deadline,
+    ])
+    return await Promise.race([cdp.eval(expression, 10_000), deadline])
+  } finally {
+    clearTimeout(expiry)
+    cdp?.close()
+  }
+}
 
 // A port that already answers belongs to some other Electron; judging that
 // app's catalogue would be worse than not running.

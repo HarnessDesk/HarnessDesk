@@ -23,6 +23,7 @@ import { dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 
 import { Cdp } from './lib/desk.mjs'
+import { evaluateHeld } from './lib/held-evaluation.mjs'
 
 const run = promisify(execFile)
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
@@ -64,7 +65,7 @@ try {
   cdp = await Cdp.open(page.webSocketDebuggerUrl)
   const send = (method, params = {}) => cdp.send(method, params, 60_000)
   const evaluate = async (expression) => {
-    const r = await cdp.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }, 60_000)
+    const r = await evaluateHeld(send, expression)
     return r?.result?.value
   }
 
