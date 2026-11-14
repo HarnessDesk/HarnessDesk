@@ -1489,3 +1489,32 @@ test('the host refusing the conversation by its credential check is held, not bl
   assert.deepEqual(result, { status: 'failed', reason: 'lead-messages-held' })
   assert.equal(s.journal.state.budget?.requests.length, 0)
 })
+
+test('disabling settles owned work even when the child is already absent', async t => {
+  const s = await rig(t)
+  await s.service.setEnabled(true)
+  await s.service.setEnabled(false)
+  assert.equal(s.stopped(), 1, 'owned reviewed work must stop without relying on a child exit callback')
+})
+
+test('a failed disable retries owned cleanup before reporting success', async t => {
+  let attempts = 0
+  const s = await rig(t, { stopOwned: async () => { if (++attempts === 1) throw new Error('synthetic cleanup pending') } })
+  await s.service.setEnabled(true)
+  await assert.rejects(s.service.setEnabled(false), /synthetic cleanup pending/)
+  await s.service.setEnabled(false)
+  assert.equal(attempts, 2)
+})
+
+test('a failed close remains failed on retry until child termination succeeds', async t => {
+  const s = await rig(t)
+  await s.service.setEnabled(true)
+  await s.service.send(input)
+  const stop = s.process().stop.bind(s.process())
+  let attempts = 0
+  s.process().stop = async (reason: string) => { if (++attempts <= 2) throw Error('synthetic child still live'); await stop(reason) }
+  await assert.rejects(s.service.close(), /synthetic child still live/)
+  await assert.rejects(s.service.close(), /synthetic child still live/)
+  await s.service.close()
+  assert.equal(s.process().live, false)
+})

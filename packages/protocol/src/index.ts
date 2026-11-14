@@ -101,3 +101,5 @@ export * from './countdown.js'
 export * from './lead-named-work.js'
 export * from './lead-work-waiting.js'
 export * from './brands.js'
+
+export type { DeskFeatureState } from './features.js'

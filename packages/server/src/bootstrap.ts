@@ -203,8 +203,10 @@ export const TOKENLESS_BRIDGE_NOTICE =
   'and the board refuses them.'
 
 export interface BootstrapOptions {
-  /** Parsed once by the desktop shell; absent is disabled. */
+  /** Launch defaults from the shell; saved feature choices override these. */
   readonly leadEnabled?: boolean
+  readonly mobileEnabled?: boolean
+  readonly phoneLink?: HostOptions['phoneLink']
   /** Test seam: a scripted provider for the Lead's model requests. */
   readonly leadMessagesTransport?: HostOptions['leadMessagesTransport']
   /** The desktop shell's candidates for the Lead's child, in order; absent is this host's own runtime. */
@@ -674,6 +676,8 @@ export const createDefaultHost = (
 
   const host: Host = new Host({
     leadEnabled: options.leadEnabled === true,
+    mobileEnabled: options.mobileEnabled === true,
+    ...(options.phoneLink ? { phoneLink: options.phoneLink } : {}),
     ...(options.leadMessagesTransport ? { leadMessagesTransport: options.leadMessagesTransport } : {}),
     ...(options.leadRuntimes ? { leadRuntimes: options.leadRuntimes } : {}),
     logger,

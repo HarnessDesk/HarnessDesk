@@ -1,3 +1,4 @@
+import type { DeskFeatureState } from './features.js'
 import type { LeadStage } from './lead-stage.js'
 import type { CarryOnDecision, CarryOnIncidentView, CarryOnKey } from './carry-on.js'
 import type { ForgeGitEntry, ForgeRequester } from './forge.js'
@@ -2956,6 +2957,8 @@ export interface HostMethods {
     result: null
   }
 
+  'app/features/read': { params: Record<string, never>; result: DeskFeatureState }
+  'app/features/set': { params: { feature: 'lead' | 'mobile'; enabled: boolean }; result: DeskFeatureState }
   'app/state/get': { params: Record<string, never>; result: Readonly<Record<string, unknown>> }
   /** Merge one quiet message with the host's current read, clear and mute memory. */
   'app/inbox/keepInfo': { params: { readonly entry: RuntimeInboxEntry }; result: Readonly<Record<string, unknown>> }
@@ -3085,6 +3088,7 @@ export interface ChatRootsSnapshot {
 }
 
 export type WireNotification =
+  | { readonly method: 'app/features/changed'; readonly params: DeskFeatureState }
   | { readonly method: 'chats/rootsChanged'; readonly params: ChatRootsSnapshot }
   | {
       /** The window's current Lead chat holders, verification keys and control-read problem. */

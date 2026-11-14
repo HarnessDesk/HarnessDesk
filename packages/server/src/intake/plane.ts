@@ -236,9 +236,14 @@ export class IntakePlane {
   /** What each source read learned of its arms, by the read: gone with it. */
   #following: { watches(): readonly HostPullWatch[]; deliver(watch: HostPullWatch, batch: PollBatch): Promise<void> } | null = null
 
-  followPullRequests(port: { watches(): readonly HostPullWatch[]; deliver(watch: HostPullWatch, batch: PollBatch): Promise<void> }): void {
+  followPullRequests(port: { watches(): readonly HostPullWatch[]; deliver(watch: HostPullWatch, batch: PollBatch): Promise<void> }): () => void {
     this.#following = port
     void this.followingChanged().catch(() => {})
+    return () => {
+      if (this.#following !== port) return
+      this.#following = null
+      void this.followingChanged().catch(() => {})
+    }
   }
   async followingChanged(): Promise<void> {
     if (!this.#closed && this.#dispatchReady && !this.#prefs.paused && this.#problem === null) await this.#monitor.refresh()

@@ -216,12 +216,15 @@ export class LeadAssembly {
     if (await readRememberedLeadProject(this.options.home)) await this.ensure()
   }
 
+  /** Wait for an admitted build before stopping its service and releasing its lease. */
+  async idle(): Promise<void> { await this.#built?.catch(() => {}) }
+
   /** Releases the journal's lease once the host has closed the service; a restart reopens the same thread. */
   async close(): Promise<void> {
-    await this.#built?.catch(() => {})
+    await this.idle()
     const storage = this.#storage
-    this.#storage = null
     await storage?.close()
+    this.#storage = null
   }
 
   async #project(preferred?: string): Promise<LeadProject> {

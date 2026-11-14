@@ -323,12 +323,12 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
     },
   }
   // A phone paired or removed changes who a push goes to.
-  if (push) service.onChange(change => { if (change === 'devices') push.poke() })
-  host.attachPhoneLink(control)
+  const detachPush = push ? service.onChange(change => { if (change === 'devices') push.poke() }) : undefined
+  const detachControl = host.attachPhoneLink(control)
   log.info('phone link listening', { port: service.port, deskId: service.deskId })
   return {
     service, control,
-    close: async () => { closed = true; detach(); unfollow?.(); relay?.stop(); feed.dispose(); push?.dispose(); await service.close() },
+    close: async () => { closed = true; detach(); detachPush?.(); unfollow?.(); relay?.stop(); feed.dispose(); push?.dispose(); await service.close(); if (typeof detachControl === 'function') detachControl(); listeners.clear() },
   }
 }
 
