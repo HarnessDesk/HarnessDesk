@@ -3176,6 +3176,21 @@ export class Host {
     })
     await this.#state.load()
     if (this.#disposed) return
+    // Capture before a window can replace listPrefs. Migrate rows already on
+    // disk now, so subsequent pin edits cannot be undone by the second pass.
+    const listPrefs = this.#state.state.preferences['listPrefs'] as Record<string, unknown> | undefined
+    const legacyPins = listPrefs?.['pinnedSessions']
+    let pendingPins: string[] = []
+    let pinMigrationFailed = false
+    let pinMigrationError: unknown
+    try {
+      pendingPins = this.#sessionIndex.migratePins(Array.isArray(legacyPins) ? legacyPins.filter((key): key is string => typeof key === 'string') : [], false)
+    } catch (error) {
+      // Keep the existing background-upgrade failure path: startup still works,
+      // and the legacy preference is not cleared after a failed migration.
+      pinMigrationFailed = true
+      pinMigrationError = error
+    }
     await this.#sweepRemoved(Date.now() - SESSION_REMOVE_UNDO_MS)
     if (this.#disposed) return
     this.#scheduleRemovalSweep()
@@ -3303,11 +3318,11 @@ export class Host {
       archiveCapability: (runtime) => this.#runtimes.get(runtime)?.info.capabilities.archiveHistory,
     }).then(async () => {
       if (this.#disposed) return
-      const listPrefs = this.#state.state.preferences['listPrefs'] as Record<string, unknown> | undefined
-      const legacyPins = listPrefs?.['pinnedSessions']
-      this.#sessionIndex.migratePins(Array.isArray(legacyPins) ? legacyPins.filter((key): key is string => typeof key === 'string') : [])
-      if (listPrefs && Object.hasOwn(listPrefs, 'pinnedSessions')) {
-        const { pinnedSessions: _legacy, ...remaining } = listPrefs
+      if (pinMigrationFailed) throw pinMigrationError
+      this.#sessionIndex.migratePins(pendingPins)
+      const currentListPrefs = this.#state.state.preferences['listPrefs'] as Record<string, unknown> | undefined
+      if (currentListPrefs && Object.hasOwn(currentListPrefs, 'pinnedSessions')) {
+        const { pinnedSessions: _legacy, ...remaining } = currentListPrefs
         await this.#state.setPreferences({ listPrefs: remaining })
       }
       for (const row of this.#sessionIndex.managedCandidates(this.#state.directory)) {

@@ -5,6 +5,10 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
+## Unreleased
+
+- **Keep saved pins during an upgrade.** Changing how the conversation list is sorted while its history is still loading no longer loses pins saved by an older desk. Unpinning a conversation or pinning another during that load keeps the change you made.
+
 ## 0.7.1 — 2026-11-13
 
 Your phone now hears when something needs you, sealed so the account service cannot read it. Sub-agents show as one flow, and Stop reaches them and what they left running. A conversation or a Team seat can carry on past a usage limit by a rule you set, an MCP server can be tested from the Library, the desk can be used from any MCP client, and a GitHub comment can ask the Lead. The Lead keeps a memory, rules and reminders you can read and correct, and tells you what changed while you were away. Codex 0.167 works.
