@@ -69,6 +69,7 @@ export interface PhoneWorkspacePorts {
     /** `byRuntime` lets a count leave out agents the desk cannot show, as the list does. */
     counts(): { active: number; archived: number; byRuntime?: readonly { runtime: RuntimeId; active: number; archived: number }[] }
     touchedSince(since: number): number
+    coldStoppedSince(since: number, live: readonly PhoneLiveSession[]): number
     costliestSince(since: number, limit: number): { summary: SessionSummary; cost: number }[]
   }
   /** The person's own open conversations that are live in this host right now. */
@@ -468,7 +469,8 @@ export class PhoneWorkspace {
     // A stopped conversation finished nothing, so it is not counted as finished either.
     const busy = live.filter(one => one.running || one.waiting || one.stopped === true && (one.updatedAt ?? 0) >= since).length
     const wrapped = teams.filter(({ view }) => view.goal.state === 'wrapped' && view.goal.updatedAt >= since).length
-    return Math.max(0, touched - busy) + wrapped
+    const coldStopped = this.#ports.sessions.coldStoppedSince(since, live)
+    return Math.max(0, touched - busy - coldStopped) + wrapped
   }
 
   // ------------------------------------------------------------ the phone's workspace
@@ -509,7 +511,7 @@ export class PhoneWorkspace {
     // Read once: the Lead's view walks its seats and approvals, and every Team row consults it.
     const lead = this.#ports.leadChats?.() ?? null
     const items: PhoneWorkItem[] = [
-      ...sessions.map(row => this.#sessionItem(row, lead?.name, [...live.values()].find(one => `${one.runtime}:${one.id}` === row.id))),
+      ...sessions.map(row => this.#sessionItem(row, lead?.name, [...live.values()].find(one => `${one.runtime}:${one.id}` === row.id) ?? this.#keptStop(row))),
       ...inputs.map(input => this.#teamItem(input, live, lead)),
     ]
     return items.sort((a, b) => b.updatedAt - a.updatedAt)

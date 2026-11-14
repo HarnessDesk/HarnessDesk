@@ -65,6 +65,7 @@ const fixture = async (): Promise<Fixture> => {
       isOwn: (runtime, id) => index.isOwn(runtime, id),
       counts: () => index.phoneCounts(),
       touchedSince: since => index.touchedSince(since),
+      coldStoppedSince: (since, live) => index.coldStoppedSince(since, live),
       costliestSince: (since, limit) => index.costliestSince(since, limit),
     },
     live: () => state.live,
@@ -616,6 +617,23 @@ test('a session the person stopped says Stopped with its own stage reason, and i
     assert.equal(items.finished!.line, 'Done')
     const board = await f.workspace.dashboardRead({ range: '7d' })
     assert.equal(board.counts.doneToday, 1, 'only the finished one is done today')
+  } finally { await f.done() }
+})
+
+test('cold stopped work is excluded from both dashboard and work usage periods', async () => {
+  const f = await fixture()
+  try {
+    f.index.upsert(summary('stopped')); f.index.upsert(summary('finished'))
+    f.db.prepare("INSERT INTO turns(runtime,id,turn_id,seq,payload,fingerprint) VALUES(?,?,?,?,?,'synthetic')").run(agent, 'stopped', 't1', 1, JSON.stringify({ turn: { status: 'interrupted' } }))
+    f.stopped = new Set([`${agent}:stopped`])
+    f.ledger = () => ledgerOf([], 0)
+    const dashboard = await f.workspace.dashboardRead({ range: '7d' })
+    assert.equal(dashboard.counts.doneToday, 1)
+    assert.equal(dashboard.period.finished, 1)
+    const usage = (await f.workspace.workUsage())!
+    assert.equal(usage.week.finished, 1)
+    assert.equal(usage.month.finished, 1)
+    assert.equal((await f.workspace.workItems()).find(item => item.id.endsWith(':stopped'))?.line, 'Stopped')
   } finally { await f.done() }
 })
 
