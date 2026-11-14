@@ -17,9 +17,8 @@ export const createPhoneState = (transport: PhoneTransport) => {
   const set = (next: PhoneLinkState) => { state = next; for (const listener of listeners) listener() }
   const current = async <T,>(action: Promise<T>): Promise<T> => {
     const started = generation
-    const next = await action
-    if (started !== generation) throw new Error('Mobile settings changed. Try again.')
-    return next
+    try { return await action }
+    finally { if (started !== generation) throw new Error('Mobile settings changed. Try again.') }
   }
   const refresh = async () => { const next = await current(transport.request('phone/state', {})); set(next); return next }
   return {

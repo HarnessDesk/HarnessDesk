@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
 import { StoreProvider } from '../state/context'
 import { previewStore } from '../preview/harness'
+import { PhoneSettingsSection } from './PhoneSettings'
 import { FeatureSettings } from './FeatureSettings'
 import { AppearanceSection, NotificationsSection } from './SettingsYou'
 import { resolveSection } from './Settings'
@@ -65,4 +66,26 @@ it('puts macOS controls first and discloses detailed routing without hiding reco
   expect(document.body.textContent).toContain('Kept messages')
   await click('Message routing')
   expect(document.querySelector('select[aria-label^="Where"]')).not.toBeNull()
+})
+
+it.each(['off', 'problem'] as const)('keeps account phone access controls usable with local Mobile %s without starting its listener', async scene => {
+  const store = previewStore({ features: scene === 'problem' ? { lead: true, mobile: true, problem: { kind: 'preferences', message: 'Repair required.' } } : { lead: false, mobile: false },
+    harnessDeskAccount: { status: 'signedIn', account: { name: 'Jane Doe', email: 'dev@example.com', pictureUrl: null },
+      desk: { name: 'Studio', reachable: true }, phones: [{ deviceId: 'demo-phone', name: 'Demo phone', lastSeenAt: null }] } })
+  const refresh = vi.spyOn(store.phone, 'refresh'), enable = vi.spyOn(store, 'setFeature')
+  const reachable = vi.spyOn(store, 'setHarnessDeskReachable'), unlink = vi.spyOn(store, 'unlinkHarnessDeskPhone')
+  await mount(<PhoneSettingsSection />, store)
+  expect(document.body.textContent).toContain(scene === 'problem' ? 'Mobile is stopped until feature settings are repaired. Your saved reachability choice is kept.' : 'Turn on Mobile to make this desk reachable. Your saved reachability choice is kept.')
+  await act(async () => document.querySelector<HTMLElement>('[aria-label="Reachable from your phone"]')!.click())
+  expect(reachable).toHaveBeenCalledWith(false)
+  expect(store.getSnapshot().harnessDeskAccount?.desk.reachable).toBe(false)
+  await click('Unlink')
+  expect(unlink).not.toHaveBeenCalled()
+  const dialog = document.querySelector('[role="alertdialog"]')!
+  await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Unlink')!.click())
+  expect(unlink).toHaveBeenCalledWith('demo-phone')
+  expect(store.getSnapshot().harnessDeskAccount?.phones).toHaveLength(0)
+  expect(refresh).not.toHaveBeenCalled()
+  expect(enable).not.toHaveBeenCalled()
+  expect(store.phone.state.enabled).toBe(false)
 })

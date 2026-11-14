@@ -18,6 +18,6 @@ export const LeftColumnWorkProbe = () => {
 import { SettingsNavigationBoard } from '../design/explorer/boards-compositions'
 export const SettingsNavigationProbe = () => {
   useTheme()
-  return <div data-frame-id="frame-wall" data-destination="settings-middle"
-    style={{ width: FRAME.sidebar.width, height: '100vh' }}><SettingsNavigationBoard /></div>
+  return <div data-frame-id="frame-wall" data-destination="settings-middle" className="flex h-screen min-h-0 flex-col overflow-hidden"
+    style={{ width: FRAME.sidebar.width }}><SettingsNavigationBoard /></div>
 }

@@ -52,9 +52,11 @@ export const createLeadState = (source: LeadTransport, available: () => boolean)
   let generation = 0
   const transport: LeadTransport = { request: async (method, params) => {
     const started = generation
-    const result = await source.request(method, params)
-    if (started !== generation) throw Object.assign(new Error('Lead settings changed. Try again.'), { code: 'lead-unavailable' })
-    return result
+    try { return await source.request(method, params) }
+    finally {
+      // Rejected responses must lose their retry/refusal codes across reset too.
+      if (started !== generation) throw Object.assign(new Error('Lead settings changed. Try again.'), { code: 'lead-unavailable' })
+    }
   } }
   let state = initial(), wakeRevision = -1
   const listeners = new Set<() => void>()

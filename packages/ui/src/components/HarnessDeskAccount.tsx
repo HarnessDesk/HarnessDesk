@@ -126,7 +126,7 @@ export const HarnessDeskAccountSection = () => {
 
 /** Mobile owns nearby pairing and account relay access through the existing host service. */
 export const HarnessDeskMobileSection = () => {
-  const store = useStore(), { harnessDeskAccount: status } = useSnapshot()
+  const store = useStore(), { harnessDeskAccount: status, phoneLink, features } = useSnapshot()
   const { busy, error, run } = useHarnessDeskAccountAction()
   const [unlink, setUnlink] = useState<{ deviceId: string; name: string } | null>(null)
   const relay = useSyncExternalStore(store.phone.subscribe, () => store.phone.state.relay)
@@ -135,11 +135,15 @@ export const HarnessDeskMobileSection = () => {
     control={<Button variant="outline" onClick={() => store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'profile', focus: null } })}>Account settings</Button>} /></Rows></Section>
   return <>
     <Section title="Away from this network"><Rows>
-      <Row title="Reachable from your phone" titleChip={status.desk.reachable ? <RelayChip state={relay} /> : undefined}
+      <Row title="Reachable from your phone" titleChip={status.desk.reachable && phoneLink ? <RelayChip state={relay} /> : undefined}
         desc="Your phones reach this desk through your account when they are away from its network. Messages stay encrypted end to end."
         control={<Switch aria-label="Reachable from your phone" checked={status.desk.reachable} disabled={busy}
           onCheckedChange={reachable => void run(() => store.setHarnessDeskReachable(reachable))} />} />
-    </Rows></Section>
+    </Rows>
+      {!phoneLink && <Note>{features?.problem
+        ? 'Mobile is stopped until feature settings are repaired. Your saved reachability choice is kept.'
+        : 'Turn on Mobile to make this desk reachable. Your saved reachability choice is kept.'}</Note>}
+    </Section>
     <Section title="Linked phones"><Rows>{status.phones.map(phone => <Row key={phone.deviceId} mark={<MobileIcon size={16} />} title={phone.name}
       desc={phone.lastSeenAt === null ? 'Last seen unavailable' : `Last seen ${formatAge(phone.lastSeenAt * 1000, Date.now())}`}
       control={<Button variant="outline" disabled={busy} onClick={() => setUnlink(phone)}>Unlink</Button>} />)}</Rows>

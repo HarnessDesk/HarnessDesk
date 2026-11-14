@@ -30,7 +30,7 @@ export const FeatureSettings = ({ feature }: { readonly feature: DeskFeature }) 
       <Button variant="outline" disabled={busy} onClick={() => setRepair(true)}>Repair feature settings</Button>
     </Banner>}
     {error && <ActionError>{error}{!features && <Button variant="outline" disabled={busy} onClick={() => void run(() => store.loadFeatures())}>Try again</Button>}</ActionError>}
-    {repair && <ConfirmDialog title="Repair feature settings?" confirmLabel="Repair feature settings" cancelLabel="Cancel" busy={busy}
+    {repair && <ConfirmDialog title="Repair feature settings?" confirmLabel="Repair feature settings" cancelLabel="Cancel" busy={busy} focusCancel
       finalFocus={() => store.getSnapshot().features?.problem ? true : enable.current}
       onCancel={() => setRepair(false)} onConfirm={() => void run(() => store.repairFeatures())}>
       <Text role="prose">Both Lead and Mobile turn off. Lead work and phone connections stop. History and phone pairings are retained.</Text>

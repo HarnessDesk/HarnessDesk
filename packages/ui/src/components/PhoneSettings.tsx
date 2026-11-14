@@ -101,6 +101,7 @@ export const PhoneAsk = () => {
 export const PhoneSettingsSection = () => {
   const { features } = useSnapshot()
   return <><FeatureSettings feature="mobile" />
-    {features && !features.problem && (features.mobile ? <><EnabledPhoneSettingsSection /><HarnessDeskMobileSection /></> : null)}
+    {features?.mobile && !features.problem && <EnabledPhoneSettingsSection />}
+    <HarnessDeskMobileSection />
   </>
 }

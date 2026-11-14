@@ -112,7 +112,7 @@ export const ConfirmDialog = ({
          them, and which won depended on the order a build loaded the sheets:
          the preview drew every confirm with a second 16px frame. */
       className={cn(DIALOG_WIDTH.sm, 'flex max-h-(--hd-dialog-max-height) flex-col gap-0 overflow-hidden p-0')}
-      initialFocus={false}
+      initialFocus={focusCancel ? cancel : false}
       finalFocus={finalFocus}
       aria-describedby={descriptionId}
     >
