@@ -131,4 +131,4 @@ try {
  if(restored?.identity!==snapshot.identity||restored.turns!==snapshot.turns)throw new Error('restored body identity mismatch')
  result.checks.restoreExact=true;result.checks.listenersAtEnd=assertListeners(desk.processGroup);result.phase='passed'
 } catch { result.error='checkpoint failed';process.exitCode=1 }
-finally {try{await closeDesk(desk??{})}catch{result.cleanupError=true;process.exitCode=1} result.checks.hostGuardMetrics=guardMetrics.summary();console.log(JSON.stringify(result)); rmSync(taskRoot,{recursive:true,force:true})}
+finally {let stopped=true;try{await closeDesk(desk??{})}catch{stopped=false;result.cleanupError=true;process.exitCode=1} result.checks.hostGuardMetrics=guardMetrics.summary();console.log(JSON.stringify(result)); if(stopped)rmSync(taskRoot,{recursive:true,force:true})}
