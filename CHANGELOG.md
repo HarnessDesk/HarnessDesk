@@ -7,6 +7,9 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Keep remembered notes whole.** Angle brackets no longer consume extra space in a note’s character limit, and older saved memories remain available after an upgrade.
+- **Recognize a direct reminder.** The Lead now checks “Hey Dex remember: …” like other requests to remember, including its existing safety checks.
+
 - **Keep steered replies readable after reopening.** Matching prose replayed in separate turns no longer repeats messages from the saved conversation. If the histories cannot be matched safely, the saved copy stays protected with its history warning.
 
 - **Keep reading while the Lead replies.** Holding a long scroll gesture no longer lets an arriving reply pull the conversation back to the bottom. A pending upward scroll is noticed before the new reply follows it.

@@ -90,7 +90,7 @@ export const leadMemoryCoreOrder = (entries: readonly LeadMemoryEntry[]): LeadMe
     ...core.filter(entry => entry.by === 'lead').sort((a, b) => lastUse(b) - lastUse(a) || numberOf(b.id) - numberOf(a.id))]
 }
 export const leadMemoryCoreOf = (revision: number, entries: readonly LeadMemoryEntry[]): LeadMemoryCore =>
-  ({ revision, entries: leadMemoryCoreOrder(entries).map(entry => ({ id: entry.id, text: entry.text, kind: entry.kind, by: entry.by })) })
+  ({ revision, format: 2, entries: leadMemoryCoreOrder(entries).map(entry => ({ id: entry.id, text: entry.text, kind: entry.kind, by: entry.by })) })
 /**
  * Core held to its budget: while it reads larger than `coreBytes`, the Lead's least recently used entry moves to
  * Archive, and only when none of the Lead's is left, the person's newest. Nothing is deleted. Measured at the widest
@@ -193,6 +193,8 @@ export interface LeadMemoryStoreOptions {
   /** `<home>/lead`. */
   readonly dir: string
   readonly now?: () => number
+  /** Atomic writer, injectable for interrupted-write recovery tests. */
+  readonly write?: typeof writeAtomicJson
   /** The person-edited lines kept before this store: migrated once, with nothing lost. */
   readonly legacy?: () => Promise<LeadMemory | null>
   /** Forget reaches past the store: the texts of a forgotten entry, every version of it, or `'all'` for Forget all,
@@ -216,7 +218,15 @@ export class LeadMemoryStore {
   async #open(): Promise<void> {
     const file = join(this.options.dir, FILE), read = await readBoundedJsonResult(file, FILE_BYTES)
     if (read.kind === 'value') {
-      try { this.#state = parseStore(read.value); return } catch { /* Kept aside below, never overwritten. */ }
+      let parsed: StoreState | undefined
+      try { parsed = parseStore(read.value) } catch { /* Kept aside below, never overwritten. */ }
+      if (parsed) {
+        this.#state = parsed
+        // The source-length renderer can make a formerly valid Core larger. Reuse the normal archive policy,
+        // persist its revision before publishing, and leave a valid saved file in place if that write fails.
+        if (diff(parsed.entries, fit(parsed.entries)).length) await this.#commit({ entries: parsed.entries }, 'migration')
+        return
+      }
     }
     if (read.kind === 'io') throw new Error('lead-memory-unreadable')
     // A file the desk cannot read is set aside rather than written over, so nothing in it is lost.
@@ -248,7 +258,7 @@ export class LeadMemoryStore {
     // Nothing to carry across writes nothing: the file appears with the first change.
     if (this.#state.revision > 0) await this.#save()
   }
-  async #save(): Promise<void> { await writeAtomicJson(join(this.options.dir, FILE), this.#state, async () => {}) }
+  async #save(): Promise<void> { await (this.options.write ?? writeAtomicJson)(join(this.options.dir, FILE), this.#state, async () => {}) }
   #serial<T>(operation: () => Promise<T>): Promise<T> {
     const next = this.#tail.then(operation)
     this.#tail = next.catch(() => {})

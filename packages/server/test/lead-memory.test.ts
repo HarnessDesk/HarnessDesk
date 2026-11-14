@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { leadMemoryBytes, leadMemorySnapshot } from '@harnessdesk/lead'
 import { LEAD_MEMORY_LIMITS, parseLeadMemoryProposalResult, parseLeadMemorySearchResult, parseLeadMemoryView, type LeadMemoryEntry, type LeadMessage } from '@harnessdesk/protocol'
 import { LeadMemoryStore } from '../src/lead/memory.js'
+import { writeAtomicJson } from '../src/lead/bounded-json.js'
 import { leadMemoryNear, leadMemoryRedact, leadMemoryScan, leadRememberRequest } from '../src/lead/memory-scan.js'
 import { LeadConversationCorpus, leadMemoryRank, type LeadMemoryDoc } from '../src/lead/memory-search.js'
 import { createLeadMemoryTidier, runLeadMemoryTidy } from '../src/lead/memory-tidy.js'
@@ -115,6 +116,46 @@ test('the inbox round-trips: Keep, Keep with an edit, No, and a declined line is
   const again = await LeadMemoryStore.open({ dir })
   assert.deepEqual(again.view(), store.view())
   await assert.rejects(store.change({ action: 'keep', id: b.id! }), /lead-memory-missing/)
+})
+
+test('opening an older Core refits expanded notes into Archive without losing text', async () => {
+  const { store, dir } = await open()
+  for (let i = 0; i < 4; i++) await store.change({ action: 'add', text: `Distinct note ${i}`, kind: 'preference' })
+  const file = join(dir, 'memory-store.json'), saved = JSON.parse(await readFile(file, 'utf8'))
+  saved.entries = saved.entries.map((entry: LeadMemoryEntry) => ({ ...entry, text: '<'.repeat(400) }))
+  await writeFile(file, JSON.stringify(saved))
+  const before = saved.revision
+  const migrated = await LeadMemoryStore.open({ dir })
+  assert.equal(migrated.entries().length, 4)
+  assert.ok(migrated.entries().every(entry => entry.text === '<'.repeat(400)))
+  assert.ok(migrated.archive().length > 0)
+  assert.ok(leadMemoryBytes(migrated.core()) <= LEAD_MEMORY_LIMITS.coreBytes)
+  assert.equal(migrated.revision, before + 1)
+  const reopened = await LeadMemoryStore.open({ dir })
+  assert.deepEqual(reopened.view(), migrated.view())
+})
+
+test('an interrupted Core refit keeps the old file and retries on reopen', async () => {
+  const { store, dir } = await open()
+  for (let i = 0; i < 4; i++) await store.change({ action: 'add', text: `Distinct note ${i}`, kind: 'preference' })
+  const file = join(dir, 'memory-store.json'), saved = JSON.parse(await readFile(file, 'utf8'))
+  saved.entries = saved.entries.map((entry: LeadMemoryEntry) => ({ ...entry, text: '<'.repeat(400) }))
+  const old = JSON.stringify(saved)
+  await writeFile(file, old)
+  await assert.rejects(LeadMemoryStore.open({ dir, write: (file: string, value: unknown) => writeAtomicJson(file, value, async () => { throw new Error('synthetic interruption') }) }), /synthetic interruption/)
+  assert.equal(await readFile(file, 'utf8'), old, 'the durable old store is intact before rename')
+  assert.ok(!(await readdir(dir)).some(name => name.includes('unreadable')), 'a write failure is not treated as corruption')
+  await assert.rejects(LeadMemoryStore.open({ dir, write: async (file, value, recheck) => {
+    await writeAtomicJson(file, value, recheck)
+    throw new Error('synthetic post-rename interruption')
+  } }), /synthetic post-rename interruption/)
+  const reopened = await LeadMemoryStore.open({ dir })
+  assert.equal(reopened.revision, saved.revision + 1, 'a completed rename is not repeated after restart')
+  assert.equal(reopened.entries().length, 4)
+  assert.ok(reopened.entries().every(entry => entry.text === '<'.repeat(400)))
+  assert.ok(reopened.archive().length > 0)
+  assert.ok(leadMemoryBytes(reopened.core()) <= LEAD_MEMORY_LIMITS.coreBytes)
+  assert.deepEqual((await LeadMemoryStore.open({ dir })).view(), reopened.view(), 'the persisted migration is idempotent')
 })
 
 test('a note the Lead kept on its own stays the Lead\'s; one the person kept is the person\'s, and a store saved before says so on load (#2181)', async () => {
@@ -495,13 +536,16 @@ test('a request to remember is read in the languages people write it in, and onl
 test('an address of up to three words may come before the verb, with or without a comma or a space', () => {
   for (const [text, words] of [
     ['Hey Dex, remember this: small PRs', 'small PRs'],
+    ['Hey Dex remember: small PRs', 'small PRs'],
+    ['Dex keep in mind: small PRs', 'small PRs'],
+    ['Hey my Dex note down: small PRs', 'small PRs'],
     ['嗯嗯 记住：小的 PR', '小的 PR'],
     ['Dex记住：小的 PR', '小的 PR'],
     ['@Dex 记住：小的 PR', '小的 PR'],
     ['Dex, from now on remember: small PRs', 'small PRs'],
     ['OK Dex, please remember: small PRs', 'small PRs'],
   ] as const) assert.equal(leadRememberRequest(text), words, text)
-  for (const text of ['I will remember to fix it', 'Did you remember the tests?', '我不记得了', '你记得吗', 'Hey Dex, what do you remember?', 'one two three four, remember: x'])
+  for (const text of ['I will remember to fix it', 'Did you remember the tests?', '我不记得了', '你记得吗', 'Hey Dex, what do you remember?', 'one two three four, remember: x', 'one two three four remember: x', 'Hey Dex remember when we met?', 'I will remember to fix it'])
     assert.equal(leadRememberRequest(text), null, text)
 })
 

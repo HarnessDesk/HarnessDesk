@@ -189,10 +189,23 @@ for (const [name, forged] of [
     assert.equal(text.split(LEAD_RULES_CLOSE).length, 2)
   })
 }
+test('a legacy frozen epoch keeps its original escaped rule bytes', () => {
+  const rules = { talk: { version: 1, text: '<'.repeat(3000) } }
+  const state = { ...initialLeadState(), autonomy: record(rules) }
+  const at = { memory: { revision: 1, entries: [] }, rules }
+  const held = lead.leadEpochState(state, at)
+  const rendered = leadEpochAddendum(held, undefined, true)
+  assert.match(rendered, /How to talk to me:\n(?:&lt;){749}&lt…/)
+  assert.ok(!rendered.includes('&lt;'.repeat(750)))
+})
 test('the shared cleaner folds, strips, escapes last and clips', () => {
   assert.equal(leadCleanUntrusted('a\u2800b\u3164<c>', 100), 'ab&lt;c&gt;')
   assert.equal(leadCleanUntrusted('x\r\ny\u2028z', 100), 'x\ny\nz')
-  assert.ok(leadCleanUntrusted('<'.repeat(50), 10).length <= 10)
+  assert.equal(leadCleanUntrusted('<'.repeat(50), 10), '&lt;'.repeat(9) + '…')
+  const note = '<'.repeat(100) + 'a'.repeat(300)
+  assert.equal(leadCleanUntrusted(note, 400), '&lt;'.repeat(100) + 'a'.repeat(300))
+  assert.equal(leadCleanUntrusted('abc<', 5), 'abc&lt;')
+  assert.equal(leadCleanUntrusted('abc<>z', 5), 'abc&lt;…')
 })
 
 test('a chat change is not a run of the approved goal, so it does not wake the model when desk-change is off', async () => {
