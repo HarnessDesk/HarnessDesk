@@ -362,6 +362,8 @@ export class LeadWorkLedger {
       if (claim.item === null && covers(claim)) return { problem: `A start for this request is already starting ("${clip(claim.title, 60)}"). Wait for its result instead of starting another chat.` }
     const open = this.stored.items.find(item => item.closedAt === undefined && covers({ title: item.title, quotes: item.origin.quotes, project: item.project }))
     const chat = (item: Item) => item.links.chats.at(-1) ? ` Its chat is ${this.#chatName(item.links.chats.at(-1)!)}.` : ''
+    const openLast = open?.links.chats.at(-1)
+    if (open && openLast && this.#needsRetryAnswer(open)) return this.#retryRefusal(open, openLast)
     if (open) return { item: open.id, problem: `Nothing was started: open work ${open.id} "${clip(open.title, 80)}" (${open.stage}) already covers this request.${chat(open)} ` +
       `Name it to the person and offer to continue it: chat_send continues its chat, or pass ledgerItem "${open.id}" to add a chat to it. Ask before starting another attempt.` }
     // A recent try that was stopped is the same work too: the person decides whether to go again. Work that finished
@@ -371,7 +373,8 @@ export class LeadWorkLedger {
     const now = this.ports.now()
     const tried = this.stored.items.filter(item => item.closedBy === 'host' && item.stage === 'stopped' && item.closedAt !== undefined && now - item.closedAt < LEAD_WORK_LIMITS.retryMs &&
       covers({ title: item.title, quotes: item.origin.quotes, project: item.project })).sort((a, b) => b.closedAt! - a.closedAt!)[0]
-    if (tried && this.#needsRetryAnswer(tried)) delete tried.retryAsked
+    const triedLast = tried?.links.chats.at(-1)
+    if (tried && triedLast && this.#needsRetryAnswer(tried)) return this.#retryRefusal(tried, triedLast)
     const ask = tried && this.#askFirst(tried)
     if (ask) return ask
     if (tried) return { item: tried.id, problem: `Nothing was started: work ${tried.id} "${clip(tried.title, 80)}" was tried ${ago(now - tried.closedAt!)} ago and ended as ${tried.stage} ` +
@@ -380,15 +383,6 @@ export class LeadWorkLedger {
     return null
   }
 
-  /**
-   * Another attempt at work the person stopped (`stopsBeforeAsking`: once is enough) is the person's call, even when the
-   * person asked for it and even under `ledgerItem`: the host refuses it once, naming what happened, and lets the next
-   * attempt through only after the person writes again (their answer to the Lead's question). The r4 sitting started a
-   * sixth attempt because one stop under `ledgerItem` asked nothing (#2145). Each new stop clears that answer, so a stop after it asks
-   * again. The Lead's own stops are not counted: stopping its own chat is
-   * not the person saying no. A stop the desk could not attribute is counted, since it may have been the person's.
-   * Null when the attempt may go ahead.
-   */
   /** A chat as the Lead is told of it: by its handle, with the id beside it so either works. */
   #chatName(id: string): string {
     let handle: string | undefined
@@ -419,6 +413,17 @@ export class LeadWorkLedger {
     return item.closedAt === undefined || item.closedBy === 'host' && item.stage === 'stopped' &&
       this.ports.now() - item.closedAt < LEAD_WORK_LIMITS.retryMs &&
       (item.stops ?? []).filter(stop => stop.by !== 'lead').length >= LEAD_WORK_LIMITS.stopsBeforeAsking
+  }
+  #retryRefusal(item: Item, attempt: string): LeadWorkClaimRefusal {
+    if (this.#stops.has(attempt)) return { item: item.id, problem: 'The chat is being stopped. Wait for that stop to settle before asking about another attempt.' }
+    // The stop count remains useful on every refusal, even after an earlier question.
+    if (item.closedAt !== undefined) delete item.retryAsked
+    const context = item.closedAt === undefined ? `open work ${item.id} "${clip(item.title, 80)}" already covers this request. Its chat is ${this.#chatName(attempt)}; offer to continue it with chat_send. ` :
+      this.#askFirst(item)?.problem ?? `Work was stopped (${leadStopTally(item.stops ?? [])}); its last chat is ${this.#chatName(attempt)}. Offer to continue it, start fresh, or drop it. `
+    const question = this.#retryQuestion(item, attempt)
+    return { item: item.id,
+      problem: `Nothing was started. ${context} Ask the person ${JSON.stringify(question)} with options Start another chat (id: start, starts: true) and Not now (id: later), recommended: later. ` +
+        `In that ask pass retryOf { item: ${JSON.stringify(item.id)}, attempt: ${JSON.stringify(attempt)} }; wait for their answer before retrying with ledgerItem ${JSON.stringify(item.id)}.` }
   }
   #askFirst(item: Item): LeadWorkClaimRefusal | null {
     const stops = item.stops ?? [], counted = stops.filter(stop => stop.by !== 'lead').length
@@ -529,11 +534,7 @@ export class LeadWorkLedger {
           const approved = this.ports.approvedRetry?.(found.id, last, question) ?? null
           if (!approved || found.retryConsumed === approved || found.retryQuestion?.id !== approved ||
             found.retryQuestion.attempt !== last || found.retryQuestion.epoch !== (found.retryEpoch ?? 0)) {
-            const stopped = found.closedAt === undefined ? '' : this.#askFirst(found)?.problem ??
-              `Work was stopped (${leadStopTally(found.stops ?? [])}); its last chat is ${this.#chatName(last)}. Offer to continue it, start fresh, or drop it. `
-            return { item: found.id,
-            problem: `Nothing was started. ${stopped} Ask the person ${JSON.stringify(question)} with options Start another chat (starts: true) and Not now. ` +
-              `In that ask pass retryOf { item: ${JSON.stringify(found.id)}, attempt: ${JSON.stringify(last)} }; wait for their answer before retrying.` }
+            return this.#retryRefusal(found, last)
           }
           if (found.closedAt !== undefined) { const problem = this.#room(); if (problem) return { problem } }
           found.retryConsumed = approved

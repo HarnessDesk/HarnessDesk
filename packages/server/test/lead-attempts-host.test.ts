@@ -40,6 +40,34 @@ test('#2145: an explicit second attempt at open work waits for the person to ans
   assert.equal(r.runtime.sessions.size, before, 'no second chat before a question and answer')
 })
 
+for (const state of ['open', 'person-stopped'] as const) {
+  test(`#2145 R2: a duplicate without an item prescribes an actionable bound question for ${state} work`, async t => {
+    const r = await rig(t)
+    await r.personWrites('Fix the stalled build a game task')
+    const first = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task' } })
+    const { id, ledgerItem } = first.value as { id: string; ledgerItem: string }
+    if (state === 'person-stopped') { await windowStop(r, id); await card(r, ledgerItem, stopped) }
+    const duplicate = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', cause: 'person' } })
+    const problem = (duplicate.value as { problem?: string }).problem ?? ''
+    const match = problem.match(/Ask the person ("(?:[^"\\]|\\.)*") with options/)
+    assert.ok(match, `refusal must prescribe the canonical question: ${JSON.stringify(duplicate)}`)
+    assert.ok(problem.includes(`retryOf { item: ${JSON.stringify(ledgerItem)}, attempt: ${JSON.stringify(id)} }`), problem)
+    assert.match(problem, /id: start, starts: true/)
+    assert.match(problem, /id: later.*recommended: later/)
+    if (state === 'person-stopped') assert.match(problem, /stopped once/)
+    const question = JSON.parse(match[1]!) as string
+    await r.journal.appendReply(question, undefined, { question, retryOf: { item: ledgerItem, attempt: id }, startsMarked: true,
+      options: [{ id: 'start', label: 'Start another chat', starts: true }, { id: 'later', label: 'Not now' }], recommended: 'later' })
+    await r.answer('Start another chat')
+    const second = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem } })
+    assert.ok((second.value as { id?: string }).id, JSON.stringify(second.value))
+    assert.equal((second.value as { ledgerItem?: string }).ledgerItem, ledgerItem)
+    assert.equal(r.runtime.sessions.size, 2)
+    const third = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (third attempt)', ledgerItem } })
+    assert.ok((third.value as { problem?: string }).problem, 'the answer admits only one retry')
+  })
+}
+
 test('#2145: an explicit item cannot avoid asking by changing the title or project', async t => {
   const r = await rig(t)
   const first = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task' } })
