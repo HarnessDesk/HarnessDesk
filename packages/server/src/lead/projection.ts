@@ -10,7 +10,14 @@ import { leadBudgetProjection, leadPlanRuns, splitLeadOutput, stripLeadToolMarku
  * from its `trigger`, never from the prompt the model read; one stored before triggers were kept stays as it was (#2183).
  */
 export const leadShownMessage = (message: LeadMessage): LeadMessage => {
-  if (message.role === 'assistant') return oldReply(message)
+  if (message.role === 'assistant') {
+    const shown = oldReply(message)
+    if (!shown.ask?.retryOf) return shown
+    // This binding is host authority, not part of the question the clients
+    // render. Older clients reject unknown ask fields; the journal keeps it.
+    const { retryOf: _retryOf, ...ask } = shown.ask
+    return { ...shown, ask }
+  }
   if (message.role !== 'user') return message
   // A goal a trigger opened (#2183): the model's fenced prompt stays in the journal, and both surfaces draw the event
   // instead — a `system` line saying what it was and where, which an older phone that knows nothing of `trigger` draws too.

@@ -15,7 +15,11 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Keep saved pins during an upgrade.** Changing how the conversation list is sorted while its history is still loading no longer loses pins saved by an older desk. Unpinning a conversation or pinning another during that load keeps the change you made.
 
+- **The Lead names the task it is doing.** Setting or canceling a reminder no longer leaves the previous task on its activity line. An action without its own label shows Working.
+
 - **A delayed carry-on note is recorded once.** If saving the updated ledger fails after a delayed transcript marker was written, retrying after a restart keeps the original marker instead of inserting it again.
+
+- **Ask before another attempt.** The Lead no longer uses an existing work item to bypass a retry question. A matching positive answer is used for one attempt; an unrelated message or a negative answer cannot start another chat.
 
 ## 0.7.1 — 2026-11-13
 

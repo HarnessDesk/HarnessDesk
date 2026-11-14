@@ -379,6 +379,12 @@ export { LEAD_MANAGEMENT_REASONS } from '@harnessdesk/protocol'
 /** One serialized management writer. All effects use injected ports; this module owns
  * no files, processes, network, clock or ID generator. IDs come from its trusted owner. */
 export class LeadJournal {
+  #retryAskValidator: ((ask: LeadAsk, messageId: string) => Promise<void>) | undefined
+  /** The host validates bound retry questions against its current work ledger. */
+  validateRetryAsks(validator: (ask: LeadAsk, messageId: string) => Promise<void>): () => void {
+    this.#retryAskValidator = validator
+    return () => { if (this.#retryAskValidator === validator) this.#retryAskValidator = undefined }
+  }
   #childLive = false
   #recovering = 0
   /** Host supervisor owns this latch; never expose it in the child journal port. */
@@ -677,8 +683,12 @@ export class LeadJournal {
   appendReply(text: string, proactive?: LeadProactive, ask?: LeadAsk, refs?: readonly LeadMessageRef[], reminded?: string): Promise<void> {
     return this.#appendReply(text, proactive, ask, refs, reminded, false)
   }
-  #appendReply(text: string, proactive: LeadProactive | undefined, ask: LeadAsk | undefined, refs: readonly LeadMessageRef[] | undefined, reminded: string | undefined, model: boolean): Promise<void> { return this.#queue(() => {
+  #appendReply(text: string, proactive: LeadProactive | undefined, ask: LeadAsk | undefined, refs: readonly LeadMessageRef[] | undefined, reminded: string | undefined, model: boolean): Promise<void> { return this.#queue(async () => {
     const revision = this.#state.seq + 1, id = `message-${revision}`
+    if (ask?.retryOf) {
+      if (!this.#retryAskValidator) throw new Error('Retry questions are unavailable without the work ledger.')
+      await this.#retryAskValidator(ask, id)
+    }
     // Kept once the write is durable and before the observers it notifies run, so they read it as the model's; a reply
     // that does not parse or is not written keeps nothing, and the host notice that takes its number next is not it.
     const committed = model ? () => { this.#modelReplies.push(id); this.#modelReplies.splice(0, this.#modelReplies.length - 16) } : undefined
