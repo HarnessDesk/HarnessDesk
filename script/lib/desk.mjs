@@ -14,6 +14,8 @@ import { spawn, execFile } from 'node:child_process'
 import { createWriteStream, existsSync } from 'node:fs'
 import { promisify } from 'node:util'
 
+import { heldExpression } from './held-evaluation.mjs'
+
 const run = promisify(execFile)
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -106,7 +108,7 @@ export class Cdp {
   async eval(expression, timeout = 30_000) {
     const result = await this.send(
       'Runtime.evaluate',
-      { expression, awaitPromise: true, returnByValue: true },
+      { expression: heldExpression(expression), awaitPromise: true, returnByValue: true },
       timeout,
     )
     if (result.exceptionDetails) {

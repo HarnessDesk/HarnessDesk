@@ -35,6 +35,7 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
 
+import { heldExpression } from '../../../script/lib/held-evaluation.mjs'
 import { stopProcessesUnder } from '../../../script/mounted-processes.mjs'
 import { binaryArchs, runsTranslated } from '../../../script/smoke-artifacts.mjs'
 import { verifyAppInterface } from '../../../script/verify-app-contents.mjs'
@@ -131,7 +132,7 @@ const evaluate = (socketUrl, expression) =>
         JSON.stringify({
           id: 1,
           method: 'Runtime.evaluate',
-          params: { expression, awaitPromise: true, returnByValue: true },
+          params: { expression: heldExpression(expression), awaitPromise: true, returnByValue: true },
         }),
       )
     socket.onmessage = (event) => {
