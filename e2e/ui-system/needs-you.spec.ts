@@ -11,7 +11,7 @@ import path from 'node:path'
 const frame = (id: string) => `#team-overview-answer-${id}`
 const open = async (page: Page, theme: 'light' | 'dark') => {
   await page.emulateMedia({ colorScheme: theme })
-  await page.goto(`/preview.html?team-overview&theme=${theme}`)
+  await page.goto(`/preview.html?team-overview&isolate&theme=${theme}`)
   await page.evaluate(() => document.fonts.ready)
 }
 const capture = async (locator: Locator, filename: string) => {
