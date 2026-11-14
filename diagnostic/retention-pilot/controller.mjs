@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url'
 import { allowed, inspectPaths, SSH_SHIM } from './ambient-shape.mjs'
 import { compareReceipt, compareSnapshot } from './receipt-diagnostics.mjs'
 import { makeGuardMetrics } from './guard-metrics.mjs'
+import { listenerCounts } from './listener-diagnostics.mjs'
 
 const taskSource = resolve('.')
 const taskSha = '8d30cf17f720e4014020aac8c345776a4372953e'
@@ -52,21 +53,44 @@ const result={source:taskSha,fixtureSha256:sha(fixture),phase:'prepared',checks:
 let desk
 const guardMetrics=makeGuardMetrics()
 const waitFor=async (label,fn,ms=30000)=>{const until=Date.now()+ms;while(Date.now()<until){const value=await fn();if(value)return value;await sleep(200)}throw new Error(`${label}: readiness deadline`)}
-const assertListeners = (group) => {
- const rows=execFileSync('/bin/ps',['-axo','pid=,ppid=,pgid='],{encoding:'utf8'}).trim().split('\n').map(line=>line.trim().split(/\s+/).map(Number))
+const assertListeners = (group, probe) => {
+ let processOutput
+ try { processOutput=execFileSync('/bin/ps',['-axo','pid=,ppid=,pgid='],{encoding:'utf8'}) }
+ catch(error){probe.failure='process_scan';probe.psExit=Number.isInteger(error.status)?error.status:null;probe.psSignaled=!!error.signal;throw error}
+ const rows=processOutput.trim().split('\n').map(line=>line.trim().split(/\s+/).map(Number))
  const owned=new Set(rows.filter(row=>row[2]===group).map(row=>row[0]));let changed=true
  while(changed){changed=false;for(const [pid,ppid] of rows)if(owned.has(ppid)&&!owned.has(pid)){owned.add(pid);changed=true}}
- const ps=[...owned]
- if(!ps.length)throw new Error('owned process group disappeared')
- let out='';try {out=execFileSync('/usr/sbin/lsof',['-nP','-a','-p',ps.join(','),'-iTCP','-sTCP:LISTEN','-Fpn'],{encoding:'utf8'})}catch(error){if(error.status!==1)throw error}
- const addresses=out.split('\n').filter(line=>line.startsWith('n')).map(line=>line.slice(1))
- if(!addresses.length || addresses.some(address=>!/^127\.0\.0\.1:\d+$/.test(address)&&!/^\[::1\]:\d+$/.test(address))) throw new Error('missing or non-loopback owned TCP listener')
- return {processes:ps.length,listeners:addresses.length,loopbackOnly:true}
+ const ps=[...owned];probe.ownedProcesses=ps.length
+ if(!ps.length){probe.failure='no_owned_processes';throw new Error('owned process group disappeared')}
+ let out='';try {
+  out=execFileSync('/usr/sbin/lsof',['-nP','-a','-p',ps.join(','),'-iTCP','-sTCP:LISTEN','-Fpn'],{encoding:'utf8'})
+  probe.lsofExit=0;probe.lsofSignaled=false;probe.reported=listenerCounts(out)
+ }catch(error){
+  probe.lsofExit=Number.isInteger(error.status)?error.status:null;probe.lsofSignaled=!!error.signal
+  probe.reported=listenerCounts(error.stdout??'')
+  if(error.status!==1){probe.failure='lsof_error';throw error}
+ }
+ // Preserve the original status-1 behavior: partial stdout is observed but does not authorize the guard.
+ const effective=listenerCounts(out);probe.effective=effective
+ if(!effective.total){probe.failure='no_listeners';throw new Error('missing or non-loopback owned TCP listener')}
+ if(effective.nonloopback){probe.failure='nonloopback_listener';throw new Error('missing or non-loopback owned TCP listener')}
+ probe.failure=null
+ return {processes:ps.length,listeners:effective.total,loopbackOnly:true}
 }
+const observedListeners=async (name) => {
+ const probe={};result.checks[name]=probe
+ try {const passed=assertListeners(desk.processGroup,probe);Object.assign(probe,passed);return probe}
+ catch(error){
+  probe.childExited=desk.child.exitCode!==null;probe.childExit=Number.isInteger(desk.child.exitCode)?desk.child.exitCode:null;probe.childSignaled=desk.child.signalCode!==null
+  try {probe.cdpAlive=await desk.cdp.eval('true',3000)===true}catch{probe.cdpAlive=false}
+  throw error
+ }
+}
+
 try {
  result.phase='launch'; desk=await launchDesk({app:taskSource,home:taskDeskHome,userDataDir:taskElectron,env})
  desk.child.stderr?.on('data',guardMetrics.add)
- result.checks.listenersAtLaunch=assertListeners(desk.processGroup)
+ await observedListeners('listenersAtLaunch')
  const cdp=desk.cdp
  await waitFor('store connected',()=>cdp.eval("window.__hdStore?.getSnapshot().status === 'open'"),30000)
  result.phase='workspace';await openWorkspace(cdp,taskProject)
@@ -78,7 +102,7 @@ try {
  result.phase='turn'; await cdp.eval(`window.__hdStore.send([{type:'text',text:'Synthetic retention smoke'}],${JSON.stringify(key)})`,30000)
  await waitFor('fake approval',async()=>{const pending=await cdp.json(`window.__hdStore.getSnapshot().approvals.map(entry=>({key:entry.key,id:entry.approval.id,type:entry.approval.type,command:entry.approval.command,option:(entry.approval.options??[]).find(o=>o.intent==='approve')?.id}))`);if(!pending.length)return false;if(pending.length!==1||pending[0].type!=='command'||pending[0].command!=='ls -la'||!pending[0].option)throw new Error('unexpected approval refused');const a=pending[0];await cdp.eval(`window.__hdStore.respondToApproval(${JSON.stringify(a.key)},${JSON.stringify(a.id)},{type:'option',optionId:${JSON.stringify(a.option)}})`);return true},20000)
  await waitFor('completed synthetic command',()=>cdp.eval(`(()=>{const s=window.__hdStore.getSnapshot().sessions.get(${JSON.stringify(key)});return !!s?.turns.some(t=>t.status==='completed'&&t.items.some(i=>i.type==='command'&&typeof i.output==='string'&&i.output.length===32768))})()`),30000)
- result.checks.syntheticCompletion=true;result.checks.listenersDuringTurn=assertListeners(desk.processGroup)
+ result.checks.syntheticCompletion=true;await observedListeners('listenersDuringTurn')
  result.phase='close'
  // Observe only the target close request; attach handlers without replacing its result or changing dispatch.
  await cdp.eval(`(()=>{const s=window.__hdStore,t=s.transport,original=t.request,p={sent:0,resolved:0,rejected:0};
@@ -131,6 +155,6 @@ try {
  result.phase='restore';if(!await cdp.eval(`window.__hdStore.restoreTranscript(${JSON.stringify(runtime)},${JSON.stringify(id)})`))throw new Error('restore refused')
  const restored=await cdp.json(`window.__hdStore.transport.request('session/cache-snapshot',${JSON.stringify(addr)}).then(x=>x&&({identity:x.identity,turns:x.session.turns.length}))`)
  if(restored?.identity!==snapshot.identity||restored.turns!==snapshot.turns)throw new Error('restored body identity mismatch')
- result.checks.restoreExact=true;result.checks.listenersAtEnd=assertListeners(desk.processGroup);result.phase='passed'
+ result.checks.restoreExact=true;await observedListeners('listenersAtEnd');result.phase='passed'
 } catch { result.error='checkpoint failed';process.exitCode=1 }
 finally {let stopped=true;try{await closeDesk(desk??{})}catch{stopped=false;result.cleanupError=true;process.exitCode=1} result.checks.hostGuardMetrics=guardMetrics.summary();console.log(JSON.stringify(result)); if(stopped)rmSync(taskRoot,{recursive:true,force:true})}
