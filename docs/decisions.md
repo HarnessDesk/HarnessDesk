@@ -105,6 +105,17 @@ Rejected:
 
 **Rule:** a piece the host would refuse is withheld before the body is built and counted in the log; a request refused before sending is settled at zero and says it was not sent, and why.
 
+Stored pieces that now fail that screen, including its host-only check against
+the configured provider key, are also replaced in the host's context file.
+Only a credential refusal authorizes replacement; an unavailable protection
+service stops the operation before the replacement is committed. The replacement uses the existing epoch swap: a new file is written,
+then a journal record advances the epoch and adds one content-free thread
+notice, then the file is installed. Restart uses the journal to choose the
+committed file. Tool calls and results keep their correlation; an active tool
+loop keeps its own signed reasoning. Newly submitted messages still pass their
+existing admission check. This avoids re-withholding the same stored piece on
+every later request without changing the credential screen.
+
 ## Review threads are settled by outcome — 2026-11-10
 
 After a repair round, a pull request is left full of open review threads: the ones the fix addressed and the ones the seat chose not to take. A reader cannot tell them apart without opening each, and a bot reviewer opens new ones on every push. The desk now settles each thread by what happened to it. A fixed thread is resolved and nothing is posted, because the commit is the answer and a "done" reply is noise in the reviewer's inbox. A declined thread gets exactly one plain sentence saying why and is left open, because the decision belongs to the reviewer, not to the seat that disagreed with them.
