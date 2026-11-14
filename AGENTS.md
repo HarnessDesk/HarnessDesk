@@ -237,16 +237,20 @@ Reviewed changes land on `development`, whose pushes run core CI; its nightly
 full run and full-tier release PR into `main` guard a merge commit that starts
 a release.
 
-Ordinary pull requests run core CI only in the bounded tier: build, typecheck,
-Node tests and end-to-end, UI unit tests, UI tests and gates. Browser shards,
-server-facing browser specs and native smoke run in the full tier: pushes to
-`main`, pull requests from `development` (the release PR), `batch/` pull requests,
-`full-ci` pull requests, and dispatched runs — manual and the nightly
-(`ciTier` in `script/ci-changes.mjs`).
-Local `check:push` still selects reached and edited specs with the PR geometry
-matrix; the CI summary lists that selection. Required check names stay fixed
-and accept intentional integration skips. The separate `CI tier: full` check
-proves the full tier to `script/land-safe.mjs`, which refuses bounded evidence.
+Pull requests targeting `development` use scoped CI only for allowlisted docs,
+test files and local component/panel changes with a complete affected selection.
+Every selected browser spec runs; the local four-shard sampling budget cannot
+authorize landing. Unknown paths, missing/stale selection evidence, shared UI,
+host, permissions, protocol, persistence, lifecycle, build and CI inputs start
+full CI immediately (`planCIChange` in `script/ci-changes.mjs`). Core checks —
+build, typecheck, Node tests and end-to-end, UI tests and gates — remain in every
+tier. Full CI retains every browser spec and native smoke, and also runs for
+`main`, release and `batch/` PRs, `full-ci` PRs, manual and nightly dispatches.
+The full-ci label triggers PR CI directly; other labels skip under separate names.
+Local `check:push` and development pushes retain their bounded selections.
+Required check names stay fixed. `script/land-safe.mjs` accepts completed scoped
+or full proof only from the same check suite as selection and required checks;
+bounded proof is refused, and releases still require full proof.
 See CONTRIBUTING.md for local selection and its limits.
 
 ## Account, publication, Lead and phone boundaries

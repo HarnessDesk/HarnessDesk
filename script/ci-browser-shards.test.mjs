@@ -39,7 +39,7 @@ test('the plan reaches the shards and metadata selects the tier, with manual dis
     assert.ok(changes.includes(`      ${output}: \${{ steps.paths.outputs.${output} }}`), output)
   }
   assert.match(workflow, /^  workflow_dispatch:$/m)
-  assert.match(workflow, /types: \[opened, synchronize, reopened\]/)
+  assert.match(workflow, /types: \[opened, synchronize, reopened, labeled\]/)
   assert.ok(changes.includes('CI_HEAD_BRANCH: ${{ github.head_ref }}'))
   assert.ok(changes.includes('CI_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}'))
   assert.match(changes, /UI_THEME_TOUCHED="\$theme" node script\/ci-changes\.mjs/)
@@ -49,9 +49,9 @@ test('the plan reaches the shards and metadata selects the tier, with manual dis
 
 test('the stable browser check requires every shard and keeps reports after failure (#1140)', () => {
   const aggregate = job('ui-system-browser-integration')
-  assert.match(aggregate, /^    name: UI system browser integration$/m)
+  assert.ok(aggregate.includes("|| 'UI system browser integration'"))
   assert.match(aggregate, /^    needs: \[changes, ui-system-build, ui-system-browser, ui-system-server\]$/m)
-  assert.match(aggregate, /^    if: always\(\)$/m)
+  assert.match(aggregate, /^    if: always\(\) && \(github\.event_name != 'pull_request' \|\| github\.event\.action != 'labeled' \|\| github\.event\.label\.name == 'full-ci'\)$/m)
   assert.match(aggregate, /SHARDS_RESULT: \$\{\{ needs.ui-system-browser.result \}\}/)
   assert.match(job('ui-system-browser'), /- uses: actions\/upload-artifact@\S+\n        if: failure\(\) \|\| cancelled\(\)\n        with:\n          name: ui-system-browser-report-\$\{\{ matrix.shard \}\}/)
 })
@@ -92,22 +92,22 @@ const runAggregate = (name, env) => {
 }
 
 for (const [event, path, expected] of [
-  ['pull_request', 'packages/ui/src/App.tsx', 'none'],
+  ['pull_request', 'docs/architecture.md', 'none'],
   ['push', 'docs/architecture.md', 'none'],
   ['push', 'e2e/ui-system/row-box.spec.ts', 'all'],
   ['push', 'packages/server/src/host.ts', 'server'],
 ]) {
-  test(`bounded ${event} for ${path} concludes both required integration checks successfully`, () => {
+  test(`selected ${event} for ${path} concludes both required integration checks successfully`, () => {
     const directory = mkdtempSync(join(tmpdir(), 'ci-core-'))
     try {
       const list = join(directory, 'paths')
       writeFileSync(list, `${path}\0`)
       const selection = spawnSync(process.execPath, ['script/ci-changes.mjs', list], {
-        encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: event, CI_REF_NAME: 'development', CI_HEAD_BRANCH: 'feature/ui', CI_LABELS: '[]', UI_IMPACT_MAP: '' },
+        encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: event, CI_REF_NAME: 'development', CI_BASE_BRANCH: 'development', CI_HEAD_BRANCH: 'feature/ui', CI_LABELS: '[]', UI_IMPACT_MAP: '' },
       })
       assert.equal(selection.status, 0, selection.stderr)
       const plan = Object.fromEntries(selection.stdout.trim().split('\n').map(line => line.split(/=(.*)/s).slice(0, 2)))
-      assert.equal(plan.tier, 'bounded')
+      assert.equal(plan.tier, event === 'pull_request' ? 'scoped' : 'bounded')
       assert.equal(plan.browser, expected)
       assert.equal(plan.native, 'false')
       const browser = runAggregate('ui-system-browser-integration', {
@@ -133,7 +133,7 @@ for (const [name, resultKey, flagKey, heavy] of [
   test(`${name} always concludes and receives the decision and heavy-job result`, () => {
     const aggregate = job(name)
     assert.match(aggregate, new RegExp(`^    needs: \\[changes, ${heavy}\\]$`, 'm'))
-    assert.match(aggregate, /^    if: always\(\)$/m)
+    assert.match(aggregate, /^    if: always\(\) && \(github\.event_name != 'pull_request' \|\| github\.event\.action != 'labeled' \|\| github\.event\.label\.name == 'full-ci'\)$/m)
     assert.match(aggregate, /^    runs-on: ubuntu-latest$/m)
     assert.ok(aggregate.includes(`${flagKey}: \${{ needs.changes.outputs.${flagKey.toLowerCase()} }}`))
     assert.ok(aggregate.includes(`${resultKey}: \${{ needs.${heavy}.result }}`))
@@ -159,7 +159,7 @@ for (const [name, resultKey, flagKey, heavy] of [
 test('browser aggregate receives both results and the three-way decision', () => {
   const aggregate = job('ui-system-browser-integration')
   assert.match(aggregate, /^    needs: \[changes, ui-system-build, ui-system-browser, ui-system-server\]$/m)
-  assert.match(aggregate, /^    if: always\(\)$/m)
+  assert.match(aggregate, /^    if: always\(\) && \(github\.event_name != 'pull_request' \|\| github\.event\.action != 'labeled' \|\| github\.event\.label\.name == 'full-ci'\)$/m)
   for (const line of [
     'BROWSER: ${{ needs.changes.outputs.browser }}',
     'SERVER_RESULT: ${{ needs.ui-system-server.result }}',
@@ -216,11 +216,10 @@ test('only heavy UI jobs are conditional; required check names stay conclusive',
   assert.match(job('ui-system-native'), /^    name: UI system native smoke$/m)
   assert.match(job('ui-system-native'), /^    runs-on: macos-15$/m)
   // The gate check is the one that waits for the rest, so it must conclude
-  // whatever they do: `always()`, and no other condition that could skip it.
-  assert.match(job('verify'), /^    if: always\(\)$/m)
-  assert.doesNotMatch(job('verify'), /^    if: (?!always\(\)$)/m)
+  // whatever they do; only unrelated label events have no work to aggregate.
+  assert.match(job('verify'), /^    if: always\(\) && \(github\.event_name != 'pull_request' \|\| github\.event\.action != 'labeled' \|\| github\.event\.label\.name == 'full-ci'\)$/m)
   for (const name of REQUIRED_CHECKS) {
-    assert.equal(workflow.split('\n').filter(line => line === `    name: ${name}`).length, 1, name)
+    assert.equal(workflow.split('\n').filter(line => line.includes(`|| '${name}'`)).length, 1, name)
   }
 })
 
@@ -238,7 +237,7 @@ const GATE_PARTS = [['node-tests', 'NODE_TESTS_RESULT'], ['ui-tests', 'UI_TESTS_
 
 test('the gate check waits for every part of the gate and packaging waits for it', () => {
   const gate = job('verify')
-  assert.match(gate, /^    name: Build, typecheck, test$/m)
+  assert.ok(gate.includes("|| 'Build, typecheck, test'"))
   assert.match(gate, /^    needs: \[node-tests, ui-tests, gates, ios-native-tests\]$/m)
   assert.match(gate, /^    runs-on: ubuntu-latest$/m)
   for (const [part, key] of GATE_PARTS) {

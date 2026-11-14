@@ -385,7 +385,7 @@ test('UI tests stays the aggregate and only accepts the exact requested result t
   const aggregate = job('ui-tests')
   assert.match(aggregate, /^    name: UI tests$/m)
   assert.match(aggregate, /^    needs: \[changes, ui-typecheck, ui-unit-tests\]$/m)
-  assert.match(aggregate, /^    if: always\(\)$/m)
+  assert.match(aggregate, /^    if: always\(\) && \(github\.event_name != 'pull_request' \|\| github\.event\.action != 'labeled' \|\| github\.event\.label\.name == 'full-ci'\)$/m)
   for (const line of ['CHANGES_RESULT: ${{ needs.changes.result }}', 'UNIT_MODE: ${{ needs.changes.outputs.unit_mode }}',
     'TYPECHECK_RESULT: ${{ needs.ui-typecheck.result }}', 'SHARDS_RESULT: ${{ needs.ui-unit-tests.result }}']) assert.ok(aggregate.includes(line), line)
   const shell = aggregate.match(/        run: \|\n([^]*)/)[1]

@@ -7,6 +7,44 @@ the rule is the last line of its section.
 
 ---
 
+## Complete affected coverage can land a low-risk change — 2026-11-14
+
+Core-only PR CI followed by mandatory full CI made even an isolated test repair
+wait for two runs. The owner approved scoped landing proof: Markdown, test files
+and local component/panel source are eligible through an explicit allowlist;
+shared UI, auth/approvals, renderer state, host/adapters, protocol, persistence,
+lifecycle, build/CI and unknown inputs require full validation on the first run.
+The importer graph constrains local UI to TSX and module stylesheets with one
+production component/panel consumer at most. A barrel is not proof of locality,
+and a stylesheet inherits its owner's classification, so a shared glyph or
+Markdown's CSS cannot look local merely because it has one direct importer.
+The shared local/development planner keeps its budget. CI requests a complete
+selection instead: every reached/edited spec runs, no spec is deferred to meet
+a time budget, and missing/stale/unresolvable evidence falls back to full.
+The required checks and core tests are unchanged. Scoped runs skip native smoke;
+full runs retain every browser spec and native smoke. Main and nightly recording
+remain unchanged, and only full proof can publish the exact-tree artifact.
+
+Landing accepts a scoped/full marker only with successful selection and all
+required checks in that same suite at the reviewed head. Bounded samples cannot
+authorize landing; releases and other targets still require full. Newer attempts,
+head movement and base movement retain their existing refusal rules.
+
+The full-ci label now admits the PR event directly instead of dispatching a
+workflow on a mutable branch. Label/synchronize events for the same labelled
+head share a full concurrency group, separate from ordinary PR events. Other
+labels skip under distinct `Label ignored: …` names, so no queued, cancelled or
+failed no-op can shadow a required check, selection or tier marker. Landing needs
+no exception for skipped suites. Main cancellation protection and development's
+per-push range groups remain intact.
+
+This supersedes the ordinary-PR core-only/full-before-every-landing rule and
+the label-dispatch admission described below. Speed is measured separately from
+coverage: removing a second full run reduces repeated work, but local planner
+estimates are not evidence of GitHub wall-clock savings.
+
+---
+
 ## The Lead names chats by short handles, never given twice, resolved before any check — 2026-11-12
 
 A chat id is `runtime:session`, forty-odd characters the model copies from a list into its next call. It mistypes them, and every list and notice pays for them in tokens. The host now gives each chat it shows the Lead a handle, from the project folder and the chat's model, or its agent when the desk does not know the model: `web-opus`, then `web-opus-2` for the next chat on the same base (`packages/lead/src/chat-handles.ts`).

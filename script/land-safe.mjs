@@ -54,9 +54,9 @@ const newestFirst = (a, b) => {
 
 /** Pure check-run decision. Only the newest run of each name is considered. */
 export const assessCheckRuns = (checkRuns, headSha, requiredNames = REQUIRED_CHECKS) => {
+  const relevant = checkRuns.filter(check => check.head_sha === headSha && check.app?.slug === REQUIRED_CHECK_APP)
   const newest = new Map()
-  for (const check of checkRuns) {
-    if (check.head_sha !== headSha || check.app?.slug !== REQUIRED_CHECK_APP) continue
+  for (const check of relevant) {
     const current = newest.get(check.name)
     if (!current || newestFirst(check, current) < 0) newest.set(check.name, check)
   }
@@ -71,15 +71,18 @@ export const assessCheckRuns = (checkRuns, headSha, requiredNames = REQUIRED_CHE
 // The tier is a check name, so gh pr checks shows it too. Require the newest
 // marker, from the same workflow check suite as every required aggregate. An
 // older full run (or a full marker from another workflow) cannot bless a PR run.
-export const hasFullCITier = decision => {
+export const hasLandingCITier = (decision, { requireFull = false } = {}) => {
   const proof = [...decision.newest.values()].filter(check => check.name.startsWith('CI tier: ')).sort(newestFirst)[0]
   const inputs = decision.newest.get('UI integration inputs')
-  return proof?.name === 'CI tier: full' && proof.status === 'completed' && proof.conclusion === 'success'
+  return (proof?.name === 'CI tier: full' || (!requireFull && proof?.name === 'CI tier: scoped'))
+    && proof.status === 'completed' && proof.conclusion === 'success'
     && proof.check_suite?.id != null
     && inputs?.status === 'completed' && inputs.conclusion === 'success'
     && inputs.check_suite?.id === proof.check_suite.id
     && decision.required.every(({ check }) => check?.check_suite?.id === proof.check_suite.id)
 }
+
+export const hasFullCITier = decision => hasLandingCITier(decision, { requireFull: true })
 
 const run = (runner, args) => String(runner(args) ?? '').trim()
 
@@ -164,8 +167,9 @@ export const landSafe = async (
       return 2
     }
 
-    if (!hasFullCITier(decision)) {
-      write(io.stdout, `DECISION: full CI tier required; use a batch/ branch or the full-ci label and run full CI. PR ${pr} was not merged.`)
+    const requireFull = initial.baseRefName !== 'development' || initial.headRefName === 'development' || initial.headRefName.startsWith('batch/')
+    if (!hasLandingCITier(decision, { requireFull })) {
+      write(io.stdout, `DECISION: ${requireFull ? 'full CI tier' : 'completed scoped or full CI tier'} required; use the full-ci label if scoped selection is unavailable. PR ${pr} was not merged.`)
       return 2
     }
 
