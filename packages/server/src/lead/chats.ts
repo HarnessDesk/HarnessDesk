@@ -13,7 +13,7 @@ import { LeadChatIncidents } from './incidents.js'
 import type { AgentError, LeadChatCandidate, LeadChatIncidentObservation, RateLimits, Turn } from '@harnessdesk/protocol'
 import { boundLeadChatRead } from './chat-read.js'
 import { leadAskOption } from './presence.js'
-import type { LeadWorkLedger, LeadWorkLinkState } from './work.js'
+import type { LeadWorkClaim, LeadWorkLedger, LeadWorkLinkState } from './work.js'
 import type { LeadChatHandlesPort } from './chat-handles.js'
 
 export class LeadChatBusyError extends Error { constructor() { super('That chat is busy; defer the recovery retry.') } }
@@ -70,7 +70,7 @@ export interface LeadChatsPorts {
   readonly pacing?: { readonly choose: () => Promise<{ readonly agent: string; readonly label: string } | null> }
   /** The work ledger's duplicate guard: a start joins an open item or makes one, and a duplicate is refused. It also
    * hears that the Lead is stopping a chat, so the stop is said to be the Lead's and not the person's. */
-  readonly ledger?: Pick<LeadWorkLedger, 'claim' | 'started' | 'release'> & Partial<Pick<LeadWorkLedger, 'stopping'>>
+  readonly ledger?: Pick<LeadWorkLedger, 'claim' | 'started' | 'release'> & Partial<Pick<LeadWorkLedger, 'stopping' | 'assertRetry' | 'current' | 'releaseRetry'>>
 }
 const refuse = (message: string): never => { throw new Error(message) }
 const MUTATIONS = new Set(['lead/chat/start', 'lead/chat/send', 'lead/chat/stop'])
@@ -540,6 +540,7 @@ export class LeadChats {
         return { id: '', problem: text.problem }
       }
       // The duplicate guard reads the ledger before anything is created, so a refusal starts nothing.
+      await this.ports.ledger?.current?.()
       const claim = this.ports.ledger ? await this.ports.ledger.claim({ title: params.text, quotes: this.#quoteIds(params), cause,
         ...(params.ledgerItem !== undefined ? { ledgerItem: params.ledgerItem } : {}), ...(params.moveFrom !== undefined ? { moveFrom: params.moveFrom } : {}) }) : undefined
       if (claim && 'problem' in claim) {
@@ -547,6 +548,7 @@ export class LeadChats {
         // The existing item rides the refusal, so the Lead can name it and offer to continue it.
         return { id: '', problem: claim.problem, ...(claim.item ? { ledgerItem: claim.item } : {}) }
       }
+      let creationDispatched = false
       try {
         // Claim first, then pace, then create: a refused duplicate never reads usage, and the fallback retry inside
         // #create runs under this one claim.
@@ -557,7 +559,7 @@ export class LeadChats {
         if (hold === null) { this.ports.noteDispatchNotStarted(attemptId); return { id: '', problem: this.ports.slots!.reasons.cap } }
         let result: Awaited<ReturnType<LeadChats['start']>>
         try {
-          result = await this.#create(params, call, text, agent, paced, admit, effectStarted, attemptId)
+          result = await this.#create(params, call, text, agent, paced, admit, () => { creationDispatched = true; effectStarted() }, attemptId, claim)
           if (result.id && !result.problem) await this.ports.slots?.mark(result.id, cause).catch(() => {})
         } finally { hold.release() }
         // A started chat is named at once, so the Lead's receipt already carries the name it will use.
@@ -565,11 +567,16 @@ export class LeadChats {
         if (handle) result = { ...result, handle }
         if (claim && result.id) return { ...result, ledgerItem: await this.ports.ledger!.started(claim, result.id) }
         return result
-      } finally { if (claim) this.ports.ledger!.release(claim) }
+      } finally {
+        if (claim) {
+          try { if (!creationDispatched) await this.ports.ledger!.releaseRetry?.(claim) }
+          finally { this.ports.ledger!.release(claim) }
+        }
+      }
     })
   }
   async #create(params: Omit<HostParams<'lead/chat/start'>, 'effectId'>, call: { readonly method: 'lead/chat/start'; readonly params: Omit<HostParams<'lead/chat/start'>, 'effectId'> },
-    text: string, agent: string | undefined, paced: { readonly agent: string; readonly label: string } | null, admit: (id?: string) => Promise<void>, effectStarted: () => void, attemptId: string): Promise<HostResult<'lead/chat/start'>> {
+    text: string, agent: string | undefined, paced: { readonly agent: string; readonly label: string } | null, admit: (id?: string) => Promise<void>, effectStarted: () => void, attemptId: string, claim?: LeadWorkClaim): Promise<HostResult<'lead/chat/start'>> {
     {
       const envelope = this.#envelope(text)
       await this.ports.control?.assertCanStart?.(this.ports.project.path)
@@ -589,7 +596,7 @@ export class LeadChats {
           if (params.moveFrom && !moveClaimed) { await this.incidents!.claimMove(params.moveFrom); moveClaimed = true }
           // Recorded before the first message leaves, so the transcript can vouch for it on first render.
           if (id) { await this.#watch(id); await this.#record(id, envelope); await admit(id); await this.#notHeld(id) }
-        }, () => { creationStarted = true; effectStarted() }, scope, [deskContextContent(envelope)], () => { firstMessageStarted = true })
+        }, () => { if (claim?.retry) this.ports.ledger?.assertRetry?.(claim); creationStarted = true; effectStarted() }, scope, [deskContextContent(envelope)], () => { firstMessageStarted = true })
         let result = await begin(agent)
         // A paced pick is only a preference: one that vanished before anything was created gives way to the desk default.
         let usedPaced = paced !== null

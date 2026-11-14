@@ -16,6 +16,7 @@ const rig = async (t: TestContext) => {
   const prs: { ref: string; state: 'open' | 'merged' | 'closed'; failing: boolean }[] = []
   const published: LeadWorkBoard[] = []
   let now = 1_000_000, replies = 0, asked = 0, project = 'acme-app', revision = 0
+  let retryAnswer: string | null = null
   const notes: string[] = []
   const ports = {
     file: join(home, 'lead', 'work.json'), now: () => now, project: () => project,
@@ -24,6 +25,7 @@ const rig = async (t: TestContext) => {
     pullRequests: () => prs,
     replies: () => replies,
     asked: () => asked,
+    approvedRetry: () => retryAnswer,
     revision: () => revision,
     noted: (text: string) => { notes.push(text) },
     publish: (board: LeadWorkBoard) => { published.push(board) },
@@ -32,8 +34,67 @@ const rig = async (t: TestContext) => {
   const chat = (id: string, stage: LeadStage, reason = stage === 'idle' ? 'idle' : stage === 'working' ? 'running' : 'worker-approval', turn?: string) => { chats.set(id, { stage, reason, ...(turn ? { turn } : {}) }) }
   return { ledger, ports, chats, teams, prs, published, chat, file: ports.file, home, notes,
     tick: (ms: number) => { now += ms }, now: () => now, reply: () => { replies++ }, ask: () => { asked++ }, turn: () => ++revision,
-    inProject: (name: string) => { project = name }, reopen: () => LeadWorkLedger.open(ports) }
+    inProject: (name: string) => { project = name }, approveRetry: async (id: string | null) => {
+      retryAnswer = id
+      if (id) await ledger.validateRetryAsk({ question: 'Start another chat for "Fix the login redirect" instead of continuing the existing chat?',
+        options: [{ id: 'start', label: 'Start another chat', starts: true }, { id: 'later', label: 'Not now' }], recommended: 'later',
+        retryOf: { item: 'work-1', attempt: 'fixture:a' } }, id)
+    }, reopen: () => LeadWorkLedger.open(ports) }
 }
+
+test('#2145: a retry receipt spent before an uncertain start stays spent after reopening the ledger', async t => {
+  const r = await rig(t)
+  await start(r, 'Fix the login redirect', ['m-1'], 'fixture:a')
+  await r.approveRetry('message-1')
+  const first = await r.ledger.claim({ title: 'Fix the login redirect (second attempt)', quotes: ['m-1'], ledgerItem: 'work-1' })
+  assert.ok(!('problem' in first))
+  const reopened = await r.reopen()
+  const again = await reopened.claim({ title: 'Fix the login redirect (second attempt)', quotes: ['m-1'], ledgerItem: 'work-1' })
+  assert.ok('problem' in again, 'an interrupted claim cannot spend the same answer again')
+})
+
+test('#2145: a retry is checked again at the creation boundary', async t => {
+  const r = await rig(t)
+  await start(r, 'Fix the login redirect', ['m-1'], 'fixture:a')
+  await r.approveRetry('message-1')
+  const claim = await r.ledger.claim({ title: 'Fix the login redirect (second attempt)', quotes: ['m-1'], ledgerItem: 'work-1' })
+  assert.ok(!('problem' in claim))
+  r.ledger.assertRetry(claim)
+  r.chat('fixture:a', 'working', 'running', 'turn-1')
+  const undo = r.ledger.stopping('fixture:a', 'person')
+  assert.throws(() => r.ledger.assertRetry(claim), /no longer current/, 'an in-flight stop fences creation')
+  undo()
+  r.ledger.assertRetry(claim)
+  await r.approveRetry(null)
+  assert.throws(() => r.ledger.assertRetry(claim), /no longer current/)
+  r.ledger.release(claim)
+})
+
+test('#2145: concurrent ledger claims reserve one retry answer once', async t => {
+  const r = await rig(t)
+  await start(r, 'Fix the login redirect', ['m-1'], 'fixture:a')
+  await r.approveRetry('message-1')
+  const input = { title: 'Fix the login redirect (second attempt)', quotes: ['m-1'], ledgerItem: 'work-1' }
+  const claims = await Promise.all([r.ledger.claim(input), r.ledger.claim(input)])
+  assert.equal(claims.filter(claim => !('problem' in claim)).length, 1)
+  const winner = claims.find(claim => !('problem' in claim))!
+  if (!('problem' in winner)) r.ledger.release(winner)
+  assert.ok('problem' in await r.ledger.claim(input), 'the reserved receipt remains spent')
+})
+
+test('#2145: a retry reservation is returned only when creation did not start', async t => {
+  const r = await rig(t)
+  await start(r, 'Fix the login redirect', ['m-1'], 'fixture:a')
+  await r.approveRetry('message-1')
+  const input = { title: 'Fix the login redirect (second attempt)', quotes: ['m-1'], ledgerItem: 'work-1' }
+  const claim = await r.ledger.claim(input)
+  assert.ok(!('problem' in claim))
+  await r.ledger.releaseRetry(claim)
+  r.ledger.release(claim)
+  const again = await r.ledger.claim(input)
+  assert.ok(!('problem' in again), 'the same answer may be used after a known pre-effect refusal')
+  r.ledger.release(again)
+})
 const start = async (r: Awaited<ReturnType<typeof rig>>, title: string, quotes: readonly string[], chatId: string, ledgerItem?: string) => {
   const claim = await r.ledger.claim({ title, quotes, ...(ledgerItem ? { ledgerItem } : {}) })
   if ('problem' in claim) return claim
@@ -627,6 +688,7 @@ test('another go at work the host closed is refused with that item named, and le
   const unasked = await r.ledger.claim({ title: 'Fix the login redirect', quotes: ['m-3'], ledgerItem: 'work-1' })
   assert.ok('problem' in unasked && /stopped once/.test(unasked.problem), 'ledgerItem is no way around the question')
   r.ask()
+  await r.approveRetry('message-stop-answer')
   const attempt = await start(r, 'Fix the login redirect', ['m-3'], 'fixture:b', 'work-1')
   assert.deepEqual(attempt, { item: 'work-1' }, 'the person answered: the attempt joins the same item')
   const item = await r.ledger.read({ id: 'work-1' })
@@ -644,7 +706,8 @@ test('a stop on a chat a newer attempt superseded names nobody; the newer chat\'
   const r = await rig(t)
   await start(r, 'Fix the login redirect', ['m-1'], 'fixture:a')
   r.chat('fixture:a', 'working', 'running', 't-a'); await r.ledger.refresh()
-  await start(r, 'Fix the login redirect', ['m-2'], 'fixture:b', 'work-1')
+  await r.approveRetry('message-approved')
+  assert.deepEqual(await start(r, 'Fix the login redirect', ['m-2'], 'fixture:b', 'work-1'), { item: 'work-1' })
   r.chat('fixture:b', 'working', 'running', 't-b'); await r.ledger.refresh()
   // The person stops the earlier attempt: it does not decide how the item ends, so nobody is named for it.
   r.ledger.stopping('fixture:a', 'person')
@@ -858,6 +921,7 @@ test('a retry under a reopened item ends by its own chat, not by the stopped try
   assert.equal((await r.ledger.read({ id: 'work-1' })).stage, 'stopped')
   assert.ok('problem' in await r.ledger.claim({ title: 'Fix the login redirect', quotes: ['m-2'], ledgerItem: 'work-1' }), 'the host asks first')
   r.ask()
+  await r.approveRetry('message-stop-answer')
   assert.deepEqual(await start(r, 'Fix the login redirect', ['m-2'], 'fixture:b', 'work-1'), { item: 'work-1' })
   r.chat('fixture:b', 'working'); await r.ledger.refresh()
   assert.equal((await r.ledger.read({ id: 'work-1' })).stage, 'working', 'the earlier stop does not close the new attempt')
