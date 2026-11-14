@@ -13,9 +13,9 @@ import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
 
-for (const source of [false, true]) for (const method of ['session/read', 'workspace/thread/read'] as const) {
+for (const source of [false, true]) for (const method of ['session/read', 'workspace/thread/read'] as const) for (const withUsage of [false, true]) {
   if (!source && method === 'workspace/thread/read') continue
-  test(`the first refused refresh is pending through ${method} with source=${source}`, async t => {
+  test(`the first refused refresh is pending through ${method} with source=${source}, usage=${withUsage}`, async t => {
     const root = tempDir('hd-first-pending-read-')
     const options = { logger: silent, state: new StateStore(join(root, 'state.json')), builtinAgents: root, catalogRefreshMs: 0 }
     const first = new Host(options), writer = new FakeRuntime()
@@ -26,6 +26,8 @@ for (const source of [false, true]) for (const method of ['session/read', 'works
     writer.emit({ type: 'item/completed', sessionId: created.id, turnId: turn.id,
       item: { id: itemId('saved'), type: 'assistantMessage', text: 'saved answer' } })
     writer.emit({ type: 'turn/completed', sessionId: created.id, turn: { ...turn, status: 'completed' } })
+    const tokens = { totalTokens: 150, inputTokens: 120, cachedInputTokens: 0, outputTokens: 30, reasoningOutputTokens: 0 }
+    if (withUsage) writer.emit({ type: 'usage/updated', sessionId: created.id, usage: { contextUsed: 120, contextWindow: 1000, total: tokens, last: tokens } })
     const saved = structuredClone(first.registry.get(created.runtime, created.id)!.session)
     await first.dispose()
     const host = new Host(options), runtime = new FakeRuntime()
@@ -33,7 +35,7 @@ for (const source of [false, true]) for (const method of ['session/read', 'works
     if (source) Object.assign(runtime, { sourceOf: async () => null })
     host.register(runtime); await host.start()
     t.after(() => host.dispose().catch(() => {}))
-    const replay: Session = { ...saved, turns: [{ ...saved.turns[0]!, items: [...saved.turns[0]!.items,
+    const replay: Session = { ...saved, ...(withUsage ? { usage: null } : {}), turns: [{ ...saved.turns[0]!, items: [...saved.turns[0]!.items,
       { id: itemId('recent'), type: 'assistantMessage', text: 'recent unsaved answer' }] }] }
     runtime.readSession = async () => replay
     // Start with a known record so reopen preparation does not queue a write
@@ -48,6 +50,7 @@ for (const source of [false, true]) for (const method of ['session/read', 'works
     assert.equal(read.historyPending, true, 'the read that establishes protection must carry the pending mark')
     assert.match(JSON.stringify(read.turns), /recent unsaved answer/)
     assert.deepEqual(db.read(created.runtime, created.id)!.turns, saved.turns)
+    if (withUsage) assert.deepEqual(db.read(created.runtime, created.id)!.usage, saved.usage, 'refused refresh leaves the exact old usage in durable storage')
     const record = host.registry.get(created.runtime, created.id)!
     assert.equal(record.session.historyPending, undefined, 'a served mark must not change writable session facts')
     const pushes: Session[] = []
@@ -59,6 +62,10 @@ for (const source of [false, true]) for (const method of ['session/read', 'works
     const healed = await host.call('session/read', { runtime: created.runtime, sessionId: created.id })
     assert.equal(healed.historyPending, undefined)
     assert.deepEqual(db.read(created.runtime, created.id)!.turns, replay.turns)
+    if (withUsage) {
+      assert.equal(healed.usage ?? null, null, 'the recovered advance does not revive the old usage')
+      assert.equal(db.read(created.runtime, created.id)!.usage ?? null, null)
+    }
     assert.equal(pushes.length, 1, 'a recovered save must push one cleared session')
     assert.equal(pushes[0]!.historyPending, undefined)
     await host.call('session/read', { runtime: created.runtime, sessionId: created.id })

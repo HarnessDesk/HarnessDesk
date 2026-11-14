@@ -298,6 +298,7 @@ import { acquireDeskWriter } from './goals/writer-lease.js'
 import { carryCardWork } from './card-claims.js'
 import { Team, type TeamPeer, type TeamSender, type TeamTurnFailure } from './team.js'
 import { transcriptSessionFacts, TranscriptSaveRefusedError, TranscriptStore } from './transcripts.js'
+import { conflictsWithRunningPrompt, reconcileProseReplay } from './reconcile-prose.js'
 import { HistoryImport } from './history-import.js'
 import { SESSION_REMOVE_UNDO_MS, SessionIndex } from './session-index.js'
 import { SessionIndexRepos } from './session-index-repos.js'
@@ -8155,8 +8156,12 @@ export class Host {
     try {
       const live = await this.#liveFor(runtime.info.id, id)
       const raw = await runtime.readSession(live.id)
+      const advancedWithoutUsage = await this.#gateReplayRead(runtime, raw)
+      const replayed = this.registry.get(runtime.info.id, live.id)
+      if (replayed?.transcriptIncomplete) return this.#pendingTranscriptView(replayed)
       this.#admitFirstReadBase(raw)
       const enriched = await this.#transcripts.enrichForRefresh(raw)
+      this.#clearAdvancedReplayUsage(runtime.info.id, live.id, advancedWithoutUsage)
       if (source) return this.#cacheRead(enriched.session, source.source, enriched.base)
       const stable = this.#preserveReadRecency(enriched.session)
       this.#transcripts.rememberReadBase(stable, enriched.base)
@@ -9282,6 +9287,39 @@ export class Host {
     finally { finishHistoryRead(); finishRead() }
   }
 
+  /** Check a silent read against the exact retained body before it can be saved. */
+  async #gateReplayRead(runtime: AgentRuntime, raw: Session): Promise<{ record: SessionRecord; revision: number; epoch: number } | undefined> {
+    const held = this.registry.get(runtime.info.id, raw.id)
+    if (!held || held.transcriptIncomplete || held.running.size > 0) return undefined
+    const revision = held.bodyRevision, epoch = held.bodyAuthorityEpoch
+    const descriptor = this.#recoveryDescriptors.get(held.bodyGeneration)
+    const turns = held.session.itemsLoaded ? held.session.turns : descriptor
+      ? descriptor.durableIdentity ? this.#transcripts.readRetainedTurnsAtBase(runtime.info.id, raw.id, descriptor.durableIdentity) : null
+      : this.#transcripts.readRetainedTurns(runtime.info.id, raw.id)
+    const verified = turns && (held.session.itemsLoaded || !descriptor || createHash('sha256').update(canonicalTranscriptBody(turns).canonical).digest('hex') === descriptor.identity)
+    // A newer independently readable SQLite body can legitimately supersede
+    // the old released descriptor (for example after a source refresh).
+    const durable = !verified && descriptor ? await this.#transcripts.recover(runtime.info.id, raw.id).catch(() => null) : null
+    if (this.registry.get(runtime.info.id, raw.id) !== held || held.bodyRevision !== revision || held.bodyAuthorityEpoch !== epoch) {
+      throw Object.assign(new Error('Conversation history changed while it was being read.'), { wireCode: 'historyUnavailable' })
+    }
+    const basis = verified ? turns : durable?.itemsLoaded ? durable.turns : null
+    const replay = basis ? reconcileProseReplay(raw, { turns: basis }) : null
+    if (replay?.kind === 'ambiguous' || (!basis && !held.session.itemsLoaded && !!descriptor)) {
+      // The ordinary event path owns hydration, conflict capture and fencing.
+      this.#onEvent(runtime.info.id, { type: 'session/started', session: raw }, runtime)
+    }
+    return replay?.kind !== 'ambiguous' && replay?.advanced === true && !raw.usage ? { record: held, revision, epoch } : undefined
+  }
+
+  /** Clear only an unchanged owner's stale usage, after enrichment succeeds. */
+  #clearAdvancedReplayUsage(runtime: RuntimeId, id: SessionId, proof: { record: SessionRecord; revision: number; epoch: number } | undefined): void {
+    if (proof && this.registry.get(runtime, id) === proof.record && proof.record.bodyRevision === proof.revision &&
+        proof.record.bodyAuthorityEpoch === proof.epoch && proof.record.session.usage) {
+      proof.record.session = { ...proof.record.session, usage: null }
+    }
+  }
+
   async #readTranscriptUntracked(runtime: AgentRuntime, id: SessionId, allowReopen = true, admitCwd?: DispatchAdmission<string>): Promise<Session> {
     const held = this.registry.get(runtime.info.id, id)
     if (held && this.#recoveredTranscriptBases.has(held.bodyGeneration)) {
@@ -9313,6 +9351,7 @@ export class Host {
     try {
       await this.#prepareReopenTranscript(runtime.info.id, id)
       const raw = await runtime.readSession(id)
+      const advancedWithoutUsage = await this.#gateReplayRead(runtime, raw)
       const replayed = this.registry.get(runtime.info.id, id)
       if (replayed?.transcriptIncomplete) {
         if (admitCwd) throw Object.assign(new Error('The chat project location cannot be verified while its history is unsaved.'), { wireCode: 'historyUnavailable' })
@@ -9323,6 +9362,11 @@ export class Host {
       await admitCwd?.(raw.cwd)
       this.#admitFirstReadBase(raw)
       const enriched = await this.#transcripts.enrichForRefresh(raw)
+      // A silent read must not let the registry carry an older usage value
+      // forward. Clear only that fact after enrichment, under the same owner
+      // fence. Synthesizing a session event here would enqueue a body write
+      // before refresh has obtained its durable base and protection path.
+      this.#clearAdvancedReplayUsage(runtime.info.id, id, advancedWithoutUsage)
       const session = { ...enriched.session,
         ...(runtime.info.capabilities.sourceTranscript ? { deskCopy: false } : {}) }
       if (this.#sessionIndex.fillMissingMetadata(session)) this.#sessionIndexRepos.read(session.cwd)
@@ -10491,7 +10535,33 @@ export class Host {
   }
 
   #evictCached(cap = this.options.cachedBodyCapBytes ?? 500 * 1024 * 1024): { count: number; bytes: number } {
-    return this.#transcripts.evictCached(cap, (runtime, id) => Boolean(this.registry.get(runtime, id)?.live))
+    // A cache eviction intentionally removes the durable base. Only that exact
+    // transaction can retire its released descriptor; a missing or unreadable
+    // body observed by a later read is not proof that the cache evicted it.
+    const owners = new Map<string, { record: SessionRecord; revision: number; epoch: number }>()
+    return this.#transcripts.evictCached(cap, (runtime, id) => {
+      const record = this.registry.get(runtime, id)
+      if (!record) return false
+      const generation = record.bodyGeneration, key = recordKey(record)
+      if (record.live || record.running.size > 0 || record.approvals.size > 0 ||
+          record.queue.messages.length > 0 || record.tasks.some(task => task.state === 'running') || this.#queueBusy(record) ||
+          record.transcriptIncomplete || this.#transcripts.hasOutstandingWrite(runtime, id) ||
+          this.#descriptorReleases.has(generation) || this.#pendingTranscriptOverlays.has(generation) ||
+          this.#recoveredTranscriptBases.has(generation) || this.#transcriptOperations.has(key) || this.#reattaching.has(key) ||
+          this.#reopenWaiters.has(key) || this.#dispatching.has(key) || this.#draining.has(key)) return true
+      owners.set(String(sessionKey(runtime, id)), { record, revision: record.bodyRevision, epoch: record.bodyAuthorityEpoch })
+      return false
+    }, (runtime, id) => {
+      const owner = owners.get(String(sessionKey(runtime, id)))
+      if (!owner || this.registry.get(runtime, id) !== owner.record || owner.record.bodyRevision !== owner.revision ||
+          owner.record.bodyAuthorityEpoch !== owner.epoch || owner.record.session.itemsLoaded || owner.record.live ||
+          owner.record.transcriptIncomplete) return
+      const generation = owner.record.bodyGeneration
+      this.#recoveryDescriptors.remove(generation)
+      this.#descriptorOwners.delete(generation)
+      this.#durableTranscriptBases.delete(owner.record)
+      this.#transcripts.unbindBase(owner.record.session, generation)
+    })
   }
 
   #scheduleCacheEviction(): void {
@@ -10669,6 +10739,23 @@ export class Host {
     return [...byBrand.values()]
   }
 
+  /** Keep the retained body and all pending observations until a replay is proven safe. */
+  #quarantineTranscriptReplay(held: SessionRecord, runtime: RuntimeId): { runtime: RuntimeId; id: SessionId; owner: object; capture: PendingTranscript } {
+    const key = `${held.bodyGeneration}\u0000${held.bodyAuthorityEpoch}`
+    const owner = {}, capture = new PendingTranscript({ runtime: String(runtime), sessionId: String(held.session.id), owner })
+    if (!capture.retainLocal(held.session, owner)) throw new Error('Cannot protect the current conversation body')
+    for (const body of this.#transcripts.pendingBodies(runtime, held.session.id, held.bodyGeneration, held.bodyAuthorityEpoch)) {
+      if (!capture.retainLocal(body, owner)) throw new Error('Cannot protect pending conversation activity')
+    }
+    const conflict = { runtime, id: held.session.id, owner, capture }
+    this.#conflictingTranscripts.set(key, conflict)
+    held.transcriptIncomplete = true
+    this.#logger.warn('Conversation history pending', { reason: 'replay-conflict', runtime, sessionId: held.session.id })
+    this.#transcripts.protectPending(runtime, held.session.id, held.bodyGeneration, held.bodyAuthorityEpoch)
+    this.#invalidateTranscriptCache(held)
+    return conflict
+  }
+
   #onEvent(runtime: RuntimeId, event: AgentEvent, source?: AgentRuntime): void {
     if (this.#disposed) return
     const id = event.type === 'session/started' ? event.session.id : event.type === 'approval/requested' ? event.approval.sessionId : 'sessionId' in event ? event.sessionId : undefined
@@ -10683,7 +10770,17 @@ export class Host {
       event.session.runtime === runtime && event.session.itemsLoaded && !event.session.partialHistory &&
       !this.#sessionIndex.isRemoved(runtime, event.session.id) && this.#transcripts.mayObserveInitialBase(event.session)
       ? this.#transcripts.observeBase(event.session, true) : undefined
-    if (held && event.type === 'session/started') {
+    let ambiguousProse = false, replaceReplayTurns = false, clearReplayUsage = false
+    if (held && event.type === 'session/started' && held.session.itemsLoaded && !held.transcriptIncomplete) {
+      if (held.running.size > 0) ambiguousProse = conflictsWithRunningPrompt(event.session, held.session, held.running)
+      else if (!this.#transcripts.pendingReplayConflict(event.session, held.bodyGeneration, held.bodyAuthorityEpoch, held.session)) {
+        const candidate = reconcileProseReplay(event.session, held.session)
+        ambiguousProse = candidate.kind === 'ambiguous'
+        if (candidate.kind === 'reconciled') { event = { ...event, session: candidate.session }; replaceReplayTurns = candidate.replaceTurns === true; clearReplayUsage = candidate.advanced === true && !candidate.session.usage }
+        else if (candidate.kind === 'ordinary' && candidate.advanced) clearReplayUsage = !event.session.usage
+      }
+    }
+    if (held && event.type === 'session/started' && !ambiguousProse) {
       event = { ...event, session: this.#transcripts.replayWithPendingMetadata(event.session, held.bodyGeneration, held.bodyAuthorityEpoch) }
     }
     if (held) {
@@ -10707,19 +10804,9 @@ export class Host {
       }
       const hasOldConflict = [...this.#conflictingTranscripts.keys()].some(entry => entry.startsWith(`${held.bodyGeneration}\u0000`))
       if (!conflict && ((event.type === 'session/started' && !held.transcriptIncomplete &&
-          this.#transcripts.pendingReplayConflict(event.session, held.bodyGeneration, held.bodyAuthorityEpoch, held.session)) ||
+          (ambiguousProse || this.#transcripts.pendingReplayConflict(event.session, held.bodyGeneration, held.bodyAuthorityEpoch, held.session))) ||
           (held.transcriptIncomplete && hasOldConflict))) {
-        const owner = {}, capture = new PendingTranscript({ runtime: String(runtime), sessionId: String(held.session.id), owner })
-        if (!capture.retainLocal(held.session, owner)) throw new Error('Cannot protect the current conversation body')
-        for (const body of this.#transcripts.pendingBodies(runtime, held.session.id, held.bodyGeneration, held.bodyAuthorityEpoch)) {
-          if (!capture.retainLocal(body, owner)) throw new Error('Cannot protect pending conversation activity')
-        }
-        conflict = { runtime, id: held.session.id, owner, capture }
-        this.#conflictingTranscripts.set(key, conflict)
-        held.transcriptIncomplete = true
-        this.#logger.warn('Conversation history pending', { reason: 'replay-conflict', runtime, sessionId: held.session.id })
-        this.#transcripts.protectPending(runtime, held.session.id, held.bodyGeneration, held.bodyAuthorityEpoch)
-        this.#invalidateTranscriptCache(held)
+        conflict = this.#quarantineTranscriptReplay(held, runtime)
       }
       if (conflict) {
         if (event.type === 'session/started') conflict.capture.quarantine(event, conflict.owner)
@@ -10739,6 +10826,7 @@ export class Host {
     }
     if (held?.transcriptIncomplete) this.#restorePendingTranscript(held)
     let hydrated = false
+    const wasUnloaded = !!held && !held.session.itemsLoaded
     if (held && !held.session.itemsLoaded && (event.type === 'session/started' || event.type.startsWith('turn/') || event.type.startsWith('item/') || event.type === 'notice' || event.type === 'error')) {
       const descriptor = this.#recoveryDescriptors.get(held.bodyGeneration)
       const turns = descriptor
@@ -10761,6 +10849,18 @@ export class Host {
           message: 'Saved conversation history is unavailable. New activity is being kept in memory.' } } })
       }
     }
+    // A released body is only comparable after its exact base is hydrated.
+    // Decide before registry.apply can fold the replay into that base.
+    if (wasUnloaded && held?.session.itemsLoaded && !held.transcriptIncomplete && held.running.size === 0 && event.type === 'session/started') {
+      const candidate = reconcileProseReplay(event.session, held.session)
+      if (candidate.kind === 'reconciled') { event = { ...event, session: candidate.session }; replaceReplayTurns = candidate.replaceTurns === true; clearReplayUsage = candidate.advanced === true && !candidate.session.usage }
+      else if (candidate.kind === 'ordinary' && candidate.advanced) clearReplayUsage = !event.session.usage
+      else if (candidate.kind === 'ambiguous') {
+        const conflict = this.#quarantineTranscriptReplay(held, runtime)
+        conflict.capture.quarantine(event, conflict.owner)
+        event = { ...event, session: { ...held.session, historyPending: true } }
+      }
+    }
     let replayOnlyBody = false
     if (held && !held.transcriptIncomplete && event.type === 'session/started') {
       const enriched = this.#transcripts.enrichReplay(event.session, held.session)
@@ -10769,6 +10869,12 @@ export class Host {
       replayOnlyBody = !this.#transcripts.hasOutstandingWrite(runtime, held.session.id) &&
         enriched !== event.session && isDeepStrictEqual(transcriptSessionFacts(enriched), transcriptSessionFacts(held.session))
       event = { ...event, session: enriched }
+    }
+    // The exact prose proof covers both histories. When source segmentation
+    // carries independent facts, merging turns by ID would duplicate moved
+    // items; fold against that proven replacement instead.
+    if ((replaceReplayTurns || clearReplayUsage) && held && !held.transcriptIncomplete && event.type === 'session/started') {
+      held.session = { ...held.session, ...(replaceReplayTurns ? { turns: event.session.turns } : {}), ...(clearReplayUsage ? { usage: null } : {}) }
     }
     if (event.type === 'account/changed') this.#accountReads.get(runtime)?.invalidate()
     if (event.type === 'catalog/changed' || event.type === 'runtime/options') {
