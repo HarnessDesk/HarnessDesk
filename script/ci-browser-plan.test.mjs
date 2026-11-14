@@ -72,6 +72,34 @@ test('every spec runs on exactly one shard, however many shards there are', () =
   }
 })
 
+test('the PR matrix deals into twelve complete shards instead of a second wave behind its twelve-slot budget', () => {
+  const specs = specFiles(root)
+  const seconds = Object.fromEntries(specs.map(spec => [spec, 1000]))
+  assert.equal(shardCount(specs, seconds, { matrix: 'pr' }), 12)
+  assert.equal(shardCount(specs, seconds, { matrix: 'full' }), MAX_SHARDS)
+  assert.deepEqual(plan(specs, seconds, 12).flatMap(shard => shard.specs).sort(), specs)
+  assert.equal(shardCount(['a', 'b', 'c'], { a: 400, b: 400, c: 400 }, { matrix: 'pr' }), 2, 'smaller PR deals target five minutes of test work')
+})
+
+test('recorded work accounts for the different static and dev worker counts', () => {
+  const log = [
+    'Running 2 tests using 3 workers',
+    '  ✓  1 e2e/ui-system/static.spec.ts:1:1 › first (30.0s)',
+    '  ✓  2 e2e/ui-system/static.spec.ts:2:1 › second (30.0s)',
+    'Running 1 test using 2 workers',
+    '  ✓  1 e2e/ui-system/dev.spec.ts:1:1 › reads source (30.0s)',
+  ].join('\n')
+  assert.deepEqual(secondsFromLogs([log]), { 'dev.spec.ts': 30, 'static.spec.ts': 40 })
+  const prefixed = [
+    'UI system browser integration shard 1/2\tSpecs\tRunning 2 tests using 3 workers',
+    'UI system browser integration shard 2/2\tSpecs\tRunning 1 test using 2 workers',
+    'UI system pages\tTry the build\tRunning 1 test using 1 worker',
+    'UI system browser integration shard 1/2\tSpecs\t  ✓  1 e2e/ui-system/static.spec.ts:1:1 › first (30.0s)',
+    'UI system browser integration shard 2/2\tSpecs\t  ✓  1 e2e/ui-system/dev.spec.ts:1:1 › source (30.0s)',
+  ].join('\n')
+  assert.deepEqual(secondsFromLogs([prefixed]), { 'dev.spec.ts': 30, 'static.spec.ts': 20 })
+})
+
 test('the browser matrix is the planner\'s shards, numbered from one, and the job names the count it was dealt', () => {
   const job = workflow.match(/ui-system-browser:[\s\S]*?(?=\n  [\w-]+:\n)/)?.[0] ?? ''
   assert.match(job, /shard:\s*\$\{\{\s*fromJSON\(needs\.changes\.outputs\.shards\)\s*\}\}/, 'the matrix is the list the planner printed')
@@ -82,7 +110,7 @@ for (const matrix of ['full', 'pr']) {
   test(`the ${matrix} suite's heaviest planned shard is at most 1.15 times its mean`, () => {
     const specs = specFiles(root)
     const seconds = recordedSeconds(root, matrix)
-    const count = matrix === 'full' ? MAX_SHARDS : shardCount(specs, seconds)
+    const count = matrix === 'full' ? MAX_SHARDS : shardCount(specs, seconds, { matrix })
     const loads = plan(specs, seconds, count).map(shard => shard.load)
     const mean = loads.reduce((sum, load) => sum + load, 0) / loads.length
     const heaviest = Math.max(...loads)

@@ -6284,7 +6284,11 @@ before it could measure one fixture. Focused contracts now opt into `isolate`
 for a supported fixture family, or an explicit `frames` list for catalogue
 specimens. The complete catalogue remains the default. The component coverage
 census, whole-page audits and behavior journeys keep their original scope.
-Theme and interface controls remain available on isolated families.
+Theme and interface controls remain available on isolated families. Their store
+and theme subscriptions live in a small controls component: changing appearance
+must update those controls and the body theme without recommitting the entire
+catalogue parent. A commit-count regression guards this; each specimen retains
+its own store subscription.
 
 The two geometry loops in `flow-graph.spec.ts` and the receipt-title loop in
 `team-record.spec.ts` only read separate drawings/stores. Their 42 duplicate
@@ -6295,9 +6299,13 @@ that fixture isolation actually omits unrelated specimens and keeps controls.
 
 Built pages on a four-core CI runner can use three browser workers because
 they do not compile source; the dev server keeps two. Built-page runs keep all
-shards but start at most twelve together, so one PR cannot occupy sixteen of
+specs but deal at most twelve balanced shards, all eligible together, so one PR cannot occupy sixteen of
 the twenty hosted slots with browsers. Recording runs retain their existing
-seventeen-slot ceiling. Baseline recording stays
+seventeen-slot ceiling. The PR table is refreshed from the successful run and
+normalizes each group's measured test seconds to two-worker equivalents, so a
+three-worker static group and a two-worker dev group can be balanced together.
+PR selections target 600 equivalent seconds per shard; a complete suite carries
+more when it reaches the twelve-shard ceiling. Baseline recording stays
 serial, retries stay zero, and test deadlines do not change. The full tier still
 runs every browser spec, both theme matrices where required, and native smoke.
 

@@ -25,6 +25,18 @@ test('a selected catalogue frame keeps its controls and omits unrelated specimen
   await expect(page.locator('[data-frame-id="settings-sheet"]')).toHaveCount(0)
 })
 
+test('appearance changes update the controls and theme without rerendering the whole catalogue', async ({ page }) => {
+  await page.goto('/preview.html?measure-preview&frames=dashboard-overview&theme=light')
+  const commits = () => page.evaluate(() => (window as unknown as { __hdPreviewParentCommits: number }).__hdPreviewParentCommits)
+  await expect.poll(commits).toBeGreaterThan(0)
+  const before = await commits()
+  await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption('dark')
+  await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
+  await expect(page.getByRole('combobox', { name: 'theme', exact: true })).toHaveValue('dark')
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  expect(await commits()).toBe(before)
+})
+
 for (const theme of ['light', 'dark'] as const) {
   test(`Wrapped Team: the shell title and receipt keep their own measured edges in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })

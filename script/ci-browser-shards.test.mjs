@@ -41,7 +41,7 @@ test('browser CI sizes its shards to the work, up to sixteen, with time for setu
   assert.match(browser, /^            node script\/ui-system-run\.mjs "\$\{specs\[@\]\}"$/m)
   assert.doesNotMatch(browser, /--shard=/)
   assert.match(browser, /^      fail-fast: false$/m)
-  assert.ok(browser.includes("max-parallel: ${{ needs.changes.outputs.record == 'true' && 17 || 12 }}"), 'built-page runs leave hosted slots for core checks and other PRs')
+  assert.doesNotMatch(browser, /max-parallel:/, 'the complete planned bins start together rather than creating another wave')
 })
 
 test('the plan reaches the shards and metadata selects the tier, with manual dispatch always full', () => {

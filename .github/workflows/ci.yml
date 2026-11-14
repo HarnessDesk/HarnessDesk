@@ -591,15 +591,13 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      # Three workers on built pages carry the work with fewer simultaneous
-      # hosted slots. Keep all shards; twelve at once leave room for core CI
-      # and other PRs. Recording/dev runs retain their existing runner budget.
-      max-parallel: ${{ needs.changes.outputs.record == 'true' && 17 || 12 }}
+      # The planner balances built-page work into at most twelve complete
+      # shards, all eligible at once. Recording keeps its seventeen-shard cap.
       matrix:
-        # As many shards as the work needs, from one to sixteen: each carries
-        # about 1,500 recorded dev-server seconds of tests. Static runs finish
-        # earlier; script/ci-browser-shards.mjs still sizes the shards from those
-        # times and script/ci-changes.mjs counts them. Development pushes also
+        # Up to twelve complete PR-matrix bins, or seventeen recording bins.
+        # PR selections target 600 two-worker-equivalent seconds; the complete
+        # suite may carry more at the cap. The dealer accounts for static and
+        # dev worker counts. script/ci-changes.mjs counts them; development pushes
         # run the bounded selection. A skipped browser job keeps [1] so its
         # matrix stays well formed.
         shard: ${{ fromJSON(needs.changes.outputs.shards) }}

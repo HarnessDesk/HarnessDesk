@@ -619,9 +619,75 @@ const SETTINGS_SECTIONS = [
   'browser',
 ] as const satisfies readonly Section[]
 
-const Preview = () => {
+/** Keep appearance subscriptions off the catalogue parent: its independent
+ * specimens inherit the CSS and keep their own store subscriptions. */
+const PreviewAppearanceControls = ({ compact = false }: { compact?: boolean }) => {
   useTheme()
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot)
+  const theme = (
+        <Dial
+          label="theme"
+          value={snapshot.theme}
+          options={['system', 'light', 'dark'] as const}
+          onChange={(next) => store.setTheme(next)}
+        />
+  )
+  const look = (
+        <Dial
+          label="interface"
+          value={snapshot.look}
+          options={['desk', 'studio'] as const}
+          onChange={(next) => store.setLook(next)}
+        />
+  )
+  if (compact) return <>{theme}{look}</>
+  return <>{theme}
+        <Dial
+          label="palette"
+          value={snapshot.palette}
+          options={['harnessdesk', 'editorial', 'shadcn'] as const}
+          onChange={(next) => store.setPalette(next)}
+        />
+        <Dial
+          label="accent"
+          value={snapshot.accent}
+          options={['default', 'violet', 'green', 'rose', 'orange', 'mono'] as const}
+          onChange={(next) => store.setAccent(next)}
+        />
+    {look}
+        <Dial
+          label="corners"
+          value={snapshot.corners}
+          options={['default', 'square', 'round'] as const}
+          onChange={(next) => store.setCorners(next)}
+        />
+        <Dial
+          label="surface"
+          value={snapshot.surface}
+          options={['cards', 'sheet'] as const}
+          onChange={(next) => store.setSurface(next)}
+        />
+        <Dial
+          label="faces"
+          value={snapshot.faces}
+          options={['round', 'square'] as const}
+          onChange={(next) => store.setFaces(next)}
+        />
+  </>
+}
+
+const PreviewSaveAsAgent = ({ onClose }: { onClose: () => void }) => {
+  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot)
+  return <SaveAsAgentDialog session={snapshot.sessions.get(PREVIEW_SESSION_KEY)!} onClose={onClose} />
+}
+
+const Preview = () => {
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has('measure-preview')) {
+      const measured = window as unknown as { __hdPreviewParentCommits?: number }
+      measured.__hdPreviewParentCommits = (measured.__hdPreviewParentCommits ?? 0) + 1
+    }
+  })
   // The whole `Section`, not just the dial's shortlist: the sheet's own nav
   // rail writes back here too, and it offers every page.
   const [settingsSection, setSettingsSection] = useState<Section>('general')
@@ -665,48 +731,7 @@ const Preview = () => {
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <span className="text-sm font-semibold">Screen preview</span>
         <GuidesDial />
-        <Dial
-          label="theme"
-          value={snapshot.theme}
-          options={['system', 'light', 'dark'] as const}
-          onChange={(next) => store.setTheme(next)}
-        />
-        <Dial
-          label="palette"
-          value={snapshot.palette}
-          options={['harnessdesk', 'editorial', 'shadcn'] as const}
-          onChange={(next) => store.setPalette(next)}
-        />
-        <Dial
-          label="accent"
-          value={snapshot.accent}
-          options={['default', 'violet', 'green', 'rose', 'orange', 'mono'] as const}
-          onChange={(next) => store.setAccent(next)}
-        />
-        <Dial
-          label="interface"
-          value={snapshot.look}
-          options={['desk', 'studio'] as const}
-          onChange={(next) => store.setLook(next)}
-        />
-        <Dial
-          label="corners"
-          value={snapshot.corners}
-          options={['default', 'square', 'round'] as const}
-          onChange={(next) => store.setCorners(next)}
-        />
-        <Dial
-          label="surface"
-          value={snapshot.surface}
-          options={['cards', 'sheet'] as const}
-          onChange={(next) => store.setSurface(next)}
-        />
-        <Dial
-          label="faces"
-          value={snapshot.faces}
-          options={['round', 'square'] as const}
-          onChange={(next) => store.setFaces(next)}
-        />
+        <PreviewAppearanceControls />
         <Dial
           label="dialog"
           value={dialog}
@@ -780,10 +805,7 @@ const Preview = () => {
         />
       )}
       {dialog === 'save as agent' && (
-        <SaveAsAgentDialog
-          session={store.getSnapshot().sessions.get(PREVIEW_SESSION_KEY)!}
-          onClose={() => setDialog('off')}
-        />
+        <PreviewSaveAsAgent onClose={() => setDialog('off')} />
       )}
       {dialog === 'remove' || dialog === 'bring back' ? (
         <WorktreeDialogs which={dialog} onClose={() => setDialog('off')} />
@@ -1265,8 +1287,6 @@ const RunPreview = () => {
 
 /** Focused browser contracts opt in; the complete catalogue remains the default. */
 const IsolatedPreview = () => {
-  useTheme()
-  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot)
   const params = new URLSearchParams(window.location.search)
   let frames
   if (params.has('team-record')) frames = <TeamRecordFrames />
@@ -1280,8 +1300,7 @@ const IsolatedPreview = () => {
   else if (params.has('composer-slots')) frames = <ComposerSlotsFrames />
   else throw new Error('Unknown isolated preview: name a supported fixture')
   return <div className="min-h-full bg-background p-4 text-foreground">
-    <Dial label="theme" value={snapshot.theme} options={['system', 'light', 'dark'] as const} onChange={next => store.setTheme(next)} />
-    <Dial label="interface" value={snapshot.look} options={['desk', 'studio'] as const} onChange={next => store.setLook(next)} />
+    <PreviewAppearanceControls compact />
     {frames}
   </div>
 }
