@@ -14,6 +14,7 @@ import { leadContainsSecret } from '../lead/secrets.js'
 import type { OfferAnswer } from './admission.js'
 import type { ArmedTrigger } from './consent.js'
 import type { MentionThread } from './forge.js'
+import { FIRING_LIMIT } from './store.js'
 
 /**
  * Mentions: a comment on the forge that addresses the desk by its handle asks
@@ -176,6 +177,9 @@ interface StoredThread extends TriggerWorkThread {
   readonly workItem?: string
 }
 
+/** The public thread may be evicted; keep its lifetime IDs while these exact firings remain pending. */
+interface PendingThread extends StoredThread { readonly pendingFirings: readonly string[] }
+
 /** A decision as the desk keeps it: with the digest of the comment it decided, never shown. */
 interface StoredDecision extends TriggerDecision {
   readonly commentDigest?: string
@@ -187,11 +191,13 @@ interface LedgerFile {
   readonly version: 1
   readonly decisions: readonly StoredDecision[]
   readonly threads: readonly StoredThread[]
+  /** Authority retained only while one of these exact firings is pending. */
+  readonly pendingThreads: readonly PendingThread[]
   readonly modes: Readonly<Record<string, { readonly mode: TriggerMode; readonly armedAt: number }>>
   readonly assessed: { readonly day: string; readonly count: number }
 }
 
-const EMPTY: LedgerFile = { version: 1, decisions: [], threads: [], modes: {}, assessed: { day: '', count: 0 } }
+const EMPTY: LedgerFile = { version: 1, decisions: [], threads: [], pendingThreads: [], modes: {}, assessed: { day: '', count: 0 } }
 
 const isMap = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 
@@ -201,15 +207,36 @@ const ledgerOf = (value: unknown): LedgerFile | null => {
   const decisions = value['decisions'].filter((one): one is StoredDecision =>
     isMap(one) && typeof one['id'] === 'string' && typeof one['trigger'] === 'string' && typeof one['project'] === 'string' && TRIAGES.has(String(one['decision'])) &&
     isMap(one['comment']) && isMap(one['thread']) && Array.isArray(one['rules']))
-  const threads = value['threads'].filter((one): one is StoredThread =>
-    isMap(one) && typeof one['id'] === 'string' && isMap(one['links']) && Array.isArray(one['firings']) && Array.isArray(one['seen']) && isMap(one['origin']))
+  const isThread = (one: unknown): one is StoredThread =>
+    isMap(one) && typeof one['id'] === 'string' && isMap(one['links']) && Array.isArray(one['firings']) && Array.isArray(one['seen']) && isMap(one['origin'])
+  const threads = value['threads'].filter(isThread)
+  const pending = value['pendingThreads']
+  const isPendingThread = (one: unknown): one is PendingThread => {
+    if (!isThread(one) || typeof one.project !== 'string' || typeof one.trigger !== 'string' || typeof one.repository !== 'string' ||
+      !['open', 'closed'].includes(one.state) || !['issue', 'pull-request'].includes(one.origin.kind) ||
+      !Number.isSafeInteger(one.origin.number) || one.origin.number < 1 || !Array.isArray(one.links.issues) ||
+      !Array.isArray(one.links.pulls) || !Array.isArray(one.links.goals) || !one.firings.length || one.firings.length > FIRING_LIMIT ||
+      one.seen.length > THREAD_SEEN || !one.seen.every(id => typeof id === 'string') ||
+      !Array.isArray((one as PendingThread).pendingFirings) || !(one as PendingThread).pendingFirings.length) return false
+    const numbers = (items: readonly number[]) => items.every(item => Number.isSafeInteger(item) && item > 0)
+    return numbers(one.links.issues) && numbers(one.links.pulls) && one.links.goals.every(goal => typeof goal === 'string') &&
+      one.firings.every(key => typeof key === 'string' && /^[0-9a-f]{64}$/.test(key)) &&
+      (one as PendingThread).pendingFirings.every(key => one.firings.includes(key)) &&
+      (one.origin.kind === 'issue' ? one.links.issues.includes(one.origin.number) : one.links.pulls.includes(one.origin.number)) &&
+      (one.state === 'open' ? one.closed === null : one.closed !== null && isMap(one.closed))
+  }
+  if (pending !== undefined && (!Array.isArray(pending) || pending.length > FIRING_LIMIT || !pending.every(isPendingThread))) return null
+  const pendingThreads = (pending ?? []) as PendingThread[]
+  const keys = pendingThreads.flatMap(one => one.pendingFirings)
+  const lifetime = pendingThreads.flatMap(one => one.firings)
+  if (keys.length > FIRING_LIMIT || new Set(keys).size !== keys.length || lifetime.length > FIRING_LIMIT || new Set(lifetime).size !== lifetime.length) return null
   const modes: Record<string, { mode: TriggerMode; armedAt: number }> = {}
   for (const [key, entry] of Object.entries(value['modes'])) {
     if (isMap(entry) && (entry['mode'] === 'act' || entry['mode'] === 'observe') && Number.isSafeInteger(entry['armedAt'])) modes[key] = { mode: entry['mode'], armedAt: entry['armedAt'] as number }
   }
   const assessed = value['assessed']
   return {
-    version: 1, decisions, threads, modes,
+    version: 1, decisions, threads, pendingThreads, modes,
     assessed: typeof assessed['day'] === 'string' && Number.isSafeInteger(assessed['count']) ? { day: assessed['day'], count: assessed['count'] as number } : EMPTY.assessed,
   }
 }
@@ -238,6 +265,12 @@ export interface MentionPort {
    * How many runs of each it stopped, and whether the Lead's plan was stopped.
    */
   stop(work: { readonly goals: readonly string[]; readonly firings: readonly string[]; readonly comment: string }, why: string): Promise<{ readonly own: number; readonly lead: number; readonly plan: boolean; readonly queued: number }>
+  /** Exact Lead firing keys still pending in the bounded admission journal. */
+  pendingFirings(): readonly string[]
+  /** Every lifetime firing must still have its durable admission tombstone. */
+  knowsFirings(project: string, trigger: string, keys: readonly string[]): boolean
+  /** Existing mention sweep interval: the longest a live observation can authorize retries. */
+  readonly observationWindowMs: number
   /** Commit a natural thread closure between admission deliveries. */
   closeThread(close: () => Promise<void>): Promise<void>
   /** The pull requests the work on these Goals and firings opened, by number. */
@@ -271,6 +304,9 @@ export class MentionTriage {
   #problem: string | null = null
   /** Who-may-ask answers from the forge, by question, with when they were read. */
   readonly #accounts = new Map<string, { readonly answer: boolean; readonly at: number }>()
+  /** Observed-open firings expire at the existing mention sweep interval. */
+  readonly #verified = new Map<string, number>()
+  #sweepOffset = 0
   /** Threads the work ledger refused, by when to offer them again; and those already said, so each is said once. */
   readonly #attachHeld = new Map<string, number>()
   readonly #attachSaid = new Set<string>()
@@ -309,8 +345,17 @@ export class MentionTriage {
   }
 
   async #write(next: LedgerFile): Promise<void> {
+    const pending = new Set(this.#port.pendingFirings())
+    const anchors = new Map<string, PendingThread>()
+    // The visible history wins when it is present; an evicted thread's
+    // pending-only copy survives until its last pending firing settles.
+    for (const thread of [...next.pendingThreads, ...next.threads]) {
+      const pendingFirings = thread.firings.filter(key => pending.has(key))
+      if (pendingFirings.length) anchors.set(thread.id, { ...thread, pendingFirings })
+    }
     const trimmed: LedgerFile = {
       ...next,
+      pendingThreads: [...anchors.values()],
       decisions: next.decisions.slice(-TRIGGER_DECISIONS_KEPT),
       threads: next.threads.length > TRIGGER_THREADS_KEPT
         // Closed ones go first, then the oldest open.
@@ -380,19 +425,41 @@ export class MentionTriage {
   }
 
   /** Check without taking the mention queue: admission is to its right. */
-  async closedFiring(key: string): Promise<'open' | 'unrecorded' | 'recorded'> {
+  async closedFiring(key: string): Promise<'open' | 'unverified' | 'unknown' | 'unrecorded' | 'recorded'> {
     const ledger = await this.#read()
-    const thread = ledger.threads.find(one => one.state === 'closed' && one.firings.includes(key))
-    if (!thread) return 'open'
-    const id = `d-${digest([thread.id, 'closed-firing', key])}`
-    return ledger.decisions.some(one => one.id === id) ? 'recorded' : 'unrecorded'
+    if (ledger.decisions.some(one => one.closedFiring === key)) return 'recorded'
+    const thread = [...ledger.pendingThreads, ...ledger.threads].find(one => one.firings.includes(key))
+    if (!thread) return 'unknown'
+    if (thread.state === 'closed') return 'unrecorded'
+    const observed = this.#verified.get(key)
+    const age = observed === undefined ? -1 : this.#port.now() - observed
+    if (age < 0 || age >= this.#port.observationWindowMs) return 'unverified'
+    return 'open'
+  }
+
+  /** Associate a legacy visible thread after admission releases its queue. */
+  associateFiring(key: string): Promise<void> {
+    return this.#serial.run(async () => {
+      const ledger = await this.#read()
+      if (ledger.pendingThreads.some(one => one.firings.includes(key))) return
+      if (ledger.threads.some(one => one.firings.includes(key))) await this.#write(ledger)
+    })
+  }
+
+  /** Remove only anchors whose admission operations have completed. */
+  prunePending(): Promise<void> {
+    return this.#serial.run(async () => {
+      const ledger = await this.#read(), pending = new Set(this.#port.pendingFirings())
+      if (ledger.pendingThreads.some(one => one.pendingFirings.some(key => !pending.has(key)))) await this.#write(ledger)
+      for (const key of this.#verified.keys()) if (!pending.has(key)) this.#verified.delete(key)
+    })
   }
 
   /** Durable, idempotent decision before admission removes a closed thread's firing. */
   recordClosedFiring(key: string, fact: TriggerFact): Promise<void> {
     return this.#serial.run(async () => {
       const ledger = await this.#read()
-      const thread = ledger.threads.find(one => one.state === 'closed' && one.firings.includes(key))
+      const thread = [...ledger.pendingThreads, ...ledger.threads].find(one => one.state === 'closed' && one.firings.includes(key))
       if (!thread) return
       const id = `d-${digest([thread.id, 'closed-firing', key])}`
       if (ledger.decisions.some(one => one.id === id)) return
@@ -427,7 +494,7 @@ export class MentionTriage {
       const mode = this.#modeOf(ledger, arm)
       const addressed = addressesHandle(fact.body ?? '', handle)
 
-      const linked = ledger.threads.find((one) => one.project === arm.project && one.trigger === arm.id && one.state === 'open' &&
+      const linked = [...ledger.threads, ...ledger.pendingThreads].find((one) => one.project === arm.project && one.trigger === arm.id && one.state === 'open' &&
         (one.links.issues.includes(number) || one.links.pulls.includes(number)))
       if (linked) {
         if (linked.seen.includes(id)) return
@@ -554,8 +621,17 @@ export class MentionTriage {
       } catch {
         return
       }
-      for (const thread of ledger.threads.filter((one) => one.state === 'open')) {
+      const unique = new Map([...ledger.pendingThreads, ...ledger.threads].map(one => [one.id, one]))
+      const open = [...unique.values()].filter(one => one.state === 'open')
+      // Never check more threads per sweep than the existing history bound;
+      // rotate so evicted but pending work is not starved.
+      const batch = open.length <= TRIGGER_THREADS_KEPT ? open : Array.from({ length: TRIGGER_THREADS_KEPT }, (_, i) => open[(this.#sweepOffset + i) % open.length]!)
+      this.#sweepOffset = open.length ? (this.#sweepOffset + batch.length) % open.length : 0
+      for (const thread of batch) {
         try {
+          const pending = new Set(this.#port.pendingFirings())
+          if (thread.firings.some(key => pending.has(key)) && !this.#port.knowsFirings(thread.project, thread.trigger, thread.firings))
+            throw new Error('a pending thread firing has no durable intake record')
           const found = await this.#port.pullRequests(thread.repository, thread.links.goals, thread.firings)
           const pulls = [...new Set([...thread.links.pulls, ...found.filter((one) => Number.isSafeInteger(one) && one > 0)])]
           let next: StoredThread = pulls.length === thread.links.pulls.length ? thread : { ...thread, links: { ...thread.links, pulls } }
@@ -569,6 +645,11 @@ export class MentionTriage {
             const issues = await Promise.all(thread.links.issues.map((one) => this.#port.forge.thread(thread.project, thread.repository, one, this.#port.signal)))
             if (issues.every((issue) => issue.state === 'closed')) next = { ...next, state: 'closed', closed: { reason: 'closed', at: this.#port.now() } }
           }
+          if (next.state === 'open' && (pulls.length > 0 || next.links.issues.length > 0)) {
+            for (const key of next.firings) if (pending.has(key)) this.#verified.set(key, this.#port.now())
+          } else if (next.state === 'closed') {
+            for (const key of next.firings) this.#verified.delete(key)
+          }
           if (next !== thread) {
             if (next.state === 'closed') await this.#port.closeThread(() => this.#thread(thread.id, () => next).then(() => {}))
             else await this.#thread(thread.id, () => next)
@@ -579,6 +660,7 @@ export class MentionTriage {
             await this.#attach(thread, true)
           }
         } catch (error) {
+          for (const key of thread.firings) this.#verified.delete(key)
           this.#port.log('a mention thread could not be followed', { error: error instanceof Error ? error.message : String(error) })
         }
       }
@@ -712,6 +794,8 @@ export class MentionTriage {
     }
     const ledger = await this.#read()
     await this.#write({ ...ledger, threads: [...ledger.threads.filter((one) => one.id !== thread.id), thread] })
+    // #gate just observed this new thread open, before admission parked it.
+    if (this.#port.pendingFirings().includes(answer.firing) && this.#port.knowsFirings(thread.project, thread.trigger, thread.firings)) this.#verified.set(answer.firing, this.#port.now())
     await this.#attach(thread)
     return thread.id
   }
@@ -738,7 +822,8 @@ export class MentionTriage {
 
   async #thread(id: string, change: (thread: StoredThread) => StoredThread): Promise<void> {
     const ledger = await this.#read()
-    await this.#write({ ...ledger, threads: ledger.threads.map((one) => one.id === id ? change(one) : one) })
+    await this.#write({ ...ledger, threads: ledger.threads.map((one) => one.id === id ? change(one) : one),
+      pendingThreads: ledger.pendingThreads.map(one => one.id === id ? { ...change(one), pendingFirings: one.pendingFirings } : one) })
   }
 }
 

@@ -160,7 +160,7 @@ export interface AdmissionEffects {
   releaseHeld?(): Promise<void>
 }
 
-export type AdmissionStep = 'prepared' | 'applied' | 'dispatched'
+export type AdmissionStep = 'prepared' | 'applied' | 'dispatched' | 'set-aside'
 
 export interface AdmissionOptions {
   /** Told after each journaled step is durable: for the host's log, and for crash tests to stop the process there. */
@@ -592,6 +592,7 @@ export class Admission {
       if (group && group.goal === operation.goal && group.open) next = { ...next, groups: { ...next.groups, [operation.group]: { ...group, open: false } } }
     }
     await this.#store.commit(next)
+    this.#options.onStep?.('set-aside', operation)
     snapshot = next
     // Given back its slot and reservation: its run is stopped, so nothing can spend under them. Otherwise it waits on the person.
     if (!noGoal) await this.#effects.setAside?.(operation, reason, release).catch(() => {})
