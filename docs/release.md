@@ -295,6 +295,16 @@ it, or, deciding that the other architecture's pass is enough, rerun with
 same `NOT SMOKED` line printed. A failed smoke, or no DMG smoked at all, fails
 it either way.
 
+After each smoke — passed, failed or interrupted — anything still running from
+the mounted volume is stopped before it is detached: SIGTERM, up to ten
+seconds, then SIGKILL, with each process printed. A process is matched by the
+path it was started from being under that mount, never by name, so an installed
+HarnessDesk is never touched. The smoke itself does the same for its bundle,
+and fails if the app relaunched itself after an uncaught exception
+(`packages/desktop/electron/crash-policy.mjs`), printing the crash the shell recorded in the
+smoke's throwaway home: the 0.7.1 x64 smoke passed every check and then left a
+HarnessDesk running with the smoke's own arguments, holding its volume.
+
 Ctrl-C (SIGINT) or SIGTERM stops the running smoke and the app it launched,
 detaches the volume and exits non-zero. If a run was killed outright and left
 a volume behind, `hdiutil info` lists it (its mount point is a `.smoke-*` or

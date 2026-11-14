@@ -29,12 +29,13 @@
  * owns it. The script refuses a port that already answers, so it can never
  * judge somebody else's Electron.
  */
-import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
 
+import { stopProcessesUnder } from '../../../script/mounted-processes.mjs'
 import { verifyAppInterface } from '../../../script/verify-app-contents.mjs'
 import { verifyIosHelperUniqueness } from '../../../script/verify-ios-artifact.mjs'
 import { LEAD_NODE, LEAD_NODE_RESOURCE } from '../electron/lead-runtime.mjs'
@@ -53,7 +54,9 @@ const fail = (message) => {
 }
 
 const appPath = (() => {
-  if (process.argv[2]) return process.argv[2]
+  // Absolute, so the app's own command line starts with the same path its
+  // helpers' do, and the leftover-process match below sees all of them.
+  if (process.argv[2]) return resolve(process.argv[2])
   const candidates = ['release/mac-arm64', 'release/mac', 'release/mac-x64'].map((dir) =>
     join(here, '..', dir, 'HarnessDesk.app'),
   )
@@ -340,6 +343,30 @@ try {
       child.kill('SIGKILL')
       await waitForExit(3000)
     }
+  }
+  // The pid above is not the whole app. The shell answers an uncaught
+  // exception by relaunching itself (electron/crash-policy.mjs), and a
+  // relaunch is a new process with these same arguments that outlives the
+  // one spawned here. The x64 smoke of 0.7.1 left a HarnessDesk with these
+  // arguments running from the release volume after the spawned process had
+  // exited, which a SIGKILL'd pid cannot do and a relaunch does. Anything
+  // still running from this bundle is stopped, matched by the path it was
+  // started from, so an installed copy elsewhere never is.
+  const left = await stopProcessesUnder(appPath, { label: 'smoke' })
+  // The shell writes these under HARNESSDESK_HOME, which is this smoke's own
+  // throwaway home, so read them before it is deleted.
+  const crashDir = join(home, 'logs', 'crashes')
+  const crashes = existsSync(crashDir) ? readdirSync(crashDir).sort() : []
+  for (const file of crashes) {
+    let record = {}
+    try { record = JSON.parse(readFileSync(join(crashDir, file), 'utf8')) } catch { /* reported by name alone */ }
+    console.error(`smoke: the shell recorded ${record.kind ?? 'a crash'}${record.platform ? ` (${record.platform})` : ''}: ${String(record.message ?? file).slice(0, 500)}`)
+    if (record.stack) console.error(String(record.stack).split('\n').slice(1, 6).join('\n'))
+  }
+  if (existsSync(join(home, 'logs', 'last-relaunch'))) {
+    fail('the app relaunched itself after an uncaught exception during the smoke (logs/last-relaunch was written) — see the crash above')
+  } else if (left.length > 0) {
+    console.error(`smoke: ${left.length} process(es) were still running from ${appPath} after the app's own process exited, and were stopped`)
   }
   rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })

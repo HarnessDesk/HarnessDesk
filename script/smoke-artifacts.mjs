@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { withIosReleaseMountAsync } from './ios-release-mount.mjs'
+import { stopProcessesUnder } from './mounted-processes.mjs'
 
 /**
  * The launch gate: boot the app inside each release DMG before it is published.
@@ -69,7 +70,9 @@ export const startSmoke = (app, { script = SMOKE, stdio = 'inherit' } = {}) => {
  * Smoke every DMG in `dir`. Returns what passed, failed and was skipped, and
  * the signal that interrupted the run, if one did; the caller decides the
  * exit. A mount or detach that fails counts as a failure of that DMG, never
- * as a pass. On SIGINT or SIGTERM the running smoke and the app it launched
+ * as a pass. After each smoke — passed, failed or interrupted — every process
+ * whose executable is under the mount is stopped before the volume is
+ * detached. On SIGINT or SIGTERM the running smoke and the app it launched
  * are stopped, the volume is detached, and no further DMG is mounted.
  */
 export async function smokeArtifacts(dir, {
@@ -81,6 +84,7 @@ export async function smokeArtifacts(dir, {
   signals = process,
   run,
   log = console.log,
+  stopRunning = (prefix) => stopProcessesUnder(prefix, { label: 'smoke-artifacts', log }),
 } = {}) {
   const dmgs = list(dir).filter((file) => file.endsWith('.dmg')).sort()
   const result = { dmgs, passed: [], failed: [], skipped: [], interrupted: null }
@@ -115,7 +119,13 @@ export async function smokeArtifacts(dir, {
             const code = await current.done
             if (stopping) await stopping
             return code
-          } finally { current = null }
+          } finally {
+            current = null
+            // Whatever still runs from the volume holds it — for 0.7.1 x64, a
+            // HarnessDesk with the smoke's own arguments, after the smoke ended.
+            // Matched by executable path under this mount only, then detached.
+            await stopRunning(at)
+          }
         }, run ? { run } : undefined)
         if (result.interrupted) result.failed.push({ dmg, reason: `interrupted by ${result.interrupted}` })
         else if (status === 0) result.passed.push(dmg)

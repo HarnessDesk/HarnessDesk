@@ -27,6 +27,7 @@ const scripted = (calls, { detach = () => {} } = {}) => {
     },
     signals: new EventEmitter(),
     log: () => {},
+    stopRunning: async (prefix) => { calls.push(['stop-running', prefix]) },
   }
 }
 /** A smoke that finishes at once with `status`. */
@@ -39,6 +40,15 @@ test('each DMG is mounted, smoked at the bundle inside it, and detached', async 
   assert.deepEqual(result.failed, [])
   assert.deepEqual(smoked, ['/release/.smoke-1/HarnessDesk.app', '/release/.smoke-2/HarnessDesk.app'])
   assert.equal(calls.filter((call) => call[0] === 'detach').length, 2)
+})
+
+test('whatever still runs from the volume is stopped before each detach, passed or failed', async () => {
+  const calls = []
+  await smokeArtifacts('/release', { ...scripted(calls), canRun: () => null, smoke: (app) => finished(app.includes('.smoke-1') ? 0 : 1) })
+  assert.deepEqual(calls.filter((call) => call[0] !== 'mount'), [
+    ['attach', '/release/HarnessDesk-1.2.3-arm64.dmg'], ['stop-running', '/release/.smoke-1'], ['detach', '/release/.smoke-1'],
+    ['attach', '/release/HarnessDesk-1.2.3-x64.dmg'], ['stop-running', '/release/.smoke-2'], ['detach', '/release/.smoke-2'],
+  ])
 })
 
 test('a smoke that fails fails that DMG, and the next DMG still runs', async () => {
@@ -73,7 +83,7 @@ test('SIGINT stops the running smoke, detaches its volume, mounts nothing more a
   const result = await smokeArtifacts('/release', { ...options, canRun: () => null, smoke })
   assert.equal(result.interrupted, 'SIGINT')
   assert.equal(stopped, 'SIGTERM', 'the smoke and its app are asked to quit, not killed outright')
-  assert.deepEqual(calls.map((call) => call[0]), ['mount', 'attach', 'stopped', 'detach'], 'detach comes after the smoke stopped, and the x64 DMG is never mounted')
+  assert.deepEqual(calls.map((call) => call[0]), ['mount', 'attach', 'stopped', 'stop-running', 'detach'], 'detach comes after the smoke and everything left on the volume stopped, and the x64 DMG is never mounted')
   assert.deepEqual(result.failed, [{ dmg: 'HarnessDesk-1.2.3-arm64.dmg', reason: 'interrupted by SIGINT' }])
   assert.equal(options.signals.listenerCount('SIGINT') + options.signals.listenerCount('SIGTERM'), 0)
 })
