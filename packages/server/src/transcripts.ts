@@ -19,6 +19,7 @@ import { decodeBody, durableStateIdentity, InvalidTranscriptBodyError, NewerTran
 import { DailySessionSnapshots } from './session-snapshots.js'
 import { publicationsIn, withPublications } from './publications.js'
 import { mergeReplayItem } from './replay-item.js'
+import { reconcileProseReplay } from './reconcile-prose.js'
 
 /** The runtime has no retained transcript store yet (or it became unavailable). */
 export class MissingTranscriptRuntimeError extends Error {}
@@ -1021,6 +1022,9 @@ export class TranscriptStore {
     // Restore it before turn pairing, without copying the old segmentation.
     const recordedTurns = withDeskContext(session.turns, stored.turns)
     if (recordedTurns !== session.turns) session = { ...session, turns: recordedTurns }
+    const prose = reconcileProseReplay(session, stored)
+    if (prose.kind === 'reconciled') return prose.session
+    if (prose.kind === 'ambiguous') return session
     const pairs = pairTurns(session.turns, stored.turns)
     // Where each item the read knows about lives. A stored turn that would
     // bring an item some other read turn already shows is a split the
