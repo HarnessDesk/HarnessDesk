@@ -14,7 +14,7 @@ import { spawn, execFile } from 'node:child_process'
 import { createWriteStream, existsSync } from 'node:fs'
 import { promisify } from 'node:util'
 
-import { heldExpression } from './held-evaluation.mjs'
+import { evaluateHeld } from './held-evaluation.mjs'
 
 const run = promisify(execFile)
 
@@ -106,11 +106,7 @@ export class Cdp {
    * is not always enough for the first one of the day.
    */
   async eval(expression, timeout = 30_000) {
-    const result = await this.send(
-      'Runtime.evaluate',
-      { expression: heldExpression(expression), awaitPromise: true, returnByValue: true },
-      timeout,
-    )
+    const result = await evaluateHeld((method, params) => this.send(method, params, timeout), expression)
     if (result.exceptionDetails) {
       throw new Error(result.exceptionDetails.exception?.description ?? 'evaluate threw')
     }
