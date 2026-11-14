@@ -7,7 +7,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
-- **Stopped GitHub work stays stopped.** A mention thread's queued Lead requests are dropped when you stop it. Requests still waiting after its issue closes are refused and recorded, while other threads and new requests keep their own place.
+- **Keep steered replies readable after reopening.** Matching prose replayed in separate turns no longer repeats messages from the saved conversation. If the histories cannot be matched safely, the saved copy stays protected with its history warning.
 
 - **Keep reading while the Lead replies.** Holding a long scroll gesture no longer lets an arriving reply pull the conversation back to the bottom. A pending upward scroll is noticed before the new reply follows it.
 
@@ -20,6 +20,8 @@ move is real work and is not news to a person weighing an upgrade.
 - **A delayed carry-on note is recorded once.** If saving the updated ledger fails after a delayed transcript marker was written, retrying after a restart keeps the original marker instead of inserting it again.
 
 - **Ask before another attempt.** The Lead no longer uses an existing work item to bypass a retry question. A matching positive answer is used for one attempt; an unrelated message or a negative answer cannot start another chat.
+
+- **Stopped GitHub work stays stopped.** A mention thread’s queued Lead requests are dropped when you stop it. Requests still waiting after its issue closes are refused and recorded, while other threads and new requests keep their own place.
 
 ## 0.7.1 — 2026-11-13
 

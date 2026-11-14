@@ -1,15 +1,17 @@
 import { forgetStored } from './fixtures/stored-transcripts.js'
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
-import { mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import type { AttachmentReview, ConversationLoadouts, FlowPreview, Session } from '@harnessdesk/protocol'
+import { itemId, turnId, type AttachmentReview, type ConversationLoadouts, type FlowPreview, type Session } from '@harnessdesk/protocol'
 
 import { attachmentGateway } from '../src/attachments/wiring.js'
 import { ToolGateway } from '../src/tool-gateway.js'
+import { TranscriptDatabase } from '../src/transcript-database.js'
+import { TranscriptStore } from '../src/transcripts.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { Client, halt, start, stop, type Harness } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
@@ -536,4 +538,71 @@ test('a kept Seat records its conversation loadout with the Seat id, even withou
   assert.equal(loadout.epochs.length, 1)
   assert.equal(loadout.epochs[0]!.seat, seat)
   assert.deepEqual(loadout.epochs[0]!.skills, { reported: false, reason: 'This agent does not report its skills.' })
+})
+
+for (const mode of ['absent', 'fresh', 'refused', 'epoch', 'revision', 'updated'] as const) test(`a filtered Seat scoped read fences advanced usage: ${mode}`, async t => {
+  const runtime = capableRuntime(), desk = await deskWithMergeAgent(t, runtime)
+  const path = join(desk.work, 'synthetic-transcript.txt'); await writeFile(path, 'initial source')
+  Object.assign(runtime.info.capabilities, { sourceTranscript: true })
+  Object.assign(runtime, { sourceOf: async () => { const info = await stat(path); return { path, mtimeMs: info.mtimeMs, size: info.size } } })
+  await reviewAndApprove(desk)
+  const created = await desk.harness.host.call('agent/seat', { id: 'reviewer', cwd: desk.work, project: desk.work, permission: 'merge' }) as Session
+  runtime.sessions.get(created.id)!.finish()
+  const user = { id: itemId('u'), type: 'userMessage' as const, content: [{ type: 'text' as const, text: 'person request' }] }
+  const answer = { id: itemId('a'), type: 'assistantMessage' as const, text: 'answer' }, tid = turnId('one')
+  const turn = { id: tid, status: 'inProgress' as const, items: [user, answer] }
+  runtime.emit({ type: 'turn/started', sessionId: created.id, turn })
+  runtime.emit({ type: 'turn/completed', sessionId: created.id, turn: { ...turn, status: 'completed' } })
+  const tokens = { totalTokens: 150, inputTokens: 120, cachedInputTokens: 0, outputTokens: 30, reasoningOutputTokens: 0 }
+  const oldUsage = { contextUsed: 120, contextWindow: 1000, total: tokens, last: tokens }
+  runtime.emit({ type: 'usage/updated', sessionId: created.id, usage: oldUsage })
+  const record = desk.harness.host.registry.get(created.runtime, created.id)!
+  assert.equal(record.running.size, 0, 'the source replay starts idle')
+  const saved = structuredClone(record.session)
+  await desk.harness.host.call('session/close', { runtime: created.runtime, sessionId: created.id })
+  assert.equal(record.live, null)
+  assert.equal(record.session.usage?.contextUsed, 120)
+  const added = { id: itemId('later'), type: 'assistantMessage' as const, text: 'later source work' }
+  const freshUsage = { ...oldUsage, contextUsed: 240 }
+  const later: Session = { ...saved, usage: mode === 'fresh' ? freshUsage : null, turns: saved.turns.map((turn, index) => index === saved.turns.length - 1 ? { ...turn, items: [...turn.items, added] } : turn) }
+  const events: unknown[] = []
+  const unsubscribe = desk.harness.host.addBroadcaster(event => events.push(event))
+  t.after(unsubscribe)
+  const enrich = TranscriptStore.prototype.enrichForRefresh
+  t.mock.method(TranscriptStore.prototype, 'enrichForRefresh', async function(this: TranscriptStore, body: Session) {
+    if (body.turns.some(turn => turn.items.some(item => item.id === added.id))) {
+      if (mode === 'refused') throw new Error('synthetic enrichment refusal')
+      const result = await enrich.call(this, body)
+      if (mode === 'epoch') record.invalidateBodyAuthority()
+      if (mode === 'revision') record.invalidateBodyRevision()
+      return result
+    }
+    return enrich.call(this, body)
+  })
+  let reads = 0
+  runtime.readSession = async () => { reads++; return reads === 1 ? { ...saved, usage: null } : later }
+  await writeFile(path, 'source changed with a later answer')
+  const read = await desk.harness.host.call('session/read', { runtime: created.runtime, sessionId: created.id }) as Session
+  assert.ok(reads >= 2, 'the filtered reopen and subsequent source read are distinct')
+  assert.ok(runtime.lastResumeOptions?.attachments, 'the Seat reopened on its approved filter')
+  if (mode === 'refused') {
+    assert.equal(record.session.usage?.contextUsed, 120, 'a refused enrichment cannot clear the owner')
+    const db = new TranscriptDatabase(join(desk.harness.stateDir, 'sessions.sqlite'))
+    try { assert.equal(db.read(created.runtime, created.id)!.usage?.contextUsed, 120) } finally { db.close() }
+    return
+  }
+  assert.equal(read.turns.at(-1)?.items.some(item => item.id === added.id), true)
+  if (mode === 'absent') {
+    assert.equal(read.usage ?? null, null, 'the advanced source cannot inherit old usage')
+    assert.equal(record.session.usage ?? null, null)
+    const db = new TranscriptDatabase(join(desk.harness.stateDir, 'sessions.sqlite'))
+    try { assert.equal(db.read(created.runtime, created.id)!.usage ?? null, null) } finally { db.close() }
+    assert.equal(events.some(event => JSON.stringify(event).includes('later source work')), false, 'a silent read does not synthesize a body event')
+  } else if (mode === 'fresh') assert.equal(read.usage?.contextUsed, 240)
+  else if (mode === 'epoch' || mode === 'revision') assert.equal(record.session.usage?.contextUsed, 120, 'a changed owner fences the clear')
+  else {
+    runtime.emit({ type: 'usage/updated', sessionId: created.id, usage: freshUsage })
+    assert.equal(record.session.usage?.contextUsed, 240, 'a subsequent usage event wins over the read')
+    assert.ok(events.some(event => JSON.stringify(event).includes('\"contextUsed\":240')), 'the newer usage event reaches subscribers')
+  }
 })
