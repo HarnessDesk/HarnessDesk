@@ -97,23 +97,45 @@ const cacheIdentity = (file: Record<string, unknown>): string => {
   return JSON.stringify([account['accountUuid'], account['emailAddress'], account['organizationUuid']])
 }
 
+const sameReading = (limits: RateLimits, own: RateLimits | null): boolean =>
+  limits.lanes?.length === own?.lanes?.length && limits.reached === own?.reached &&
+  limits.credits?.remaining === own?.credits?.remaining && limits.credits?.unit === own?.credits?.unit &&
+  Boolean(limits.lanes?.every(lane => own?.lanes?.some(source => source.id === lane.id && source.scope === lane.scope &&
+    source.usedPercent === lane.usedPercent && source.resetsAt === lane.resetsAt &&
+    source.windowMinutes === lane.windowMinutes && (source.severity ?? null) === (lane.severity ?? null))))
+
 /** The SDK silently serves cached data on failure. Only matching CLI-owned evidence can date its answer. */
-const observationTime = (before: Record<string, unknown>, after: Record<string, unknown>, limits: RateLimits, email: string, now: number): number => {
+const corroboratedReading = (before: Record<string, unknown>, after: Record<string, unknown>, limits: RateLimits,
+  response: unknown, email: string, now: number): RateLimits => {
   const account = object(after['oauthAccount'])
   const cached = object(after['cachedUsageUtilization'])
   const at = cached['fetchedAtMs']
   if (cacheIdentity(before) !== cacheIdentity(after) || account['emailAddress'] !== email ||
       typeof account['accountUuid'] !== 'string' || cached['accountUuid'] !== account['accountUuid'] ||
-      typeof at !== 'number' || !Number.isFinite(at) || at <= 0 || at > now) return 0
+      typeof at !== 'number' || !Number.isFinite(at) || at <= 0 || at > now) return limits
   const utilization = object(cached['utilization'])
   try {
     const own = parse({ rate_limits_available: true, rate_limits: utilization }, at)
-    return limits.lanes?.length === own?.lanes?.length && limits.reached === own?.reached &&
-      limits.credits?.remaining === own?.credits?.remaining && limits.credits?.unit === own?.credits?.unit &&
-      limits.lanes?.every(lane => own?.lanes?.some(source => source.id === lane.id && source.scope === lane.scope &&
-        source.usedPercent === lane.usedPercent && source.resetsAt === lane.resetsAt &&
-        source.windowMinutes === lane.windowMinutes && (source.severity ?? null) === (lane.severity ?? null))) ? at : 0
-  } catch { return 0 }
+    if (sameReading(limits, own)) return { ...limits, fetchedAt: at }
+    const raw = object(object(response)['rate_limits'])
+    // The CLI's seeded reply omits modern rows but retains its legacy aliases,
+    // and may add model projections from those rows. Corroborate that complete
+    // projection, then keep the cache's richer rows, IDs and original clock.
+    if (own && !Object.hasOwn(raw, 'limits') && modernLanes(utilization) !== null) {
+      const { limits: _modern, ...projection } = utilization
+      if (Array.isArray(raw['model_scoped'])) {
+        const scoped = limits.lanes?.filter(lane => lane.scope) ?? []
+        if (!scoped.every(lane => own.lanes?.some(source => source.scope === lane.scope &&
+          source.usedPercent === lane.usedPercent && source.resetsAt === lane.resetsAt &&
+          source.windowMinutes === lane.windowMinutes))) return limits
+        projection['model_scoped'] = raw['model_scoped']
+      }
+      if (sameReading(limits, parse({ rate_limits_available: true, rate_limits: projection }, at))) {
+        return { ...limits, ...own, planType: limits.planType, fetchedAt: at }
+      }
+    }
+  } catch { /* A partial or incompatible cache cannot corroborate the reply. */ }
+  return limits
 }
 
 /** One budget per isolated bridge/account. No poller, credentials or model request. */
@@ -210,8 +232,8 @@ export class UsageReader {
       const parsed = parse(value, 0)
       const after = await this.#file()
       if (cacheIdentity(before) !== cacheIdentity(after)) throw new Error('Usage identity changed while reading.')
-      const result: RateLimits = parsed ? { ...parsed, account: email,
-        fetchedAt: observationTime(before, after, parsed, email, this.now()) } : { lanes: [], account: email, planLimitsUnavailable: true }
+      const result: RateLimits = parsed ? { ...corroboratedReading(before, after, parsed, value, email, this.now()),
+        account: email } : { lanes: [], account: email, planLimitsUnavailable: true }
       this.#cached = result
       this.#error = null
       this.#failures = 0

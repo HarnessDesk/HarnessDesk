@@ -95,6 +95,32 @@ test('automatic reads back off on failure and explicit refresh may retry', async
   assert.equal(reads, 3)
 })
 
+test('changed credentials recover a sign-in failure within the floor rather than the escalated backoff', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let now = 1_000_000, reads = 0, signedIn = false
+  const usage = new UsageService({ runtimes: () => [runtime(METERED)], meters: new Map([[METERED, {
+    ...meter, source: { kind: 'api', label: 'from a fixture' }, read: async () => {
+      reads++
+      if (!signedIn) throw new MeterAuthError('sign in required')
+      return { ...(await meter.read())!, fetchedAt: now }
+    },
+  }]]), now: () => now, onReport: () => {} })
+  t.after(() => usage.dispose())
+  for (let index = 0; index < 5; index++) await usage.refresh()
+  assert.equal(reads, 5)
+  signedIn = true
+  now += 10_000
+  for (let index = 0; index < 20; index++) usage.invalidate(METERED, 'file')
+  t.mock.timers.tick(150)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(reads, 5, 'credential rewrite bursts cannot bypass the one-minute floor')
+  now += 50_000
+  t.mock.timers.tick(50_000)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(reads, 6, 'a new login need not wait for the fifteen-minute failure cap')
+  assert.equal(usage.cached(METERED)?.error, null)
+})
+
 for (const fallbackAt of [1_000, 100_000]) test(`a fallback at ${fallbackAt} cannot hide a failed live refresh`, async t => {
   let fails = false
   const agent = { ...runtime(METERED), info: { ...runtime(METERED).info, capabilities: { metered: true } },

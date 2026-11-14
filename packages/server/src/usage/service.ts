@@ -118,6 +118,8 @@ export class UsageService {
   readonly #asked = new Set<RuntimeId>()
   readonly #watchers: FSWatcher[] = []
   readonly #nextRead = new Map<RuntimeId, number>()
+  readonly #lastRead = new Map<RuntimeId, number>()
+  readonly #credentialChanges = new Set<RuntimeId>()
   readonly #failures = new Map<RuntimeId, number>()
   readonly #readFailed = new Set<RuntimeId>()
   readonly #meterDenied = new Set<RuntimeId>()
@@ -290,28 +292,41 @@ export class UsageService {
     for (const timer of this.#invalidations.values()) clearTimeout(timer)
     this.#invalidations.clear()
     this.#dirty.clear()
+    this.#credentialChanges.clear()
   }
 
   /** Activity invalidates one source; bursts share a trailing read within its retry budget. */
   invalidate(id: RuntimeId, source: 'activity' | 'file' = 'activity'): void {
     if (this.#disposed) return
     // Only a local file meter is an observation to ingest. A credential-file change for an HTTP/CLI meter
-    // still asks its producer and must pass through the normal network/process retry budget.
+    // still asks its producer and must respect the network/process floor. New sign-in evidence
+    // can shorten an authentication failure's backoff without allowing rewrite storms to bypass it.
     const fileOnly = source === 'file' && this.#options.meters.get(id)?.source.kind === 'file'
+    if (source === 'file' && !fileOnly && this.#cache.get(id)?.error?.needsSignIn && !this.#credentialChanges.has(id)) {
+      this.#credentialChanges.add(id)
+      const pending = this.#invalidations.get(id)
+      if (pending) { clearTimeout(pending); this.#invalidations.delete(id) }
+    }
     this.#dirty.set(id, (this.#dirty.get(id) ?? true) && fileOnly)
     this.#scheduleInvalidation(id)
+  }
+
+  #permittedRead(id: RuntimeId): number {
+    const next = this.#nextRead.get(id) ?? 0
+    return this.#credentialChanges.has(id) && this.#cache.get(id)?.error?.needsSignIn
+      ? Math.min(next, (this.#lastRead.get(id) ?? this.#now()) + 60_000) : next
   }
 
   #scheduleInvalidation(id: RuntimeId): void {
     if (this.#disposed || !this.#dirty.has(id)) return
     if (this.#invalidations.has(id)) return
     const fileOnly = this.#dirty.get(id) === true
-    const delay = fileOnly ? 150 : Math.max(150, (this.#nextRead.get(id) ?? 0) - this.#now())
+    const delay = fileOnly ? 150 : Math.max(150, this.#permittedRead(id) - this.#now())
     const timer = setTimeout(() => {
       this.#invalidations.delete(id)
       const runtime = this.#options.runtimes().find(entry => entry.info.id === id)
       const fromFile = this.#dirty.get(id) === true
-      if (!fromFile && this.#now() < (this.#nextRead.get(id) ?? 0)) { this.#scheduleInvalidation(id); return }
+      if (!fromFile && this.#now() < this.#permittedRead(id)) { this.#scheduleInvalidation(id); return }
       if (runtime && !this.#disposed) void this.#reportFor(runtime, false, true, fromFile).catch(() => undefined)
       else this.#dirty.delete(id)
     }, delay)
@@ -324,9 +339,10 @@ export class UsageService {
     const cached = this.#cache.get(id)
     const running = this.#inFlight.get(id)
     if (running) return running
-    if (!force && !fileOnly && this.#now() < (this.#nextRead.get(id) ?? 0)) return cached ?? null
+    if (!force && !fileOnly && this.#now() < this.#permittedRead(id)) return cached ?? null
     if (!force && !invalidated && cached && !cached.error && usageIsFresh(cached, this.#now())) return cached
     this.#dirty.delete(id)
+    if (!fileOnly) this.#credentialChanges.delete(id)
     const pending = this.#invalidations.get(id)
     if (pending) { clearTimeout(pending); this.#invalidations.delete(id) }
 
@@ -337,6 +353,7 @@ export class UsageService {
       .catch((cause: unknown) => this.#failed(id, cause))
       .then((report) => {
         if (!fileOnly) {
+          this.#lastRead.set(id, this.#now())
           const failed = Boolean(report?.error) || this.#readFailed.has(id)
           const failures = failed ? (this.#failures.get(id) ?? 0) + 1 : 0
           this.#failures.set(id, failures)

@@ -813,9 +813,11 @@ test('Lead allowance names an unknown observation time instead of an age since t
       assert.equal(account.readAgeMinutes, null)
       assert.equal(account.readAge, 'read time unknown')
       assert.equal(account.stale, true)
+      assert.ok(account.windows.every(window => window.projection === null))
       assert.equal(account.unverified?.readAgeMinutes, null)
       assert.equal(account.unverified?.readAge, 'read time unknown')
       assert.equal(account.unverified?.stale, true)
+      assert.ok(account.unverified?.windows.every(window => window.projection === null))
     }
   } finally { await f.done() }
 })

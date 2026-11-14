@@ -134,8 +134,11 @@ short shared deadline, independently of the usage-control deadline.
 The SDK can silently return cached figures on failure, so a successful control reply alone
 does not date them: the bridge checks the live query's account against the
 CLI-owned cache, matches the figures and reset times, and preserves its
-`fetchedAtMs`. Missing or mismatched evidence yields unknown age. API-key and
-other provider sessions never borrow a global OAuth allowance. Extra usage
+`fetchedAtMs`. Missing or mismatched evidence yields unknown age.
+The CLI may omit modern rows in a seeded reply. When its complete legacy
+projection matches the same cache, the bridge retains the cache's richer
+rows and stable IDs with that original time; mismatched projections stay undated.
+API-key and other provider sessions never borrow a global OAuth allowance. Extra usage
 keeps its monetary amount and billing kind through the live path.
 
 Source age and retry time are independent. Concurrent reads share one request;
@@ -145,7 +148,9 @@ trailing read; a local cache change ingests the observation without calling
 its producer again, so an SDK cache write cannot create a refresh loop.
 An identical file-only observation does not push another report.
 Credential-file changes for HTTP/CLI meters still use the network/process
-budget. Activity arriving during an in-flight read stays dirty until
+floor. A changed credential after a sign-in failure shortens the escalated
+backoff to that one-minute floor; repeated writes cannot bypass it.
+Activity arriving during an in-flight read stays dirty until
 that read finishes and the budget permits another. Directory watches survive
 atomic file replacement. Menus and the dashboard ask only while visible, and
 focus asks again through the cache. No new perpetual host poller is added.
@@ -155,8 +160,14 @@ reset passed. Details keep their historical figures with an explicit stale
 message. No reading, an undated reading, and an inactive model allowance are
 never interpreted as a fresh zero-percent-used allowance.
 The legacy footer and composer use the same source clock and account-wide
-binding lane. The Lead says `read time unknown` and returns a null minute age
+binding lane. Accepted same-account usage reports also update their timestamped
+limits directly, without another request. Older runtime replies cannot roll
+that reading back. The Lead says `read time unknown` and returns a null minute age
 when a source supplies no valid observation time.
+
+The metered capability also lets the Team overview show known monetary usage
+instead of turns. List-price amounts remain labelled estimates; having plan
+windows does not make those amounts vendor-reported spend.
 
 Tier 4 is where money comes from, and both corpora carry what is needed: a
 Codex rollout records `token_count` events with input, cached, output and

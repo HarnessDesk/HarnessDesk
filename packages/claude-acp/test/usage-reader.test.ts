@@ -180,6 +180,64 @@ test('a matching subset cannot borrow the clock of a cache with another measured
   assert.equal(result?.fetchedAt, 0)
 })
 
+for (const mismatch of [false, true]) test(`a seeded legacy reply preserves modern cache identity only with complete matching aliases: mismatch=${mismatch}`, async () => {
+  const path = join(scratch('usage-seeded-modern-'), '.claude.json')
+  const aliases = payload().rate_limits
+  writeFileSync(path, JSON.stringify({ oauthAccount: { accountUuid: 'fixture-account', emailAddress: 'dev@example.com' },
+    cachedUsageUtilization: { accountUuid: 'fixture-account', fetchedAtMs: 100_000, utilization: { ...aliases, limits: [
+      { kind: 'weekly_all', percent: 99, severity: 'warn', resets_at: aliases.seven_day.resets_at },
+    ] } } }))
+  const result = await new UsageReader(() => 110_000, () => 0, 100, path)
+    .read([query('dev@example.com', async () => payload(mismatch ? 98 : 99))])
+  assert.equal(result?.fetchedAt, mismatch ? 0 : 100_000)
+  if (!mismatch) {
+    assert.equal(result?.lanes?.[0]?.id, 'weekly_all')
+    assert.equal(result?.lanes?.[0]?.severity, 'warning')
+    assert.equal(bindingLane(result!.lanes!, { pinLaneId: 'weekly_all' })?.id, 'weekly_all')
+  }
+})
+
+test('a seeded reply missing a measured legacy alias cannot borrow a modern cache clock', async () => {
+  const path = join(scratch('usage-seeded-subset-'), '.claude.json')
+  writeFileSync(path, JSON.stringify({ oauthAccount: { accountUuid: 'fixture-account', emailAddress: 'dev@example.com' },
+    cachedUsageUtilization: { accountUuid: 'fixture-account', fetchedAtMs: 100_000, utilization: {
+      ...payload().rate_limits, five_hour: { utilization: 100 }, limits: [
+        { kind: 'weekly_all', percent: 99 }, { kind: 'session', percent: 100, severity: 'critical' },
+      ],
+    } } }))
+  assert.equal((await new UsageReader(() => 110_000, () => 0, 100, path)
+    .read([query('dev@example.com', async () => payload())]))?.fetchedAt, 0)
+})
+
+test('seeded model projections must match measured modern scopes before adopting cache identities', async () => {
+  const path = join(scratch('usage-seeded-scopes-'), '.claude.json')
+  const aliases = payload().rate_limits
+  const limits = [{ kind: 'weekly_all', percent: 99, resets_at: aliases.seven_day.resets_at },
+    { kind: 'weekly_scoped', percent: 100, severity: 'critical', resets_at: aliases.seven_day.resets_at,
+      scope: { model: { display_name: 'Fable' } } }]
+  writeFileSync(path, JSON.stringify({ oauthAccount: { accountUuid: 'fixture-account', emailAddress: 'dev@example.com' },
+    cachedUsageUtilization: { accountUuid: 'fixture-account', fetchedAtMs: 100_000, utilization: { ...aliases, limits } } }))
+  for (const used of [100, 90]) {
+    const response = { ...payload(), rate_limits: { ...aliases,
+      model_scoped: [{ display_name: 'Fable', utilization: used, resets_at: aliases.seven_day.resets_at }] } }
+    const result = await new UsageReader(() => 110_000, () => 0, 100, path).read([query('dev@example.com', async () => response)])
+    assert.equal(result?.fetchedAt, used === 100 ? 100_000 : 0)
+    if (used === 100) assert.equal(result?.reached, 'weekly_scoped:fable')
+  }
+})
+
+test('an explicit modern array is not mistaken for the CLI seeded projection', async () => {
+  const path = join(scratch('usage-explicit-modern-empty-'), '.claude.json')
+  const aliases = payload().rate_limits
+  writeFileSync(path, JSON.stringify({ oauthAccount: { accountUuid: 'fixture-account', emailAddress: 'dev@example.com' },
+    cachedUsageUtilization: { accountUuid: 'fixture-account', fetchedAtMs: 100_000, utilization: {
+      ...aliases, limits: [{ kind: 'weekly_all', percent: 99, resets_at: aliases.seven_day.resets_at }],
+    } } }))
+  const response = { ...payload(), rate_limits: { ...aliases, limits: [] } }
+  assert.equal((await new UsageReader(() => 110_000, () => 0, 100, path)
+    .read([query('dev@example.com', async () => response)]))?.fetchedAt, 0)
+})
+
 test('no live query leaves the newer file fallback reachable', async () => {
   const path = join(scratch('usage-close-'), '.claude.json')
   cache(path, 'dev@example.com')

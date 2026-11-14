@@ -16,13 +16,16 @@ reset; details retain old figures with an explicit historical label. Missing tim
 The bridge negotiates one generic ACP control backed by the existing query's structured `/usage`, with no
 model prompt or transcript scan. The SDK control is experimental and can silently seed its reply from a
 cache on failure. A successful call therefore never establishes freshness by itself: query identity, cache
-identity, figures and resets must match before the CLI-owned clock can date it. With no live query, file
+identity, figures and resets must match before the CLI-owned clock can date it. A matching seeded legacy
+projection retains the same cache's modern rows and stable IDs with its original clock. With no live query, file
 fallback remains reachable. A different effective credential cannot inherit the global sign-in's quota.
 
 Concurrent calls share a request. Automatic reads have a one-minute floor; failures back off with jitter,
 capped at fifteen minutes. Activity queues a trailing read and stays dirty through an in-flight read.
 Directory watches survive atomic replacement and ingest local observations without calling their producer
-again; credential-file changes still obey the network budget. Visible surfaces request through the cache, and no permanent
+again; credential-file changes still obey the one-minute network floor, but new sign-in evidence can shorten
+an authentication failure's longer backoff. Accepted reports keep same-account timestamped legacy limits
+synchronized without another request. Visible surfaces request through the cache, and no permanent
 host poller is added. Rejected: faster file polling (it still reads old contents), direct OAuth credential
 copying (the existing process already owns authentication), and stamping a successful SDK reply as fresh.
 

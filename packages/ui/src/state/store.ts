@@ -2029,6 +2029,7 @@ export class AppStore {
           )
           const usage = [...rest, report]
           this.#patch({ usage })
+          this.#syncUsageLimits()
           this.#announceUsage(before, usage)
           this.#followPool(usage)
         }
@@ -2411,7 +2412,7 @@ export class AppStore {
     this.#patch({
       health,
       account,
-      limits,
+      limits: this.#usageLimits(limits),
       models,
       runtimeOptions,
       ...(health ? { healthByRuntime: { ...this.#snapshot.healthByRuntime, [runtime]: health } } : {}),
@@ -3556,6 +3557,7 @@ export class AppStore {
         ...this.#snapshot.usage.filter((report) => !unchanged(report.runtime)),
         ...reports.filter((report) => unchanged(report.runtime)),
       ] })
+      this.#syncUsageLimits()
       // A reading that arrives here, and not as a push, can retire a notice as well as one a refresh brings.
       this.#retireSupersededUsage(this.#snapshot.usage)
       // A host with a fresh reading cached answers here and sends no update,
@@ -3603,6 +3605,45 @@ export class AppStore {
     const asked = new Set(this.#snapshot.usageAsked ?? [])
     for (const id of [...asking, ...reports.map((report) => report.runtime)]) asked.add(id)
     return [...asked]
+  }
+
+  /** Reuse an accepted host reading, only for the credential the timestamped limits name. */
+  #usageLimits(limits: RateLimits | null): RateLimits | null {
+    if (!limits || limits.fetchedAt === undefined || limits.account === undefined || limits.planLimitsUnavailable) return limits
+    const report = this.#snapshot.usage.find(entry => entry.runtime === this.#snapshot.activeRuntime &&
+      (entry.account ?? '') === (limits.account ?? ''))
+    if (!report) return limits
+    // A failed source can retain its last good figures, but cannot renew compact quota.
+    if (!Number.isFinite(report.fetchedAt) || report.fetchedAt <= 0) return { ...limits, fetchedAt: 0 }
+    if (Number.isFinite(limits.fetchedAt) && limits.fetchedAt > report.fetchedAt) return limits
+    if (report.error) return { ...limits, fetchedAt: 0 }
+    return {
+      ...limits,
+      planType: report.plan,
+      planLabel: report.planLabel,
+      lanes: report.lanes,
+      windows: report.lanes.map(lane => ({
+        label: lane.scope ? `${lane.label} · ${lane.scope}` : lane.label,
+        usedPercent: lane.usedPercent,
+        windowMinutes: lane.windowMinutes,
+        resetsAt: lane.resetsAt,
+      })),
+      reached: report.reached,
+      credits: report.credits ?? undefined,
+      hasCredits: report.credits !== null,
+      balance: report.credits?.remaining ?? null,
+      unlimited: report.credits?.unlimited === true,
+      billing: report.billing ?? limits.billing,
+      source: report.source,
+      fetchedAt: report.fetchedAt,
+      staleAfterMs: report.staleAfterMs,
+      account: report.account,
+    }
+  }
+
+  #syncUsageLimits(): void {
+    const limits = this.#usageLimits(this.#snapshot.limits)
+    if (limits !== this.#snapshot.limits) this.#patch({ limits })
   }
 
   /* A notice whose figures a newer read no longer bears out leaves: a window back under its line, or one in a cycle
@@ -3657,6 +3698,7 @@ export class AppStore {
       // The agents this refresh covered are asked, as a first read's are: without it, a start whose first
       // `usage/reports` failed would hide each silent agent's card for as long as the window is open.
       this.#patch({ usage, usageAsked: this.#askedAlso(asking, reply) })
+      this.#syncUsageLimits()
       this.#announceUsage(before, usage)
       this.#followPool(usage)
     } catch {
