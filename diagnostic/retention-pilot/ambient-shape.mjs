@@ -1,4 +1,4 @@
-import { lstatSync, readdirSync } from 'node:fs'
+import { accessSync, constants, lstatSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -20,9 +20,10 @@ export const inspectPaths = (root, paths = known) => paths.map(([label, relative
     const target = join(root, relative)
     const stat = lstatSync(target)
     const directory = stat.isDirectory(), symlink = stat.isSymbolicLink()
-    let entryCount = null, readable = true
+    const entryCount = null
+    let readable = true
     if (directory) {
-      try { entryCount = readdirSync(target).length } catch { readable = false }
+      try { accessSync(target, constants.R_OK | constants.X_OK) } catch { readable = false }
     }
     return { label, exists: true, directory, symlink, entryCount, readable }
   } catch (error) {
@@ -31,8 +32,14 @@ export const inspectPaths = (root, paths = known) => paths.map(([label, relative
   }
 })
 
+// The hosted runner may create an unrelated readable SSH directory. No entry is opened or listed.
+export const allowed = row => row.exists === false && row.readable ||
+  row.label === 'ssh' && row.exists === true && row.directory === true && row.symlink === false && row.readable
+
+export const SSH_SHIM = '#!/bin/sh\nexit 1\n'
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const rows = inspectPaths(homedir())
   console.log(JSON.stringify(rows))
-  if (rows.some(row => row.exists !== false || !row.readable)) process.exitCode = 1
+  if (rows.some(row => !allowed(row))) process.exitCode = 1
 }

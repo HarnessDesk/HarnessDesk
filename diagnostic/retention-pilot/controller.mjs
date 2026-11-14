@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { accessSync, chmodSync, constants, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir, homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { allowed, inspectPaths, SSH_SHIM } from './ambient-shape.mjs'
 
 const taskSource = resolve('.')
 const taskSha = '8d30cf17f720e4014020aac8c345776a4372953e'
@@ -24,9 +25,7 @@ const fixtureHashes={
 }
 for(const [path,expected] of Object.entries(fixtureHashes)) if(sha(join(taskSource,path))!==expected) throw new Error('fixture fingerprint mismatch')
 const osHome=homedir()
-for (const path of ['.codex/sessions','.codex/archived_sessions','.codex/auth.json','.codex/config.toml','.codex/history.jsonl','.claude','.cursor','.config/gh','.ssh','.aws','.netrc','.git-credentials','.gemini','.qwen','Library/Application Support/Cursor/User/globalStorage','.local/share/opencode','.config/opencode','.cline','.openclaw','.hermes','.codebuddy','.kimi','.pi','.grok','.copilot','.dsh','.devin','.config/gcloud']) {
- if(existsSync(join(osHome,path))) throw new Error('ambient agent or credential location exists')
-}
+if (inspectPaths(osHome).some(row => !allowed(row))) throw new Error('ambient agent or credential location exists')
 const { launchDesk, closeDesk, openWorkspace, seat, sleep } = await import(pathToFileURL(join(taskSource,'script/lib/desk.mjs')).href)
 const taskRoot=realpathSync(mkdtempSync(join(tmpdir(),'hd1545-pilot-')))
 const taskDeskHome=join(taskRoot,'desk'), taskCodexProfile=join(taskRoot,'codex'), taskFakebin=join(taskRoot,'bin'), taskElectron=join(taskRoot,'electron'), taskProject=join(taskRoot,'project')
@@ -38,7 +37,11 @@ write(join(taskCodexProfile,'sessions','rollout.jsonl'),'')
 write(join(taskProject,'README.md'),'# Synthetic retention smoke\n')
 symlinkSync(process.execPath,join(taskFakebin,'node'))
 const fakeGh=join(taskFakebin,'gh');write(fakeGh,'#!/bin/sh\nexit 1\n',0o700);chmodSync(fakeGh,0o700)
-const env={HOME:osHome,USER:process.env.USER??'',LOGNAME:process.env.LOGNAME??'',LANG:'en_US.UTF-8',HARNESSDESK_HOME:taskDeskHome,CODEX_HOME:taskCodexProfile,HARNESSDESK_CODEX_BINARY:fixture,PATH:[taskFakebin,'/usr/bin','/bin','/usr/sbin','/sbin'].join(':'),HARNESSDESK_PATH:taskFakebin,SHELL:'',TMPDIR:taskRoot,HARNESSDESK_NO_UPDATE_CHECK:'1',HARNESSDESK_LEAD:'0',HARNESSDESK_PHONE_LINK:'0',HARNESSDESK_MENU_BAR:'off',HARNESSDESK_CATALOG_REFRESH_MINUTES:'0',HARNESSDESK_ACP_REGISTRY_URL:'http://127.0.0.1:1/disabled',HARNESSDESK_CLOUD_URL:'http://127.0.0.1:1',HD_1545_OUTPUT_BYTES:'32768',HARNESSDESK_CODEX_PROCESS_GROUP:randomUUID(),FAKE_CODEX_ROLLOUT_HOME:taskCodexProfile,FAKE_CODEX_PERSIST_TURN:'1',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_TERMINAL_PROMPT:'0'}
+const fakeSsh=join(taskFakebin,'ssh');write(fakeSsh,SSH_SHIM,0o700);chmodSync(fakeSsh,0o700)
+accessSync('/usr/bin/false',constants.X_OK)
+const sshProbe=spawnSync(fakeSsh,[],{env:{PATH:'/usr/bin:/bin'},encoding:'utf8',timeout:5000})
+if(sshProbe.status!==1 || sshProbe.stdout!=='' || sshProbe.stderr!=='') throw new Error('ssh refusal probe failed')
+const env={HOME:osHome,USER:process.env.USER??'',LOGNAME:process.env.LOGNAME??'',LANG:'en_US.UTF-8',HARNESSDESK_HOME:taskDeskHome,CODEX_HOME:taskCodexProfile,HARNESSDESK_CODEX_BINARY:fixture,PATH:[taskFakebin,'/usr/bin','/bin','/usr/sbin','/sbin'].join(':'),HARNESSDESK_PATH:taskFakebin,SHELL:'',TMPDIR:taskRoot,HARNESSDESK_NO_UPDATE_CHECK:'1',HARNESSDESK_LEAD:'0',HARNESSDESK_PHONE_LINK:'0',HARNESSDESK_MENU_BAR:'off',HARNESSDESK_CATALOG_REFRESH_MINUTES:'0',HARNESSDESK_ACP_REGISTRY_URL:'http://127.0.0.1:1/disabled',HARNESSDESK_CLOUD_URL:'http://127.0.0.1:1',HD_1545_OUTPUT_BYTES:'32768',HARNESSDESK_CODEX_PROCESS_GROUP:randomUUID(),FAKE_CODEX_ROLLOUT_HOME:taskCodexProfile,FAKE_CODEX_PERSIST_TURN:'1',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_TERMINAL_PROMPT:'0',GIT_ALLOW_PROTOCOL:'file',GIT_SSH_COMMAND:'/usr/bin/false'}
 const result={source:taskSha,fixtureSha256:sha(fixture),phase:'prepared',checks:{}}
 let desk
 const waitFor=async (label,fn,ms=30000)=>{const until=Date.now()+ms;while(Date.now()<until){const value=await fn();if(value)return value;await sleep(200)}throw new Error(`${label}: readiness deadline`)}
