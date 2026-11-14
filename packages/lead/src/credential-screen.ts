@@ -60,6 +60,10 @@ const screenedBlocks = (messages: readonly MessagesTurn[]) => {
   }))
 }
 
+/** Views used by the request screen, including its flow-preview token exemptions. Never sent to the provider. */
+export const leadCredentialScreenViews = (messages: readonly MessagesTurn[]): readonly (readonly unknown[])[] =>
+  screenedBlocks(messages).map(turn => turn.map(block => block.view))
+
 /** The host's last check before a request leaves the machine: any credential-shaped text anywhere in the body. */
 export const leadMessagesContainSecret = (body: { readonly messages: readonly MessagesTurn[] }, key: string): boolean => {
   const screened = screenedBlocks(body.messages)
@@ -86,18 +90,18 @@ export interface LeadWithheldPiece {
  * with nothing says it was withheld. Turns with nothing to withhold are returned as they were. `withheld` counts what
  * was put aside, by turn and kind, and carries no content.
  */
-export const leadWithholdCredentialsReport = (messages: readonly MessagesTurn[], key?: string): { readonly messages: MessagesTurn[]; readonly withheld: LeadWithheldPiece[] } => {
+export const leadWithholdCredentialsReport = (messages: readonly MessagesTurn[], key?: string, extra?: readonly (readonly boolean[])[]): { readonly messages: MessagesTurn[]; readonly withheld: LeadWithheldPiece[] } => {
   const screened = screenedBlocks(messages)
   const lastAssistant = messages.findLastIndex(turn => turn.role === 'assistant')
   const withheld: LeadWithheldPiece[] = []
   const result = messages.map((turn, index) => {
     const blocks = screened[index]!
-    if (!blocks.some(({ view, refused }) => refused || leadContainsSecret(view, key))) return turn
+    if (!blocks.some(({ view, refused }, position) => refused || extra?.[index]?.[position] || leadContainsSecret(view, key))) return turn
     const counts = new Map<LeadWithheldPiece['kind'], number>()
     const count = (kind: LeadWithheldPiece['kind']) => counts.set(kind, (counts.get(kind) ?? 0) + 1)
     const content = turn.content.flatMap((block, position) => {
       const { view, refused } = blocks[position]!
-      if (!refused && !leadContainsSecret(view, key)) return [block]
+      if (!refused && !extra?.[index]?.[position] && !leadContainsSecret(view, key)) return [block]
       if (block.type === 'text') { count('text'); return [{ type: 'text' as const, text: LEAD_WITHHELD_TEXT }] }
       if (block.type === 'tool_result') { count('tool_result'); return [{ ...block, content: LEAD_WITHHELD_TEXT }] }
       if (block.type === 'tool_use') { count('tool_use'); return [{ ...block, input: {} }] }

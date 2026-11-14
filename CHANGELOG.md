@@ -9,6 +9,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Keep reading while the Lead replies.** Holding a long scroll gesture no longer lets an arriving reply pull the conversation back to the bottom. A pending upward scroll is noticed before the new reply follows it.
 
+- **Continue after withheld earlier content.** Rejected text and tool content in the Lead's saved context are replaced with a durable placeholder, and the conversation shows one notice. Later requests stop re-sending that content.
+
 - **Keep saved pins during an upgrade.** Changing how the conversation list is sorted while its history is still loading no longer loses pins saved by an older desk. Unpinning a conversation or pinning another during that load keeps the change you made.
 
 - **The Lead names the task it is doing.** Setting or canceling a reminder no longer leaves the previous task on its activity line. An action without its own label shows Working.
