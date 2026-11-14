@@ -925,18 +925,25 @@ export const ToolsSurface = () => (
  * app's store does (`preview/harness.tsx`). What happens when you press
  * something here is what the app would do.
  */
+const panelsWorkbench = (
+  [
+    ['right', { kind: 'changes' }],
+    ['right', { kind: 'trajectory' }],
+    [
+      'bottom',
+      { kind: 'terminal', terminalId: 'design-terminal', runtime: 'codex' as never, cwd: PREVIEW_ROOT },
+    ],
+  ] as const
+).reduce((workbench, [area, view]) => dock(workbench, area, view), emptyWorkbench())
+/*
+ * `layout` is `workbench.main` and nothing else (`AppSnapshot.layout`), so it is seeded with the workbench: left at
+ * the default store's split, the first workbench write (a floating rail put away by a press) snapped the focused pane
+ * to this workbench's, and the bar the press landed on was drawn again for another pane, losing the click.
+ */
 const panelsStore = previewStore({
   ...(new URLSearchParams(window.location.search).has('sidebar-geometry') ? sidebarGeometryFixture(previewStore().getSnapshot()) : {}),
-  workbench: (
-    [
-      ['right', { kind: 'changes' }],
-      ['right', { kind: 'trajectory' }],
-      [
-        'bottom',
-        { kind: 'terminal', terminalId: 'design-terminal', runtime: 'codex' as never, cwd: PREVIEW_ROOT },
-      ],
-    ] as const
-  ).reduce((workbench, [area, view]) => dock(workbench, area, view), emptyWorkbench()),
+  workbench: panelsWorkbench,
+  layout: panelsWorkbench.main,
 })
 
 export const PanelsSurface = () => (

@@ -115,9 +115,16 @@ test('sidebar stands at exactly 1000 and floats at 999 independently of requeste
   await expect(main(page)).toBeHidden()
   await widthRestsAt(rightPanel(page), 999, 'pane replaces main at the narrow boundary')
   await page.getByRole('button', { name: 'Return to main', exact: true }).click()
+  await expect(shell(page)).toHaveAttribute('data-rail-floats', 'false')
+  await widthRestsAt(main(page), 999 - FRAME.infoCard.width, 'with the sidebar put away the card rail stands beside the thread')
   await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Sidebar' })).toBeVisible()
-  await widthRestsAt(main(page), 999 - FRAME.infoCard.width, 'floating sidebar takes no column beside the standing card rail')
+  // The floating sidebar takes no column, but it covers as much of the thread as a standing one would, so the card
+  // rail counts it: 999 - 256 leaves no reading minimum beside the rail, and the rail floats over the thread (#2185).
+  expect(999 - SIDEBAR - FRAME.infoCard.width).toBeLessThan(MIN_READING)
+  await expect(shell(page)).toHaveAttribute('data-rail-open', 'true')
+  await expect(shell(page)).toHaveAttribute('data-rail-floats', 'true')
+  await widthRestsAt(main(page), 999, 'floating sidebar takes no column, and the card rail floats over the thread it covers')
 })
 
 test('right keeps its column above 1000 and restores requested width after passive clamping', async ({ page }) => {

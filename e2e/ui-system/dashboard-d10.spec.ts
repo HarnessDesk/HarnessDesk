@@ -25,6 +25,7 @@ for (const theme of ['light', 'dark'] as const) test(`Dashboard numbers in ${the
   await expect(remaining).toContainText(/Runs out ~[^,]*\d:\d{2}\s?[AP]M, before its [^.]*\d:\d{2}\s?[AP]M reset/)
   await expect(dashboard).toContainText('Usage cost')
   await expect(dashboard.locator('[aria-label="What it cost, in brief"]')).not.toContainText('Selected')
-  await expect(page.getByText('From a cached read', { exact: true })).toBeVisible()
+  // A read older than this window still says when it was made: the time today, else the day (#2118).
+  await expect(page.getByText(/^From a cached read · (?:\d{1,2}:\d{2}\s[AP]M|[A-Z][a-z]{2} \d{1,2}(?:, \d{4})?)$/)).toBeVisible()
   await page.screenshot({ path: `/tmp/dashboard-d10/after-${theme}.png` })
 })
