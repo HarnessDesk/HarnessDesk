@@ -91,6 +91,8 @@ export class SessionIndex {
   #scheduled = false
   #closed = false
   #seeding: Promise<void> | null = null
+  #pinSlots: Map<string, number> | null = null
+  #pinSlotCeiling = -1
 
   constructor(file: string, onChange?: (change: SessionIndexChange) => void) {
     this.#onChange = onChange
@@ -182,8 +184,9 @@ export class SessionIndex {
   }
 
   setPinned(runtime: RuntimeId, id: SessionId, pinned: boolean): void {
+    this.#pinSlots?.delete(JSON.stringify([runtime, id]))
     if (pinned) this.#db.prepare(`INSERT OR IGNORE INTO session_pins(runtime,id,position)
-      VALUES(?,?,(SELECT COALESCE(MAX(position),-1)+1 FROM session_pins))`).run(runtime, id)
+      VALUES(?,?,(SELECT MAX(COALESCE(MAX(position),-1),?)+1 FROM session_pins))`).run(runtime, id, this.#pinSlotCeiling)
     else this.#db.prepare('DELETE FROM session_pins WHERE runtime=? AND id=?').run(runtime, id)
     this.#notify(runtime, id, false)
   }
@@ -192,18 +195,44 @@ export class SessionIndex {
    * Runs under the database lock, so a second window cannot restore old preferences.
    * The window stored its pins as `runtime\0id` (`sessionKey`); `runtime:id` is
    * accepted too. Session ids may contain a colon, so the first separator wins.
+   * A non-final pass returns missing rows for the pass after transcript seeding;
+   * already-migrated rows are excluded so later pin changes remain authoritative.
    */
-  migratePins(keys: readonly string[]): void {
-    this.#transaction(() => {
-      if (this.#db.prepare("SELECT 1 FROM meta WHERE key='session-pins:migrated'").get()) return
+  migratePins(keys: readonly string[], final = true): string[] {
+    const slots = final ? this.#pinSlots : new Map<string, number>()
+    let ceiling = this.#pinSlotCeiling
+    const result = this.#transaction(() => {
+      if (this.#db.prepare("SELECT 1 FROM meta WHERE key='session-pins:migrated'").get()) return []
+      const pending: string[] = []
+      if (!final) ceiling = Number(this.#db.prepare('SELECT COALESCE(MAX(position),-1) AS maximum FROM session_pins').get()!.maximum)
+      const seen = new Set<string>()
       for (const key of keys) {
         const at = key.includes('\u0000') ? key.indexOf('\u0000') : key.indexOf(':')
         if (at <= 0 || at === key.length - 1) continue
         const runtime = key.slice(0, at) as RuntimeId, id = key.slice(at + 1) as SessionId
-        if (this.#row(runtime, id) && !this.isRemoved(runtime, id)) this.setPinned(runtime, id, true)
+        const identity = JSON.stringify([runtime, id])
+        if (seen.has(identity)) continue
+        seen.add(identity)
+        const position = final ? slots?.get(identity) : ++ceiling
+        // A pin changed during seeding has relinquished its reserved position.
+        if (final && slots && position === undefined) continue
+        if (this.#row(runtime, id) && !this.isRemoved(runtime, id)) {
+          if (position === undefined) this.setPinned(runtime, id, true)
+          else {
+            this.#db.prepare('INSERT OR IGNORE INTO session_pins(runtime,id,position) VALUES(?,?,?)').run(runtime, id, position)
+            this.#notify(runtime, id, false)
+          }
+        } else if (!final) {
+          slots!.set(identity, position!)
+          pending.push(key)
+        }
       }
-      this.#db.prepare("INSERT INTO meta(key,value) VALUES('session-pins:migrated','1')").run()
+      if (final) this.#db.prepare("INSERT INTO meta(key,value) VALUES('session-pins:migrated','1')").run()
+      return pending
     })
+    this.#pinSlots = final ? null : slots
+    this.#pinSlotCeiling = final ? -1 : ceiling
+    return result
   }
 
   opened(runtime: RuntimeId, id: SessionId): void {

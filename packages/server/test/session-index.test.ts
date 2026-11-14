@@ -512,3 +512,18 @@ test('pin migration ignores missing and removed sessions and removing imports dr
     assert.deepEqual(index.pins(), ['fake:kept'])
   } finally { index.close() }
 })
+
+test('two-pass pin migration reserves legacy order while respecting later pin edits', () => {
+  const index = new SessionIndex(':memory:')
+  try {
+    for (const id of ['existing', 'repin', 'unpin', 'new']) index.upsert(row(id))
+    const pending = index.migratePins(['fake:late', 'fake:existing', 'fake:repin', 'fake:unpin', 'fake:late2'], false)
+    index.setPinned(runtime, idOf('unpin'), false)
+    index.setPinned(runtime, idOf('repin'), false)
+    index.setPinned(runtime, idOf('new'), true)
+    index.setPinned(runtime, idOf('repin'), true)
+    index.upsert(row('late')); index.upsert(row('late2'))
+    index.migratePins(pending)
+    assert.deepEqual(index.pins(), ['fake:late', 'fake:existing', 'fake:late2', 'fake:new', 'fake:repin'])
+  } finally { index.close() }
+})

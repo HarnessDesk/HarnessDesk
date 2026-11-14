@@ -538,3 +538,82 @@ test('host migrates only existing pins after seeding and clears the legacy prefe
   }
   assert.deepEqual(persisted, { sort: 'name' })
 })
+
+test('legacy pins survive a list preference write during the index seed', async t => {
+  const root = tempDir('hd-pin-race-')
+  const state = new StateStore(join(root, 'state.json'))
+  await state.load()
+  await state.setPreferences({ listPrefs: { sort: 'name', pinnedSessions: ['fake:seeded', 'fake:kept', 'fake:unpin'] } })
+  await mkdir(join(root, 'transcripts', 'fake'), { recursive: true })
+  await writeFile(join(root, 'transcripts', 'fake', 'seeded.json'), JSON.stringify({ version: 1, runtime: 'fake', id: 'seeded', savedAt: 1, turns: [] }))
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  for (const id of ['kept', 'unpin', 'new']) index.upsert({ runtime: runtimeId('fake'), id: sessionId(id), cwd: root, status: { type: 'notLoaded' }, createdAt: 1, updatedAt: 2 })
+  index.close()
+  let release!: () => void
+  let entered!: () => void
+  const barrier = new Promise<void>(resolve => { release = resolve })
+  const reached = new Promise<void>(resolve => { entered = resolve })
+  let migrated!: () => void
+  const migrationFinished = new Promise<void>(resolve => { migrated = resolve })
+  const migratePins = SessionIndex.prototype.migratePins
+  t.mock.method(SessionIndex.prototype, 'migratePins', function (this: SessionIndex, ...args: Parameters<SessionIndex['migratePins']>) {
+    try { return migratePins.apply(this, args) } finally { if (args[1] !== false) migrated() }
+  })
+  const seed = SessionIndex.prototype.seed
+  t.mock.method(SessionIndex.prototype, 'seed', async function (this: SessionIndex, ...args: Parameters<SessionIndex['seed']>) {
+    entered()
+    await barrier
+    return seed.apply(this, args)
+  })
+  const host = new Host({ state, logger: silent, builtinAgents: root, catalogRefreshMs: 0 })
+  host.register(new FakeRuntime())
+  t.after(async () => { release(); await host.dispose() })
+  await host.start()
+  await reached
+  await host.call('app/state/set', { patch: { listPrefs: { sort: 'recent' } } })
+  assert.deepEqual(await host.call('session/pins', {}), ['fake:kept', 'fake:unpin'])
+  await host.call('session/pin', { runtime: runtimeId('fake'), sessionId: sessionId('unpin'), pinned: false })
+  await host.call('session/pin', { runtime: runtimeId('fake'), sessionId: sessionId('new'), pinned: true })
+  release()
+  await migrationFinished
+  assert.deepEqual(await host.call('session/pins', {}), ['fake:seeded', 'fake:kept', 'fake:new'])
+  assert.deepEqual(state.state.preferences['listPrefs'], { sort: 'recent' })
+})
+
+test('legacy pins survive preference replacement until a slow seed completes', async t => {
+  const root = tempDir('hd-pin-seed-race-')
+  const state = new StateStore(join(root, 'state.json'))
+  await state.load()
+  await state.setPreferences({ listPrefs: { sort: 'name', pinnedSessions: ['fake:kept', 'fake:seeded'] } })
+  await mkdir(join(root, 'transcripts', 'fake'), { recursive: true })
+  await writeFile(join(root, 'transcripts', 'fake', 'seeded.json'), JSON.stringify({ version: 1, runtime: 'fake', id: 'seeded', savedAt: 1, turns: [] }))
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  index.upsert({ runtime: runtimeId('fake'), id: sessionId('kept'), cwd: root, status: { type: 'notLoaded' }, createdAt: 1, updatedAt: 2 })
+  index.close()
+  let release!: () => void
+  let entered!: () => void
+  let migrated!: () => void
+  const barrier = new Promise<void>(resolve => { release = resolve })
+  const reached = new Promise<void>(resolve => { entered = resolve })
+  const migrationFinished = new Promise<void>(resolve => { migrated = resolve })
+  const migratePins = SessionIndex.prototype.migratePins
+  t.mock.method(SessionIndex.prototype, 'migratePins', function (this: SessionIndex, ...args: Parameters<SessionIndex['migratePins']>) {
+    try { return migratePins.apply(this, args) } finally { if (args[1] !== false) migrated() }
+  })
+  const seed = SessionIndex.prototype.seed
+  t.mock.method(SessionIndex.prototype, 'seed', async function (this: SessionIndex, ...args: Parameters<SessionIndex['seed']>) {
+    entered()
+    await barrier
+    return seed.apply(this, args)
+  })
+  const host = new Host({ state, logger: silent, builtinAgents: root, catalogRefreshMs: 0 })
+  host.register(new FakeRuntime())
+  t.after(async () => { release(); await host.dispose() })
+  await host.start()
+  await reached
+  await host.call('app/state/set', { patch: { listPrefs: { sort: 'recent' } } })
+  release()
+  await migrationFinished
+  assert.deepEqual(await host.call('session/pins', {}), ['fake:kept', 'fake:seeded'])
+  assert.deepEqual(state.state.preferences['listPrefs'], { sort: 'recent' })
+})
