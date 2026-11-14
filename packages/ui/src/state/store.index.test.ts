@@ -186,6 +186,7 @@ it('shows the first indexed rows while runtime startup is still pending', async 
   vi.spyOn(store.transport, 'connect').mockImplementation(() => {})
   vi.spyOn(store.transport, 'status', 'get').mockReturnValue('open')
   request.mockImplementation((async (method: HostMethodName) => {
+    if (method === 'app/features/read') return { lead: false, mobile: false }
     if (method === 'host/hello') return { runtimes: [{ id: runtime }], home: '/fixture', stateDir: '/fixture' }
     if (method === 'session/index') return { data: [row('first')], nextCursor: null }
     if (method === 'runtime/models') return slow.promise

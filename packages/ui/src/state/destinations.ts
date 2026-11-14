@@ -120,7 +120,7 @@ const workView = (raw: unknown): WorkView | null => {
   const view = readView(raw)
   return view.kind === 'conversation' || view.kind === 'room' ? view : null
 }
-export const destinationAvailable = (destination: Destination, leadAvailable = false): boolean => (destination.kind !== 'lead' && !(destination.kind === 'settings' && destination.route.kind === 'section' && destination.route.section === 'lead')) || leadAvailable
+export const destinationAvailable = (destination: Destination, leadAvailable = false): boolean => destination.kind !== 'lead' || leadAvailable
 
 /** Withdrawing a capability removes its visits, including dormant Back/Forward entries. */
 export const availableDestinationHistory = (history: DestinationHistory, fallback: () => Destination, leadAvailable = false): DestinationHistory => {
@@ -139,7 +139,7 @@ export const readDestination = (raw: unknown, leadAvailable = false): Destinatio
       const route = object(data.route)
       if (!route) return null
       switch (route.kind) {
-        case 'section': if (route.section === 'lead' && !leadAvailable) return { kind: 'settings', route: { kind: 'section', section: 'runtimes', focus: null } }
+        case 'section':
           return oneOf(route.section, SETTINGS_SECTIONS) && nullable(route.focus)
           ? { kind: 'settings', route: { kind: 'section', section: route.section, focus: route.focus } } : null
         case 'project': return string(route.root) ? { kind: 'settings', route: { kind: 'project', root: route.root } } : null

@@ -74,10 +74,11 @@ for (const theme of ['light', 'dark'] as const) {
 for (const theme of ['light', 'dark'] as const) {
   test(`Settings groups and right-rail cards stay small ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=settings-general', theme)
-    const heads = page.locator('[data-slot="section-name"]')
+    const heads = page.locator('[data-slot="section-name"], [data-section-name]')
     expect(await heads.count()).toBeGreaterThan(0)
     for (const head of await heads.all()) {
-      await expect(head).toHaveAttribute('data-level', 'label')
+      if (await head.getAttribute('data-section-name') !== null) await expect(head).toHaveAttribute('data-slot', 'group-label')
+      else await expect(head).toHaveAttribute('data-level', 'label')
       await expect(head).toHaveCSS('font-size', '13px')
     }
     await openFrame(page, 'frame-wall=team', theme)
@@ -100,6 +101,7 @@ for (const theme of ['light', 'dark'] as const) for (const batch of settingsBatc
     let measured = 0
     for (const section of batch.sections) {
       await openFrame(page, `frame-wall=settings&frame-section=${section}`, theme)
+      if (section === 'notifications') await page.getByRole('button', { name: 'Message routing', exact: true }).click()
       const heads = page.locator('[data-slot="section-name"], [data-section-name]')
       for (const head of await heads.all()) {
         await expect(head, section).toHaveCSS('font-size', '13px')

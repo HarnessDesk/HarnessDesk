@@ -46,6 +46,7 @@ for (const scene of ['startup', 'inbox', 'conversation', 'settings']) {
       await expect(page.locator('[data-slot="inbox-button"][data-unread]')).toHaveCount(0)
     }
     if (scene === 'settings') {
+      await page.getByRole('button', { name: 'Message routing', exact: true }).click()
       await expect(page.getByLabel('Where "Configuration warnings" is shown')).toHaveValue('inbox')
       await page.getByLabel('Where "Configuration warnings" is shown').selectOption('off')
       await expect(page.getByLabel('Where "Configuration warnings" is shown')).toHaveValue('off')

@@ -1031,20 +1031,52 @@ Node 26 refuses a socket built on an inherited descriptor above 2 without a
 network grant. CI jobs that exercise the child or its permission probe use
 Node 26.
 
-Lead is off by default and enabled at startup with `HARNESSDESK_LEAD=1`.
+Lead is off by default and enabled live through Settings › Lead. `DeskFeatures`
+(`packages/server/src/features.ts`), owned by the host, serializes Lead and Mobile
+changes and publishes `app/features/changed` after acknowledgement. Explicit
+partial booleans in `features.json` override launch defaults; absent choices may
+use `HARNESSDESK_LEAD=1` or `HARNESSDESK_PHONE_LINK=1`. The separate pending intent
+and repair barrier fence uncertain outcomes until an explicit repair stops both
+features, preserves the artifacts and acknowledges Off. Lead shutdown fences
+admissions, drains its lifetime, stops owned work and closes its assembly; a new
+enablement opens a fresh lifetime over the kept journal. Direct Lead calls,
+including lazy assembly, retain that lifetime through completion; background
+producers and store writes drain before the journal lease is released.
+Startup activation uses the same controller without saving launch defaults.
+An optional activation failure latches a visible repair problem and preserves
+acknowledged partial choices while the ordinary desk remains available.
+Explicit repair stops both features but leaves damaged phone identity artifacts
+untouched; enabling again requires those artifacts or external listener failures
+to have been resolved. Account services stay
+independent of either feature.
+
+Backup export uses `DeskFeatures.choices()`, never raw preference or intent files.
+The optional version-1 `features` sidecar carries only acknowledged partial
+booleans, including false; unknown or transitioning state is omitted. Import
+validates the sidecar and existing Goal preflight before any mutation, then
+applies each present choice through the same serialized lifecycle before other
+restoration. Activation failure rejects the import; it does not return a success
+report. Restored choices matching the acknowledged snapshot count in the existing
+preferences total. Missing choices and older backups leave local choices alone;
+restoration is not a transaction across multiple choices or stores.
 
 ## Independent LAN phone pairing
 
-`HARNESSDESK_PHONE_LINK=1` starts `startPhoneLink` from the desktop shell;
-the standalone host also accepts `--phone-link`. Settings › Phone reads
+Settings › Mobile starts and stops `startPhoneLink` through the host feature
+lifecycle. The launch flag `HARNESSDESK_PHONE_LINK=1` (or standalone `--phone-link`)
+is a default only when no explicit Mobile choice exists. Settings › Mobile reads
 `phone/state`, obtains a code with `phone/pairing`, and allows, denies or
 revokes devices through `phone/*`. The account service is not involved.
 The separate `phone-link/` identity and device registry survive restarts;
 enrollment offers do not. A code works once for ten minutes. The person
 approves the phone before its Read, Run and Answer grants take effect.
 `PHONE_POLICY` allowlists the phone's methods and event topics; renderer file
-and general settings methods are outside that surface. The LAN listener is
-closed with the host.
+and general settings methods are outside that surface. Turning Mobile off
+seals new controls and endpoint admissions, drains admitted controls and endpoint
+enrollment/touch/registry writes, then closes the lane and its listeners while
+keeping the phone identity and paired-device registry. Re-enabling reopens them;
+closing the host closes the lane too. Account sign-in, sign-out and deletion do
+not enable Mobile or delete its independent LAN pairings.
 
 With the account signed in and Reachable from your phone on, `RelayLink`
 (`packages/phone-link/src/relay.ts`) holds one outbound socket to the relay

@@ -103,12 +103,12 @@ it('exposes a disabled facade whose every action refuses before transport', asyn
   expect(request).not.toHaveBeenCalled()
 })
 
-it.each([undefined, {}, { lead: false }, { lead: '1' }, { lead: true }])('trusts only the exact host capability %j', async capabilities => {
+it.each([undefined, {}, { lead: false }, { lead: '1' }, { lead: true }])('hydrates feature choices independently of hello capability %j', async capabilities => {
   const store = new AppStore('ws://localhost:0/')
   const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
   vi.spyOn(store.transport, 'connect').mockImplementation(() => handlers.onStatus('open'))
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'host/hello'
-    ? { runtimes: [], home: '/home/user', stateDir: '/desk', credentialProtection: '', goalMigrationPending: false, capabilities } : {}) as never)
+    ? { runtimes: [], home: '/home/user', stateDir: '/desk', credentialProtection: '', goalMigrationPending: false, capabilities } : method === 'app/features/read' ? { lead: capabilities?.lead === true, mobile: false } : {}) as never)
   for (const method of ['loadHistory', 'loadPreferences', 'refreshRuntime', 'loadWorkspaces', 'loadPlugins', 'loadAccounts', 'loadGoals', 'loadUsage'] as const)
     vi.spyOn(store, method).mockResolvedValue(undefined as never)
   await store.connect()
@@ -135,7 +135,7 @@ it('rechecks the host capability when a transport reconnects', async () => {
   const store = new AppStore('ws://localhost:0/')
   const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
   seed(store, true)
-  vi.spyOn(store.transport, 'request').mockResolvedValue({ capabilities: { lead: true } } as never)
+  vi.spyOn(store.transport, 'request').mockResolvedValue({ lead: true, mobile: false } as never)
   handlers.onStatus('reconnecting')
   expect(store.getSnapshot().leadAvailable).toBe(false)
   handlers.onStatus('open')
@@ -162,6 +162,7 @@ for (const entry of ['connect', 'reconnect'] as const) it(`surfaces a failed cha
   const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
   vi.spyOn(store.transport, 'connect').mockImplementation(() => handlers.onStatus('open'))
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => {
+    if (method === 'app/features/read') return { lead: true, mobile: false }
     if (method === 'lead/chats/control') throw new Error('Synthetic control read is offline')
     return method === 'host/hello' ? { runtimes: [], home: '/home/user', stateDir: '/desk', credentialProtection: '', goalMigrationPending: false, capabilities: { lead: true } } : {}
   }) as never)
