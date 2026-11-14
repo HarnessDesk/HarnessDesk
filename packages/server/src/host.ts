@@ -8156,11 +8156,12 @@ export class Host {
     try {
       const live = await this.#liveFor(runtime.info.id, id)
       const raw = await runtime.readSession(live.id)
-      await this.#gateReplayRead(runtime, raw)
+      const advancedWithoutUsage = await this.#gateReplayRead(runtime, raw)
       const replayed = this.registry.get(runtime.info.id, live.id)
       if (replayed?.transcriptIncomplete) return this.#pendingTranscriptView(replayed)
       this.#admitFirstReadBase(raw)
       const enriched = await this.#transcripts.enrichForRefresh(raw)
+      this.#clearAdvancedReplayUsage(runtime.info.id, live.id, advancedWithoutUsage)
       if (source) return this.#cacheRead(enriched.session, source.source, enriched.base)
       const stable = this.#preserveReadRecency(enriched.session)
       this.#transcripts.rememberReadBase(stable, enriched.base)
@@ -9311,6 +9312,14 @@ export class Host {
     return replay?.kind !== 'ambiguous' && replay?.advanced === true && !raw.usage ? { record: held, revision, epoch } : undefined
   }
 
+  /** Clear only an unchanged owner's stale usage, after enrichment succeeds. */
+  #clearAdvancedReplayUsage(runtime: RuntimeId, id: SessionId, proof: { record: SessionRecord; revision: number; epoch: number } | undefined): void {
+    if (proof && this.registry.get(runtime, id) === proof.record && proof.record.bodyRevision === proof.revision &&
+        proof.record.bodyAuthorityEpoch === proof.epoch && proof.record.session.usage) {
+      proof.record.session = { ...proof.record.session, usage: null }
+    }
+  }
+
   async #readTranscriptUntracked(runtime: AgentRuntime, id: SessionId, allowReopen = true, admitCwd?: DispatchAdmission<string>): Promise<Session> {
     const held = this.registry.get(runtime.info.id, id)
     if (held && this.#recoveredTranscriptBases.has(held.bodyGeneration)) {
@@ -9357,11 +9366,7 @@ export class Host {
       // forward. Clear only that fact after enrichment, under the same owner
       // fence. Synthesizing a session event here would enqueue a body write
       // before refresh has obtained its durable base and protection path.
-      if (advancedWithoutUsage && this.registry.get(runtime.info.id, id) === advancedWithoutUsage.record &&
-          advancedWithoutUsage.record.bodyRevision === advancedWithoutUsage.revision && advancedWithoutUsage.record.bodyAuthorityEpoch === advancedWithoutUsage.epoch &&
-          advancedWithoutUsage.record.session.usage) {
-        advancedWithoutUsage.record.session = { ...advancedWithoutUsage.record.session, usage: null }
-      }
+      this.#clearAdvancedReplayUsage(runtime.info.id, id, advancedWithoutUsage)
       const session = { ...enriched.session,
         ...(runtime.info.capabilities.sourceTranscript ? { deskCopy: false } : {}) }
       if (this.#sessionIndex.fillMissingMetadata(session)) this.#sessionIndexRepos.read(session.cwd)
