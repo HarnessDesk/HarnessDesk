@@ -1129,7 +1129,8 @@ kept case). The phone row then carries `refreshFailed` and
 with "Couldn't refresh", and decisions (the overview's order, the sidebar strip, "Start on", pacing) still never rank
 on a failed read. `pacingAdvice` names the one account to use first across all accounts: the Lead's `usage_summary`
 returns it as `pacing` with the window, what is left, the reset (also on the desk's own clock) and the read age, and
-each account carries `readAgeMinutes` and `refreshFailed` (the reset text names the desk's time zone); none of the
+each account carries `readAgeMinutes` (null for an unknown source time, with `readAge` saying `read time unknown`)
+and `refreshFailed` (the reset text names the desk's time zone); none of the
 three names an account with fewer than two; the phone's usage gets it as `pacing` only when an
 allowance is about to be lost (`use-first`), and the Dashboard's What is left line and Settings › Runtimes say the same
 sentence (`pacingNote`). Every usage surface lists the accounts `trackedUsage`

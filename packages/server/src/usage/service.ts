@@ -1,5 +1,6 @@
 import { watch, type FSWatcher } from 'node:fs'
 import { basename, dirname } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 
 import {
   bindingLane,
@@ -163,8 +164,12 @@ export class UsageService {
   async limitsFor(runtime: AgentRuntime): Promise<RateLimits | null> {
     const own = await runtime.getRateLimits().catch(() => null)
     if (own?.planLimitsUnavailable) return own
-    if (own && (own.lanes?.length || own.windows?.length)) return own
-    const report = await this.#reportFor(runtime, false)
+    const cached = this.#cache.get(runtime.info.id)
+    const newer = own?.fetchedAt !== undefined && cached && own.account !== undefined &&
+      (own.account ?? '') === (cached.account ?? '') && !cached.error && usageIsFresh(cached, this.#now()) &&
+      (!Number.isFinite(own.fetchedAt) || own.fetchedAt < cached.fetchedAt) ? cached : null
+    if (!newer && own && (own.lanes?.length || own.windows?.length)) return own
+    const report = newer ?? await this.#reportFor(runtime, false)
     if (!report || report.lanes.length === 0) return own
     return {
       planType: report.plan,
@@ -206,7 +211,7 @@ export class UsageService {
    * fee/budget, when the host supplies one) is applied exactly once and
    * never skipped on one path while another remembers it.
    */
-  async #finish(id: RuntimeId, report: UsageReport): Promise<UsageReport> {
+  async #finish(id: RuntimeId, report: UsageReport, deduplicate = false): Promise<UsageReport> {
     let complete = report
     const balances = this.#options.balances
     if (balances) {
@@ -240,6 +245,7 @@ export class UsageService {
     }
     const overlaid = this.#options.overlay ? await this.#options.overlay(complete) : complete
     const previous = this.#cache.get(id)
+    if (deduplicate && previous && isDeepStrictEqual(previous, overlaid)) return previous
     this.#cache.set(id, overlaid)
     if (!this.#disposed) {
       // Silence may still earn a ledger-only report with no signed-in account.
@@ -533,14 +539,14 @@ export class UsageService {
         error,
         unverified: { ...previous.unverified, error: { message: unverifiedFailure } },
       }
-      return this.#finish(id, lastGood)
+      return this.#finish(id, lastGood, fileOnly)
     }
 
     // One provider being down does not blank a card. The last good reading
     // stands with its own age, and the failure is shown beside it.
     if (lanes.length === 0 && !credits && !unverified && error && previous && (kept || previous.unverified)) {
       const lastGood: UsageReport = { ...previous, spend, error }
-      return this.#finish(id, lastGood)
+      return this.#finish(id, lastGood, fileOnly)
     }
 
     if (lanes.length === 0 && !credits && !spend && !error && !unverified && !accountActivity) {
@@ -579,7 +585,7 @@ export class UsageService {
       ...(turns ? { turns } : {}),
       ...(accountActivity ? { accountActivity } : {}),
     }
-    return this.#finish(id, report)
+    return this.#finish(id, report, fileOnly)
   }
 
   /**

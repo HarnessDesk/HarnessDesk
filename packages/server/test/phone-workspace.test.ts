@@ -802,6 +802,24 @@ test('Lead allowance is private, cached, account-distinct and counts running cha
   } finally { await f.done() }
 })
 
+test('Lead allowance names an unknown observation time instead of an age since the epoch', async () => {
+  const f = await fixture()
+  try {
+    for (const fetchedAt of [0, NaN, NOW + 1]) {
+      const other = report('other@example.com', { fetchedAt })
+      const result = await f.workspace.usageSummary([report('dev@example.com', { fetchedAt,
+        unverified: { ...other, whose: 'Another sign-in' } })])
+      const account = result.accounts[0]!
+      assert.equal(account.readAgeMinutes, null)
+      assert.equal(account.readAge, 'read time unknown')
+      assert.equal(account.stale, true)
+      assert.equal(account.unverified?.readAgeMinutes, null)
+      assert.equal(account.unverified?.readAge, 'read time unknown')
+      assert.equal(account.unverified?.stale, true)
+    }
+  } finally { await f.done() }
+})
+
 test('Lead allowance keeps unknown figures unknown and shares the Dashboard lasts-to-reset projection', async () => {
   const f = await fixture()
   try {

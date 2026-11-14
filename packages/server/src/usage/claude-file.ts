@@ -22,7 +22,7 @@ import { WINDOW_MINUTES, type MeterReading, type UsageMeter } from './meter.js'
 
 interface RawScope {
   readonly model?: { readonly id?: string | null; readonly display_name?: string | null } | null
-  readonly surface?: string | null
+  readonly surface?: string | { readonly id?: string | null; readonly display_name?: string | null } | null
 }
 
 interface RawLimit {
@@ -105,12 +105,18 @@ const slug = (value: string): string =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
 
+const scopeName = (scope: RawScope | null | undefined): string | null => {
+  const surface = scope?.surface
+  return scope?.model?.display_name ?? scope?.model?.id ??
+    (typeof surface === 'string' ? surface : surface?.display_name ?? surface?.id) ?? null
+}
+
 /**
  * A lane id has to survive a refresh, and two model-scoped weeklies differ only
  * by their scope — so the scope is part of the id rather than a display detail.
  */
 const idFor = (limit: RawLimit, index: number): string => {
-  const scope = limit.scope?.model?.display_name ?? limit.scope?.model?.id ?? limit.scope?.surface
+  const scope = scopeName(limit.scope)
   const base = limit.kind ?? limit.group ?? `lane-${index}`
   return scope ? `${base}:${slug(scope)}` : base
 }
@@ -164,7 +170,7 @@ export class ClaudeFileMeter implements UsageMeter {
     const limits = Array.isArray(utilization.limits) ? utilization.limits : []
     for (const [index, limit] of limits.entries()) {
       if (limit.is_active === false || typeof limit.percent !== 'number' || !Number.isFinite(limit.percent)) continue
-      const scope = limit.scope?.model?.display_name ?? limit.scope?.surface ?? null
+      const scope = scopeName(limit.scope)
       lanes.push({
         id: idFor(limit, index),
         label: labelFor(limit.kind, limit.group),

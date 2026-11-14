@@ -1129,7 +1129,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
   async extMethod(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
     if (method === USAGE_READ) {
       // Reuse a live query only. A usage menu never starts a model conversation.
-      return { limits: await this.#usageReader.read(Object.values(this.sessions).flatMap(session => session.query ? [session.query] : [])) }
+      return { limits: await this.#usageReader.read(Object.values(this.sessions).flatMap(session => session.query && !session.queryClosed ? [session.query] : [])) }
     }
     if (method === SESSION_LOADOUT) {
       const sessionId = typeof params['sessionId'] === 'string' ? params['sessionId'] : ''

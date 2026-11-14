@@ -40,6 +40,17 @@ test('inactive scoped limits do not become measured allowances', async () => {
   assert.deepEqual((await new ClaudeFileMeter(path).read())?.lanes.map(lane => lane.usedPercent), [99])
 })
 
+test('scopes keep model ids and structured surface names when no model display name is supplied', async () => {
+  const path = file({ cachedUsageUtilization: { fetchedAtMs: 1, utilization: { limits: [
+    { kind: 'weekly_scoped', percent: 100, severity: 'critical', scope: { model: { id: 'sample-model' } } },
+    { kind: 'daily_custom', group: 'daily', percent: 20, scope: { surface: { display_name: 'Desktop' } } },
+  ] } } })
+  const result = await new ClaudeFileMeter(path).read()
+  assert.deepEqual(result?.lanes.map(lane => [lane.id, lane.scope]), [
+    ['weekly_scoped:sample-model', 'sample-model'], ['daily_custom:desktop', 'Desktop'],
+  ])
+})
+
 test('a cache for another OAuth account is not attributed to the current login', async () => {
   const path = file({ oauthAccount: { accountUuid: 'current', emailAddress: 'dev@example.com' },
     cachedUsageUtilization: { accountUuid: 'previous', fetchedAtMs: 1, utilization: { seven_day: { utilization: 0 } } } })

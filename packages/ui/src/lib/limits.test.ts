@@ -3,8 +3,26 @@ import { describe, expect, it } from 'vitest'
 import { describeLimits, formatReset, usageReadingTone } from './limits'
 
 const NOON = new Date('2026-08-22T12:00:00').getTime()
+const weekly = { id: 'weekly', label: 'Weekly', usedPercent: 99, windowMinutes: 10080, resetsAt: NOON + 86_400_000 }
 
 describe('describeLimits', () => {
+  it('does not present undated, expired or future dated observations as current allowance', () => {
+    for (const fetchedAt of [0, NaN, NOON + 1, NOON - 120_000]) {
+      expect(describeLimits({ lanes: [weekly], fetchedAt, staleAfterMs: 120_000 }, NOON)).toBeNull()
+    }
+    expect(describeLimits({ lanes: [{ ...weekly, resetsAt: NOON }], fetchedAt: NOON, staleAfterMs: 120_000 }, NOON)).toBeNull()
+  })
+
+  it('uses the account-wide lane instead of declaring a spent model blocks the account', () => {
+    const scoped = { ...weekly, id: 'weekly:model', scope: 'Example model', usedPercent: 100 }
+    const view = describeLimits({ lanes: [weekly, scoped], reached: scoped.id, fetchedAt: NOON, staleAfterMs: 120_000,
+      windows: [weekly, { ...scoped, label: 'Weekly · Example model' }] }, NOON)
+    expect(view?.blocked).toBeNull()
+    expect(view?.usage?.label).toBe('1% left')
+    expect(view?.windows).toHaveLength(2)
+    expect(describeLimits({ lanes: [{ ...weekly, usedPercent: 100 }], fetchedAt: NOON }, NOON)?.blocked?.title).toBe('Limit reached')
+  })
+
   it('does not call a plan user with no prepaid credits blocked', () => {
     const view = describeLimits(
       {

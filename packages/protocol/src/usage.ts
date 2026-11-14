@@ -572,7 +572,7 @@ const rankLive = (candidates: readonly UsageLane[], preference: UsagePreference)
  * a single model. Resolving it is how every surface avoids saying "out of
  * quota" about an account that has plenty left on every other model.
  */
-export const reachedLaneOf = (report: UsageReport): UsageLane | null =>
+export const reachedLaneOf = (report: Pick<UsageReport, 'lanes' | 'reached'>): UsageLane | null =>
   report.reached === null ? null : (report.lanes.find((lane) => lane.id === report.reached) ?? null)
 
 /**
@@ -589,7 +589,7 @@ export const reachedLaneOf = (report: UsageReport): UsageLane | null =>
  * rule and this reads it, so the chip, the headline and the host's seating
  * cannot disagree.
  */
-export const isBlocked = (report: UsageReport): boolean => {
+export const isBlocked = (report: Pick<UsageReport, 'lanes' | 'reached'>): boolean => {
   const reached = reachedLaneOf(report)
   if (reached && !reached.scope) return true
   // A `reached` we cannot resolve is trusted as the source meant it.

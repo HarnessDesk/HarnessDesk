@@ -22,6 +22,43 @@ import { LedgerStore } from '../src/ledger/store.js'
 const METERED = runtimeId('metered')
 const SILENT = runtimeId('silent')
 
+test('file-only reads push changed observations, not identical rewrites', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let used = 99
+  const pushed: UsageReport[] = []
+  const usage = new UsageService({ runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, { ...meter, read: async () => ({ ...(await meter.read())!, fetchedAt: 100_000,
+      lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: used, windowMinutes: 10_080, resetsAt: null }] }) }]]),
+    now: () => 110_000, onReport: report => pushed.push(report) })
+  t.after(() => usage.dispose())
+  await usage.reports()
+  for (const value of [99, 99, 100]) {
+    used = value
+    usage.invalidate(METERED, 'file')
+    t.mock.timers.tick(150)
+    await new Promise(resolve => setImmediate(resolve))
+  }
+  assert.deepEqual(pushed.map(report => report.lanes[0]?.usedPercent), [99, 100])
+})
+
+test('legacy limits prefer a newer fresh observation for the same account', async t => {
+  let live = false
+  const agent = { ...runtime(METERED), getRateLimits: async () => live ? {
+    lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 0, windowMinutes: 10_080, resetsAt: null }],
+    account: 'someone@example.com', fetchedAt: 0,
+  } : null }
+  const usage = new UsageService({ runtimes: () => [agent],
+    meters: new Map([[METERED, { ...meter, read: async () => ({ ...(await meter.read())!, fetchedAt: 100_000 }) }]]),
+    now: () => 110_000, onReport: () => {} })
+  t.after(() => usage.dispose())
+  await usage.reports()
+  live = true
+  assert.equal((await usage.limitsFor(agent))?.lanes?.[0]?.usedPercent, 40)
+  assert.equal((await usage.limitsFor(agent))?.fetchedAt, 100_000)
+  const different = { ...agent, getRateLimits: async () => ({ ...(await agent.getRateLimits())!, account: 'other@example.com' }) }
+  assert.equal((await usage.limitsFor(different))?.account, 'other@example.com', 'never borrow a different account')
+})
+
 test('rechecking an old source does not cause unbounded reads or change its observation time', async t => {
   let now = 10 * 86_400_000
   let reads = 0
