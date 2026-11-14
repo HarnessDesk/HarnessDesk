@@ -455,8 +455,12 @@ const TeamStandaloneFrame = ({room, overview = false}:{room:string;overview?:boo
   return <Mount with={own}><TeamFramePreview room={room} view={overview ? { kind: 'room', room, framePage: 'overview' } : undefined} /></Mount>
 }
 
+// An explicit specimen list is for focused contracts only. Catalogue-wide scans
+// omit it, so no exported component disappears from the coverage census.
+const selectedFrames = new Set((new URLSearchParams(window.location.search).get('frames') ?? '').split(',').filter(Boolean))
+
 /** A stand-in pane, so the frame's own edges are what the frame shows. */
-export const Frame = ({ id, title, children }: { id: string; title: string; children: ReactNode }) => (
+export const Frame = ({ id, title, children }: { id: string; title: string; children: ReactNode }) => selectedFrames.size && !selectedFrames.has(id) ? null : (
   <section data-frame-id={id} className="min-w-0">
     <h2 data-preview-caption="" className="mb-2 text-sm font-semibold text-muted-foreground">{title}</h2>
     <div className="overflow-hidden rounded-lg border bg-background">
@@ -615,9 +619,76 @@ const SETTINGS_SECTIONS = [
   'browser',
 ] as const satisfies readonly Section[]
 
-const Preview = () => {
-  useTheme()
+/** Keep appearance subscriptions off the catalogue parent: its independent
+ * specimens inherit the CSS and keep their own store subscriptions. */
+const PreviewTheme = () => { useTheme(); return null }
+
+const PreviewAppearanceControls = ({ compact = false }: { compact?: boolean }) => {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot)
+  const theme = (
+        <Dial
+          label="theme"
+          value={snapshot.theme}
+          options={['system', 'light', 'dark'] as const}
+          onChange={(next) => store.setTheme(next)}
+        />
+  )
+  const look = (
+        <Dial
+          label="interface"
+          value={snapshot.look}
+          options={['desk', 'studio'] as const}
+          onChange={(next) => store.setLook(next)}
+        />
+  )
+  if (compact) return <>{theme}{look}</>
+  return <>{theme}
+        <Dial
+          label="palette"
+          value={snapshot.palette}
+          options={['harnessdesk', 'editorial', 'shadcn'] as const}
+          onChange={(next) => store.setPalette(next)}
+        />
+        <Dial
+          label="accent"
+          value={snapshot.accent}
+          options={['default', 'violet', 'green', 'rose', 'orange', 'mono'] as const}
+          onChange={(next) => store.setAccent(next)}
+        />
+    {look}
+        <Dial
+          label="corners"
+          value={snapshot.corners}
+          options={['default', 'square', 'round'] as const}
+          onChange={(next) => store.setCorners(next)}
+        />
+        <Dial
+          label="surface"
+          value={snapshot.surface}
+          options={['cards', 'sheet'] as const}
+          onChange={(next) => store.setSurface(next)}
+        />
+        <Dial
+          label="faces"
+          value={snapshot.faces}
+          options={['round', 'square'] as const}
+          onChange={(next) => store.setFaces(next)}
+        />
+  </>
+}
+
+const PreviewSaveAsAgent = ({ onClose }: { onClose: () => void }) => {
+  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot)
+  return <SaveAsAgentDialog session={snapshot.sessions.get(PREVIEW_SESSION_KEY)!} onClose={onClose} />
+}
+
+const PreviewContent = () => {
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has('measure-preview')) {
+      const measured = window as unknown as { __hdPreviewParentCommits?: number }
+      measured.__hdPreviewParentCommits = (measured.__hdPreviewParentCommits ?? 0) + 1
+    }
+  })
   // The whole `Section`, not just the dial's shortlist: the sheet's own nav
   // rail writes back here too, and it offers every page.
   const [settingsSection, setSettingsSection] = useState<Section>('general')
@@ -661,48 +732,7 @@ const Preview = () => {
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <span className="text-sm font-semibold">Screen preview</span>
         <GuidesDial />
-        <Dial
-          label="theme"
-          value={snapshot.theme}
-          options={['system', 'light', 'dark'] as const}
-          onChange={(next) => store.setTheme(next)}
-        />
-        <Dial
-          label="palette"
-          value={snapshot.palette}
-          options={['harnessdesk', 'editorial', 'shadcn'] as const}
-          onChange={(next) => store.setPalette(next)}
-        />
-        <Dial
-          label="accent"
-          value={snapshot.accent}
-          options={['default', 'violet', 'green', 'rose', 'orange', 'mono'] as const}
-          onChange={(next) => store.setAccent(next)}
-        />
-        <Dial
-          label="interface"
-          value={snapshot.look}
-          options={['desk', 'studio'] as const}
-          onChange={(next) => store.setLook(next)}
-        />
-        <Dial
-          label="corners"
-          value={snapshot.corners}
-          options={['default', 'square', 'round'] as const}
-          onChange={(next) => store.setCorners(next)}
-        />
-        <Dial
-          label="surface"
-          value={snapshot.surface}
-          options={['cards', 'sheet'] as const}
-          onChange={(next) => store.setSurface(next)}
-        />
-        <Dial
-          label="faces"
-          value={snapshot.faces}
-          options={['round', 'square'] as const}
-          onChange={(next) => store.setFaces(next)}
-        />
+        <PreviewAppearanceControls />
         <Dial
           label="dialog"
           value={dialog}
@@ -776,10 +806,7 @@ const Preview = () => {
         />
       )}
       {dialog === 'save as agent' && (
-        <SaveAsAgentDialog
-          session={store.getSnapshot().sessions.get(PREVIEW_SESSION_KEY)!}
-          onClose={() => setDialog('off')}
-        />
+        <PreviewSaveAsAgent onClose={() => setDialog('off')} />
       )}
       {dialog === 'remove' || dialog === 'bring back' ? (
         <WorktreeDialogs which={dialog} onClose={() => setDialog('off')} />
@@ -1248,6 +1275,10 @@ const Preview = () => {
   )
 }
 
+// The effect is a sibling of the catalogue so every focused early return keeps
+// theming without subscribing the catalogue parent to the whole store.
+const Preview = () => <><PreviewTheme /><PreviewContent /></>
+
 /** An audited Run frame mounts only its own synthetic data, like the Brief dialog. */
 const RunPreview = () => {
   useTheme()
@@ -1257,6 +1288,27 @@ const RunPreview = () => {
   if (params.has('run-again')) return <RunAgainExample opened scene={RUN_AGAIN_STATES.find(one => one === params.get('run-again')) ?? 'default'} />
   if (params.has('run-ending-rig')) return <RunEndingRigFrames />
   return <><RunViewFrames />{params.has('run-inspector') && <RunInspectorFrames />}</>
+}
+
+/** Focused browser contracts opt in; the complete catalogue remains the default. */
+const IsolatedPreview = () => {
+  const params = new URLSearchParams(window.location.search)
+  let frames
+  if (params.has('team-record')) frames = <TeamRecordFrames />
+  else if (params.has('flow-graph')) frames = <FlowGraphFrames />
+  else if (params.has('team-overview')) frames = <TeamOverviewFrames />
+  else if (params.has('sidebar-structure')) frames = <SidebarStructureExample />
+  else if (params.has('teams-page')) frames = <TeamsPageFrames />
+  else if (params.has('run-controls')) frames = <RunControlsFrames variant={ABANDON_VARIANTS.find(one => one === params.get('abandon')) ?? null} />
+  else if (params.has('run-inspector')) frames = <RunInspectorFrames />
+  else if (params.has('side-by-side')) frames = <SideBySideFrames />
+  else if (params.has('composer-slots')) frames = <ComposerSlotsFrames />
+  else throw new Error('Unknown isolated preview: name a supported fixture')
+  return <div className="min-h-full bg-background p-4 text-foreground">
+    <PreviewTheme />
+    <PreviewAppearanceControls compact />
+    {frames}
+  </div>
 }
 
 const container = document.getElementById('root')
@@ -1422,7 +1474,7 @@ createRoot(container).render(
           : new URLSearchParams(window.location.search).has('flow-brief')
           ? <FlowBriefDialog scene={(BRIEF_SCENES.find((one) => one === new URLSearchParams(window.location.search).get('flow-brief')) ?? 'empty') as BriefScene} />
           : new URLSearchParams(window.location.search).has('flow-overlay') ? <FlowOverlayFrames />
-          : ['run-shapes', 'run-view', 'run-again', 'run-ending-rig', 'run-dock'].some(one => new URLSearchParams(window.location.search).has(one)) ? <RunPreview /> : <Preview />}
+          : ['run-shapes', 'run-view', 'run-again', 'run-ending-rig', 'run-dock'].some(one => new URLSearchParams(window.location.search).has(one)) ? <RunPreview /> : new URLSearchParams(window.location.search).has('isolate') ? <IsolatedPreview /> : <Preview />}
       </SignInMode.Provider>
     </StoreProvider>
   </StrictMode>,

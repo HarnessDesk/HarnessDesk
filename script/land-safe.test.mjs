@@ -122,6 +122,7 @@ const harness = ({
   checks = [...checksGreen(), good('CI tier: full', { id: 40 }), good('UI integration inputs', { id: 39 })],
   heads = ['head-sha', 'head-sha', 'head-sha'],
   headBranches = ['feature/topic', 'feature/topic', 'feature/topic'],
+  baseBranch = 'main',
   baseTips = ['base-sha', 'base-sha'],
   prStates = ['OPEN', 'OPEN', 'MERGED'],
   drafts = [false, false, false],
@@ -139,7 +140,7 @@ const harness = ({
       const state = prStates[Math.min(prViews, prStates.length - 1)]
       const isDraft = drafts[Math.min(prViews, drafts.length - 1)]
       prViews += 1
-      return JSON.stringify({ headRefOid, headRefName: headBranches[Math.min(prViews - 1, headBranches.length - 1)], baseRefName: 'main', state, isDraft, mergeCommit: { oid: mergeCommit } })
+      return JSON.stringify({ headRefOid, headRefName: headBranches[Math.min(prViews - 1, headBranches.length - 1)], baseRefName: baseBranch, state, isDraft, mergeCommit: { oid: mergeCommit } })
     }
     if (args[0] === 'api' && args[1].includes('/branches/')) {
       const tip = baseTips[Math.min(baseReads, baseTips.length - 1)]
@@ -448,6 +449,43 @@ test('full-tier proof from a different workflow run cannot bless the required ch
     good('CI tier: full', { id: 50, check_suite: { id: 10 } }),
   ] })
   assert.equal(await landSafe({ pr: '42', head: 'head-sha', repo: 'owner/repo' }, h.runner, h.io), 2)
+})
+
+test('complete scoped proof permits a development landing in one CI run', async () => {
+  const h = harness({ baseBranch: 'development', checks: [
+    ...checksGreen(), good('CI tier: scoped', { id: 40 }), good('UI integration inputs', { id: 39 }),
+  ] })
+  assert.equal(await landSafe({ pr: '42', repo: 'owner/repo', head: 'head-sha' }, h.runner, h.io), 0)
+})
+
+for (const over of [
+  { check_suite: { id: 20 } }, { status: 'queued', started_at: null },
+  { conclusion: 'failure' }, { head_sha: 'other-sha' }, { app: { slug: 'other' } },
+]) {
+  test(`scoped authority fails closed for incomplete or foreign evidence: ${JSON.stringify(over)}`, async () => {
+    const h = harness({ baseBranch: 'development', checks: [
+      ...checksGreen(), good('CI tier: scoped', { id: 40, ...over }), good('UI integration inputs', { id: 39 }),
+    ] })
+    assert.equal(await landSafe({ pr: '42', repo: 'owner/repo', head: 'head-sha' }, h.runner, h.io), 2)
+  })
+}
+
+test('a scoped marker never permits a release into main', async () => {
+  const h = harness({ headBranches: ['development'], checks: [
+    ...checksGreen(), good('CI tier: scoped', { id: 40 }), good('UI integration inputs', { id: 39 }),
+  ] })
+  assert.equal(await landSafe({ pr: '42', repo: 'owner/repo', head: 'head-sha' }, h.runner, h.io), 2)
+})
+
+test('unrelated label checks cannot replace already earned proof, even when cancelled', async () => {
+  const skipped = { check_suite: { id: 20 }, started_at: '2026-09-30T13:00:00Z', conclusion: 'skipped' }
+  const h = harness({ checks: [
+    ...checksGreen(), good('CI tier: full', { id: 40 }), good('UI integration inputs', { id: 39 }),
+    ...REQUIRED_CHECKS.map((name, index) => good(`Label ignored: ${name}`, { id: 50 + index, ...skipped })),
+    good('Label ignored: inputs', { id: 54, ...skipped }),
+    good('Label ignored: tier', { id: 55, ...skipped, conclusion: 'cancelled' }),
+  ] })
+  assert.equal(await landSafe({ pr: '42', repo: 'owner/repo', head: 'head-sha' }, h.runner, h.io), 0)
 })
 
 for (const proof of [null, { status: 'queued', started_at: null }, { conclusion: 'failure' }, { app: { slug: 'other' } }, { head_sha: 'other-sha' }]) {

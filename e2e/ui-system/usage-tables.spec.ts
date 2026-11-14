@@ -111,7 +111,7 @@ for (const theme of ['light', 'dark'] as const) {
         }
       }` })
     })
-    await page.goto('/preview.html')
+    await page.goto('/preview.html?frames=dashboard-overview,settings-sheet,sidebar-column,goal-accounting,insight-partial,insight-loaded,supported-plan-meters')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     await page.evaluate(async () => { await document.fonts.ready })
     const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
@@ -130,7 +130,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 for (const theme of ['light', 'dark'] as const) {
   test(`account usage keeps whole names at its real menu width in ${theme}`, async ({ page }) => {
-    await page.goto('/preview.html')
+    await page.goto('/preview.html?frames=dashboard-overview,settings-sheet,sidebar-column,goal-accounting,insight-partial,insight-loaded,supported-plan-meters')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     await stageWindows(page)
     await page.locator('[data-frame-id="sidebar-column"] button[class*="accountRow"]').click()
@@ -190,7 +190,7 @@ for (const theme of ['light', 'dark'] as const) {
       // unknown portion, while retaining the preview's known figures.
       await route.fulfill({ response, body: (await response.text()).replaceAll('coverage: "partial"', 'coverage: "partial", quality: "estimate", basis: "mixed"') })
     })
-    await page.goto('/preview.html')
+    await page.goto('/preview.html?frames=dashboard-overview,settings-sheet,sidebar-column,goal-accounting,insight-partial,insight-loaded,supported-plan-meters')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     const frame = page.locator('[data-frame-id="insight-partial"]')
     await frame.evaluate(node => { (node as HTMLElement).style.width = '632px' })
@@ -212,7 +212,7 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 test('Dashboard Project preview counts its retained Run through the batch history loader', async ({ page }) => {
-  await page.goto('/preview.html?view=projects')
+  await page.goto('/preview.html?frames=dashboard-overview,settings-sheet,sidebar-column,goal-accounting,insight-partial,insight-loaded,supported-plan-meters&view=projects')
   const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
   const row = dashboard.getByRole('row', { name: /Storefront/ })
   await expect(row.locator('td').nth(1)).toHaveText('1')
@@ -221,7 +221,7 @@ test('Dashboard Project preview counts its retained Run through the batch histor
 
 for (const theme of ['light', 'dark'] as const) {
   test(`narrow Plans disclosure keeps its position and name in ${theme}`, async ({ page }) => {
-    await page.goto('/preview.html?view=plans')
+    await page.goto('/preview.html?frames=dashboard-overview,settings-sheet,sidebar-column,goal-accounting,insight-partial,insight-loaded,supported-plan-meters&view=plans')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     const table = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible').locator('[data-slot="plans-table"]')
     await table.locator('xpath=ancestor::*[@data-page-destination][1]').evaluate(node => { (node as HTMLElement).style.width = '480px' })
@@ -248,7 +248,7 @@ for (const theme of ['light', 'dark'] as const) {
 for (const theme of ['light', 'dark'] as const) {
   for (const width of [360, 480, 720]) {
     test(`Receipt Cost keeps figure space with real host notes at ${width}px in ${theme}`, async ({ page }) => {
-      await page.goto('/preview.html')
+      await page.goto('/preview.html?frames=dashboard-overview,settings-sheet,sidebar-column,goal-accounting,insight-partial,insight-loaded,supported-plan-meters')
       await page.evaluate(async () => { await document.fonts.ready })
       await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
       const frame = page.locator('[data-frame-id="goal-accounting"]')
@@ -279,7 +279,7 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 test('partial Project preview has available Team counts through the default loader', async ({ page }) => {
-  await page.goto('/preview.html')
+  await page.goto('/preview.html?frames=dashboard-overview,settings-sheet,sidebar-column,goal-accounting,insight-partial,insight-loaded,supported-plan-meters')
   const frame = page.locator('[data-frame-id="insight-partial"]')
   await expect(frame.getByText('Run counts are unavailable for some Teams.')).toHaveCount(0)
   await expect(frame.locator('tbody tr')).toHaveCount(1)
@@ -301,7 +301,7 @@ for (const theme of ['light', 'dark'] as const) {
           ];
         }` })
     })
-    await page.goto('/preview.html')
+    await page.goto('/preview.html?frames=dashboard-overview,settings-sheet,sidebar-column,goal-accounting,insight-partial,insight-loaded,supported-plan-meters')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     const gate = await page.evaluate(() => (window as unknown as { __usageGate: number }).__usageGate)
     await page.evaluate(async () => {
@@ -330,7 +330,7 @@ for (const theme of ['light', 'dark'] as const) {
       const body = source.replace(marker, `${marker} await new Promise(resolve => { if (window.__historyHold) window.__historyFinish = resolve; else resolve(); }); if (!window.__historyRecovered) throw new Error('Synthetic history read refused');`)
       await route.fulfill({ response, body })
     })
-    await page.goto('/preview.html?view=projects')
+    await page.goto('/preview.html?frames=dashboard-overview,settings-sheet,sidebar-column,goal-accounting,insight-partial,insight-loaded,supported-plan-meters&view=projects')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
     const project = dashboard.getByRole('region', { name: /^Team usage in / })
@@ -381,7 +381,7 @@ for (const theme of ['light', 'dark'] as const) {
       const response = await route.fetch()
       await route.fulfill({ response, body: (await response.text()).replaceAll("note: \"Recorded brief cohort\"", "note: \"Brief cohort unavailable\"") })
     })
-    await page.goto('/preview.html')
+    await page.goto('/preview.html?frames=dashboard-overview,settings-sheet,sidebar-column,goal-accounting,insight-partial,insight-loaded,supported-plan-meters')
     await page.evaluate(async () => { await document.fonts.ready })
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     const frame = page.locator('[data-frame-id="goal-accounting"]')
@@ -397,7 +397,7 @@ for (const theme of ['light', 'dark'] as const) {
       const response = await route.fetch()
       await route.fulfill({ response, body: (await response.text()).replace(/report: INSIGHT_REPORT,\s*loading: false,\s*problem: null/, 'report: null, loading: false, problem: "The source is temporarily unavailable."') })
     })
-    await page.goto('/preview.html')
+    await page.goto('/preview.html?frames=dashboard-overview,settings-sheet,sidebar-column,goal-accounting,insight-partial,insight-loaded,supported-plan-meters')
     await page.evaluate(async () => { await document.fonts.ready })
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     const frame = page.locator('[data-frame-id="insight-loaded"]')

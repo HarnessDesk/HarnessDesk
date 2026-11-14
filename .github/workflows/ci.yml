@@ -1,21 +1,25 @@
 name: CI
 
+# Full-suite performance comparisons keep the same test matrix and proof gates.
+
 # Feature branches are covered by pull_request without duplicating push runs.
 # Development adds reached browser specs on every push; its release PR and main run full CI.
 on:
   push:
     branches: [main, development]
   pull_request:
-    # Not on labels: `full-ci` starts its own full run (full-ci-label.yml).
-    types: [opened, synchronize, reopened]
+    # Only full-ci admits label events; other labels skip with non-authoritative names.
+    types: [opened, synchronize, reopened, labeled]
   # Runs started by hand always prove the full suite.
   workflow_dispatch:
 
 # Each development push checks its own range, so give it a separate group:
 # neither running nor pending coverage may be cancelled by the next push.
-# Event names also keep pushes separate from the nightly full dispatch.
+# Event names also keep pushes separate from the nightly full dispatch. A full-ci
+# label and a synchronize event for that same PR head share a full group. Ordinary
+# PR events cannot cancel explicit full proof; unrelated labels get their own group.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/development' && github.sha || 'latest' }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}-${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci') && 'full' || 'default' }}-${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name != 'full-ci' && github.run_id || github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci') && github.event.pull_request.head.sha || github.event_name == 'push' && github.ref == 'refs/heads/development' && github.sha || 'latest' }}
   # A pull request's newer push supersedes its older run. Main never cancels:
   # on a busy main every push cancelled the run before it, so for over an hour
   # no combined state of main was checked in full, and "main is green" could
@@ -24,10 +28,12 @@ concurrency:
 
 jobs:
   changes:
-    name: UI integration inputs
+    name: "${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && 'Label ignored: inputs' || 'UI integration inputs' }}"
+    if: github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'full-ci'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
+      linux: ${{ steps.pick.outputs.linux }}
       tier: ${{ steps.paths.outputs.tier }}
       browser: ${{ steps.paths.outputs.browser }}
       native: ${{ steps.paths.outputs.native }}
@@ -67,6 +73,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           UI_IMPACT_MAP: ui-impact-map.json
           CI_HEAD_BRANCH: ${{ github.head_ref }}
+          CI_BASE_BRANCH: ${{ github.base_ref }}
           CI_REF_NAME: ${{ github.ref_name }}
           CI_BEFORE: ${{ github.event.before }}
           CI_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
@@ -141,19 +148,8 @@ jobs:
           sed -n 's/^node_jobs=/node_jobs=/p' "$RUNNER_TEMP/node-plan" >> "$GITHUB_OUTPUT"
           sed -n 's/^summary=//p' "$RUNNER_TEMP/node-plan" >> "$GITHUB_STEP_SUMMARY"
 
-  # The project's own Linux runner takes the two jobs that start at once, while
-  # it is up, which leaves two hosted slots for the shards behind them. A job
-  # sent to a runner that is down waits in the queue for a day, so the hosted
-  # runner is the answer whenever this cannot show the self-hosted one online:
-  # no token (forks never get one), any failure to ask, or less than half an
-  # hour before the runner's scheduled stop (`SELF_HOSTED_UNTIL`, Pacific).
-  runners:
-    name: CI runners
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    outputs:
-      linux: ${{ steps.pick.outputs.linux }}
-    steps:
+      # Ask while selecting inputs: a separate runner-pick job consumed a
+      # hosted slot and made Gates/typecheck wait through another queue.
       - name: Pick the Linux runner
         id: pick
         env:
@@ -178,7 +174,7 @@ jobs:
   # A separate check names the tier without changing branch protection's check
   # names. land-safe matches this proof to the required checks' check-suite id.
   ci-tier:
-    name: "CI tier: ${{ needs.changes.outputs.tier }}"
+    name: "${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && 'Label ignored' || 'CI tier' }}: ${{ needs.changes.outputs.tier }}"
     needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -187,7 +183,7 @@ jobs:
         env:
           CI_TIER: ${{ needs.changes.outputs.tier }}
         run: |
-          case "$CI_TIER" in full|bounded) ;; *) exit 1 ;; esac
+          case "$CI_TIER" in full|scoped|bounded) ;; *) exit 1 ;; esac
           echo "CI tier: $CI_TIER" | tee -a "$GITHUB_STEP_SUMMARY"
 
   # The Node-package tests. `script/node-tests.mjs` is their manifest: which
@@ -234,11 +230,10 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # `build` is the whole node build plus the UI: it compiles every package
-      # the tests reach for, and copies the non-TypeScript fixtures the tests
-      # spawn as real processes.
+      # Node fixtures create their own HTML; they read compiled workspace
+      # packages, not UI dist. Gates and native smoke still build the full app.
       - name: Build
-        run: pnpm run build
+        run: pnpm run build:node
 
       # Spec output: its closing summary names every failing test.
       - name: Node tests
@@ -259,8 +254,8 @@ jobs:
 
   ui-typecheck:
     name: UI typecheck and desktop tests
-    needs: runners
-    runs-on: ${{ fromJSON(needs.runners.outputs.linux) }}
+    needs: changes
+    runs-on: ${{ fromJSON(needs.changes.outputs.linux) }}
     # These run once, alongside the shards. Fifteen minutes leaves ample room
     # for install/build/typecheck and desktop tests while bounding a runaway.
     timeout-minutes: 15
@@ -340,7 +335,7 @@ jobs:
     name: UI tests
     runs-on: ubuntu-latest
     needs: [changes, ui-typecheck, ui-unit-tests]
-    if: always()
+    if: always() && (github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'full-ci')
     timeout-minutes: 5
     steps:
       - name: Require typecheck, desktop and the selected unit tests
@@ -364,8 +359,8 @@ jobs:
 
   gates:
     name: Gates
-    needs: runners
-    runs-on: ${{ fromJSON(needs.runners.outputs.linux) }}
+    needs: changes
+    runs-on: ${{ fromJSON(needs.changes.outputs.linux) }}
     timeout-minutes: 25
 
     steps:
@@ -469,6 +464,7 @@ jobs:
         run: node script/check-verify-steps.mjs
 
   ios-native-tests:
+    if: github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'full-ci'
     name: Swift simulator tests
     runs-on: macos-15
     timeout-minutes: 10
@@ -480,10 +476,10 @@ jobs:
       - run: node script/test-ios-control.mjs
 
   verify:
-    name: Build, typecheck, test
+    name: "${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && 'Label ignored: Build, typecheck, test' || 'Build, typecheck, test' }}"
     runs-on: ubuntu-latest
     needs: [node-tests, ui-tests, gates, ios-native-tests]
-    if: always()
+    if: always() && (github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'full-ci')
     timeout-minutes: 5
 
     steps:
@@ -595,11 +591,13 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      # The planner balances built-page work into at most twelve complete
+      # shards, all eligible at once. Recording keeps its seventeen-shard cap.
       matrix:
-        # As many shards as the work needs, from one to sixteen: each carries
-        # about 1,500 recorded dev-server seconds of tests. Static runs finish
-        # earlier; script/ci-browser-shards.mjs still sizes the shards from those
-        # times and script/ci-changes.mjs counts them. Development pushes also
+        # Up to twelve complete PR-matrix bins, or seventeen recording bins.
+        # PR selections target 600 two-worker-equivalent seconds; the complete
+        # suite may carry more at the cap. The dealer accounts for static and
+        # dev worker counts. script/ci-changes.mjs counts them; development pushes
         # run the bounded selection. A skipped browser job keeps [1] so its
         # matrix stays well formed.
         shard: ${{ fromJSON(needs.changes.outputs.shards) }}
@@ -755,10 +753,10 @@ jobs:
           retention-days: 3
 
   ui-system-browser-integration:
-    name: UI system browser integration
+    name: "${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && 'Label ignored: UI system browser integration' || 'UI system browser integration' }}"
     runs-on: ubuntu-latest
     needs: [changes, ui-system-build, ui-system-browser, ui-system-server]
-    if: always()
+    if: always() && (github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'full-ci')
     timeout-minutes: 5
 
     steps:
@@ -825,10 +823,10 @@ jobs:
           retention-days: 3
 
   ui-system-native-integration:
-    name: UI system native integration
+    name: "${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && 'Label ignored: UI system native integration' || 'UI system native integration' }}"
     runs-on: ubuntu-latest
     needs: [changes, ui-system-native]
-    if: always()
+    if: always() && (github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'full-ci')
     timeout-minutes: 5
 
     steps:

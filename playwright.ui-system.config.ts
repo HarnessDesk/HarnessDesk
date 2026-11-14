@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { hasE2EBuild } from './script/ui-system-run.mjs'
+import { ciBrowserWorkers, hasE2EBuild } from './script/ui-system-run.mjs'
 
 import { defineConfig, devices } from '@playwright/test'
 
@@ -41,12 +41,14 @@ const reportRoot = `./output/playwright/ui-system${reportGroup === 'static' || r
  * How many browsers run at once. One anywhere but CI: a Mac that other work
  * shares should not have several started on it, and a re-record of a baseline
  * (`UPDATE_METRICS`, `UPDATE_ALIGNMENT`) must stay a run of one file at a time.
- * On CI, half the cores, which is Playwright's own default: each browser draws
- * on a core of its own and the dev server needs one more. Three on a
+ * On CI's dev server, half the cores: each browser draws
+ * on a core of its own and the compiling dev server needs one more. Three on a
  * four-core runner was tried first, and two of six shards then ran their tests
  * twice as slowly as the other four, with a test timing out in each of two.
  *
  * `PLAYWRIGHT_UI_SYSTEM_WORKERS` overrides it except while recording a baseline.
+ * Built pages do no module transformation: use up to three browsers, leaving
+ * one of a four-core runner's cores for the test driver and static server.
  */
 const envWorkers = Number(process.env.PLAYWRIGHT_UI_SYSTEM_WORKERS)
 const workers =
@@ -55,14 +57,15 @@ const workers =
     : Number.isInteger(envWorkers) && envWorkers > 0
       ? envWorkers
       : process.env.CI
-        ? Math.max(1, Math.floor(os.availableParallelism() / 2))
+        ? ciBrowserWorkers(os.availableParallelism(), staticServer)
         : 1
 
 /**
- * Local browser coverage, and the full tier required before landing.
+ * Local browser coverage and scoped/full CI proof.
  *
- * Ordinary pull-request CI runs core checks only; browser and native integration
- * run in the full tier. Local `check:push` still selects reached and edited specs
+ * Scoped pull-request CI runs every affected browser spec; unknown selection
+ * evidence and high-risk inputs start full CI. Native integration remains
+ * full-only. Local `check:push` still selects reached and edited specs
  * with `UI_SYSTEM_MATRIX=pr` (see `script/ci-changes.mjs`). The frame specs below
  * skip cases whose title names the dark theme: theme variables change colour,
  * not geometry. Colour contracts retain both themes in every browser run.

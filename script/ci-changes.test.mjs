@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { browserPlan, ciTier, planChange, themeDiff, themeInputs } from './ci-changes.mjs'
+import { browserPlan, ciTier, planChange, planCIChange, themeDiff, themeInputs } from './ci-changes.mjs'
 import { specFiles } from './ci-browser-shards.mjs'
 import { mergeRecords, readMap } from './ui-impact.mjs'
 
@@ -17,7 +17,7 @@ const cliPlan = (paths, event = 'pull_request', env = {}) => {
     const list = join(directory, 'paths')
     if (paths !== null) writeFileSync(list, paths.length ? `${paths.join('\0')}\0` : '')
     const result = spawnSync(process.execPath, [script, list], {
-      encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: event, UI_THEME_TOUCHED: '', UI_SYSTEM_MATRIX_REQUEST: '', UI_IMPACT_MAP: '', CI_HEAD_BRANCH: '', CI_REF_NAME: '', CI_LABELS: '', CI_PROVEN_BY: '', ...env },
+      encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: event, UI_THEME_TOUCHED: '', UI_SYSTEM_MATRIX_REQUEST: '', UI_IMPACT_MAP: '', CI_HEAD_BRANCH: '', CI_BASE_BRANCH: 'development', CI_REF_NAME: '', CI_LABELS: '', CI_PROVEN_BY: '', ...env },
     })
     assert.equal(result.status, 0, result.stderr)
     const output = Object.fromEntries(result.stdout.trim().split('\n').map(line => line.split(/=(.*)/s).slice(0, 2)))
@@ -41,17 +41,19 @@ for (const paths of [
   ['packages/desktop/electron/main.mjs'], ['e2e/ui-system/row-box.spec.ts'],
   ['package.json'], ['docs/a b.md'], ['docs/line\nbreak.md'], [], null,
 ]) {
-  test(`bounded CI runs core only for ${JSON.stringify(paths)}`, () => {
+  test(`CI admits a complete scope or starts full validation for ${JSON.stringify(paths)}`, () => {
     const run = cliPlan(paths)
-    assert.deepEqual([run.browser, run.native, run.tier], ['none', 'false', 'bounded'])
-    assert.deepEqual([run.browser_specs, run.shard_count, run.shards, run.record], ['[]', '0', '[1]', 'false'])
-    assert.match(run.summary, /Browser suite and native smoke run in the full tier \(batch\/ or full-ci\)/)
-    assert.match(run.summary, /Local check-push specs:/)
+    const scoped = paths?.[0] === 'docs/a b.md' || paths?.[0] === 'e2e/ui-system/row-box.spec.ts'
+    assert.equal(run.tier, scoped ? 'scoped' : 'full')
+    assert.equal(run.native, scoped ? 'false' : 'true')
+    if (!scoped) assert.equal(run.browser_specs, 'all')
+    else if (paths[0].startsWith('e2e/')) assert.deepEqual(JSON.parse(run.browser_specs), paths)
+    else assert.equal(run.browser, 'none')
     assert.doesNotMatch(run.summary, /[\n\r]/)
   })
 }
 
-test('bounded CI lists the local reached specs without changing local selection', () => {
+test('mixed host/spec changes start full CI without changing local selection', () => {
   const paths = ['e2e/ui-system/row-box.spec.ts', 'packages/server/src/host.ts']
   const local = plan(paths)
   const ci = cliPlan(paths)
@@ -60,7 +62,8 @@ test('bounded CI lists the local reached specs without changing local selection'
   const specs = JSON.parse(local.browser_specs)
   assert.ok(specs.includes('e2e/ui-system/row-box.spec.ts'))
   assert.ok(specs.includes('e2e/ui-system/front-door-edit.spec.ts'))
-  assert.ok(ci.summary.endsWith(`Local check-push specs: ${specs.join(', ')}.`), ci.summary)
+  assert.equal(ci.tier, 'full')
+  assert.equal(ci.browser_specs, 'all')
 })
 
 for (const path of [
@@ -82,10 +85,9 @@ test('catalogue mapping excludes unrelated and pattern test inputs', () => {
   }
 })
 
-test('ordinary pull request CI remains core only for a pattern change', () => {
+test('shared design pattern changes require full CI immediately', () => {
   const run = cliPlan(['packages/ui/src/design/patterns/AgentCard.tsx'])
-  assert.deepEqual([run.tier, run.browser, run.native], ['bounded', 'none', 'false'])
-  assert.match(run.summary, /Core CI only/)
+  assert.deepEqual([run.tier, run.browser, run.native], ['full', 'all', 'true'])
 })
 for (const path of ['docs/architecture.md', 'CONTRIBUTING.md', 'script/land-safe.mjs']) {
   test(`${path} skips both suites`, () => check([path], ['none', false]))
@@ -506,7 +508,7 @@ test('the shared change plan and CI CLI keep the same output contract', () => {
   const real = fileURLToPath(new URL('../', import.meta.url))
   const paths = ['docs/architecture.md']
   const output = cliPlan(paths)
-  const shared = planChange(real, { event: 'pull_request', paths })
+  const shared = planCIChange(real, { event: 'pull_request', baseBranch: 'development', paths })
   assert.deepEqual(Object.keys(shared), Object.keys(output))
   for (const key of ['server_specs', 'matrix', 'tier']) assert.equal(String(shared[key]), output[key], key)
 })
