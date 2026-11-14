@@ -98,8 +98,11 @@ const say = (line) => process.stdout.write(`  ${line}\n`)
  * (`intake.json` and the `triggers-*` files), the session archive and its
  * names (`archive.json`, `names.json`), stored credentials nothing here
  * should ever populate (`credentials.json`), the worktree-lane allocator
- * (`lanes/`, `worktrees/`), the library's own writes (`library/`), and the
- * desk's own write lease, which a killed take can leave mid-recovery
+ * (`lanes/`, `worktrees/`), the library's own writes (`library/`),
+ * feature choices and their intent/repair barriers (including preserved repair
+ * artifacts), the Lead's journal and settings (`lead/`), the phone identity and
+ * paired-device registry (`phone-link/`), and the desk's own write lease,
+ * which a killed take can leave mid-recovery
  * (`desk-writer.lock`, `desk-writer-recovery`).
  *
  * `browser-profile/` is cleared too — it is the in-app browser tool's own
@@ -118,6 +121,8 @@ const RESIDUE = [
   'intake.json', 'triggers-machine.json', 'triggers-key.bin', 'triggers-preferences.json',
   'triggers-desk-posts.json', 'triggers-cursors.json', 'archive.json', 'names.json',
   'credentials.json', 'lanes', 'worktrees', 'desk-writer.lock', 'desk-writer-recovery',
+  'features.json', 'features.json.pending', 'features.json.repair', 'lead', 'phone-link',
+  ...readdirSync(HOME).filter(name => /^features\.json(?:\.(?:pending|repair))?\.preserved-/.test(name)),
   'browser-profile', 'library', 'sessions.sqlite', 'sessions.sqlite-wal', 'sessions.sqlite-shm',
 ]
 

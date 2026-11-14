@@ -38,7 +38,7 @@ for (const theme of WALL_THEMES) {
     await openFrame(page, 'frame-wall=settings-middle', theme)
     const nav = page.locator('[data-left-settings]')
     const labels = await nav.locator('[data-left-group-text]').allTextContents()
-    expect(labels).toEqual(['Preferences', 'Conversations', 'Runtimes', 'Access'])
+    expect(labels).toEqual(['Preferences', 'Agents', 'Conversations', 'Access'])
     for (const row of await nav.locator('[data-left-row]').all()) {
       expect((await row.boundingBox())!.height).toBe(FRAME.rail.settingsRowHeight)
     }
@@ -81,8 +81,9 @@ for (const theme of WALL_THEMES) {
     await expect(search).toBeFocused()
     const field = (await nav.locator('[data-slot="search"]').boundingBox())!
     const middle = (await nav.boundingBox())!
-    expect(field.x).toBe(middle.x)
-    expect(field.width).toBe(middle.width)
+    const inset = await nav.evaluate(node => parseFloat(getComputedStyle(node).paddingInlineStart))
+    expect(field.x).toBe(middle.x + inset)
+    expect(field.width).toBe(middle.width - inset * 2)
     await search.fill('no matching preference with a deliberately long search phrase')
     const empty = await nav.locator('p').evaluate(node => ({
       height: node.getBoundingClientRect().height,
@@ -250,3 +251,18 @@ for (const theme of WALL_THEMES) {
     await expectSettingsChrome(page, 1440)
   })
 }
+
+test('Settings navigation board keeps its fixed header and single rail inset when choosing the last row', async ({ page }) => {
+  await openFrame(page, 'frame-wall=settings-middle', 'light')
+  await page.setViewportSize({ width: 1280, height: 480 })
+  const nav = page.getByRole('navigation', { name: 'Settings navigation' })
+  const back = nav.getByRole('button', { name: 'Back', exact: true })
+  const before = (await back.boundingBox())!
+  await nav.getByRole('button', { name: 'Mobile', exact: true }).click()
+  await expect(back).toBeVisible()
+  await expect(nav.getByRole('searchbox', { name: 'Search settings' })).toBeVisible()
+  expect((await back.boundingBox())!.y).toBe(before.y)
+  expect(await page.evaluate(() => window.scrollY)).toBe(0)
+  expect((await nav.locator('[data-slot="search"]').boundingBox())!.x).toBe(8)
+  expect(await nav.locator('[data-left-settings-list]').evaluate(node => node.scrollHeight > node.clientHeight)).toBe(true)
+})

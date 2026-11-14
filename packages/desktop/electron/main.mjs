@@ -6,7 +6,7 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { createDefaultHost, loadBuiltinPlugins, loginShellPath, packagedPath, recordCrash, serve, openClientDoor, startPhoneLink } from '@harnessdesk/server'
+import { createDefaultHost, loadBuiltinPlugins, loginShellPath, packagedPath, recordCrash, serve, openClientDoor } from '@harnessdesk/server'
 import electronUpdater from 'electron-updater'
 
 import { createInlineBrowserEngine } from './browser-engine.mjs'
@@ -108,7 +108,6 @@ let aboutWindow = null
 let tray = null
 let running = null
 let clientDoor = null
-let phoneLink = null
 let host = null
 let logger = null
 let extensions = null
@@ -649,6 +648,8 @@ const watchDownloads = (guestSession, profile) => {
 const start = async () => {
   const bootstrap = createDefaultHost({
     leadEnabled: leadEnabled(process.env),
+    mobileEnabled: process.env['HARNESSDESK_PHONE_LINK'] === '1',
+    phoneLink: { port: Number(process.env['HARNESSDESK_PHONE_PORT'] ?? 0), includeLoopback: process.env['HARNESSDESK_PHONE_LOOPBACK'] === '1' },
     // This app's runtime first, then the bundled or fetched Node; the Lead probes each candidate.
     leadRuntimes: leadRuntimes({ execPath: process.execPath, versions: process.versions, resourcesPath: process.resourcesPath, packaged: app.isPackaged, arch: process.arch }),
     stateDir,
@@ -698,12 +699,6 @@ const start = async () => {
 
   running = await serve({ host, logger, uiRoot, port: 0 })
   clientDoor = await openClientDoor({ host, logger, home: stateDir, hostVersion: app.getVersion() })
-  // Opt-in while the phone link is tested on this machine: the LAN listener and
-  // the pairing page exist only when the desk is started with it.
-  if (process.env['HARNESSDESK_PHONE_LINK'] === '1') {
-    phoneLink = await startPhoneLink(host, logger, { home: stateDir, port: Number(process.env['HARNESSDESK_PHONE_PORT'] ?? 0),
-      includeLoopback: process.env['HARNESSDESK_PHONE_LOOPBACK'] === '1', account: host.phoneRelayAccount() })
-  }
   logger.info('desktop shell ready', { url: running.url })
 
   // macOS notifications for the moments worth leaving another app for: a
@@ -947,8 +942,6 @@ app.on('before-quit', async (event) => {
   event.preventDefault()
   const closingDoor = clientDoor
   clientDoor = null
-  const closingPhone = phoneLink
-  phoneLink = null
   const closing = running
   const closingHost = host
   const closingExtensions = extensions
@@ -964,7 +957,6 @@ app.on('before-quit', async (event) => {
     }
   }
   await step('client door', () => closingDoor?.close())
-  await step('phone link', () => closingPhone?.close())
   await step('server', () => closing?.close())
   await step('host', () => closingHost?.dispose())
   await step('extensions', () => closingExtensions?.dispose())

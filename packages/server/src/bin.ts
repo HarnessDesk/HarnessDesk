@@ -73,6 +73,9 @@ const { host, logger, extensions } = createDefaultHost({
   // For exercising the no-Codex first run without uninstalling anything.
   codexBinaryPath: flag('codex-binary') ?? null,
   leadEnabled: process.env['HARNESSDESK_LEAD'] === '1',
+  mobileEnabled: values['phone-link'] === true || process.env['HARNESSDESK_PHONE_LINK'] === '1',
+  phoneLink: { port: Number(flag('phone-port') ?? process.env['HARNESSDESK_PHONE_PORT'] ?? 0),
+    includeLoopback: values['phone-loopback'] === true || process.env['HARNESSDESK_PHONE_LOOPBACK'] === '1' },
 })
 
 await loadBuiltinPlugins(extensions)
@@ -90,20 +93,13 @@ const clientDoor = await openClientDoor({
   hostVersion: (await host.call('host/hello', { clientVersion: 'host' })).hostVersion,
 })
 
-const phoneLink = values['phone-link'] === true || process.env['HARNESSDESK_PHONE_LINK'] === '1'
-  ? await (await import('./phone-link.js')).startPhoneLink(host, logger, {
-    home: defaultStateDir(), port: Number(flag('phone-port') ?? process.env['HARNESSDESK_PHONE_PORT'] ?? 0),
-    includeLoopback: values['phone-loopback'] === true || process.env['HARNESSDESK_PHONE_LOOPBACK'] === '1',
-    account: host.phoneRelayAccount(),
-  })
-  : null
+const phoneLink = await host.call('phone/state', {})
 
-process.stdout.write(`\nHarnessDesk host ready\n  ${running.url}/?token=${running.token}\n${phoneLink ? `  phone link on port ${phoneLink.service.port}\n` : ''}\n`)
+process.stdout.write(`\nHarnessDesk host ready\n  ${running.url}/?token=${running.token}\n${phoneLink.enabled ? `  phone link on port ${phoneLink.port}\n` : ''}\n`)
 
 const shutdown = async (signal: string): Promise<void> => {
   logger.info('shutting down', { signal })
   await clientDoor?.close()
-  await phoneLink?.close()
   await running.close()
   await host.dispose()
   await extensions.dispose()

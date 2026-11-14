@@ -2066,6 +2066,12 @@ a runtime. Labels are text, wrap whole, and cannot introduce markup.
 
 A pending reply's body, inside the same LeadTurn as its eventual text. The clock is a fact, never a live announcement.
 
+### `LeftColumnSettings`
+
+`packages/ui/src/design/patterns/LeftColumn.tsx`
+
+Settings owns a fixed Back/search header and one independently scrolling destination list.
+
 ### `LeftColumnTop`
 
 `packages/ui/src/design/patterns/LeftColumn.tsx`

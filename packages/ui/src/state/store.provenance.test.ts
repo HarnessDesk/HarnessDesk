@@ -87,7 +87,7 @@ it('disconnect clears health and rejects stale response application; reconnect r
   const before = request.mock.calls.length; handlers().onStatus('open'); handlers().onStatus('open'); await Promise.resolve()
   const reconnected = request.mock.calls.slice(before)
   expect(reconnected).toEqual([
-    ['host/hello', { clientVersion: '0.1.0' }],
+    ['app/features/read', {}],
     ['app/state/get', {}],
     ['provenance/status', {}],
     // Live carry-on incidents, chats' and seats' in one read, so a card or a

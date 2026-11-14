@@ -25,12 +25,14 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(editor).toHaveAttribute('title', "Editor mode opens a conversation's files")
     await expect(page.getByRole('button', { name: 'Changes', exact: true })).toHaveAttribute('title', 'Available after the first message')
   })
-  test(`Settings groups installed programs as Runtimes in ${theme}`, async ({ page }) => {
+  test(`Settings keeps installed programs in Runtimes under Agents in ${theme}`, async ({ page }) => {
     await openFrame(page, RUNTIME_COPY_SCENES.runtimes, theme)
     const groups = page.getByRole('navigation', { name: 'Settings navigation' }).locator('[data-left-group-text]')
     await expect(groups).toHaveCount(4)
     await frame(page, 'settings', theme)
-    await expect(groups).toHaveText(['Preferences', 'Conversations', 'Runtimes', 'Access'])
+    await expect(groups).toHaveText(['Preferences', 'Agents', 'Conversations', 'Access'])
+    await expect(page.getByRole('navigation', { name: 'Settings navigation' })
+      .getByRole('group', { name: 'Agents', exact: true }).getByRole('button', { name: 'Runtimes', exact: true })).toBeVisible()
     await expect(page.getByText('What your Agents run on: the runtimes HarnessDesk can start, and the accounts each is signed in as.')).toBeVisible()
   })
   test(`Library distinguishes runtime loaders from Agent declarations in ${theme}`, async ({ page }) => {

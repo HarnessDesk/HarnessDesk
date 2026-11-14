@@ -8,6 +8,7 @@ import { leadDueTask, leadQuietAt, type LeadPlanner } from './planner.js'
 export class LeadRepeats {
   #tail: Promise<unknown> = Promise.resolve()
   constructor(private readonly port: {
+    available?(): boolean
     planner: LeadPlanner; journal: LeadJournal; now(): number
     start(task: LeadScheduledTask, slot: number): Promise<{ logicalGoalId: string; approved: boolean; reason?: string }>
     /** Autonomy for scheduled goals: `off` and `observed` both mean the slot is consumed and nothing starts. */
@@ -22,10 +23,11 @@ export class LeadRepeats {
   }
   tick(): Promise<void> { return this.#queue(async () => {
     const schedule = await this.port.planner.readSchedule(), now = this.port.now(), due = leadDueTask(schedule, new Date(now))
-    if (!due) return
+    if (!due || this.port.available?.() === false) return
     const reason = due.task.paused ? 'Paused' : !this.#idle() ? 'The previous goal is still open' : null
     if (reason) { await this.port.planner.recordRun(due.task.id, { slot: due.slot, at: now, state: 'skipped', reason }); return }
     const gate = await this.port.gate?.() ?? 'act'
+    if (this.port.available?.() === false) return
     if (gate !== 'act') {
       await this.port.planner.recordRun(due.task.id, { slot: due.slot, at: now, state: 'skipped', reason: gate === 'off' ? 'Scheduled goals are off in Lead settings' : 'Scheduled goals are set to Observe in Lead settings' })
       return
@@ -33,9 +35,11 @@ export class LeadRepeats {
     let result: Awaited<ReturnType<typeof this.port.start>>
     try { result = await this.port.start(due.task, due.slot) }
     catch {
+      if (this.port.available?.() === false) return
       await this.port.planner.recordRun(due.task.id, { slot: due.slot, at: now, state: 'skipped', reason: 'The Lead could not start' })
       return
     }
+    if (this.port.available?.() === false) return
     await this.#recordStart(due.task, due.slot, result)
   }) }
   async #recordStart(task: LeadScheduledTask, slot: number, result: Awaited<ReturnType<typeof this.port.start>>): Promise<void> {
@@ -49,6 +53,7 @@ export class LeadRepeats {
   runNow(id: string): Promise<void> { return this.#queue(async () => {
     if (!this.#idle()) throw leadRefusal('lead-request-in-flight')
     const schedule = await this.port.planner.readSchedule(), task = schedule.tasks.find(task => task.id === id)
+    if (this.port.available?.() === false) throw leadRefusal('lead-unavailable')
     if (!task || !task.enabled) throw leadRefusal('lead-repeat-missing')
     if (leadQuietAt(schedule, new Date(this.port.now()))) throw leadRefusal('lead-repeat-quiet')
     const slot = this.port.now()

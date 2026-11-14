@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { HarnessDeskAccountStatus, PhoneRelayState } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
-import { HarnessDeskAccountSection } from './HarnessDeskAccount'
+import { HarnessDeskAccountSection, HarnessDeskMobileSection } from './HarnessDeskAccount'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 let container: HTMLDivElement
@@ -16,7 +16,7 @@ const account: HarnessDeskAccountStatus = {
   desk: { name: 'Jane’s MacBook Pro', reachable: true },
   phones: [{ deviceId: 'AAAAAAAAAAAAAAAAAAAAAA', name: 'iPhone', lastSeenAt: null }],
 }
-const mount = (status = account, sidebarCollapsed = false, phoneLink = false, relay: PhoneRelayState = 'off') => {
+const mount = (status = account, sidebarCollapsed = false, phoneLink = false, relay: PhoneRelayState = 'off', mobile = false) => {
   const openDestination = vi.fn()
   const setHarnessDeskReachable = vi.fn(async () => {})
   const unlinkHarnessDeskPhone = vi.fn(async () => {})
@@ -33,26 +33,25 @@ const mount = (status = account, sidebarCollapsed = false, phoneLink = false, re
     setHarnessDeskReachable, unlinkHarnessDeskPhone, renameHarnessDesk, signInToHarnessDesk, signOutOfHarnessDesk, deleteHarnessDeskAccount, openDestination,
     phone: { subscribe: () => () => {}, state: { relay } },
   } as unknown as AppStore
-  act(() => root.render(<StoreProvider store={store}><HarnessDeskAccountSection /></StoreProvider>))
+  act(() => root.render(<StoreProvider store={store}>{mobile ? <HarnessDeskMobileSection /> : <HarnessDeskAccountSection />}</StoreProvider>))
   return { setHarnessDeskReachable, unlinkHarnessDeskPhone, renameHarnessDesk, signInToHarnessDesk, signOutOfHarnessDesk, deleteHarnessDeskAccount, openDestination, store }
 }
 const button = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === name)!
-it('shows the account, desk and linked phones; keeps unavailable code pairing honest', () => {
+it('keeps Account identity and desk lifecycle with one always available Mobile link', () => {
   mount()
   expect(container.textContent).toContain('jane@example.com')
   expect(container.textContent).toContain('Jane’s MacBook Pro')
-  expect(container.textContent).toContain('iPhone')
-  expect(container.textContent).toContain('Sign in on your phone with the same account to add another.')
-  expect(container.textContent).toContain('Not available in this build')
-  expect(button('Show code').disabled).toBe(true)
+  expect(container.textContent).not.toContain('iPhone')
+  expect(container.querySelector('[role="switch"]')).toBeNull()
+  expect(button('Mobile settings').disabled).toBe(false)
 })
 it('updates phone reachability through the host', async () => {
-  const { setHarnessDeskReachable } = mount()
+  const { setHarnessDeskReachable } = mount(account, false, true, 'off', true)
   await act(async () => container.querySelector<HTMLButtonElement>('[role="switch"]')!.click())
   expect(setHarnessDeskReachable).toHaveBeenCalledWith(false)
 })
 it('confirms a phone unlink before removing its access', async () => {
-  const { unlinkHarnessDeskPhone } = mount()
+  const { unlinkHarnessDeskPhone } = mount(account, false, true, 'off', true)
   act(() => button('Unlink').click())
   expect(unlinkHarnessDeskPhone).not.toHaveBeenCalled()
   const dialog = document.querySelector('[role="alertdialog"]')!
@@ -133,7 +132,7 @@ it('keeps deletion mounted on Escape while pending so a later failure remains vi
 })
 
 it('formats host last-seen timestamps as Unix seconds', () => {
-  mount({ ...account, phones: [{ ...account.phones[0]!, lastSeenAt: Math.floor(Date.now() / 1000) - 120 }] })
+  mount({ ...account, phones: [{ ...account.phones[0]!, lastSeenAt: Math.floor(Date.now() / 1000) - 120 }] }, false, true, 'off', true)
   expect(container.textContent).toContain('Last seen 2m ago')
 })
 it('opens an eighty-character desk rename field and only writes on confirmation', async () => {
@@ -193,23 +192,22 @@ it.each(['not a URL', 'javascript:alert(1)', 'file:///tmp/link'])('uses a generi
   expect(container.textContent).not.toContain('app.harnessdesk.app')
 })
 
-it('opens the existing LAN Phone settings when local pairing is available', async () => {
+it('opens the existing phone route from the Mobile settings link', async () => {
   const { openDestination } = mount(account, false, true)
-  expect(container.textContent).toContain('Your phones reach this desk through your account when they are away from its network. Messages stay encrypted end to end.')
-  expect(button('Phone settings').disabled).toBe(false)
-  await act(async () => button('Phone settings').click())
+  expect(button('Mobile settings').disabled).toBe(false)
+  await act(async () => button('Mobile settings').click())
   expect(openDestination).toHaveBeenCalledExactlyOnceWith({ kind: 'settings', route: { kind: 'section', section: 'phone', focus: null } })
 })
 
 it('says beside Reachable how the relay stands, and warns only when the person has to act', () => {
-  mount(account, false, true, 'connected')
+  mount(account, false, true, 'connected', true)
   expect(container.textContent).toContain('Connected')
   act(() => root.render(<></>))
-  mount(account, false, true, 'unreachable')
+  mount(account, false, true, 'unreachable', true)
   expect(container.textContent).toContain('Can’t reach HarnessDesk')
   expect(container.querySelector('[data-tone="warning"], .warning, [class*="warning"]')).not.toBeNull()
   act(() => root.render(<></>))
-  mount({ ...account, desk: { ...account.desk, reachable: false } }, false, true, 'connected')
+  mount({ ...account, desk: { ...account.desk, reachable: false } }, false, true, 'connected', true)
   expect(container.textContent).not.toContain('Connected')
 })
 
