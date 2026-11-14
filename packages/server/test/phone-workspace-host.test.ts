@@ -543,7 +543,7 @@ test('legacy pins survive a list preference write during the index seed', async 
   const root = tempDir('hd-pin-race-')
   const state = new StateStore(join(root, 'state.json'))
   await state.load()
-  await state.setPreferences({ listPrefs: { sort: 'name', pinnedSessions: ['fake:kept', 'fake:unpin', 'fake:seeded'] } })
+  await state.setPreferences({ listPrefs: { sort: 'name', pinnedSessions: ['fake:seeded', 'fake:kept', 'fake:unpin'] } })
   await mkdir(join(root, 'transcripts', 'fake'), { recursive: true })
   await writeFile(join(root, 'transcripts', 'fake', 'seeded.json'), JSON.stringify({ version: 1, runtime: 'fake', id: 'seeded', savedAt: 1, turns: [] }))
   const index = new SessionIndex(join(root, 'sessions.sqlite'))
@@ -576,7 +576,7 @@ test('legacy pins survive a list preference write during the index seed', async 
   await host.call('session/pin', { runtime: runtimeId('fake'), sessionId: sessionId('new'), pinned: true })
   release()
   await migrationFinished
-  assert.deepEqual(await host.call('session/pins', {}), ['fake:kept', 'fake:new', 'fake:seeded'])
+  assert.deepEqual(await host.call('session/pins', {}), ['fake:seeded', 'fake:kept', 'fake:new'])
   assert.deepEqual(state.state.preferences['listPrefs'], { sort: 'recent' })
 })
 
