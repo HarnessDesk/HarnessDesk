@@ -10,6 +10,22 @@ const MINUTE = 60_000
 const object = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 
+/** Prefer the provider's active rows: legacy aliases can carry placeholders and different reset precision. */
+const normalizeLimits = (value: unknown): Record<string, unknown> => {
+  const limits = object(value)
+  if (!Array.isArray(limits['limits']) || limits['limits'].length === 0) return limits
+  const rows = limits['limits'].map(object).filter(row => row['is_active'] !== false)
+  const window = (kind: string) => {
+    const row = rows.find(entry => entry['kind'] === kind)
+    return row ? { utilization: row['percent'], resets_at: row['resets_at'] } : null
+  }
+  return { ...limits, five_hour: window('session'), seven_day: window('weekly_all'),
+    model_scoped: rows.filter(row => row['kind'] === 'weekly_scoped').map(row => ({
+      display_name: object(object(row['scope'])['model'])['display_name'],
+      utilization: row['percent'], resets_at: row['resets_at'],
+    })) }
+}
+
 /** Only the unstable SDK seam lives here. Older CLIs may have no such control. */
 export interface UsageQuery {
   usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: (options: { skipBehaviors: boolean }) => Promise<unknown>
@@ -20,7 +36,7 @@ const parse = (value: unknown, at: number): RateLimits | null => {
   const raw = object(value)
   if (raw['rate_limits_available'] === false) return null
   if (raw['rate_limits_available'] !== true || !raw['rate_limits']) throw new Error('Usage response was incompatible.')
-  const limits = object(raw['rate_limits'])
+  const limits = normalizeLimits(raw['rate_limits'])
   const lanes: UsageLane[] = []
   const add = (id: string, label: string, minutes: number, value: unknown, scope?: string) => {
     const window = object(value)
@@ -69,18 +85,8 @@ const observationTime = (before: Record<string, unknown>, after: Record<string, 
       typeof account['accountUuid'] !== 'string' || cached['accountUuid'] !== account['accountUuid'] ||
       typeof at !== 'number' || !Number.isFinite(at) || at <= 0 || at > now) return 0
   const utilization = object(cached['utilization'])
-  const rows = Array.isArray(utilization['limits']) ? utilization['limits'].map(object).filter(row => row['is_active'] !== false) : []
-  const window = (kind: string, fallback: unknown) => {
-    const found = rows.find(row => row['kind'] === kind)
-    return found ? { utilization: found['percent'], resets_at: found['resets_at'] } : fallback
-  }
   try {
-    const own = parse({ rate_limits_available: true, rate_limits: { ...utilization,
-      five_hour: window('session', utilization['five_hour']), seven_day: window('weekly_all', utilization['seven_day']),
-      ...(rows.length ? { model_scoped: rows.filter(row => row['kind'] === 'weekly_scoped').map(row => ({
-        display_name: object(object(row['scope'])['model'])['display_name'], utilization: row['percent'], resets_at: row['resets_at'],
-      })) } : {}),
-    } }, at)
+    const own = parse({ rate_limits_available: true, rate_limits: utilization }, at)
     return limits.lanes?.every(lane => own?.lanes?.some(source => source.id === lane.id && source.scope === lane.scope &&
       source.usedPercent === lane.usedPercent && source.resetsAt === lane.resetsAt)) ? at : 0
   } catch { return 0 }
@@ -107,8 +113,10 @@ export class UsageReader {
     const before = await this.#file()
     const diskEmail = object(before['oauthAccount'])['emailAddress']
     const candidates = await Promise.all(queries.map(async query => ({ query, info: object(await query.accountInfo?.().catch(() => null)) })))
+    // subscriptionType is the CLI's display label, not a stable enum. The usage control
+    // itself is authoritative about whether that first-party sign-in has plan limits.
     const subscribers = candidates.filter(({ info }) => info['apiProvider'] === 'firstParty' &&
-      typeof info['subscriptionType'] === 'string' && ['pro', 'max', 'team', 'enterprise'].includes(info['subscriptionType']) &&
+      typeof info['subscriptionType'] === 'string' && info['subscriptionType'].trim().length > 0 &&
       typeof info['email'] === 'string')
     const subscriber = subscribers.find(({ info }) => diskEmail === undefined || info['email'] === diskEmail)
     if (!subscriber) {

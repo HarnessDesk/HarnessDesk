@@ -24,6 +24,38 @@ test('a missing or mismatched source clock never becomes the time of the control
   assert.equal(result?.fetchedAt, 0, 'different figures cannot lend their timestamp')
 })
 
+test('subscriber eligibility accepts the CLI display plan name rather than assuming an enum', async () => {
+  const path = join(scratch('usage-plan-name-'), '.claude.json')
+  cache(path, 'dev@example.com', 99)
+  const reader = new UsageReader(() => 110_000, () => 0, 100, path)
+  const source = { ...query('dev@example.com', async () => payload(99)),
+    accountInfo: async () => ({ apiProvider: 'firstParty', subscriptionType: 'Claude Ultra', email: 'dev@example.com' }) }
+  const result = await reader.read([source])
+  assert.equal(result?.lanes?.[0]?.usedPercent, 99)
+  assert.equal(result?.planLimitsUnavailable, undefined)
+})
+
+test('modern active rows date the response without legacy reset precision or inactive scoped placeholders', async () => {
+  const path = join(scratch('usage-modern-'), '.claude.json')
+  const response = { ...payload(), rate_limits: {
+    seven_day: { utilization: 99, resets_at: '2026-12-04T00:00:00.100Z' },
+    model_scoped: [{ display_name: 'Fable', utilization: 0, resets_at: '2026-12-04T00:00:00Z' }],
+    limits: [
+      { kind: 'weekly_all', percent: 99, resets_at: '2026-12-04T00:00:00.300Z', is_active: true },
+      { kind: 'weekly_scoped', percent: 0, resets_at: '2026-12-04T00:00:00Z', is_active: false,
+        scope: { model: { display_name: 'Fable' } } },
+    ],
+  } }
+  writeFileSync(path, JSON.stringify({ oauthAccount: { accountUuid: 'fixture-account', emailAddress: 'dev@example.com' },
+    cachedUsageUtilization: { accountUuid: 'fixture-account', fetchedAtMs: 100_000, utilization: response.rate_limits } }))
+  const reader = new UsageReader(() => 110_000, () => 0, 100, path)
+  const result = await reader.read([query('dev@example.com', async () => response)])
+  assert.equal(result?.lanes?.length, 1)
+  assert.equal(result?.lanes?.[0]?.usedPercent, 99)
+  assert.equal(result?.lanes?.[0]?.resetsAt, Date.parse('2026-12-04T00:00:00.300Z'))
+  assert.equal(result?.fetchedAt, 100_000)
+})
+
 test('no live query leaves the newer file fallback reachable', async () => {
   const path = join(scratch('usage-close-'), '.claude.json')
   cache(path, 'dev@example.com')
