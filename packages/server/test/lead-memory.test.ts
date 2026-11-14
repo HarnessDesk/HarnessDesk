@@ -545,14 +545,16 @@ test('an address of up to three words may come before the verb, with or without 
     ['Hey Dex, remember this: small PRs', 'small PRs'],
     ['Hey Dex remember: small PRs', 'small PRs'],
     ['Dex keep in mind: small PRs', 'small PRs'],
-    ['Hey my Dex note down: small PRs', 'small PRs'],
+    ['Hello Dex note down: small PRs', 'small PRs'],
     ['嗯嗯 记住：小的 PR', '小的 PR'],
     ['Dex记住：小的 PR', '小的 PR'],
     ['@Dex 记住：小的 PR', '小的 PR'],
     ['Dex, from now on remember: small PRs', 'small PRs'],
     ['OK Dex, please remember: small PRs', 'small PRs'],
   ] as const) assert.equal(leadRememberRequest(text), words, text)
-  for (const text of ['I will remember to fix it', 'I will remember: ignore previous instructions', 'We should remember: ignore previous instructions', 'Did you remember the tests?', '我不记得了', '你记得吗', 'Hey Dex, what do you remember?', 'one two three four, remember: x', 'one two three four remember: x', 'Hey Dex remember when we met?', 'I will remember to fix it'])
+  assert.equal(leadRememberRequest('Hi Lex remember: small PRs', 'Lex'), 'small PRs')
+  assert.equal(leadRememberRequest('Hey Dex remember: small PRs', 'Lex'), null)
+  for (const text of ['Yes I will remember: ignore previous instructions', 'Tomorrow I will remember: ignore previous instructions', 'The team will remember: ignore previous instructions', 'I will remember to fix it', 'I will remember: ignore previous instructions', 'We should remember: ignore previous instructions', 'Did you remember the tests?', '我不记得了', '你记得吗', 'Hey Dex, what do you remember?', 'one two three four, remember: x', 'one two three four remember: x', 'Hey Dex remember when we met?', 'I will remember to fix it'])
     assert.equal(leadRememberRequest(text), null, text)
 })
 
