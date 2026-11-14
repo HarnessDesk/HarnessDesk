@@ -61,12 +61,12 @@ const trailing = (text: string, start: number, end: number): boolean => {
 }
 
 /** A continuation must be a JSON prefix through the whole line, not just begin like one. */
-const continuationLine = (text: string, containers: readonly string[], previous: string): boolean => {
+const continuationLine = (text: string, containers: readonly string[], previous: string, keyAwaitColon = false): boolean => {
   type State = 'key' | 'keyOrEnd' | 'value' | 'valueOrEnd' | 'colon' | 'after'
   const stack = containers.map(kind => ({ kind, state: 'after' as State }))
   const top = stack.at(-1)
   if (!top) return false
-  top.state = previous === ':' ? 'value' : top.kind === '[' && previous === '[' ? 'valueOrEnd'
+  top.state = keyAwaitColon ? 'colon' : previous === ':' ? 'value' : top.kind === '[' && previous === '[' ? 'valueOrEnd'
     : top.kind === '[' && previous === ',' ? 'value' : top.kind === '{' && previous === '{' ? 'keyOrEnd'
       : top.kind === '{' && previous === ',' ? 'key' : 'after'
   const line = text.split(/[\r\n]/, 1)[0]!
@@ -120,13 +120,20 @@ const continuationLine = (text: string, containers: readonly string[], previous:
  * it stops at the end of the line. String-aware. */
 const jsonEnd = (text: string, start: number, multiline: boolean): number => {
   const containers: string[] = []
-  let previous = '', quoted = false, escaped = false, index = start
+  let previous = '', quoted = false, escaped = false, keyString = false, keyAwaitColon = false, index = start
   for (; index < text.length; index++) {
     const char = text[index]!
     if (char === '\n' || char === '\r') {
       const next = text.slice(index).replace(/^[\r\n \t]*/, '')
       const top = containers.at(-1)
       const key = /^"(?:[^"\\\r\n]|\\.)*"[ \t]*:/.test(next)
+      // A key on a line of its own needs a colon and a JSON value ahead. A
+      // quoted prose line followed by a colon explanation remains prose.
+      const splitKey = top === '{' && (previous === '{' || previous === ',')
+        ? /^"(?:[^"\\\r\n]|\\.)*"[ \t]*\r?\n[ \t\r\n]*:[ \t\r\n]*(?=\S)/.exec(next) : null
+      const splitValue = splitKey ? next.slice(splitKey[0].length) : ''
+      const wrappedKey = !!splitKey && /^(?:[\[{\"]|true|false|null|-?(?:0|[1-9]\d*))/.test(splitValue)
+        && continuationLine(splitValue, ['{'], ':')
       // An unfinished object key has no closing quote or colon yet; only take
       // it where the current object expects a key, leaving complete quoted prose.
       const clippedKey = top === '{' && (previous === '{' || previous === ',') && /^"(?:[^"\\\r\n]|\\[^\r\n])*\\?(?=\r|\n|$)/.test(next)
@@ -135,20 +142,21 @@ const jsonEnd = (text: string, start: number, multiline: boolean): number => {
       const citation = /^\[\d+\](?::|[ \t]+[^\s,}\]])/.test(next)
       const primitive = /^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=[ \t]*(?:[,}\]]|\r|\n|$))/.test(next)
       const valueToken = !citation && (/^[{[]/.test(next) || primitive || /^"(?:[^"\\\r\n]|\\.)*(?:"(?=[ \t]*(?:[,}\]]|\r|\n|$))|(?=\r|\n|$))/.test(next))
-      if (quoted || !multiline || !(key || clippedKey || close || next[0] === ',' || value && valueToken) || !continuationLine(next, containers, previous)) return index
+      if (quoted || !multiline || !(key || wrappedKey || clippedKey || close || next[0] === ',' || keyAwaitColon && next[0] === ':' || value && valueToken) || !continuationLine(next, containers, previous, keyAwaitColon)) return index
       continue
     }
     if (quoted) {
       if (escaped) escaped = false
       else if (char === '\\') escaped = true
-      else if (char === '"') { quoted = false; previous = '"' }
+      else if (char === '"') { quoted = false; previous = '"'; keyAwaitColon = keyString }
       continue
     }
-    if (char === '"') quoted = true
+    if (char === '"') { keyString = containers.at(-1) === '{' && (previous === '{' || previous === ','); quoted = true }
     else if (char === '{' || char === '[') containers.push(char)
     else if (char === '}' || char === ']') { containers.pop(); if (containers.length === 0) return index + 1 }
     else if (/^(?:true|false|null)(?![\p{L}\p{N}_])/u.test(text.slice(index, index + 6))) index += text[index] === 'f' ? 4 : 3
     else if (!/[ \t:,0-9.eE+-]/.test(char)) return index
+    if (char === ':') keyAwaitColon = false
     if (!/[ \t]/.test(char)) previous = char
   }
   return index

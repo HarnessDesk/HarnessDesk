@@ -786,6 +786,47 @@ test('#2081 R5: a wrapped JSON separator stays with its surrounding values', () 
     { text: 'Before.\nAfter.', dropped: true })
 })
 
+test('#2081 R6: a wrapped object key and colon stay in the clipped envelope', () => {
+  assert.deepEqual(lead.stripLeadOutput('Before.\n{"type":"lead-output",\n"text"\n:\n"hidden"\nAfter.'),
+    { text: 'Before.\nAfter.', dropped: true })
+})
+
+test('#2081 R6: JSON tokens may wrap at every boundary inside a clipped envelope', () => {
+  const samples = [
+    ['{', '"type"', ':', '"lead-output"', ',', '"text"', ':', '"hidden"', ',', '"ask"', ':', '{', '"question"', ':', '"a \\"quote\\" and }"', ',', '"flags"', ':', '[', 'true', ',', 'null', ',', '-1.2e+3', ',', '{', '"id"', ':', '"x"', '}', ']', '}', '}'],
+    ['{', '"type"', ':', '"lead-output"', ',', '"refs"', ':', '[', '0', ',', 'false', ',', '"escaped\\\\path"', ']', ',', '"extra"', ':', '{', '}', '}'],
+  ]
+  for (const tokens of samples) {
+    assert.doesNotThrow(() => JSON.parse(tokens.join('')))
+    for (let boundary = 4; boundary < tokens.length - 2; boundary++) {
+      for (const space of ['\n', ' \r\n  ']) {
+        const clipped = tokens.slice(0, -1).map((token, index) => token + (index === boundary ? space : '')).join('')
+        assert.deepEqual(lead.stripLeadOutput(`Before.\n${clipped}\nAfter.`), { text: 'Before.\nAfter.', dropped: true }, `boundary ${boundary}: ${clipped}`)
+      }
+    }
+    const clipped = tokens.slice(0, -1).join('\n')
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n${clipped}\nAfter.`), { text: 'Before.\nAfter.', dropped: true }, 'every boundary')
+  }
+})
+
+test('#2081 R6: prose survives across clipped JSON prefix contexts', () => {
+  const prefixes = [
+    '{"type":"lead-output",',
+    '{"type":"lead-output","ask":{',
+    '{"type":"lead-output","text":',
+    '{"type":"lead-output","refs":[',
+    '{"type":"lead-output","refs":[true,',
+  ]
+  for (const prefix of prefixes) {
+    for (const prose of ['"Quoted prose line" said the worker.', '1,000 users saw this', '1, 2, 3 more people', 'true, but only sometimes', '[1]: see the docs']) {
+      assert.deepEqual(lead.stripLeadOutput(`Before.\n${prefix}\n${prose}`), { text: `Before.\n${prose}`, dropped: true }, `${prefix}: ${prose}`)
+    }
+  }
+  for (const prose of ['"Quoted prose"\n:\nordinary explanation', '"Quoted prose"\n: true, but only sometimes']) {
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n{"type":"lead-output",\n${prose}`), { text: `Before.\n${prose}`, dropped: true }, prose)
+  }
+})
+
 test('#2081: wrapped JSON continuations stay with a clipped envelope', () => {
   for (const fragment of [
     '{"version":1,"type":"lead-output",\n  "text": "hidden",',
