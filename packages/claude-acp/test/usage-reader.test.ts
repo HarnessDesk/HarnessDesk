@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { bindingLane } from '@harnessdesk/protocol'
 import { UsageReader, type UsageQuery } from '../src/usage.js'
 import { scratch } from './scratch.js'
 
@@ -54,6 +55,22 @@ test('modern active rows date the response without legacy reset precision or ina
   assert.equal(result?.lanes?.[0]?.usedPercent, 99)
   assert.equal(result?.lanes?.[0]?.resetsAt, Date.parse('2026-12-04T00:00:00.300Z'))
   assert.equal(result?.fetchedAt, 100_000)
+})
+
+test('saved file-meter lane pins survive a switch to the live source', async () => {
+  const path = join(scratch('usage-lane-pin-'), '.claude.json')
+  const response = { ...payload(), rate_limits: { limits: [
+    { kind: 'session', percent: 30, resets_at: '2026-12-01T00:00:00Z', is_active: true },
+    { kind: 'weekly_all', percent: 99, resets_at: '2026-12-04T00:00:00Z', is_active: true },
+    { kind: 'weekly_scoped', percent: 20, resets_at: '2026-12-04T00:00:00Z', is_active: true,
+      scope: { model: { display_name: 'Fable' } } },
+  ] } }
+  writeFileSync(path, JSON.stringify({ oauthAccount: { accountUuid: 'fixture-account', emailAddress: 'dev@example.com' },
+    cachedUsageUtilization: { accountUuid: 'fixture-account', fetchedAtMs: 100_000, utilization: response.rate_limits } }))
+  const reader = new UsageReader(() => 110_000, () => 0, 100, path)
+  const result = await reader.read([query('dev@example.com', async () => response)])
+  assert.deepEqual(result?.lanes?.map(lane => lane.id), ['session', 'weekly_all', 'weekly_scoped:fable'])
+  assert.equal(bindingLane(result!.lanes!, { pinLaneId: 'weekly_all' })?.label, 'Weekly')
 })
 
 test('no live query leaves the newer file fallback reachable', async () => {

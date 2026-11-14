@@ -37,6 +37,7 @@ const parse = (value: unknown, at: number): RateLimits | null => {
   if (raw['rate_limits_available'] === false) return null
   if (raw['rate_limits_available'] !== true || !raw['rate_limits']) throw new Error('Usage response was incompatible.')
   const limits = normalizeLimits(raw['rate_limits'])
+  const structured = Array.isArray(limits['limits']) && limits['limits'].length > 0
   const lanes: UsageLane[] = []
   const add = (id: string, label: string, minutes: number, value: unknown, scope?: string) => {
     const window = object(value)
@@ -47,12 +48,16 @@ const parse = (value: unknown, at: number): RateLimits | null => {
       resetsAt: Number.isFinite(reset) ? reset : null, ...(scope ? { scope } : {}) })
   }
   add('session', 'Session', 300, limits['five_hour'])
-  add('weekly', 'Weekly', 10_080, limits['seven_day'])
+  // Keep the file meter's stable ids so saved pins survive the live/cache hand-off.
+  add(structured ? 'weekly_all' : 'weekly', 'Weekly', 10_080, limits['seven_day'])
   if (Array.isArray(limits['model_scoped'])) {
     for (const raw of limits['model_scoped']) {
       const entry = object(raw)
       const scope = entry['display_name']
-      if (typeof scope === 'string' && scope.trim()) add(`weekly:${scope}`, 'Weekly', 10_080, entry, scope)
+      if (typeof scope === 'string' && scope.trim()) {
+        const id = structured ? `weekly_scoped:${scope.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}` : `weekly:${scope}`
+        add(id, 'Weekly', 10_080, entry, scope)
+      }
     }
   } else {
     for (const [key, scope] of [['seven_day_opus', 'Opus'], ['seven_day_sonnet', 'Sonnet']] as const) {
