@@ -21,17 +21,49 @@ export type ProseReplay = { readonly kind: 'ordinary'; readonly advanced?: boole
 /** A running turn may grow, but an existing person item cannot change identity or content. */
 export function conflictsWithRunningPrompt(read: Session, held: Pick<Session, 'turns'>, running: ReadonlySet<Turn['id']>): boolean {
   if (!read.itemsLoaded) return false
-  const active = new Map(held.turns.filter(turn => running.has(turn.id)).map(turn => [turn.id, turn]))
-  return read.turns.some(turn => {
-    const previous = active.get(turn.id)
-    if (!previous) return false
-    const people = new Map(previous.items.flatMap(item => item.type === 'userMessage' ? [[item.id, item] as const] : []))
+  const knownTurns = new Set(held.turns.map(turn => turn.id))
+  const readTurns = new Map<Turn['id'], Turn>()
+  const homes = new Map<AgentItem['id'], Turn['id'] | null>()
+  let unknownPersonTurn = false
+  for (const turn of read.turns) {
+    if (running.has(turn.id) && readTurns.has(turn.id)) return true
+    readTurns.set(turn.id, turn)
+    for (const item of turn.items) {
+      if (item.type === 'userMessage' && !knownTurns.has(turn.id)) unknownPersonTurn = true
+      const prior = homes.get(item.id)
+      homes.set(item.id, prior === undefined ? turn.id : prior === turn.id ? prior : null)
+    }
+  }
+  for (const previous of held.turns) {
+    if (!running.has(previous.id)) continue
+    const people = previous.items.filter((item): item is Extract<AgentItem, { type: 'userMessage' }> => item.type === 'userMessage')
+    if (!people.length) continue
+    const ids = new Set(people.map(item => item.id))
+    // A watched person item on another turn is never evidence that it moved.
+    if ([...ids].some(id => homes.has(id) && homes.get(id) !== previous.id)) return true
+    const turn = readTurns.get(previous.id)
+    if (!turn) {
+      // A previously unknown turn with person text may be the same active
+      // turn under a regenerated ID. Do not fold it beside the watched one.
+      if (unknownPersonTurn) return true
+      continue
+    }
     const normalized = preserveDeskContext(turn.items, previous.items)
-    return normalized.some(item => {
-      const person = people.get(item.id)
-      return !!person && (item.type !== 'userMessage' || !isDeepStrictEqual(item.content, person.content))
-    })
-  })
+    const incoming = new Map<AgentItem['id'], AgentItem>()
+    const orderedPeople: AgentItem['id'][] = []
+    for (const item of normalized) {
+      if (ids.has(item.id) && incoming.has(item.id)) return true
+      incoming.set(item.id, item)
+      if (item.type === 'userMessage') orderedPeople.push(item.id)
+    }
+    if (orderedPeople.length && people.some((person, index) => orderedPeople[index] !== person.id)) return true
+    for (const person of people) {
+      const item = incoming.get(person.id)
+      if (item && (item.type !== 'userMessage' || !isDeepStrictEqual(item.content, person.content))) return true
+      if (!item && (normalized.some(entry => entry.type === 'userMessage') || normalized.length >= previous.items.length)) return true
+    }
+  }
+  return false
 }
 
 export function reconcileProseReplay(read: Session, held: Pick<Session, 'turns'>): ProseReplay {
