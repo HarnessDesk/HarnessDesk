@@ -826,12 +826,13 @@ let lastInput = null
  * is the model's. Reasoning is part of the output and dropped from context.
  */
 let turnsPlayed = 0
-const runningTotal = { totalTokens: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 }
+const runningTotal = { totalTokens: 0, inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 }
 const nextUsage = () => {
   turnsPlayed += 1
   const last = {
     inputTokens: 9000 + 45000 * turnsPlayed,
     cachedInputTokens: 40000 * turnsPlayed,
+    cacheWriteInputTokens: 0, // This synthetic turn reports no cache writes.
     outputTokens: 1800,
     reasoningOutputTokens: 600,
     totalTokens: 0,

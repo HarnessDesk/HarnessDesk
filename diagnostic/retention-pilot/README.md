@@ -9,3 +9,5 @@ The production source is pinned to `8d30cf17f720e4014020aac8c345776a4372953e`. T
 Local toy checks: `node --check diagnostic/retention-pilot/controller.mjs` and `node --test diagnostic/retention-pilot/controller.test.mjs`. These do not launch Electron.
 
 The Host and transcript sources on this diagnostic branch are instrumented derivatives of the pinned production files, limited to fixed receipt-guard and exact-save reason labels. Exact fingerprints are in `host-guard-manifest.json`. The controller activates it only in the isolated child, consumes only bounded allowlisted reason counters, and retains no raw app log. This derivative is diagnostic input, not an unmodified production build or CI proof.
+
+The separate diagnostic fake reports `cacheWriteInputTokens: 0` in both usage breakdowns because this synthetic turn has no cache writes; the generated current protocol requires the numeric field. The original production fixture remains unchanged. This is not a default for real runtime data.

@@ -25,7 +25,7 @@ const fixtureHashes={
  'packages/adapter-codex/test/fixtures/fake-codex.mjs':'f4d8fcb27e24a3e871dd5660030e4c0fbd718bc429952e98970de81f43e7b1d1',
  'packages/adapter-codex/test/fixtures/scripted-flow.mjs':'1b6f58123021ce772025a525aaedabd99784655772631299d27a6dbe4c8099d7',
  'packages/adapter-codex/test/fixtures/plugin-icon.svg':'611ca48d4da7767c7cc051442c2e389a2d5a288a2fbb09c5edd3f3b1e7499d79',
- 'diagnostic/retention-pilot/fake-codex-1545.mjs':'8d06106401fa5076c489d4a879da79e831cde8a1400deb880579739d89d00738',
+ 'diagnostic/retention-pilot/fake-codex-1545.mjs':'70d44e8a425ca3215ad66f92ec8fcd3f970048c745aba6d3a48054acefbc9fcc',
  'diagnostic/retention-pilot/scripted-flow.mjs':'1b6f58123021ce772025a525aaedabd99784655772631299d27a6dbe4c8099d7',
  'diagnostic/retention-pilot/plugin-icon.svg':'611ca48d4da7767c7cc051442c2e389a2d5a288a2fbb09c5edd3f3b1e7499d79',
 }
