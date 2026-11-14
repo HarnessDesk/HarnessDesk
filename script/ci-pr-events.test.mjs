@@ -38,7 +38,7 @@ test('unrelated labels neither cancel useful runs nor execute their checks', () 
   ignored.event.action = 'labeled'
   ignored.event.label = { name: 'documentation' }
   assert.notEqual(group(ignored), group(event()))
-  for (const name of ['changes', 'runners', 'ios-native-tests', 'ui-tests', 'verify', 'ui-system-browser-integration', 'ui-system-native-integration']) {
+  for (const name of ['changes', 'ios-native-tests', 'ui-tests', 'verify', 'ui-system-browser-integration', 'ui-system-native-integration']) {
     assert.ok(condition(name), `${name} must have an admission condition`)
     assert.equal(evaluate(condition(name), ignored), false, name)
     assert.equal(evaluate(condition(name), event()), true, name)

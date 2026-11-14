@@ -2,15 +2,10 @@ import { leadDataContainsCredential } from './journal-security.js'
 import type { MessagesTurn } from './messages-types.js'
 
 /** Scan structured prose as well as JSON-escaped strings. Refusals never carry input. */
-export const leadContainsSecret = (value: unknown, key?: string): boolean => {
-  if (leadDataContainsCredential(value, key ? [key] : [])) return true
-  if (typeof value === 'string') {
-    if (/sk-ant-[A-Za-z0-9_-]+/.test(value)) return true
-    try { const decoded: unknown = JSON.parse(value); return decoded !== value && leadContainsSecret(decoded, key) }
-    catch { return false }
-  }
-  return !!value && typeof value === 'object' && Object.entries(value).some(([name, child]) => leadContainsSecret(name, key) || leadContainsSecret(child, key))
-}
+// The outbound-only short-key rule participates in the shared traversal. Scanning
+// the complete subtree again at every child made nested tool results quadratic.
+export const leadContainsSecret = (value: unknown, key?: string): boolean =>
+  leadDataContainsCredential(value, key ? [key] : [], text => /sk-ant-[A-Za-z0-9_-]+/.test(text))
 
 /** Check each JSON document, including encoded strings, before allowing a preview token field. */
 const hasDuplicateJsonFields = (value: unknown): boolean => {

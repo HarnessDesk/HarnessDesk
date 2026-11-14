@@ -1,5 +1,7 @@
 name: CI
 
+# Full-suite performance comparisons keep the same test matrix and proof gates.
+
 # Feature branches are covered by pull_request without duplicating push runs.
 # Development adds reached browser specs on every push; its release PR and main run full CI.
 on:
@@ -31,6 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
+      linux: ${{ steps.pick.outputs.linux }}
       tier: ${{ steps.paths.outputs.tier }}
       browser: ${{ steps.paths.outputs.browser }}
       native: ${{ steps.paths.outputs.native }}
@@ -145,20 +148,8 @@ jobs:
           sed -n 's/^node_jobs=/node_jobs=/p' "$RUNNER_TEMP/node-plan" >> "$GITHUB_OUTPUT"
           sed -n 's/^summary=//p' "$RUNNER_TEMP/node-plan" >> "$GITHUB_STEP_SUMMARY"
 
-  # The project's own Linux runner takes the two jobs that start at once, while
-  # it is up, which leaves two hosted slots for the shards behind them. A job
-  # sent to a runner that is down waits in the queue for a day, so the hosted
-  # runner is the answer whenever this cannot show the self-hosted one online:
-  # no token (forks never get one), any failure to ask, or less than half an
-  # hour before the runner's scheduled stop (`SELF_HOSTED_UNTIL`, Pacific).
-  runners:
-    name: CI runners
-    if: github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'full-ci'
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    outputs:
-      linux: ${{ steps.pick.outputs.linux }}
-    steps:
+      # Ask while selecting inputs: a separate runner-pick job consumed a
+      # hosted slot and made Gates/typecheck wait through another queue.
       - name: Pick the Linux runner
         id: pick
         env:
@@ -239,11 +230,10 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # `build` is the whole node build plus the UI: it compiles every package
-      # the tests reach for, and copies the non-TypeScript fixtures the tests
-      # spawn as real processes.
+      # Node fixtures create their own HTML; they read compiled workspace
+      # packages, not UI dist. Gates and native smoke still build the full app.
       - name: Build
-        run: pnpm run build
+        run: pnpm run build:node
 
       # Spec output: its closing summary names every failing test.
       - name: Node tests
@@ -264,8 +254,8 @@ jobs:
 
   ui-typecheck:
     name: UI typecheck and desktop tests
-    needs: runners
-    runs-on: ${{ fromJSON(needs.runners.outputs.linux) }}
+    needs: changes
+    runs-on: ${{ fromJSON(needs.changes.outputs.linux) }}
     # These run once, alongside the shards. Fifteen minutes leaves ample room
     # for install/build/typecheck and desktop tests while bounding a runaway.
     timeout-minutes: 15
@@ -369,8 +359,8 @@ jobs:
 
   gates:
     name: Gates
-    needs: runners
-    runs-on: ${{ fromJSON(needs.runners.outputs.linux) }}
+    needs: changes
+    runs-on: ${{ fromJSON(needs.changes.outputs.linux) }}
     timeout-minutes: 25
 
     steps:
@@ -601,11 +591,13 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      # The planner balances built-page work into at most twelve complete
+      # shards, all eligible at once. Recording keeps its seventeen-shard cap.
       matrix:
-        # As many shards as the work needs, from one to sixteen: each carries
-        # about 1,500 recorded dev-server seconds of tests. Static runs finish
-        # earlier; script/ci-browser-shards.mjs still sizes the shards from those
-        # times and script/ci-changes.mjs counts them. Development pushes also
+        # Up to twelve complete PR-matrix bins, or seventeen recording bins.
+        # PR selections target 600 two-worker-equivalent seconds; the complete
+        # suite may carry more at the cap. The dealer accounts for static and
+        # dev worker counts. script/ci-changes.mjs counts them; development pushes
         # run the bounded selection. A skipped browser job keeps [1] so its
         # matrix stays well formed.
         shard: ${{ fromJSON(needs.changes.outputs.shards) }}
