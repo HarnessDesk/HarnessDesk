@@ -6,7 +6,7 @@ const slots = ['add', 'work-in', 'agent', 'permissions', 'mode', 'extension', 'm
 
 test('permission modes keep their chosen label in draft and live composers', async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 })
-  await page.goto('/preview.html?composer-slots')
+  await page.goto('/preview.html?composer-slots&isolate')
   for (const layout of ['draft', 'live']) {
     const composer = page.locator(`[data-permission-mode-case="${layout}"]`)
     await expect(composer).toBeVisible()
@@ -177,7 +177,7 @@ const composerWidthFoldIsStable = (page: Page) => page.evaluate(() => {
 
 test('composer slots keep their order and fit across agent shapes', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1600 })
-  await page.goto('/preview.html?composer-slots')
+  await page.goto('/preview.html?composer-slots&isolate')
   await page.waitForSelector('[data-composer-width="composer"] [data-composer-layout="live"] [data-composer-track="model"]')
 
   const switchCase = page.locator('[data-layout-switch-case]')

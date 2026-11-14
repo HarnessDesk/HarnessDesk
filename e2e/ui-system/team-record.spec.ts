@@ -12,12 +12,51 @@ const sharedDrawing = (markup: string): string => markup
   .replace(/id="(brand-[^"]*)-[0-9a-z]+"/g, 'id="$1"')
   .replace(/url\(#(brand-[^)]*)-[0-9a-z]+\)/g, 'url(#$1)')
 
-for (const theme of ['light', 'dark'] as const) {
-  {
+test('an isolated Team record mounts its scenarios without the unrelated catalogue', async ({ page }) => {
+  await page.goto('/preview.html?team-record&isolate')
+  await expect(page.locator('#team-record-wrapped')).toBeVisible()
+  await expect(page.locator('[data-frame-id="dashboard-overview"]')).toHaveCount(0)
+})
 
-    for (const [item0, scene] of (['wrapped', 'older', 'shared', 'unlinked', 'empty', 'narrow', 'person', 'running']).entries()) test(`Wrapped Team: the shell title and receipt keep their own measured edges in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
-      await page.emulateMedia({ colorScheme: theme })
-      await page.goto(`/preview.html?team-record&theme=${theme}`)
+test('a selected catalogue frame keeps its controls and omits unrelated specimens', async ({ page }) => {
+  await page.goto('/preview.html?frames=dashboard-overview')
+  await expect(page.locator('[data-frame-id="dashboard-overview"]')).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'theme', exact: true })).toBeVisible()
+  await expect(page.locator('[data-frame-id="settings-sheet"]')).toHaveCount(0)
+})
+
+test('appearance changes update the controls and theme without rerendering the whole catalogue', async ({ page }) => {
+  await page.goto('/preview.html?measure-preview&frames=dashboard-overview&theme=light')
+  const commits = () => page.evaluate(() => (window as unknown as { __hdPreviewParentCommits: number }).__hdPreviewParentCommits)
+  await expect.poll(commits).toBeGreaterThan(0)
+  const before = await commits()
+  await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption('dark')
+  await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
+  await expect(page.getByRole('combobox', { name: 'theme', exact: true })).toHaveValue('dark')
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  expect(await commits()).toBe(before)
+})
+
+for (const route of ['storage', 'history', 'icon-followups']) {
+  test(`focused ${route} keeps theme effects without catalogue controls`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'light' })
+    await page.goto(`/preview.html?${route}`)
+    await page.evaluate(() => {
+      const store = (window as unknown as { __hdPreview: { store: { setTheme(value: string): void; setPalette(value: string): void } } }).__hdPreview.store
+      store.setTheme('dark'); store.setPalette('editorial')
+    })
+    await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
+    await expect(page.locator('body')).toHaveAttribute('data-hd-palette', 'editorial')
+  })
+}
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`Wrapped Team: the shell title and receipt keep their own measured edges in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto(`/preview.html?team-record&isolate&theme=${theme}`)
+    // Each scene owns a separate store. Reading one receipt does not mutate the others.
+    for (const scene of ['wrapped', 'older', 'shared', 'unlinked', 'empty', 'narrow', 'person', 'running']) await test.step(scene, async () => {
+
       const frame = page.locator(`#team-record-${scene}`)
       await selectTeamPage(frame, 'receipt')
       const bar = teamBar(frame)
@@ -35,10 +74,10 @@ for (const theme of ['light', 'dark'] as const) {
 
 
     })
-  }
+  })
   test(`Wrapped Team: Tab and Enter or Space open retained conversations in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
-    await page.goto(`/preview.html?team-record&theme=${theme}`)
+    await page.goto(`/preview.html?team-record&isolate&theme=${theme}`)
     const frame = page.locator('#team-record-wrapped')
     for (const [name, key] of [['Alpha', 'Enter'], ['Beta', 'Space']]) {
       const actions = await seatActions(frame, name!)
@@ -55,7 +94,7 @@ for (const theme of ['light', 'dark'] as const) {
   })
   test(`Wrapped Team: three Cost breakdowns, speaker faces and the reading inset align in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
-    await page.goto(`/preview.html?team-record&theme=${theme}`)
+    await page.goto(`/preview.html?team-record&isolate&theme=${theme}`)
     const frame = page.locator('#team-record-wrapped')
     await selectTeamPage(frame, 'receipt')
     const cost = frame.getByRole('region', { name: 'Cost', exact: true })
@@ -96,7 +135,7 @@ for (const theme of ['light', 'dark'] as const) {
   })
   test(`Wrapped Team: receipt, members, conversations and Run stay readable in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
-    await page.goto(`/preview.html?team-record&theme=${theme}`)
+    await page.goto(`/preview.html?team-record&isolate&theme=${theme}`)
     if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
     else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme')
     const frame = page.locator('#team-record-wrapped')
@@ -179,7 +218,7 @@ for (const theme of ['light', 'dark'] as const) {
   })
   test(`Wrapped Team: a conversation seated twice is one row, and Seats with no conversation are still listed in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
-    await page.goto(`/preview.html?team-record&theme=${theme}`)
+    await page.goto(`/preview.html?team-record&isolate&theme=${theme}`)
     const rows = async (scene: string) => (await members(page.locator(`#team-record-${scene}`))).locator('[data-slot="list-row"]')
     for (const name of ['Alpha', 'Beta']) await expect((await rows('shared')).filter({ has: page.getByRole('button', { name: `Actions for ${name}`, exact: true }) })).toHaveCount(1)
     for (const name of ['Alpha', 'Beta']) {
@@ -205,7 +244,7 @@ for (const theme of ['light', 'dark'] as const) {
 
     for (const [item0, [row, cost]] of ([['card-2-2', '$0.21'], ['card-3-3', '$0.13']]).entries()) test(`Wrapped Team: Run detail keeps repeated Seats and unlinked usage in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
       await page.emulateMedia({ colorScheme: theme })
-      await page.goto(`/preview.html?team-record&theme=${theme}`)
+      await page.goto(`/preview.html?team-record&isolate&theme=${theme}`)
       const shared = page.locator('#team-record-shared')
       await selectTeamPage(shared, 'run')
       const inspector = shared.locator('[data-slot="run-inspector"]')
@@ -240,7 +279,7 @@ for (const theme of ['light', 'dark'] as const) {
       const board = async (open: Locator) => { await selectTeamPage(open, 'board') }
       const one = questionCases(page)[item0]!
       await page.emulateMedia({ colorScheme: theme })
-      await page.goto(`/preview.html?team-record&theme=${theme}`)
+      await page.goto(`/preview.html?team-record&isolate&theme=${theme}`)
       await one.ask(page.locator('#team-record-open'))
       const action = dialog.getByRole('button', { name: one.action, exact: true })
       await expect(action, `${one.name} is offered while the Team is open`).toBeEnabled()
@@ -256,7 +295,7 @@ for (const theme of ['light', 'dark'] as const) {
   }
   test(`Wrapped Team: a kept conversation's menus refuse compaction and review, and say why, in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
-    await page.goto(`/preview.html?team-record&theme=${theme}`)
+    await page.goto(`/preview.html?team-record&isolate&theme=${theme}`)
     const frame = page.locator('#team-record-wrapped')
     await (await members(frame)).locator('[data-slot="list-row"]').filter({ has: page.getByRole('button', { name: 'Actions for Alpha', exact: true }) }).click()
     await closeTeamDetails(frame)
@@ -274,7 +313,7 @@ for (const theme of ['light', 'dark'] as const) {
   })
   test(`Wrapped Team: sidebar leaves retained conversations and unlinked Seats on Teams in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
-    await page.goto(`/preview.html?team-record&theme=${theme}`)
+    await page.goto(`/preview.html?team-record&isolate&theme=${theme}`)
     const sidebar = page.locator('#team-record-sidebar')
     await expect(sidebar.getByRole('button', { name: 'Wrapped · 1', exact: true })).toHaveCount(0)
     await expect(sidebar.locator('button[data-slot="sidebar-menu-button"]').filter({ hasText: 'Writer conversation' })).toHaveCount(0)
@@ -283,7 +322,7 @@ for (const theme of ['light', 'dark'] as const) {
   })
   test(`Wrapped Team: narrow Seats and receipt stay inside their frame in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
-    await page.goto(`/preview.html?team-record&theme=${theme}`)
+    await page.goto(`/preview.html?team-record&isolate&theme=${theme}`)
     const frame = page.locator('#team-record-narrow')
     await members(frame)
     await expect((await members(frame)).locator('[data-slot="list-row"]').filter({ has: page.getByRole('button', { name: 'Actions for Alpha', exact: true }) })).toBeVisible()
@@ -302,7 +341,7 @@ for (const theme of ['light', 'dark'] as const) {
   /* A wrapped Team opens Work; its retained Receipt and Seats remain explicit destinations. */
   test(`Wrapped Team: a Team that never had a Run reaches its Receipt from Work in a narrow pane in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
-    await page.goto(`/preview.html?team-record&theme=${theme}`)
+    await page.goto(`/preview.html?team-record&isolate&theme=${theme}`)
     const frame = page.locator('#team-record-person')
     await expect(frame.locator('[data-team-page="overview"]')).toHaveAttribute('aria-selected', 'true')
     await selectTeamPage(frame, 'receipt')
@@ -318,7 +357,7 @@ for (const theme of ['light', 'dark'] as const) {
      composer takes nothing new — no typing, no Send — but Stop is on, so the person can end what is running (#1317). */
   test(`Wrapped Team: a turn still running in a kept conversation can be stopped, and nothing else is on, in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
-    await page.goto(`/preview.html?team-record&theme=${theme}`)
+    await page.goto(`/preview.html?team-record&isolate&theme=${theme}`)
     const frame = page.locator('#team-record-running')
     await (await members(frame)).locator('[data-slot="list-row"]').filter({ has: page.getByRole('button', { name: 'Actions for Alpha', exact: true }) }).click()
     await expect(frame.locator('textarea[data-slot="composer-text"]')).toBeDisabled()
@@ -345,7 +384,7 @@ for (const theme of ['light', 'dark'] as const) {
      receipt keeps for another Team's card. It does not offer it, rather than offer it and refuse (#1317). */
   test(`Wrapped Team: another Team's Assign dialog does not offer a conversation a wrapped Team keeps in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
-    await page.goto(`/preview.html?team-record&theme=${theme}`)
+    await page.goto(`/preview.html?team-record&isolate&theme=${theme}`)
     const open = page.locator('#team-record-assign')
     await selectTeamPage(open, 'board')
     await open.getByRole('button', { name: 'What to do with #3', exact: true }).click()
@@ -362,7 +401,7 @@ for (const theme of ['light', 'dark'] as const) {
   })
   test(`Wrapped Team: the sidebar leaves Seats with no conversation on Teams in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
-    await page.goto(`/preview.html?team-record&theme=${theme}`)
+    await page.goto(`/preview.html?team-record&isolate&theme=${theme}`)
     const sidebar = page.locator('#team-record-sidebar-unlinked')
     await expect(sidebar.getByRole('button', { name: 'Wrapped · 1', exact: true })).toHaveCount(0)
     await expect(sidebar.locator('ul[data-nested="true"]')).toHaveCount(0)
