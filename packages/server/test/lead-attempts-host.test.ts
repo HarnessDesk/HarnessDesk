@@ -1,52 +1,9 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { realpath } from 'node:fs/promises'
-import test, { type TestContext } from 'node:test'
-import { createLeadJournal, leadChatHandleOf, leadWorkCards, type LeadJournalRecord, type LeadPermissionCall, type LeadPermissionContext } from '@harnessdesk/lead'
-import { PhoneSim } from '@harnessdesk/phone-link/sim'
-import { parseLeadAsk } from '@harnessdesk/protocol'
-import { serve } from '../src/index.js'
-import { startPhoneLink } from '../src/phone-link.js'
-import { evidenceDesk } from './fixtures/evidence-desk.js'
-import { Client, silent } from './fixtures/harness.js'
+import test from 'node:test'
+import { leadChatHandleOf, leadWorkCards } from '@harnessdesk/lead'
+import { rig, type Rig } from './fixtures/lead-attempts-rig.js'
 
-/** The real host and its context, an ordinary fake runtime and a journaled Lead; no child, model or vendor traffic. */
-const rig = async (t: TestContext, prior?: { readonly stateDir: string; readonly repo: Awaited<ReturnType<typeof evidenceDesk>>['repo']; readonly records: LeadJournalRecord[] }) => {
-  const { StateStore } = await import('../src/index.js')
-  const { tempDir } = await import('./scratch.js')
-  const stateDir = prior?.stateDir ?? tempDir('hd-lead-attempts-state-')
-  const state = new StateStore(`${stateDir}/state.json`)
-  const desk = await evidenceDesk(t, { leadEnabled: true, state }, prior ? { stateDir: prior.stateDir, repo: prior.repo } : undefined)
-  const project = { id: 'project-demo', path: await realpath(desk.repo.dir) }
-  const records: LeadJournalRecord[] = prior?.records ?? []
-  const journal = await createLeadJournal({ read: async () => [...records], append: async record => { records.push(record) } })
-  if (!prior) {
-    await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
-    await journal.updateBudget({ version: 1, type: 'initialize', logicalGoalId: 'ordinary-delegation', now: Date.now(), caps: { usdMicros: 100000, rounds: 3 }, freshnessMs: 60000 })
-  }
-  const context = (): LeadPermissionContext => ({ desk: journal.state.policy!, projectPolicy: null, project, approved: null,
-    budget: null, now: Date.now(), policyInterpretation: 'idle' })
-  const service = desk.host.createLeadService({ journal, project, prices: {},
-    resolveTool: async () => ({ project, runId: null, start: null, stepId: null, context: context() }),
-    freezePlan: async proposal => proposal, readEvidence: async () => { throw new Error('unused') },
-    createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }),
-  })
-  await service.setEnabled(true)
-  let attempt = records.length
-  const execute = (call: LeadPermissionCall) => journal.execute({ id: `attempt-${++attempt}`, request: { ...call, project, runId: null, start: null }, context: context() },
-    async parsed => ({ value: await desk.host.call(parsed.method, parsed.params as never), identity: null }))
-  /** The person writes to the Lead: the journal's own record of a person message, as the window's send appends it. */
-  let said = records.length
-  const personWrites = async (text: string) => journal.appendMessage(`person-${++said}`, text, 'person')
-  const answer = async (text: string) => {
-    await desk.host.leadPresence.observe()
-    const finish = await desk.host.leadPresence.beforeSend(undefined, text)
-    const receipt = await personWrites(text)
-    await finish?.(true, receipt.messageId)
-  }
-  return { ...desk, stateDir, project, journal, records, execute, personWrites, answer }
-}
-type Rig = Awaited<ReturnType<typeof rig>>
 type Card = { id: string, stage: string, fact?: string, stoppedBy?: string }
 const card = async (r: Rig, id: string, done: (card: Card) => boolean): Promise<Card> => {
   for (let tries = 0; tries < 100; tries++) {
@@ -223,75 +180,6 @@ test('#2145: a stop invalidates an earlier unspent retry answer for the same cha
   const second = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem } })
   assert.ok((second.value as { problem?: string }).problem, JSON.stringify(second.value))
   assert.equal(r.runtime.sessions.size, 1)
-})
-
-/** The prior protocol's LeadAsk projection was closed to unknown keys. */
-const oldAskShape = (ask: Record<string, unknown>) => {
-  for (const key of Object.keys(ask)) assert.ok(['question', 'options', 'recommended', 'expiresInMinutes', 'startsMarked'].includes(key), `older ask parser rejects ${key}`)
-  assert.deepEqual(parseLeadAsk(ask), ask, 'the remaining fields still satisfy the original ask validators')
-}
-
-for (const surface of ['desktop', 'phone'] as const) test(`#2145: ${surface} answers the bound retry over its wire`, async t => {
-  const r = await rig(t)
-  await r.personWrites('Fix the stalled build a game task')
-  const first = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task' } })
-  const { id, handle, ledgerItem } = first.value as { id: string; handle: string; ledgerItem: string }
-  const question = `Start another chat for "Fix the stalled build a game task" instead of continuing ${handle}?`
-  const publishAsk = async () => {
-    await r.journal.appendReply(question, undefined, { question, retryOf: { item: ledgerItem, attempt: id }, startsMarked: true,
-      options: [{ id: 'start', label: 'Start another chat', starts: true }, { id: 'later', label: 'Not now' }], recommended: 'later' })
-    const message = r.journal.state.messages.at(-1)!
-    assert.deepEqual(message.ask?.retryOf, { item: ledgerItem, attempt: id }, 'the durable journal retains the binding')
-    return message.id
-  }
-  let ask = ''
-  t.mock.method(r.host.credentials, 'leadStatus', async () => ({ configured: true, protection: 'synthetic cipher' }))
-  t.mock.method(r.host.credentials, 'resolveLead', async () => 'fixture-key')
-  if (surface === 'desktop') {
-    const server = await serve({ host: r.host, logger: silent, port: 0 })
-    const client = await Client.connect(server)
-    try {
-      await client.call('lead/thread/read', {})
-      ask = await publishAsk()
-      await client.until(() => client.notifications.some(n => 'method' in n && n.method === 'lead/changed' && 'thread' in n.params && n.params.thread.messages.some(m => m.id === ask)), 5_000, 'the question delta')
-      const delta = client.notifications.findLast(n => 'method' in n && n.method === 'lead/changed' && 'thread' in n.params && n.params.thread.messages.some(m => m.id === ask))!
-      if (!('method' in delta) || delta.method !== 'lead/changed' || !('thread' in delta.params)) throw new Error('missing Lead delta')
-      oldAskShape(delta.params.thread.messages.find(m => m.id === ask)!.ask as unknown as Record<string, unknown>)
-      const read = await client.call('lead/thread/read', {}) as { thread: { messages: { id: string; ask?: { question: string } }[] } }
-      assert.equal(read.thread.messages.find(message => message.id === ask)?.ask?.question, question)
-      oldAskShape(read.thread.messages.find(message => message.id === ask)!.ask as unknown as Record<string, unknown>)
-      await client.call('lead/thread/send', { idempotencyKey: 'desktop-retry-answer', text: 'Start another chat', ask, device: { id: 'window:main', label: 'Desktop' } })
-    } finally { await client.close(); await server.close() }
-  } else {
-    const { tempDir } = await import('./scratch.js')
-    const running = await startPhoneLink(r.host, silent, { home: tempDir('hd-retry-phone-'), host: '127.0.0.1', includeLoopback: true, name: 'Test desk' })
-    let phone: PhoneSim | undefined
-    try {
-      const code = await running.control.pairing()
-      phone = await PhoneSim.fromCode(code.url)
-      await phone.open(running.service.port, phone.offer!.deskPub)
-      await phone.enroll(phone.offer!.enroll, 'Jane phone')
-      for (let i = 0; i < 200 && running.control.state().pending.length === 0; i++) await new Promise(resolve => setTimeout(resolve, 10))
-      assert.ok(running.control.state().pending.length, 'the phone enrollment reached the desk')
-      running.control.allow(running.control.state().pending[0]!.id)
-      await phone.next(message => message.t === 'enroll.ok')
-      assert.equal((await phone.request('lead/thread/read', {})).ok, true)
-      ask = await publishAsk()
-      const delta = await phone.next(message => message.t === 'evt' && message.topic === 'lead' && message.data?.thread?.messages?.some((one: { id: string }) => one.id === ask))
-      oldAskShape(delta.data.thread.messages.find((message: { id: string }) => message.id === ask).ask)
-      const read = await phone.request('lead/thread/read', {})
-      assert.equal(read.ok, true, JSON.stringify(read))
-      assert.equal(read.result.thread.messages.find((message: { id: string }) => message.id === ask)?.ask?.question, question)
-      oldAskShape(read.result.thread.messages.find((message: { id: string }) => message.id === ask).ask)
-      const sent = await phone.request('lead/thread/send', { idempotencyKey: 'phone-retry-answer', text: 'Start another chat', ask })
-      assert.equal(sent.ok, true, JSON.stringify(sent))
-    } finally { phone?.close(); await running.close() }
-  }
-  const receipt = await r.host.call('lead/presence/read', { device: { id: 'window:main', label: 'Desktop' } })
-  assert.equal(receipt.asks.find(one => one.id === ask)?.answer?.by, surface === 'desktop' ? 'Desktop' : 'Jane phone')
-  const retried = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem } })
-  assert.ok((retried.value as { id?: string } | undefined)?.id, JSON.stringify(retried))
-  assert.equal(r.runtime.sessions.size, 2)
 })
 
 test('#2108: a stop from the window or the phone on a later attempt under the same item is the person\'s, and the Lead\'s cards say so', async t => {
