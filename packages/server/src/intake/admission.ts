@@ -470,6 +470,15 @@ export class Admission {
     return this.#serial.run(() => this.#recover())
   }
 
+  /** Retry only applied mention releases after their thread authority changes, without retrying project faults. */
+  releaseMentionFirings(firings: readonly string[]): Promise<void> {
+    return this.#serial.run(async () => {
+      if (this.#store.problem) throw new Error(this.#store.problem)
+      const keys = new Set(firings)
+      await this.#finish(false, keys)
+    })
+  }
+
   async #recover(): Promise<void> {
     if (this.#store.problem) throw new Error(this.#store.problem)
     // Recovery is what tries a failed firing again; an offer never does.
@@ -485,10 +494,12 @@ export class Admission {
    * tries a failed one again, and sets it aside for the person once it has
    * failed `FAULT_ATTEMPTS` times.
    */
-  async #finish(retry = false): Promise<void> {
+  async #finish(retry = false, mentions?: ReadonlySet<string>): Promise<void> {
     const held = new Set<string>()
     for (const pending of this.#store.read().operations) {
       if (pending.dispatched || held.has(pending.project)) continue
+      if (mentions && (!mentions.has(pending.key) || pending.state !== 'applied' || !pending.payload ||
+        pending.payload.fact.source !== 'mention' || !('lead' in pending.payload.definition.opens))) continue
       if (!retry && this.#faults.has(pending.project)) {
         held.add(pending.project)
         continue

@@ -346,7 +346,7 @@ export class IntakePlane {
               // with no proof stays held, never assumed open.
               if (!this.#closedFiringLogs.has(operation.key)) {
                 this.#closedFiringLogs.add(operation.key)
-                void this.#track(this.#mentions.associateFiring(operation.key).then(() => this.#retryHeld())
+                void this.#track(this.#mentions.associateFiring(operation.key).then(() => this.#retryMentionFirings([operation.key]))
                   .catch(error => this.#port.log('a pending mention could not be associated', { error: String(error) }))
                   .finally(() => this.#closedFiringLogs.delete(operation.key)))
               }
@@ -359,7 +359,7 @@ export class IntakePlane {
               // until its decision is saved, then try its gate again.
               if (!this.#closedFiringLogs.has(operation.key)) {
                 this.#closedFiringLogs.add(operation.key)
-                void this.#track(this.#mentions.recordClosedFiring(operation.key, operation.payload.fact).then(() => this.#retryHeld())
+                void this.#track(this.#mentions.recordClosedFiring(operation.key, operation.payload.fact).then(() => this.#retryMentionFirings([operation.key]))
                   .catch(error => this.#port.log('a closed mention firing could not be recorded', { error: String(error) }))
                   .finally(() => this.#closedFiringLogs.delete(operation.key)))
               }
@@ -824,6 +824,22 @@ export class IntakePlane {
     if (!waiting) return
     await this.#admission.recover().catch((error: unknown) => {
       this.#port.log('a held trigger firing could not be released', { error: error instanceof Error ? error.message : String(error) })
+    })
+  }
+
+  /** A mention observation only releases its own applied firings; it does not spend another fault retry. */
+  async #retryMentionFirings(keys?: readonly string[]): Promise<void> {
+    if (this.#closed || this.#prefs.paused || !this.#dispatchReady || this.#problem !== null) return
+    let selected = keys
+    if (!selected) {
+      try {
+        selected = this.#store.read().operations.flatMap(one =>
+          !one.dispatched && one.payload && 'lead' in one.payload.definition.opens && one.payload.fact.source === 'mention' ? [one.key] : [])
+      } catch { return }
+    }
+    if (selected.length === 0) return
+    await this.#admission.releaseMentionFirings(selected).catch((error: unknown) => {
+      this.#port.log('a held mention firing could not be released', { error: error instanceof Error ? error.message : String(error) })
     })
   }
 
@@ -1412,7 +1428,7 @@ export class IntakePlane {
     await this.#mentions.sweep()
     if (this.#mentions.problem) return
     // The sweep refreshes pending threads before admission retries them.
-    await this.#retryHeld()
+    await this.#retryMentionFirings()
     await this.#mentions.prunePending()
   }
 
