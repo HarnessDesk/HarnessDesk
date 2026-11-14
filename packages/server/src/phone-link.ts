@@ -104,6 +104,8 @@ export const PHONE_POLICY: PhonePolicy = {
 }
 
 export interface PhoneLinkOptions {
+  /** Host lifecycle admission; a failed transition cannot leave a paired session with authority. */
+  readonly available?: () => boolean
   readonly home: string
   /** 0 picks a free port. */
   readonly port?: number
@@ -193,7 +195,20 @@ export const phoneActionRefusal = (method: string, params: unknown): string | nu
 /** Starts the LAN listener against a running host and hands the window its controls. */
 export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' | 'attachPhoneLink'>, logger: Logger, options: PhoneLinkOptions): Promise<RunningPhoneLink> {
   const log = logger.child('phone-link')
+  let closed = false
+  const controls = new Set<Promise<unknown>>()
+  const admitted = () => {
+    if (closed || options.available?.() === false) throw Object.assign(new Error('phone-link-unavailable'), { wireCode: 'phone-link-unavailable' })
+  }
+  const controlWork = <T>(operation: () => Promise<T>): Promise<T> => {
+    admitted()
+    const work = Promise.resolve().then(operation)
+    controls.add(work)
+    void work.finally(() => controls.delete(work)).catch(() => {})
+    return work
+  }
   const call = async (method: string, params: unknown, device: Device): Promise<unknown> => {
+    if (closed || options.available?.() === false) throw new PhoneCallError('phone-link-unavailable', 'Mobile is unavailable until feature settings are repaired.')
     let parsed
     const refusal = phoneActionRefusal(method, params)
     if (refusal) throw new PhoneCallError('notOnPhoneSurface', refusal)
@@ -254,7 +269,6 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
       try { listener() } catch (error) { log.info('phone link listener failed', { error: error instanceof Error ? error.name : 'error' }) }
     }
   }
-  let closed = false
   let relayState: PhoneRelayState = 'off'
   const unlinks = account ? await UnlinkOutbox.open(join(options.home, 'phone-link', 'relay-unlinks.json'), account, log) : null
   const relay = account ? new RelayLink({
@@ -291,7 +305,7 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
   })
   const control: PhoneLinkControl = {
     state,
-    pairing: async () => {
+    pairing: () => controlWork(async () => {
       let invite: AccountOffer | undefined
       // An invite that cannot be made leaves a code for this network, which still pairs. Neither does a relay that has
       // stopped on purpose: a phone away could not reach this desk with it, or would reach the copy that replaced it.
@@ -301,10 +315,10 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
       })
       const code = service.createPairingCode(600, invite)
       return { url: code.url, expiresAt: code.expiresAt, addresses: service.lanAddresses(), away: invite !== undefined }
-    },
-    allow: (id, tiers) => { service.allow(id, tiers); return state() },
-    deny: id => { service.deny(id); return state() },
-    revoke: async device => {
+    }),
+    allow: (id, tiers) => { admitted(); service.allow(id, tiers); return state() },
+    deny: id => { admitted(); service.deny(id); return state() },
+    revoke: device => controlWork(async () => {
       // The unlink is on disk before the phone goes, so a removal that cannot be recorded fails as a whole rather than
       // leaving an account link nothing will remove. The account link follows, now or once the account can be reached.
       // Only a phone this desk has paired can have an account link to remove.
@@ -315,7 +329,7 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
       }
       void unlinks?.flush()
       return state()
-    },
+    }),
     onChange: listener => {
       listeners.add(listener)
       const off = service.onChange(() => listener())
@@ -323,12 +337,12 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
     },
   }
   // A phone paired or removed changes who a push goes to.
-  if (push) service.onChange(change => { if (change === 'devices') push.poke() })
-  host.attachPhoneLink(control)
+  const detachPush = push ? service.onChange(change => { if (change === 'devices') push.poke() }) : undefined
+  const detachControl = host.attachPhoneLink(control)
   log.info('phone link listening', { port: service.port, deskId: service.deskId })
   return {
     service, control,
-    close: async () => { closed = true; detach(); unfollow?.(); relay?.stop(); feed.dispose(); push?.dispose(); await service.close() },
+    close: async () => { closed = true; service.seal(); detach(); detachPush?.(); unfollow?.(); relay?.stop(); feed.dispose(); push?.dispose(); await Promise.allSettled([...controls]); await service.close(); await unlinks?.idle(); if (typeof detachControl === 'function') detachControl(); listeners.clear() },
   }
 }
 
@@ -374,6 +388,8 @@ class UnlinkOutbox {
   async discard(id: string): Promise<void> {
     if (this.#ids.delete(id)) await this.#write()
   }
+
+  async idle(): Promise<void> { await this.#flushing; await this.#writing }
 
   flush(): Promise<void> {
     this.#flushing = this.#flushing.then(() => this.#flush(), () => this.#flush())

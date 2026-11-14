@@ -1,6 +1,6 @@
 import { selectFrameTab } from './frame-actions'
 import { expect, test, type Page } from '@playwright/test'
-import { installFramePreviewFixture } from './frame-preview-fixture'
+import { installFramePreviewFixture, setFrameLook } from './frame-preview-fixture'
 import { FRAME } from '../../packages/ui/src/design/frame'
 
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
@@ -217,7 +217,7 @@ test('command strip waits for approval before saying it is running', async ({ pa
   for (const [item0, theme] of (['light', 'dark'] as const).entries()) test(`accent leaves selection and on switches neutral in both themes [item ${[item0].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, 'frame-wall=settings&frame-section=appearance', 1280, theme)
-    await page.getByRole('combobox', { name: 'Interface', exact: true }).selectOption('studio')
+    await setFrameLook(page, 'studio')
     const values = () => page.evaluate(() => {
       const style = getComputedStyle(document.body)
       return ['--hd-toggle-on', '--hd-toggle-knob-on', '--hd-sidebar-selected', '--hd-ring'].map(name => style.getPropertyValue(name).trim())
@@ -230,6 +230,7 @@ test('command strip waits for approval before saying it is running', async ({ pa
     const green = await values()
     expect(green.slice(0, 3)).toEqual(violet.slice(0, 3))
     expect(green[3]).not.toBe(violet[3])
+    await expect(page.locator('body')).toHaveAttribute('data-hd-interface', 'studio')
     await expect(page.getByText('Focus rings and primary action highlights.', { exact: true })).toBeVisible()
 
 

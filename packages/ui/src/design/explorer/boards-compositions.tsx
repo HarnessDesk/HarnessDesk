@@ -3664,9 +3664,8 @@ import type { Section as SettingsSection } from '../../components/Settings'
 export const SettingsNavigationBoard = () => {
   const store = useMemo(() => previewStore(), [])
   const [section, setSection] = useState<SettingsSection>('general')
-  return <StoreProvider store={store}><LeftColumnBody>
-    <SettingsNavigation section={section} onSection={setSection} onBack={() => setSection('general')} />
-  </LeftColumnBody></StoreProvider>
+  return <StoreProvider store={store}><LeftColumn top={null} head={null} footer={null}
+    body={<SettingsNavigation section={section} onSection={setSection} onBack={() => setSection('general')} />} /></StoreProvider>
 }
 COMPOSITION_BOARDS.push({ id: 'settings-navigation', title: 'Settings navigation', about: 'Controlled preferences with Back and search.', render: SettingsNavigationBoard })
 

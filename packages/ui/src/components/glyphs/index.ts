@@ -1,5 +1,5 @@
 /**
- * The animated glyphs: the sixty-nine Lucide icons that have a motion, drawn
+ * The animated glyphs: seventy vendored Lucide motions, drawn
  * by lucide-animated (https://lucide-animated.com, MIT, pqoqubbw — see
  * THIRD_PARTY_NOTICES.md) and played by `Animated`.
  *
@@ -20,6 +20,8 @@
  * Brain and Summary inherit the frame's stroke width rather than overriding
  * the caller's drawing with the upstream fixed-width stroke variants/paths.
  * Everything else — the paths, the variants, the timings — is upstream's.
+ * The six unmatched Settings drawings use `lucide-motion`, which moves
+ * Lucide's original SVG root through the same player without copied paths.
  * Components import the icon by meaning from `../Icons`, never from here.
  */
 
@@ -46,6 +48,7 @@ export { CircleDollarSignGlyph } from './circle-dollar-sign'
 export { CircleGaugeGlyph } from './circle-gauge'
 export { ClockGlyph } from './clock'
 export { CloudDownloadGlyph } from './cloud-download'
+export { CompassGlyph } from './compass'
 export { CopyGlyph } from './copy'
 export { CpuGlyph } from './cpu'
 export { DownloadGlyph } from './download'
@@ -92,5 +95,6 @@ export { WorkflowGlyph } from './workflow'
 export { WrenchGlyph } from './wrench'
 export { XGlyph } from './x'
 export { ZapGlyph } from './zap'
+export { DatabaseGlyph, FolderGlyph, GlobeGlyph, MonitorGlyph, SmartphoneGlyph, SparkleGlyph } from './lucide-motion'
 export { Animated } from './animate'
 export type { GlyphProps } from './glyph'
