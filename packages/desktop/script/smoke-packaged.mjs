@@ -35,6 +35,7 @@ import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
 
+import { verifyAppInterface } from '../../../script/verify-app-contents.mjs'
 import { verifyIosHelperUniqueness } from '../../../script/verify-ios-artifact.mjs'
 import { LEAD_NODE, LEAD_NODE_RESOURCE } from '../electron/lead-runtime.mjs'
 
@@ -63,6 +64,12 @@ if (!existsSync(binary)) {
   fail(`no built app at ${appPath} — run \`pnpm --filter @harnessdesk/desktop run pack\` first`)
   process.exit(1)
 }
+
+// Without its interface the app stops at a modal "HarnessDesk is incomplete"
+// that never exits, which would read here as a five-minute "no renderer page".
+try { verifyAppInterface(appPath) }
+catch (error) { fail(error.message); process.exit(1) }
+console.log('smoke: the interface is bundled')
 
 // The actual bundled native executable, independent of a booted simulator or account.
 let iosHelper

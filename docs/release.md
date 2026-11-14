@@ -205,9 +205,36 @@ signing, tagging and publishing steps that follow.
 
 ## 4. Build, sign, and notarize
 
+Build from a fresh worktree of the merge commit, never from a checkout that
+has been used for anything else:
+
+```
+git fetch origin
+git worktree add --detach ../harnessdesk-release-<version> <the merge commit>
+cd ../harnessdesk-release-<version>
+pnpm install --frozen-lockfile
+pnpm build
+test -f packages/ui/dist/index.html && echo "interface built"
+```
+
+0.7.1 is why. Its build ran `pnpm install` without `pnpm build`, so
+`packages/ui/dist` did not exist, and electron-builder silently leaves out an
+`extraResources` source that is missing. The app was signed, notarized,
+stapled, passed every check in step 5 and was published, and opened to
+"HarnessDesk is incomplete". A fresh worktree means the build holds the
+merge commit's bytes and nothing left over from another branch; `pnpm build`
+(not `build:node`, which builds everything except the interface) is what makes
+`packages/ui/dist`. `packages/desktop/script/before-pack.mjs` now refuses to
+pack when any `extraResources` source is missing or empty, or when
+`packages/ui/dist/index.html` is absent, but the line above costs nothing and
+says so before twenty minutes of signing do.
+
+Every command from here to the end runs from the root of that worktree.
+
 Inspect `packages/desktop/release` and move previous-release artifacts and old
 checksums out of it. The directory must contain only artifacts for this
-release; stapling refuses a DMG absent from the new manifest.
+release; stapling refuses a DMG absent from the new manifest. (In a fresh
+worktree it does not exist yet.)
 
 ```
 pnpm --dir packages/desktop run dist:notarized
@@ -229,11 +256,12 @@ Stapling invalidates the DMGs' own blockmaps, and the script deletes them —
 only the `.zip.blockmap` files (which the in-app updater reads) survive.
 `latest-mac.yml` is repaired afterward to match the stapled bytes.
 
-## 5. Checksum, then verify what you're about to ship
+## 5. Checksum, verify, then start what you're about to ship
 
 ```
 node script/release.mjs checksums
 node script/release.mjs verify-artifacts
+node script/release.mjs smoke-artifacts
 ```
 
 `checksums` must run **after** stapling — a checksum taken before would
@@ -242,7 +270,23 @@ three checks a downloader is told to run in the release notes
 (`shasum -c`, `xcrun stapler validate`, `spctl --assess`) and fails loudly on
 the first artifact that doesn't say `Notarized Developer ID`. Don't skip
 this because the build log said `notarization successful` — this is the
-independent check a person clicking the DMG will actually run.
+independent check a person clicking the DMG will actually run. It then mounts
+each DMG read-only and requires the app inside to carry
+`Contents/Resources/ui/index.html` and to say, in its `Info.plist`'s
+`CFBundleShortVersionString`, the version `packages/desktop/package.json`
+says, before the iOS helper checks below.
+
+`verify-artifacts` proves the artifacts are signed and notarized, not that the
+app runs: 0.7.1 passed every one of those checks. `smoke-artifacts` is the
+launch gate. It mounts each DMG read-only and runs
+`packages/desktop/script/smoke-packaged.mjs` against the `HarnessDesk.app`
+inside it — the app boots with a throwaway home, and the smoke reads the agent
+catalogue through the real renderer, runs the bundled command line and probes
+the Lead's Node. An x64 DMG on an Apple-silicon Mac without Rosetta is skipped
+with the reason printed; the command fails if any smoke fails or if no DMG
+could be smoked at all. The first launch of a freshly signed app can sit in
+Gatekeeper's scan for minutes, so allow it. **Nothing is published until
+`smoke-artifacts` passes.**
 
 ## 6. Write the release notes and publish
 
@@ -257,6 +301,7 @@ block from step 5.
 
 ```
 gh release create v<version> \
+  --draft \
   --target <the merge commit> \
   --title "HarnessDesk <version>" \
   --notes-file <notes.md> \
@@ -270,14 +315,79 @@ gh release create v<version> \
   packages/desktop/release/SHA256SUMS.txt
 ```
 
-`--target` is the merge commit, not a branch — the tag this command creates
-is what a clone actually gets. No separate `git tag` step: `gh release
-create` cuts the tag at publish time, at exactly that commit.
+`--target` is the merge commit, not a branch — the tag is what a clone
+actually gets. No separate `git tag` step: `gh release create` cuts the tag
+at publish time, at exactly that commit.
+
+The release starts as a draft, which no installed app sees. Download one DMG
+from the draft and check it against `SHA256SUMS.txt` before anyone else can:
+
+```
+gh release download v<version> --dir ../draft-check \
+  --pattern 'HarnessDesk-<version>-arm64.dmg' --pattern SHA256SUMS.txt
+(cd ../draft-check && shasum -a 256 -c SHA256SUMS.txt --ignore-missing)
+rm -r ../draft-check
+```
+
+`--ignore-missing` because only one DMG was downloaded; the line it checks
+must still say `OK`.
+
+That proves the uploaded bytes are the ones step 5 verified and smoked. Then
+publish it, and confirm GitHub now names it as the latest release:
+
+```
+gh release edit v<version> --draft=false --latest
+gh api repos/HarnessDesk/HarnessDesk/releases/latest --jq .tag_name
+```
+
+The second command must print `v<version>`: that endpoint is what installed
+apps update from.
 
 **Never paste the raw `dist:notarized` build log anywhere public.** It
 prints the signing identity's organization name in the `electron-builder`
 "signing" line, and that name should not appear in a PR, an issue, or a
 release note.
+
+## If a published release is broken
+
+Installed apps update through electron-updater's `github` provider, which
+reads the latest release that is not a prerelease. So the first move, before
+anything else, is to take the release out of that path:
+
+```
+gh release edit v<version> --prerelease --latest=false
+```
+
+That stops auto-update from offering it at once, and every download link
+keeps working, so a page or a post that points at it does not break. Then:
+
+1. Move the bad artifacts out of `packages/desktop/release`, so nothing from
+   them can be uploaded again by mistake.
+2. Rebuild from step 4, in a fresh worktree of the same merge commit, and run
+   all of step 5 — `smoke-artifacts` included — on the new artifacts.
+3. Replace all eight assets on the same release:
+
+   ```
+   gh release upload v<version> --clobber \
+     packages/desktop/release/HarnessDesk-<version>-arm64.dmg \
+     packages/desktop/release/HarnessDesk-<version>-x64.dmg \
+     packages/desktop/release/HarnessDesk-<version>-arm64.zip \
+     packages/desktop/release/HarnessDesk-<version>-x64.zip \
+     packages/desktop/release/HarnessDesk-<version>-arm64.zip.blockmap \
+     packages/desktop/release/HarnessDesk-<version>-x64.zip.blockmap \
+     packages/desktop/release/latest-mac.yml \
+     packages/desktop/release/SHA256SUMS.txt
+   ```
+
+4. Fix the verification block in the release notes: the checksums changed
+   with the rebuild (`gh release edit v<version> --notes-file <notes.md>`).
+5. Download one DMG and check it against `SHA256SUMS.txt`, as in step 6, then
+   put the release back in the update path:
+
+   ```
+   gh release edit v<version> --prerelease=false --latest
+   gh api repos/HarnessDesk/HarnessDesk/releases/latest --jq .tag_name
+   ```
 
 ---
 
@@ -300,15 +410,18 @@ nothing more.
 without full Xcode warn and stay usable. Packaging requires a successful build
 for its selected architecture. `packages/desktop/script/before-pack.mjs` also preserves the
 existing pinned Lead runtime preparation. `HARNESSDESK_NO_DOWNLOADS=1` refuses
-packing if that verified Lead cache is absent.
+packing if that verified Lead cache is absent. Last, it refuses packing when any
+`build.extraResources` source is missing or an empty directory, or when
+`packages/ui/dist/index.html` is absent (step 4 says why).
 
 The resource is `Contents/Resources/native/ios/hd-ios-control`, listed in
 `build.mac.binaries` so the normal release signs it with the app identity and
 hardened runtime. Apple frameworks are loaded from installed Xcode, never copied.
-The packaged smoke first requires that resource to be the only helper in the
-bundle, then runs its `--version` without a simulator. The unsigned uniqueness
+The packaged smoke, after checking that the interface is bundled, requires that
+resource to be the only helper in the bundle, then runs its `--version` without a simulator. The unsigned uniqueness
 check is shared with release verification; smoke adds no iOS signing or team check.
-`verify-artifacts` mounts each validated DMG read-only, checks the helper's
+`verify-artifacts` mounts each validated DMG read-only and, after the interface
+and version checks of step 5, checks the helper's
 architecture, nested signature, matching signing team and hardened-runtime flag,
 then executes its `--probe` when both installed Xcode simulator frameworks have
 a compatible slice: `x86_64` for the x64 helper, or `arm64`/`arm64e` for arm64.

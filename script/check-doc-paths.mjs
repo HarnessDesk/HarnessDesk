@@ -93,6 +93,7 @@ export const pathsIn = (markdown) =>
  */
 export const ALLOWED = new Map([
   ['.cursor-plugin/plugin.json', 'the plugin directory the Cursor bridge generates per chat, in a temp tree'],
+  ['Contents/Resources/ui/index.html', "the interface inside a packaged HarnessDesk.app, which the release checks require — not a file in this tree"],
   ['archify/assets/template.html', 'upstream Archify, quoted at a pinned commit — not vendored here'],
   ['docs/built.md', "a maintainer's working file under the gitignored internal/, as the sentence naming it says"],
   ['lead/work.json', "the Lead's work ledger in the desk's state folder, written at run time, not a file in this tree"],
@@ -102,6 +103,7 @@ export const ALLOWED = new Map([
   ['lead/memory-conversation.jsonl', "the Lead's search copy of its conversation in the desk's state folder, written at run time, not a file in this tree"],
   ['lead/memory.json', "the Lead's earlier memory file in the desk's state folder, read once to carry its lines across, not a file in this tree"],
   ['packages/acp/acp/src/index.ts', "DeepSeek Harness's own tree, as the sentence naming it says"],
+  ['packages/ui/dist/index.html', "the UI build's output, made by `pnpm build` and gitignored; the release steps check that it exists"],
   ['rmcp-client/src/oauth/store_lock.rs', "DeepSeek Harness's own Rust source"],
   ['sdk/packages/core/src/services/usage.ts', "upstream Cline's own source, quoted for evidence — not vendored here"],
   ['src/server.js', "an invented file name in a demo board card — a path in the reader's project, not this one"],

@@ -35,9 +35,18 @@ test('smoke uniqueness accepts the single unsigned resource and refuses missing 
 test('smoke CLI refuses duplicate helpers before executing a bundle binary', t=>{
   const {app,add}=fixture(t)
   add('Contents/MacOS/HarnessDesk')
+  add('Contents/Resources/ui/index.html')
   add('Contents/Resources/app.asar.unpacked/node_modules/@harnessdesk/cordis-host/native/ios-control/.build/out/Products/Release/hd-ios-control')
   const result=spawnSync(process.execPath,[fileURLToPath(new URL('./smoke-packaged.mjs',import.meta.url)),app],{encoding:'utf8',timeout:5000})
   assert.equal(result.status,1)
   assert.match(result.stderr,/only hd-ios-control|extra helpers/)
   assert.doesNotMatch(result.stderr,/signing|TeamIdentifier/)
+})
+test('smoke CLI refuses an app without its interface before executing a bundle binary', t=>{
+  const {app,add}=fixture(t)
+  add('Contents/MacOS/HarnessDesk')
+  const result=spawnSync(process.execPath,[fileURLToPath(new URL('./smoke-packaged.mjs',import.meta.url)),app],{encoding:'utf8',timeout:5000})
+  assert.equal(result.status,1)
+  assert.match(result.stderr,/Contents\/Resources\/ui\/index\.html is missing/)
+  assert.doesNotMatch(result.stdout,/iOS input helper/)
 })
