@@ -203,6 +203,12 @@ const keyOf = (runtime: RuntimeId, id: SessionId): string => `${runtime}\0${id}`
 export type DurableTranscriptBase = { readonly kind: 'missing' } | { readonly kind: 'body'; readonly identity: string }
 type PendingWrite = { timer: ReturnType<typeof setTimeout>; session: Session; insight: readonly TurnInsightContext[]; generation?: string; revision?: number; authorityEpoch?: number }
 
+// Diagnostic branch only: fixed reason labels without session facts or errors.
+const pilotExact = (reason: string): void => {
+  if (process.env['HARNESSDESK_RETENTION_PILOT'] !== '1') return
+  try { process.stderr.write(`HD1545_RECEIPT ${JSON.stringify({ reason })}\n`) } catch { /* Observation cannot own a save. */ }
+}
+
 const sameStoredSessionFacts = (stored: Stored, session: Session): boolean =>
   (['title', 'preview', 'cwd', 'createdAt', 'updatedAt', 'usage'] as const)
     .every(field => isDeepStrictEqual(stored[field] ?? null, session[field] ?? null))
@@ -578,11 +584,12 @@ export class TranscriptStore {
 
   async #write(session: Session, insight: readonly TurnInsightContext[] = [], refresh?: { source?: SessionSource | null; preserveSource?: boolean; preserveExactBody?: string; preserveStored?: Stored; expectedBase?: DurableTranscriptBase; current?: () => boolean; prepared?: (identity: string) => void }): Promise<boolean> {
     const key = keyOf(session.runtime, session.id)
-    if (this.#protectedWrites.has(key) && !refresh?.expectedBase) return false
+    let pilotStage = 'write_entry'
+    if (this.#protectedWrites.has(key) && !refresh?.expectedBase) { if (refresh?.preserveExactBody) pilotExact('exact_write_protected'); return false }
     const previous = this.#writes.get(key) ?? Promise.resolve()
     const next = previous.then(async () => {
-      if (this.#protectedWrites.has(key) && !refresh?.expectedBase) return false
-      if (refresh?.current && !refresh.current()) return false
+      if (this.#protectedWrites.has(key) && !refresh?.expectedBase) { if (refresh?.preserveExactBody) pilotExact('exact_write_protected'); return false }
+      if (refresh?.current && !refresh.current()) { if (refresh?.preserveExactBody) pilotExact('exact_write_stale'); return false }
       const preserveSource = refresh?.preserveSource && !this.#failedWrites.has(key)
       let stored: Stored = refresh?.preserveStored ?? {
         version: FORMAT,
@@ -595,6 +602,7 @@ export class TranscriptStore {
         // and tool payloads never make a round trip on the write path.
         let current: Stored | null = null
         let reconcile = false
+        pilotStage = 'write_read'
         try { current = this.#database.read(session.runtime, session.id, true) }
         catch (error) {
           if (!(error instanceof InvalidTranscriptBodyError)) throw error
@@ -614,10 +622,14 @@ export class TranscriptStore {
         // stamp the body; ordinary writes force the next idle read to refresh.
         // A release adds no source work. Read the current stamp inside this
         // queued write, after any older event write has invalidated it.
+        pilotStage = 'write_source'
         const source = preserveSource ? this.#storedSource(session.runtime, session.id) : refresh?.source ?? null
+        pilotStage = 'write_identity'
         const writtenIdentity = durableStateIdentity(stored, source)
         refresh?.prepared?.(writtenIdentity)
+        pilotStage = 'write_database'
         this.#database.write(stored, session.runtime, session.id, { reconcile: reconcile || !!refresh, source, preserveExactBody: refresh?.preserveExactBody, expectedBase: refresh?.expectedBase })
+        pilotStage = 'write_after_database'
         // Exact verification of the same semantic row is not a cache change.
         if (!refresh?.preserveStored || refresh.expectedBase?.kind !== 'body' || refresh.expectedBase.identity !== writtenIdentity) {
           this.onDurableChange(session.runtime, session.id)
@@ -627,6 +639,7 @@ export class TranscriptStore {
         this.#failedWrites.delete(key)
         return true
       } catch (error) {
+        if (refresh?.preserveExactBody) pilotExact(pilotStage)
         this.#failedWrites.add(key)
         this.log(error instanceof NewerTranscriptFormatError ? 'transcript from a newer format left untouched' : 'transcript not saved',
           { session: session.id, error: String(error) })
@@ -645,30 +658,42 @@ export class TranscriptStore {
    */
   async persistExactBody(host: Session, candidate: Session, expectedBase?: DurableTranscriptBase): Promise<boolean> {
     if (host.runtime !== candidate.runtime || host.id !== candidate.id || !host.itemsLoaded || !candidate.itemsLoaded ||
-        !host.turns.some(turn => turn.items.length > 0)) return false
+        !host.turns.some(turn => turn.items.length > 0)) { pilotExact('exact_invalid_body'); return false }
     const body = canonicalTranscriptBody(host.turns).canonical
-    if (body !== canonicalTranscriptBody(candidate.turns).canonical) return false
+    if (body !== canonicalTranscriptBody(candidate.turns).canonical) { pilotExact('exact_body_difference'); return false }
     const key = keyOf(host.runtime, host.id)
-    if (this.#pending.has(key) || this.#writes.has(key) || this.#failedWrites.has(key)) return false
+    if (this.#pending.has(key)) { pilotExact('exact_pending'); return false }
+    if (this.#writes.has(key)) { pilotExact('exact_writing'); return false }
+    if (this.#failedWrites.has(key)) { pilotExact('exact_failed_write'); return false }
     let base: DurableTranscriptBase, storedForVerification: Stored | undefined
     try {
       const observed = this.#database.observe(host.runtime, host.id)
       const stored = observed.stored
-      if (observed.removed || (observed.bodyPresent && !stored)) return false
+      if (observed.removed) { pilotExact('exact_removed'); return false }
+      if (observed.bodyPresent && !stored) { pilotExact('exact_unreadable_body'); return false }
       if (stored && observed.identity) {
-        if (!sameStoredSessionFacts(stored, host)) return false
+        if (!sameStoredSessionFacts(stored, host)) {
+          try {
+            for (const field of ['title', 'preview', 'cwd', 'createdAt', 'updatedAt', 'usage'] as const) {
+              if (!isDeepStrictEqual(stored[field] ?? null, host[field] ?? null)) pilotExact(`exact_fact_${field.toLowerCase()}`)
+            }
+          } catch { /* Diagnosis cannot change the refusal. */ }
+          return false
+        }
         const heldInsight = this.#insight.get(key)
-        if (heldInsight?.length && !isDeepStrictEqual(heldInsight, stored.insight ?? [])) return false
+        if (heldInsight?.length && !isDeepStrictEqual(heldInsight, stored.insight ?? [])) { pilotExact('exact_insight'); return false }
         storedForVerification = stored
         base = { kind: 'body', identity: observed.identity }
       } else base = { kind: 'missing' }
-    } catch { return false }
+    } catch { pilotExact('exact_observe_error'); return false }
     if (expectedBase && (expectedBase.kind !== base.kind ||
-      (expectedBase.kind === 'body' && (base.kind !== 'body' || expectedBase.identity !== base.identity)))) return false
+      (expectedBase.kind === 'body' && (base.kind !== 'body' || expectedBase.identity !== base.identity)))) { pilotExact('exact_base_mismatch'); return false }
     let prepared: string | undefined
-    if (!await this.#write(host, this.#insight.get(key) ?? [], { preserveSource: true, preserveExactBody: body, preserveStored: storedForVerification, expectedBase: expectedBase ?? base, prepared: identity => { prepared = identity } })) return false
-    if (this.#pending.has(key) || this.#writes.has(key)) return false
-    if (!prepared || !this.#matchesStoredRow(host, prepared)) return false
+    if (!await this.#write(host, this.#insight.get(key) ?? [], { preserveSource: true, preserveExactBody: body, preserveStored: storedForVerification, expectedBase: expectedBase ?? base, prepared: identity => { prepared = identity } })) { pilotExact('exact_write_refused'); return false }
+    if (this.#pending.has(key)) { pilotExact('exact_pending_after_write'); return false }
+    if (this.#writes.has(key)) { pilotExact('exact_writing_after_write'); return false }
+    if (!prepared) { pilotExact('exact_prepared_missing'); return false }
+    if (!this.#matchesStoredRow(host, prepared)) { pilotExact('exact_row_verification'); return false }
     this.#verifiedRows.set(key, prepared)
     return true
   }

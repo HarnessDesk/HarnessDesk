@@ -14,10 +14,12 @@ const sha = path => createHash('sha256').update(readFileSync(path)).digest('hex'
 const git = (...args) => execFileSync('git', ['-C',taskSource,...args], {encoding:'utf8'}).trim()
 if (process.platform !== 'darwin' || process.env.GITHUB_ACTIONS !== 'true' || process.env.RUNNER_ENVIRONMENT !== 'github-hosted') throw new Error('hosted macOS runner required')
 if (git('merge-base','HEAD',taskSha)!==taskSha) throw new Error('source base mismatch')
-const changed=git('diff','--name-only',taskSha,'HEAD','--',':(exclude).github/workflows/ci.yml',':(exclude)diagnostic/retention-pilot',':(exclude)packages/server/src/host.ts')
+const changed=git('diff','--name-only',taskSha,'HEAD','--',':(exclude).github/workflows/ci.yml',':(exclude)diagnostic/retention-pilot',':(exclude)packages/server/src/host.ts',':(exclude)packages/server/src/transcripts.ts')
 if (changed || git('status','--porcelain=v1')) throw new Error('production source or checkout changed')
 const originalHost=execFileSync('git',['-C',taskSource,'show',`${taskSha}:packages/server/src/host.ts`])
 if(sha(join(taskSource,'packages/server/src/host.ts'))!=='dc85352a3b4ad67aa4fd8caac4bd78010a546f089b45032d3bde9ff65b14234a' || createHash('sha256').update(originalHost).digest('hex')!=='304b7c38003520c80cfd5d5fbc47562cbbe9e37c394ab380fbc511e8174859d8') throw new Error('Host diagnostic source fingerprint changed')
+const originalTranscripts=execFileSync('git',['-C',taskSource,'show',`${taskSha}:packages/server/src/transcripts.ts`])
+if(sha(join(taskSource,'packages/server/src/transcripts.ts'))!=='b8e125751f5eac72ffa2f1f16cd561be3b6f5b823ff3c02afe2a85557521748b' || createHash('sha256').update(originalTranscripts).digest('hex')!=='eb9e49eb57b1ec8a539f8e2d778be4e317b2e02377765f932647867fe5becf47') throw new Error('Transcript diagnostic source fingerprint changed')
 const fixture=join(taskSource,'diagnostic/retention-pilot/fake-codex-1545.mjs')
 const fixtureHashes={
  'packages/adapter-codex/test/fixtures/fake-codex.mjs':'f4d8fcb27e24a3e871dd5660030e4c0fbd718bc429952e98970de81f43e7b1d1',
