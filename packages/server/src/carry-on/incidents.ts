@@ -126,6 +126,8 @@ export const carryOnKey = (runtime: string, sessionId: string): string => `${run
  * started yet — kept with the incident until it can (`CarryOnService.reachable`).
  */
 export interface CarryOnUnwritten {
+  /** Stable across an insert followed by a failed ledger write; absent on older records. */
+  readonly id?: string
   readonly runtime: string
   readonly sessionId: string
   readonly phase: CarryOnPhase
@@ -215,7 +217,7 @@ const watchOk = (value: unknown): boolean => {
 }
 const unwritten = (value: unknown): boolean => {
   const v = value as Record<string, unknown> | null
-  return pointer(v) && (CARRY_ON_PHASES as readonly unknown[]).includes(v!['phase']) && (v!['to'] === undefined || side(v!['to'])) &&
+  return pointer(v) && optionalShort(v!['id'], 100) && (CARRY_ON_PHASES as readonly unknown[]).includes(v!['phase']) && (v!['to'] === undefined || side(v!['to'])) &&
     (v!['mode'] === undefined || v!['mode'] === 'sameThread' || v!['mode'] === 'handoff') && optionalShort(v!['note'], 300) &&
     (v!['link'] === undefined || pointer(v!['link']))
 }

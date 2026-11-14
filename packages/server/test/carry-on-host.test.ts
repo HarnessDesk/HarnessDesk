@@ -8,6 +8,7 @@ import { test, type TestContext } from 'node:test'
 import {
   HANDOFF_PREFIX,
   runtimeId,
+  sessionId,
   splitContextContent,
   wrapContext,
   type CarryOnIncidentView,
@@ -16,6 +17,8 @@ import {
   type Session,
 } from '@harnessdesk/protocol'
 
+import { CarryOnIncidents, type CarryOnRecord } from '../src/carry-on/incidents.js'
+import { TranscriptStore } from '../src/transcripts.js'
 import { CONTINUE_SOURCE, CONTINUE_TEXT } from '../src/carry-on/decide.js'
 import { Host, StateStore, serve } from '../src/index.js'
 import { MOVE_TEXT_CHARS } from '../src/lead/chats.js'
@@ -389,3 +392,77 @@ test('a cancel never closes a created conversation another window opened between
   assert.equal(r.host.registry.get(OTHER, created.id)?.live, created, 'and still open for the other window')
   assert.deepEqual(r.sent.filter(one => one.runtime === OTHER), [], 'and the packet never went')
 })
+
+test('a kept marker survives a failed ledger clear and host restart without duplication', async t => {
+  const stateDir = await mkdtemp(join(tmpdir(), 'harnessdesk-carry-on-retry-'))
+  const file = join(stateDir, 'carry-on', 'incidents.json')
+  const incidents = new CarryOnIncidents({ file })
+  const id = sessionId('fake-session-1')
+  await incidents.serial(() => incidents.put({
+    incidentId: 'retry-incident', runtime: String(PRIMARY), sessionId: String(id), owner: 'chat', state: 'stopped',
+    cause: 'credits', turnId: 'old-turn', agent: 'fake', from: { name: 'Fake Runtime' }, resetsAt: null, nextAt: null,
+    openedAt: 1, lastAt: 1, tried: [], hops: 0, alwaysScope: 'desk',
+    unwritten: [
+      { runtime: String(PRIMARY), sessionId: String(id), phase: 'stopped' },
+      { runtime: String(PRIMARY), sessionId: String(id), phase: 'stopped' },
+    ],
+  }))
+  const runtime = new FakeRuntime({ id: PRIMARY })
+  const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), version: '9.9.9' } as never)
+  host.register(runtime)
+  let disposed = false
+  let restarted: Host | undefined
+  let store: TranscriptStore | undefined
+  t.after(async () => {
+    if (store) await store.close()
+    if (restarted) await restarted.dispose()
+    if (!disposed) await host.dispose()
+    await rm(stateDir, { recursive: true, force: true })
+  })
+  await host.start()
+  let resolveFailure!: () => void
+  const failed = new Promise<void>(resolve => { resolveFailure = resolve })
+  let inserted: CarryOnItem[] = []
+  const put = CarryOnIncidents.prototype.put
+  const mock = t.mock.method(CarryOnIncidents.prototype, 'put', async function (this: CarryOnIncidents, record: CarryOnRecord, replaces?: { readonly runtime: string; readonly sessionId: string }) {
+    if (record.incidentId === 'retry-incident' && !record.unwritten && inserted.length === 0) {
+      inserted = markers(host.registry.get(PRIMARY, id)!.session)
+      assert.equal(inserted.length, 2, 'real host inserted both markers before the failed clear')
+      resolveFailure()
+      throw new Error('injected ledger clear failure')
+    }
+    return put.call(this, record, replaces)
+  })
+  const created = await host.call('session/create', { runtime: PRIMARY, options: { cwd: '/w' } }) as Session
+  assert.equal(created.id, id)
+  await host.call('turn/send', { runtime: PRIMARY, sessionId: id, input: [{ type: 'text', text: 'Hello' }] })
+  await failed
+  assert.equal(new Set(inserted.map(item => item.id)).size, 2)
+  const original = host.registry.get(PRIMARY, id)!.session
+  const replayTurns = original.turns.map(turn => ({ ...turn, items: turn.items.filter(item => item.type !== 'carryOn') }))
+  runtime.stored.set(String(id), replayTurns)
+  await host.dispose(); disposed = true
+  mock.mock.restore()
+  store = new TranscriptStore(join(stateDir, 'transcripts'))
+  const persisted = await store.recover(PRIMARY, id)
+  assert.deepEqual(markers(persisted!).map(item => item.id), inserted.map(item => item.id), 'host disposal flushed both markers to disk')
+  await store.close(); store = undefined
+  restarted = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), version: '9.9.9' } as never)
+  restarted.register(runtime)
+  await restarted.start()
+  const resumed = await restarted.call('session/resume', { runtime: PRIMARY, sessionId: id }) as Session
+  assert.deepEqual(markers(resumed).map(item => item.id), inserted.map(item => item.id), 'resume restores the Host transcript before retry')
+  // A turn event makes the pending ledger entries reachable again.
+  runtime.sessions.get(id)!.fail('ordinary failure', 'unknown')
+  await untilLedgerCleared(file)
+  const after = await restarted.call('session/read', { runtime: PRIMARY, sessionId: id }) as Session
+  assert.deepEqual(markers(after).map(item => item.id), inserted.map(item => item.id), 'retry preserves each marker exactly once')
+})
+
+const untilLedgerCleared = async (file: string) => {
+  const deadline = Date.now() + 10_000
+  while (JSON.parse(readFileSync(file, 'utf8')).records[0]?.unwritten) {
+    assert.ok(Date.now() < deadline, 'the ledger was not cleared')
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+}

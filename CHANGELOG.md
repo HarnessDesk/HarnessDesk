@@ -7,7 +7,11 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Keep reading while the Lead replies.** Holding a long scroll gesture no longer lets an arriving reply pull the conversation back to the bottom. A pending upward scroll is noticed before the new reply follows it.
+
 - **Keep saved pins during an upgrade.** Changing how the conversation list is sorted while its history is still loading no longer loses pins saved by an older desk. Unpinning a conversation or pinning another during that load keeps the change you made.
+
+- **A delayed carry-on note is recorded once.** If saving the updated ledger fails after a delayed transcript marker was written, retrying after a restart keeps the original marker instead of inserting it again.
 
 ## 0.7.1 — 2026-11-13
 
