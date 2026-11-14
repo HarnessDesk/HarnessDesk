@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { cannotRun, dmgArch, SMOKE, smokeArtifacts, smokeVerdict, startSmoke } from './smoke-artifacts.mjs'
+import { cannotRun, dmgArch, runsTranslated, SMOKE, smokeArtifacts, smokeVerdict, startSmoke } from './smoke-artifacts.mjs'
 import { withIosReleaseMountAsync } from './ios-release-mount.mjs'
 
 const DMGS = ['HarnessDesk-1.2.3-arm64.dmg', 'HarnessDesk-1.2.3-arm64.zip', 'HarnessDesk-1.2.3-x64.dmg', 'SHA256SUMS.txt']
@@ -116,6 +116,26 @@ test('which architectures can run where', () => {
   assert.match(cannotRun('arm64', { hostArch: 'x64', rosetta: () => true }), /cannot run on an x64 Mac/)
   assert.equal(dmgArch('HarnessDesk-1.2.3-x64.dmg'), 'x64')
   assert.equal(dmgArch('HarnessDesk.dmg'), null)
+})
+
+test('a binary runs translated only on Apple silicon and only without an arm64 slice', () => {
+  const silicon = { appleSilicon: () => true }, intel = { appleSilicon: () => false }
+  assert.equal(runsTranslated(['x86_64'], silicon), true, 'the x64 Lead Node on an Apple-silicon Mac')
+  assert.equal(runsTranslated([], silicon), true, 'slices lipo could not read are warmed rather than guessed')
+  assert.equal(runsTranslated(['arm64'], silicon), false)
+  assert.equal(runsTranslated(['x86_64', 'arm64e'], silicon), false, 'a universal binary runs natively')
+  assert.equal(runsTranslated(['x86_64'], intel), false, 'native on Intel')
+  assert.equal(runsTranslated([], intel), false)
+})
+
+test('the smoke warms a translated Lead Node and iOS helper before anything times them', () => {
+  const smoke = readFileSync(SMOKE, 'utf8')
+  const warmNode = smoke.indexOf("warmIfTranslated(leadNode, ['-e', '0'], 'Lead Node')")
+  assert.ok(warmNode > 0)
+  assert.ok(warmNode < smoke.indexOf('probeLeadRuntime({'), 'before the 10s probe')
+  assert.ok(warmNode < smoke.indexOf('const loaded = spawnSync('), 'before the restricted child, also 10s')
+  const warmHelper = smoke.indexOf("warmIfTranslated(iosHelper, ['--version']")
+  assert.ok(warmHelper > 0 && warmHelper < smoke.indexOf("spawnSync(iosHelper, ['--version'], { encoding: 'utf8', timeout: 5000 })"), 'before the 5s version check')
 })
 
 test('the gate runs the packaged smoke, and the smoke refuses an app without its interface', () => {

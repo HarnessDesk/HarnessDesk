@@ -283,7 +283,11 @@ launch gate. It mounts each DMG read-only and runs
 inside it — the app boots with a throwaway home, and the smoke reads the agent
 catalogue through the real renderer, runs the bundled command line and probes
 the Lead's Node. The first launch of a freshly signed app can sit in
-Gatekeeper's scan for minutes, so allow it. **Nothing is published until
+Gatekeeper's scan for minutes, so allow it. On Apple silicon the x64 DMG runs
+under Rosetta, which translates each x86_64 binary on its first launch from
+the new volume — 9.1s measured for the bundled Lead Node, against the Lead
+probe's 10s — so the smoke starts the Lead Node and the iOS helper once, with
+two minutes to spare, before it times them, and prints how long that took. **Nothing is published until
 `smoke-artifacts` passes.**
 
 A DMG this Mac cannot run — the x64 one on an Apple-silicon Mac without

@@ -29,8 +29,31 @@ export const rosettaInstalled = () => spawnSync('/usr/bin/arch', ['-x86_64', '/u
 
 export const dmgArch = (dmg) => (/-arm64\.dmg$/.test(dmg) ? 'arm64' : /-x64\.dmg$/.test(dmg) ? 'x64' : null)
 
+/**
+ * Whether this Mac is Apple silicon, asked of the kernel rather than of
+ * `process.arch`: a Node that itself runs under Rosetta reports x64.
+ */
+export const isAppleSilicon = () => spawnSync('/usr/sbin/sysctl', ['-n', 'hw.optional.arm64'], { encoding: 'utf8' }).stdout?.trim() === '1'
+
+/** The architectures a Mach-O binary carries, from `lipo -archs`; empty when lipo cannot say. */
+export const binaryArchs = (path) => {
+  const listed = spawnSync('lipo', ['-archs', path], { encoding: 'utf8', timeout: 15_000 })
+  return listed.status === 0 ? listed.stdout.trim().split(/\s+/).filter(Boolean) : []
+}
+
+/**
+ * Whether a binary with these architectures runs translated by Rosetta here:
+ * on Apple silicon, any binary without an arm64 slice — including one whose
+ * slices lipo could not read, where a warm-up is cheap and a guess is not.
+ * Rosetta translates a binary on its first launch from a new location, which
+ * was measured at 9.1s for the bundled x86_64 Lead Node on a freshly mounted
+ * DMG (0.07s after), so a short timeout on that first launch is a coin toss.
+ */
+export const runsTranslated = (archs, { appleSilicon = isAppleSilicon } = {}) =>
+  appleSilicon() && !archs.some((arch) => arch === 'arm64' || arch === 'arm64e')
+
 /** Null when an app of `arch` can run on this Mac, otherwise the reason it cannot. */
-export function cannotRun(arch, { hostArch = process.arch, rosetta = rosettaInstalled } = {}) {
+export function cannotRun(arch, { hostArch = isAppleSilicon() ? 'arm64' : process.arch, rosetta = rosettaInstalled } = {}) {
   if (arch === hostArch) return null
   if (arch === 'x64' && hostArch === 'arm64') {
     return rosetta() ? null : 'Rosetta is not installed on this Apple-silicon Mac (`softwareupdate --install-rosetta` installs it), so the x64 app cannot run here'

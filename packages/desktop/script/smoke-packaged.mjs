@@ -36,6 +36,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
 
 import { stopProcessesUnder } from '../../../script/mounted-processes.mjs'
+import { binaryArchs, runsTranslated } from '../../../script/smoke-artifacts.mjs'
 import { verifyAppInterface } from '../../../script/verify-app-contents.mjs'
 import { verifyIosHelperUniqueness } from '../../../script/verify-ios-artifact.mjs'
 import { LEAD_NODE, LEAD_NODE_RESOURCE } from '../electron/lead-runtime.mjs'
@@ -74,11 +75,29 @@ try { verifyAppInterface(appPath) }
 catch (error) { fail(error.message); process.exit(1) }
 console.log('smoke: the interface is bundled')
 
+// Rosetta translates an x86_64 binary on its first launch from a new place —
+// measured at 9.1s for the bundled Lead Node on a freshly mounted DMG, 0.07s
+// after — so a check that gives such a binary a few seconds is a coin toss on
+// Apple silicon. Each one is started once, with time to spare, before it is
+// timed. A native binary is not touched; the product's own timeouts stay.
+const WARM_MS = 120_000
+const warmIfTranslated = (path, args, label) => {
+  if (!runsTranslated(binaryArchs(path))) return
+  const started = Date.now()
+  const warmed = spawnSync(path, args, { stdio: 'ignore', timeout: WARM_MS })
+  if (warmed.status !== 0) {
+    throw new Error(`the ${label} did not run under Rosetta within ${WARM_MS / 1000}s: ${warmed.error?.message ?? `exit ${warmed.status}`}`)
+  }
+  console.log(`smoke: warmed the x64 ${label} under Rosetta (${((Date.now() - started) / 1000).toFixed(1)}s)`)
+}
+
 // The actual bundled native executable, independent of a booted simulator or account.
 let iosHelper
 try { iosHelper = verifyIosHelperUniqueness(appPath) }
 catch (error) { fail(error.message); process.exit(1) }
 console.log('smoke: bundled iOS input helper is unique')
+try { warmIfTranslated(iosHelper, ['--version'], 'iOS input helper') }
+catch (error) { fail(error.message); process.exit(1) }
 const iosVersion = spawnSync(iosHelper, ['--version'], { encoding: 'utf8', timeout: 5000 })
 if (iosVersion.status !== 0) { fail('the bundled iOS input helper could not report its version'); process.exit(1) }
 try {
@@ -295,6 +314,8 @@ try {
     }
   }
   console.log(`smoke: ok — the Lead's Node ${LEAD_NODE.version} is on disk, executable and signed with the app (team ${app.team})`)
+  // Before the probe and the restricted child below, which give it 10s each.
+  warmIfTranslated(leadNode, ['-e', '0'], 'Lead Node')
 
   const leadModule = [
     'Contents/Resources/app.asar.unpacked/node_modules/@harnessdesk/lead/dist/src/supervisor.js',
