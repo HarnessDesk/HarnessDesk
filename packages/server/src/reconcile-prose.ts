@@ -10,6 +10,22 @@ const canonical = (value: unknown): string => JSON.stringify(value, (_key, entry
 /** An exact, unique correspondence is needed before moving host-only rows. */
 export type ProseReplay = { readonly kind: 'ordinary' } | { readonly kind: 'ambiguous' } | { readonly kind: 'reconciled'; readonly session: Session }
 
+/** A running turn may grow, but an existing person item cannot change identity or content. */
+export function conflictsWithRunningPrompt(read: Session, held: Pick<Session, 'turns'>, running: ReadonlySet<Turn['id']>): boolean {
+  if (!read.itemsLoaded) return false
+  const active = new Map(held.turns.filter(turn => running.has(turn.id)).map(turn => [turn.id, turn]))
+  return read.turns.some(turn => {
+    const previous = active.get(turn.id)
+    if (!previous) return false
+    const people = new Map(previous.items.flatMap(item => item.type === 'userMessage' ? [[item.id, item] as const] : []))
+    const normalized = preserveDeskContext(turn.items, previous.items)
+    return normalized.some(item => {
+      const person = people.get(item.id)
+      return !!person && (item.type !== 'userMessage' || !isDeepStrictEqual(item.content, person.content))
+    })
+  })
+}
+
 export function reconcileProseReplay(read: Session, held: Pick<Session, 'turns'>): ProseReplay {
   if (!read.itemsLoaded || read.partialHistory || !read.turns.length || !held.turns.length) return { kind: 'ordinary' }
   // Runtime replay may peel desk context from an otherwise identical person

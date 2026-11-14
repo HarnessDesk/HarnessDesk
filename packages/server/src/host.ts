@@ -298,7 +298,7 @@ import { acquireDeskWriter } from './goals/writer-lease.js'
 import { carryCardWork } from './card-claims.js'
 import { Team, type TeamPeer, type TeamSender, type TeamTurnFailure } from './team.js'
 import { transcriptSessionFacts, TranscriptSaveRefusedError, TranscriptStore } from './transcripts.js'
-import { reconcileProseReplay } from './reconcile-prose.js'
+import { conflictsWithRunningPrompt, reconcileProseReplay } from './reconcile-prose.js'
 import { HistoryImport } from './history-import.js'
 import { SESSION_REMOVE_UNDO_MS, SessionIndex } from './session-index.js'
 import { SessionIndexRepos } from './session-index-repos.js'
@@ -10726,11 +10726,13 @@ export class Host {
       !this.#sessionIndex.isRemoved(runtime, event.session.id) && this.#transcripts.mayObserveInitialBase(event.session)
       ? this.#transcripts.observeBase(event.session, true) : undefined
     let ambiguousProse = false
-    if (held && event.type === 'session/started' && held.session.itemsLoaded && !held.transcriptIncomplete && held.running.size === 0 &&
-        !this.#transcripts.pendingReplayConflict(event.session, held.bodyGeneration, held.bodyAuthorityEpoch, held.session)) {
-      const candidate = reconcileProseReplay(event.session, held.session)
-      ambiguousProse = candidate.kind === 'ambiguous'
-      if (candidate.kind === 'reconciled') event = { ...event, session: candidate.session }
+    if (held && event.type === 'session/started' && held.session.itemsLoaded && !held.transcriptIncomplete) {
+      if (held.running.size > 0) ambiguousProse = conflictsWithRunningPrompt(event.session, held.session, held.running)
+      else if (!this.#transcripts.pendingReplayConflict(event.session, held.bodyGeneration, held.bodyAuthorityEpoch, held.session)) {
+        const candidate = reconcileProseReplay(event.session, held.session)
+        ambiguousProse = candidate.kind === 'ambiguous'
+        if (candidate.kind === 'reconciled') event = { ...event, session: candidate.session }
+      }
     }
     if (held && event.type === 'session/started' && !ambiguousProse) {
       event = { ...event, session: this.#transcripts.replayWithPendingMetadata(event.session, held.bodyGeneration, held.bodyAuthorityEpoch) }
