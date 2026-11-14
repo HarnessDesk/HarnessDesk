@@ -788,6 +788,66 @@ test('a reminder line before the person\'s next words survives a step that could
   assert.equal(lead.parseLeadContextTurns(lead1.store.turns).turns.length, lead1.store.turns.length, 'no two turns of one role in a row')
 })
 
+test('#2126: settling a long unstored backlog keeps each wake and person message in order across restart', async t => {
+  const home = await directory(t)
+  const { journal, records } = await journalOver()
+  await journal.appendMessage('seed', 'Existing conversation.', 'person')
+  const store = await LeadContextStore.open({ directory: home, journal, model: MODEL, now: () => 1000, nextId: () => 'checkpoint-long-backlog', window: 200_000 })
+  const ids: string[] = [], ordered: string[] = []
+  // Each group is small enough for one valid merged provider turn, but the
+  // full answered backlog exceeds leadHistory's 128-message history cap.
+  for (let n = 0; n < 65; n++) {
+    const wake = `Wake ${n}`, reminder = `Reminder line ${n}`, person = `Follow-up ${n}`
+    ids.push((await journal.appendMessage(`wake-${n}`, wake, 'schedule', undefined,
+      { kind: 'reminder', reminder: `remind-${n}`, text: reminder })).messageId)
+    await journal.appendReply(reminder, undefined, undefined, undefined, `remind-${n}`)
+    ids.push((await journal.appendMessage(`follow-up-${n}`, person, 'person')).messageId)
+    ordered.push(wake, reminder, person)
+  }
+  const built = await store.request()
+  assert.deepEqual(built.persons, ids, 'all wakes and follow-ups were offered to the lost step')
+  await store.settle(built.persons)
+  assert.deepEqual((await store.request()).persons, ids, 'unanswered messages are never settled')
+  await journal.appendModelReply('Final answer to the backlog.')
+  await store.settle(built.persons)
+  const assertStored = (turns: readonly lead.MessagesTurn[]) => {
+    const blocks = turns.flatMap(turn => turn.content.filter(block => block.type === 'text').map(block => block.text))
+    let from = -1
+    for (const value of [...ordered, 'Final answer to the backlog.']) {
+      const next = blocks.findIndex((block, index) => index > from && block.includes(value))
+      assert.ok(next > from, `missing or reordered ${value}`)
+      from = next
+    }
+    for (const id of ids) {
+      assert.equal(blocks.filter(block => block.endsWith(id) && /Desk (?:reference|wake)/i.test(block)).length, 1, `reference ${id} is kept once`)
+    }
+    assert.doesNotThrow(() => lead.parseLeadContextTurns(turns), 'the stored turns remain valid to reload')
+  }
+  assertStored(store.turns)
+  assert.deepEqual((await store.request()).persons, [], 'the answered backlog is not imported after the reply')
+  const reopenedJournal = (await journalOver(records)).journal
+  const reopened = await LeadContextStore.open({ directory: home, journal: reopenedJournal, model: MODEL, now: () => 1000, nextId: () => 'checkpoint-reopened', window: 200_000 })
+  assertStored(reopened.turns)
+  assert.deepEqual((await reopened.request()).persons, [], 'restart does not reimport the old backlog')
+})
+
+test('#2126 boundary: many consecutive follow-ups already exceed the existing provider block limit before settle', async t => {
+  const home = await directory(t)
+  const { journal } = await journalOver()
+  await journal.appendMessage('seed', 'Existing conversation.', 'person')
+  const store = await LeadContextStore.open({ directory: home, journal, model: MODEL, now: () => 1000, nextId: () => 'checkpoint-block-boundary', window: 200_000 })
+  for (let n = 0; n < 20; n++) {
+    await journal.appendMessage(`wake-${n}`, `Wake ${n}`, 'schedule', undefined,
+      { kind: 'reminder', reminder: `remind-${n}`, text: `Reminder ${n}` })
+    await journal.appendReply(`Reminder line ${n}`, undefined, undefined, undefined, `remind-${n}`)
+  }
+  for (let n = 0; n < 90; n++) await journal.appendMessage(`follow-up-${n}`, `Follow-up ${n}`, 'person')
+  const built = await store.request()
+  assert.equal(built.persons.length, 110)
+  assert.ok(built.messages.some(turn => turn.role === 'user' && turn.content.length > 64), 'adjacent follow-ups form a turn beyond the current block ceiling')
+  assert.throws(() => lead.parseLeadContextTurns(built.messages), 'the existing parser refuses that request before settlement')
+})
+
 test('a reminder wake past the soft line writes the reminder first and summarises after; past the hard line it summarises first and still writes it', async () => {
   for (const due of ['soft', 'hard'] as const) {
     const s = await controlsRig([{ status: 'completed', text: 'Time to check the release notes.' }])
