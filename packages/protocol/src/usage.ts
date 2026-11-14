@@ -696,6 +696,12 @@ export const hasReading = (report: UsageReport): boolean =>
  */
 export const keptReading = (report: UsageReport): boolean => report.error !== null && hasReading(report)
 
+/** A current observation, rather than a recent read of an old cache or a window from a previous cycle. */
+export const usageIsFresh = (report: Pick<UsageReport, 'fetchedAt' | 'staleAfterMs' | 'lanes'>, now: number): boolean =>
+  Number.isFinite(report.fetchedAt) && report.fetchedAt > 0 && report.fetchedAt <= now &&
+  now - report.fetchedAt < report.staleAfterMs &&
+  !report.lanes.some(lane => lane.placeholder !== true && lane.resetsAt !== null && lane.resetsAt <= now)
+
 export const usageStandingOf = (report: UsageReport, now: number): UsageStanding => {
   const lane = bindingLane(report.lanes)
   const left = lane ? remainingOf(lane) : null

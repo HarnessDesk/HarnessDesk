@@ -7,6 +7,25 @@ the rule is the last line of its section.
 
 ---
 
+## A quota observation and a retry have separate clocks — 2026-11-14
+
+A ten-day-old Claude Code cache said 0% used, and the compact menu presented 100% left. Re-reading that file
+does not refresh its contents. Compact usage now requires an unexpired source observation and an unpassed
+reset; details retain old figures with an explicit historical label. Missing timestamps remain unknown.
+
+The bridge negotiates one generic ACP control backed by the existing query's structured `/usage`, with no
+model prompt or transcript scan. The SDK control is experimental and can silently seed its reply from a
+cache on failure. A successful call therefore never establishes freshness by itself: query identity, cache
+identity, figures and resets must match before the CLI-owned clock can date it. With no live query, file
+fallback remains reachable. A different effective credential cannot inherit the global sign-in's quota.
+
+Concurrent calls share a request. Automatic reads have a one-minute floor; failures back off with jitter,
+capped at fifteen minutes. Activity queues a trailing read and stays dirty through an in-flight read.
+Directory watches survive atomic replacement and ingest local observations without calling their producer
+again; credential-file changes still obey the network budget. Visible surfaces request through the cache, and no permanent
+host poller is added. Rejected: faster file polling (it still reads old contents), direct OAuth credential
+copying (the existing process already owns authentication), and stamping a successful SDK reply as fresh.
+
 ## Complete affected coverage can land a low-risk change — 2026-11-14
 
 Core-only PR CI followed by mandatory full CI made even an isolated test repair

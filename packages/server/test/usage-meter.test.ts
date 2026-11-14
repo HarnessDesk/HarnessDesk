@@ -27,6 +27,25 @@ const file = (body: unknown): string => {
   return path
 }
 
+test('a cache without an observation timestamp is never made fresh by reading it', async () => {
+  const path = file({ cachedUsageUtilization: { utilization: { seven_day: { utilization: 0 } } } })
+  assert.equal((await new ClaudeFileMeter(path).read())?.fetchedAt, 0)
+})
+
+test('inactive scoped limits do not become measured allowances', async () => {
+  const path = file({ cachedUsageUtilization: { fetchedAtMs: 1, utilization: { limits: [
+    { kind: 'weekly_all', group: 'weekly', percent: 99, is_active: true },
+    { kind: 'weekly_scoped', group: 'weekly', percent: 0, is_active: false, scope: { model: { display_name: 'Fable' } } },
+  ] } } })
+  assert.deepEqual((await new ClaudeFileMeter(path).read())?.lanes.map(lane => lane.usedPercent), [99])
+})
+
+test('a cache for another OAuth account is not attributed to the current login', async () => {
+  const path = file({ oauthAccount: { accountUuid: 'current', emailAddress: 'dev@example.com' },
+    cachedUsageUtilization: { accountUuid: 'previous', fetchedAtMs: 1, utilization: { seven_day: { utilization: 0 } } } })
+  assert.equal(await new ClaudeFileMeter(path).read(), null)
+})
+
 test('reads every lane the agent cached, with its scope and its severity', async () => {
   const path = file({
     cachedUsageUtilization: {

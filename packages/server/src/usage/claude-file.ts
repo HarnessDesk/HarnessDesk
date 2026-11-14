@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 import type { UsageLane } from '@harnessdesk/protocol'
 
-import { DEFAULT_STALE_AFTER_MS, WINDOW_MINUTES, type MeterReading, type UsageMeter } from './meter.js'
+import { WINDOW_MINUTES, type MeterReading, type UsageMeter } from './meter.js'
 
 /**
  * The agent's own cache, read where it already sits.
@@ -51,6 +51,7 @@ interface RawExtraUsage {
 
 interface RawFile {
   readonly cachedUsageUtilization?: {
+    readonly accountUuid?: string
     readonly fetchedAtMs?: number
     readonly utilization?: {
       readonly limits?: readonly RawLimit[]
@@ -60,6 +61,7 @@ interface RawFile {
     } | null
   } | null
   readonly oauthAccount?: {
+    readonly accountUuid?: string
     readonly emailAddress?: string | null
     readonly organizationRateLimitTier?: string | null
     readonly organizationType?: string | null
@@ -154,13 +156,14 @@ export class ClaudeFileMeter implements UsageMeter {
     }
 
     const cached = file.cachedUsageUtilization
+    if (cached?.accountUuid && file.oauthAccount?.accountUuid && cached.accountUuid !== file.oauthAccount.accountUuid) return null
     const utilization = cached?.utilization
     if (!utilization) return null
 
     const lanes: UsageLane[] = []
     const limits = Array.isArray(utilization.limits) ? utilization.limits : []
     for (const [index, limit] of limits.entries()) {
-      if (typeof limit.percent !== 'number') continue
+      if (limit.is_active === false || typeof limit.percent !== 'number' || !Number.isFinite(limit.percent)) continue
       const scope = limit.scope?.model?.display_name ?? limit.scope?.surface ?? null
       lanes.push({
         id: idFor(limit, index),
@@ -175,7 +178,7 @@ export class ClaudeFileMeter implements UsageMeter {
 
     // Older builds wrote only the two named windows. Used as a fallback rather
     // than a supplement, so one release cannot report a lane twice.
-    if (lanes.length === 0) {
+    if (lanes.length === 0 && limits.length === 0) {
       const named: readonly [string, string, number, RawWindow | null | undefined][] = [
         ['session', 'Session', WINDOW_MINUTES.session, utilization.five_hour],
         ['weekly', 'Weekly', WINDOW_MINUTES.weekly, utilization.seven_day],
@@ -230,10 +233,10 @@ export class ClaudeFileMeter implements UsageMeter {
       // actually turned it on.
       billing: { kinds: credits ? ['windows', 'metered'] : ['windows'] },
       fetchedAt:
-        typeof cached?.fetchedAtMs === 'number' && cached.fetchedAtMs > 0
+        typeof cached?.fetchedAtMs === 'number' && Number.isFinite(cached.fetchedAtMs) && cached.fetchedAtMs > 0
           ? cached.fetchedAtMs
-          : Date.now(),
-      staleAfterMs: DEFAULT_STALE_AFTER_MS,
+          : 0,
+      staleAfterMs: 120_000,
     }
   }
 }

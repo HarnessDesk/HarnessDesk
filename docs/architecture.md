@@ -513,6 +513,10 @@ sample.
 - **Spend ledger and usage** — token counts, cache hit ratios, and vendor
   rate-limit windows calculated across backends (`packages/server/src/ledger/`,
   `packages/server/src/usage/`).
+  The optional ACP `accountUsage` control reads an existing agent query without a prompt. Its observation time
+  travels separately from the host's retry clock. Activity and directory watches queue bounded trailing reads,
+  retaining invalidations through in-flight work; visible surfaces use the same cached service. See
+  [usage-dashboard.md](usage-dashboard.md) for source verification, cooldowns and stale presentation.
 - **Intake** (`packages/server/src/intake/`, [multi-agent.md](multi-agent.md#9-intake-bounded-work-a-project-can-open-on-its-own))
   — a project's committed trigger declarations, this machine's per-trigger
   consent, bounded polling of the signed-in person's own forge, and a durable
