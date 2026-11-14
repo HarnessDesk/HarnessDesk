@@ -76,7 +76,7 @@ test('failed Mobile activation keeps the choice and running state off', async t 
   const desk = await start({ catalogRefreshMs: 0, phoneLink: { host: '127.0.0.1', port: -1 } }, tempDir('hd-feature-mobile-fail-'))
   t.after(() => halt(desk))
   await assert.rejects(desk.host.call(set, { feature: 'mobile', enabled: true } as never))
-  assert.deepEqual(await desk.host.call(read, {}), { lead: false, mobile: false })
+  assert.equal((await desk.host.call(read, {})).problem?.kind, 'transition')
   assert.equal((await desk.host.call('phone/state', {})).enabled, false)
 })
 
@@ -99,11 +99,11 @@ test('Lead disable refuses success until owned Flow cleanup finishes, then can r
   desk.host.createLeadService({ journal, project: { id: 'demo', path: desk.stateDir }, prices: {},
     resolveTool: async () => { throw Error('unused') }, freezePlan: async value => value, readEvidence: async () => { throw Error('unused') },
     createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }) })
-  await assert.rejects(desk.host.call(set, { feature: 'lead', enabled: false }), /lead-owned-work-stop-pending/)
+  await assert.rejects(desk.host.call(set, { feature: 'lead', enabled: false }), /Repair feature settings/)
   assert.equal((await desk.host.call(read, {})).lead, true)
   await assert.rejects(desk.host.call('lead/thread/read', {}), /lead-unavailable/)
-  assert.equal((await desk.host.call(set, { feature: 'lead', enabled: false })).lead, false)
-  assert.equal(attempts, 2)
+  assert.equal((await desk.host.call('app/features/repair', {})).lead, false)
+  assert.ok(attempts >= 2)
 })
 
 test('Mobile close detaches listeners and retains paired devices across re-enable', async t => {
@@ -164,7 +164,7 @@ test('disabling Lead detaches its intake publication subscription before reopeni
   }
 })
 
-test('interrupted Lead disable restores recovery before startup resume despite false launch default', async t => {
+test('interrupted Lead disable fences admission pending explicit repair despite false launch default', async t => {
   const { writeFile } = await import('node:fs/promises')
   const { LeadBudgets } = await import('../src/lead/budgets.js')
   const { Flows } = await import('../src/flows.js')
@@ -178,14 +178,65 @@ test('interrupted Lead disable restores recovery before startup resume despite f
   const desk = await start({ catalogRefreshMs: 0, leadEnabled: false }, home)
   t.after(() => halt(desk))
   assert.equal((await desk.host.call(read, {})).lead, true)
-  assert.ok(calls.indexOf('recover') >= 0 && calls.indexOf('recover') < calls.indexOf('resume'))
+  assert.equal((await desk.host.call(read, {})).problem?.kind, 'transition')
+  assert.equal(calls.includes('recover'), false, 'an uncertain lifetime is not automatically restored')
+  await assert.rejects(desk.host.call('lead/thread/read', {}), /lead-unavailable/)
 })
 
 test('feature choices stay off the phone and agent tool surfaces', async () => {
   const { clientTierFor } = await import('@harnessdesk/protocol')
   const { PHONE_POLICY } = await import('../src/phone-link.js')
-  for (const method of [read, set]) {
+  for (const method of [read, set, 'app/features/repair']) {
     assert.equal(clientTierFor(method), null)
     assert.equal(PHONE_POLICY.methods[method], undefined)
   }
+})
+
+test('disable drains an admitted tick and prevents its continuation from reaching a reopened lifetime', async t => {
+  const { LeadRepeats } = await import('../src/lead/repeats.js')
+  const { LeadPresenceStore } = await import('../src/lead/presence.js')
+  const desk = await start({ catalogRefreshMs: 0 }, tempDir('hd-feature-tick-drain-'))
+  t.after(() => halt(desk))
+  await desk.host.call('workspace/open', { path: desk.stateDir })
+  await desk.host.call(set, { feature: 'lead', enabled: true })
+  await desk.host.call('lead/thread/read', {})
+  let entered!: () => void, release!: () => void
+  const inside = new Promise<void>(resolve => { entered = resolve }), held = new Promise<void>(resolve => { release = resolve })
+  t.mock.method(LeadRepeats.prototype, 'tick', async () => { entered(); await held })
+  let briefs = 0
+  t.mock.method(LeadPresenceStore.prototype, 'tick', async () => { briefs++; return false })
+  const ticking = desk.host.leadTick(); await inside
+  let disabled = false
+  const disabling = desk.host.call(set, { feature: 'lead', enabled: false }).then(() => { disabled = true })
+  await new Promise(resolve => setTimeout(resolve, 80))
+  const stoppedBeforeRelease = disabled
+  release(); await ticking; await disabling
+  await desk.host.call(set, { feature: 'lead', enabled: true })
+  assert.equal(stoppedBeforeRelease, false, 'disable waits for admitted work to leave the old lifetime')
+  assert.equal(briefs, 0, 'the held tick cannot continue to the old or new presence owner')
+})
+
+for (const damage of ['json', 'directory'] as const) test(`ordinary desk opens with ${damage} feature damage and explicit repair preserves it and stops owned work`, async t => {
+  const { writeFile, readdir } = await import('node:fs/promises')
+  const { Flows } = await import('../src/flows.js')
+  const home = tempDir('hd-feature-repair-wire-'), file = join(home, 'features.json')
+  if (damage === 'json') await writeFile(file, '{damaged')
+  else await mkdir(file)
+  const stopped: string[] = []
+  t.mock.method(Flows.prototype, 'leadRuns', () => [{ id: 'owned-demo-run', goal: 'demo-team', state: 'running' }] as any)
+  t.mock.method(Flows.prototype, 'interruptChecks', () => {})
+  t.mock.method(Flows.prototype, 'stopRun', async (id: string) => { stopped.push(id) })
+  const desk = await start({ catalogRefreshMs: 0, leadEnabled: true, mobileEnabled: true }, home)
+  t.after(() => halt(desk))
+  const client = await Client.connect(desk.server); t.after(() => client.close())
+  const snapshot = await client.call(read, {}) as any
+  assert.equal(snapshot.lead, false); assert.equal(snapshot.mobile, false)
+  assert.equal(snapshot.problem.kind, 'preferences')
+  const chat = await desk.host.call('session/create', { runtime: desk.runtime.info.id, options: { cwd: home } })
+  assert.ok(chat.id, 'ordinary chats remain available')
+  await assert.rejects(client.call(set, { feature: 'mobile', enabled: true }), /Repair/)
+  assert.deepEqual(await client.call('app/features/repair', {}), { lead: false, mobile: false })
+  assert.deepEqual(stopped, ['owned-demo-run'])
+  assert.ok((await readdir(home)).some(name => name.startsWith('features.json.preserved-')))
+  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { lead: false, mobile: false })
 })

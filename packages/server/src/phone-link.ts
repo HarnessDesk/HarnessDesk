@@ -104,6 +104,8 @@ export const PHONE_POLICY: PhonePolicy = {
 }
 
 export interface PhoneLinkOptions {
+  /** Host lifecycle admission; a failed transition cannot leave a paired session with authority. */
+  readonly available?: () => boolean
   readonly home: string
   /** 0 picks a free port. */
   readonly port?: number
@@ -194,6 +196,7 @@ export const phoneActionRefusal = (method: string, params: unknown): string | nu
 export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' | 'attachPhoneLink'>, logger: Logger, options: PhoneLinkOptions): Promise<RunningPhoneLink> {
   const log = logger.child('phone-link')
   const call = async (method: string, params: unknown, device: Device): Promise<unknown> => {
+    if (closed || options.available?.() === false) throw new PhoneCallError('phone-link-unavailable', 'Mobile is unavailable until feature settings are repaired.')
     let parsed
     const refusal = phoneActionRefusal(method, params)
     if (refusal) throw new PhoneCallError('notOnPhoneSurface', refusal)

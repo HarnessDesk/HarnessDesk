@@ -42,6 +42,7 @@ export interface LeadWorkReminder { readonly id: string; readonly remindAt: numb
 
 /** The doors a due reminder can wake the Lead through; both already exist for scheduled runs. */
 export interface LeadWorkWake {
+  readonly available?: () => boolean
   /** Quiet hours, read from the same schedule the repeats use. */
   readonly quiet: () => Promise<boolean>
   /** Whether a new goal may begin: the thread has closed, so a reminder opens one like a scheduled run would. */
@@ -64,10 +65,15 @@ export interface LeadWorkWake {
 export const wakeForLeadWork = async (ledger: Pick<LeadWorkLedger, 'dueReminders' | 'reminded' | 'skipped'>, wake: LeadWorkWake): Promise<number> => {
   let woke = 0
   for (const due of await ledger.dueReminders()) {
+    if (wake.available?.() === false) break
     if (due.for === 'lead' && await wake.quiet()) continue
-    if (due.for === 'lead' && (await wake.gate?.() ?? 'act') !== 'act') { await ledger.skipped(due.id, due.remindAt); continue }
+    if (wake.available?.() === false) break
+    const gate = due.for === 'lead' ? await wake.gate?.() ?? 'act' : 'act'
+    if (wake.available?.() === false) break
+    if (gate !== 'act') { await ledger.skipped(due.id, due.remindAt); continue }
     const key = `work-reminder-${due.id}-${due.remindAt}`
     const delivered = wake.canBegin() ? await wake.offer(key, due.text, due.id, due) : await wake.remind(key, due.text, due)
+    if (wake.available?.() === false) break
     if (!delivered) continue
     await ledger.reminded(due.id, due.remindAt, key)
     woke++
@@ -90,6 +96,7 @@ export interface LeadWorkDelivery {
 }
 /** How the host learns what became of a wake, and wakes the Lead once more. */
 export interface LeadWorkSettle {
+  readonly available?: () => boolean
   /** `pending` while the Lead may still write after the wake; `said` once it wrote a message after it; `silent` when it ended without one. */
   readonly outcome: (key: string) => 'pending' | 'said' | 'silent'
   /** One more wake for the same reminder, under its own key. True once the Lead has it. */
@@ -107,12 +114,15 @@ export const LEAD_REMINDER_MISSED_MS = 60 * 60_000
  */
 export const settleLeadReminders = async (ledger: Pick<LeadWorkLedger, 'awaitingDelivery' | 'delivered' | 'retrying'>, settle: LeadWorkSettle): Promise<void> => {
   for (const due of await ledger.awaitingDelivery()) {
+    if (settle.available?.() === false) return
     const outcome = settle.outcome(due.key)
     if (outcome === 'pending') continue
     if (outcome === 'said') { await ledger.delivered(due.id, 'said'); continue }
     if (!due.retried) {
       const again = `${due.key}-again`
-      if (await settle.retry(again, due.text, due)) { await ledger.retrying(due.id, again); continue }
+      const retried = await settle.retry(again, due.text, due)
+      if (settle.available?.() === false) return
+      if (retried) { await ledger.retrying(due.id, again); continue }
       if (due.lateMs < LEAD_REMINDER_MISSED_MS) continue
     }
     await ledger.delivered(due.id, 'missed')

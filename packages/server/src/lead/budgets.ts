@@ -9,6 +9,8 @@ import { leadStepContractDigest } from './admission.js'
 import { leadStopReachesRun } from './stop.js'
 
 export interface LeadBudgetPort {
+  /** Desk lifetime admission, independent of journal authority. */
+  available?(): boolean
   /** The named sessions' recorded usage in the project: a meter reads its own Seats, never the whole machine. */
   usage?(project: string, from: number, to: number, sessions: readonly { readonly runtime: string; readonly sessionId: string }[]): Promise<{ readonly samples: readonly UsageSample[]; readonly complete: boolean }>
   seats?(): readonly SeatRecord[]
@@ -185,6 +187,7 @@ export class LeadBudgets implements FlowLeadGuard {
     this.#pending.delete(lead.startId)
   }
   async gate(run: StoredFlowExecution): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }> {
+    if (this.port.available?.() === false) return { ok: false, reason: 'lead-unavailable' }
     if (this.#meteringStopped) return { ok: false, reason: 'lead-host-shutdown' }
     try {
       const journal = this.#journal(run), state = journal.state
@@ -205,6 +208,7 @@ export class LeadBudgets implements FlowLeadGuard {
         await journal.updateBudget({ version: 1, type: 'stop', now: this.port.now(), reason: 'unknown-spend' })
         throw new Error('lead-budget-unknown')
       }
+      if (this.port.available?.() === false) return { ok: false, reason: 'lead-unavailable' }
       return { ok: true }
     } catch (error) { return { ok: false, reason: error instanceof Error ? error.message : 'lead-dispatch-refused' } }
   }

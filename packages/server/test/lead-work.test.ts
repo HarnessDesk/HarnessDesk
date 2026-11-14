@@ -1114,3 +1114,16 @@ test('a read of the board refreshes only when the desk changed or a second has p
   await r.ledger.current()
   assert.equal(listed, after + 2, 'and a quiet desk is read fresh once a second')
 })
+
+test('reminder reads released after a lifetime ends cannot send or settle old work', async () => {
+  let available = true, entered!: () => void, release!: () => void, effects = 0
+  const inside = new Promise<void>(resolve => { entered = resolve }), held = new Promise<void>(resolve => { release = resolve })
+  const wake = wakeForLeadWork({ dueReminders: async () => { entered(); await held; return [{ id: 'demo', remindAt: 1, for: 'person', note: 'Check', text: 'Check' }] },
+    reminded: async () => { effects++ }, skipped: async () => { effects++ } } as any,
+  { available: () => available, quiet: async () => false, canBegin: () => true, offer: async () => { effects++; return true }, remind: async () => { effects++; return true } })
+  await inside; available = false; release(); await wake
+  await settleLeadReminders({ awaitingDelivery: async () => [{ id: 'demo', key: 'wake', retried: false, lateMs: 1, text: 'Check', note: 'Check', for: 'person' }],
+    delivered: async () => { effects++ }, retrying: async () => { effects++ } } as any,
+  { available: () => available, outcome: () => 'said', retry: async () => { effects++; return true } })
+  assert.equal(effects, 0)
+})

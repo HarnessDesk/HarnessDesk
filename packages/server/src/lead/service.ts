@@ -28,6 +28,8 @@ export interface LeadProcess {
   evidenceChanged?(): void
 }
 export interface LeadServiceOptions {
+  /** The host may fence admission while a feature transition needs repair. */
+  readonly available?: () => boolean
   /** The runtimes the child may run on, in order of preference; absent is this host's own. */
   readonly runtimes?: readonly LeadRuntime[]
   /** Test seam for the capability probe; absent is the real, cached one. */
@@ -87,7 +89,7 @@ export class LeadService {
   get step(): string | null { return this.#requestInFlight ? this.#step ?? LEAD_STEP_THINKING : null }
   get requestInFlight(): boolean { return this.#requestInFlight }
   /** Host dispatches, including accepted queued work, must observe lifecycle revocation immediately. */
-  get managementAvailable(): boolean { return this.#enabled && !this.#closed && !this.#changingKeys && !this.#cleanupFailed }
+  get managementAvailable(): boolean { return this.options.available?.() !== false && this.#enabled && !this.#closed && !this.#changingKeys && !this.#cleanupFailed }
   #activity(busy: boolean): void {
     const next = busy && !this.#closed
     if (this.#requestInFlight === next) return
@@ -327,7 +329,7 @@ export class LeadService {
   }
   #assertOpen(): void {
     if (this.#closed) throw new Error('lead-closed')
-    if (!this.#enabled) throw new Error('lead-disabled')
+    if (!this.#enabled || this.options.available?.() === false) throw new Error('lead-disabled')
     if (this.#cleanupFailed) throw new Error('lead-cleanup-pending')
   }
   async #latch(reason: string): Promise<void> {

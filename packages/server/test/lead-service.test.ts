@@ -10,7 +10,7 @@ import { LeadBudgets } from '../src/lead/budgets.js'
 
 const key = 'sk-test-not-real-0000'
 const input = { messages: [{ role: 'user', content: [{ type: 'text', text: 'Inspect the plan' }] }], maxTokens: 32 } as const
-const rig = async (t: { after(fn: () => Promise<void>): void }, hooks: { onManagementStopped?: (reason: string) => void; probeRuntime?: (runtime: any) => Promise<any>; onRuntimeUnavailable?: (reason: string) => void; resolveTool?: () => Promise<any>; stopOwned?: () => Promise<void>; messagesTransport?: any; seats?: unknown; onFailure?: (failure: unknown) => void } = {}) => {
+const rig = async (t: { after(fn: () => Promise<void>): void }, hooks: { available?: () => boolean; onManagementStopped?: (reason: string) => void; probeRuntime?: (runtime: any) => Promise<any>; onRuntimeUnavailable?: (reason: string) => void; resolveTool?: () => Promise<any>; stopOwned?: () => Promise<void>; messagesTransport?: any; seats?: unknown; onFailure?: (failure: unknown) => void } = {}) => {
   const home = await mkdtemp('/tmp/hd-ls-')
   t.after(() => rm(home, { recursive: true, force: true }))
   const records: LeadJournalRecord[] = []
@@ -27,7 +27,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }, hooks: { onManag
     async storeLead() { events.push('store'); configured = true }, async deleteLead() { events.push('delete'); configured = false } }
   const modulePath = new URL('../src/lead/service.js', import.meta.url).href
   const { LeadService } = await import(modulePath)
-  const service = new LeadService({ journal, project: { id: 'synthetic', path: home }, broker, model: 'synthetic-model', prices: {},
+  const service = new LeadService({ ...(hooks.available ? { available: hooks.available } : {}), journal, project: { id: 'synthetic', path: home }, broker, model: 'synthetic-model', prices: {},
     ...(hooks.probeRuntime === undefined ? {} : { probeRuntime: hooks.probeRuntime, runtimes: [{ binary: '/demo/electron', version: '24.19.0', electron: true, label: "this app's runtime" }] }),
     ...(hooks.onRuntimeUnavailable === undefined ? {} : { onRuntimeUnavailable: hooks.onRuntimeUnavailable }),
     ...(hooks.onFailure === undefined ? {} : { onFailure: hooks.onFailure }),
@@ -1517,4 +1517,14 @@ test('a failed close remains failed on retry until child termination succeeds', 
   await assert.rejects(s.service.close(), /synthetic child still live/)
   await s.service.close()
   assert.equal(s.process().live, false)
+})
+
+
+test('a latched host feature problem refuses the existing child service before another send', async t => {
+  let available = true
+  const s = await rig(t, { available: () => available })
+  await s.service.setEnabled(true); await s.service.send(input)
+  available = false
+  await assert.rejects(s.service.send(input), /lead-disabled/)
+  assert.equal(s.service.managementAvailable, false)
 })

@@ -155,7 +155,7 @@ export interface HostContext {
   readonly worktrees: Worktrees
   readonly team: Team
   /** The phone link's controls; refuses with `phone-link-unavailable` where the link is not running. */
-  readonly features: Pick<import('../features.js').DeskFeatures, 'read' | 'set'>
+  readonly features: Pick<import('../features.js').DeskFeatures, 'read' | 'set' | 'repair'>
   readonly phone: Omit<import('../phone-link.js').PhoneLinkControl, 'onChange'>
   /** Redacted, phone-sized projections of sessions, Teams and spend; what a paired phone may read of the desk's work. */
   readonly phoneWorkspace: Pick<import('../phone-workspace.js').PhoneWorkspace, 'sessionsList' | 'teamsList' | 'dashboardRead'>

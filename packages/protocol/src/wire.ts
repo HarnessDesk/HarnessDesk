@@ -2957,6 +2957,7 @@ export interface HostMethods {
     result: null
   }
 
+  'app/features/repair': { params: Record<string, never>; result: DeskFeatureState }
   'app/features/read': { params: Record<string, never>; result: DeskFeatureState }
   'app/features/set': { params: { feature: 'lead' | 'mobile'; enabled: boolean }; result: DeskFeatureState }
   'app/state/get': { params: Record<string, never>; result: Readonly<Record<string, unknown>> }

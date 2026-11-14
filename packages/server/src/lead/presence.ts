@@ -858,23 +858,25 @@ export class LeadPresenceStore {
    * On the host's minute timer. At the chosen time, once a day, unless quiet hours hold it (it then goes out when they
    * end, the same day). The brief is a digest every device shows at the top of the conversation, plus one push.
    */
-  async tick(): Promise<boolean> {
+  async tick(available: () => boolean = () => true): Promise<boolean> {
     const step = await this.#write(async () => {
       const { enabled, at } = this.#stored.brief, now = this.ports.now()
-      if (!enabled) return null
+      if (!enabled || !available()) return null
       const today = dayOf(now), date = new Date(now)
       const [hour, minute] = at.split(':').map(Number) as [number, number]
       if (this.#stored.briefDay === today || date.getHours() * 60 + date.getMinutes() < hour * 60 + minute) return null
-      if (await this.ports.quiet()) return null
-      if ((await this.ports.briefGate?.() ?? 'act') !== 'act') { this.#stored.briefDay = today; return null }
+      if (await this.ports.quiet() || !available()) return null
+      const gate = await this.ports.briefGate?.() ?? 'act'
+      if (!available()) return null
+      if (gate !== 'act') { this.#stored.briefDay = today; return null }
       const previous = this.#stored.briefDigest, origin = this.#stored.origin ?? { at: now, spent: this.ports.spent() }
       const from = Math.min(previous?.to ?? Math.max(origin.at, now - LEAD_PRESENCE_LIMITS.recapMs), now)
       return { today, plan: await this.#plan('brief', from, { spent: previous ? this.#briefSpent() : origin.spent, revision: previous ? this.#briefRevision() : 0 }) }
     })
-    if (!step) return false
+    if (!step || !available()) return false
     const result = await this.#paragraph(step.plan)
     return this.#write(() => {
-      if (this.#stored.briefDay === step.today) return false
+      if (!available() || this.#stored.briefDay === step.today) return false
       const digest = this.#finish(step.plan, result)
       this.#stored.briefDigest = digest
       this.#stored.briefSpent = this.ports.spent()

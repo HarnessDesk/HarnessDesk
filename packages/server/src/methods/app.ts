@@ -35,6 +35,7 @@ export const appMethods = {
 
   'backup/import': (ctx, params) => ctx.backup.import(params.backup),
 
+  'app/features/repair': ctx => ctx.features.repair(),
   'app/features/read': ctx => ctx.features.read(),
   'app/features/set': (ctx, params) => ctx.features.set(params.feature, params.enabled),
 

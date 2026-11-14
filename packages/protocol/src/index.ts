@@ -102,4 +102,4 @@ export * from './lead-named-work.js'
 export * from './lead-work-waiting.js'
 export * from './brands.js'
 
-export type { DeskFeatureState } from './features.js'
+export type { DeskFeature, DeskFeatureProblem, DeskFeatureState } from './features.js'
