@@ -10525,7 +10525,7 @@ export class Host {
       const record = this.registry.get(runtime, id)
       if (!record) return false
       const generation = record.bodyGeneration, key = recordKey(record)
-      if (record.live || record.detached || record.running.size > 0 || record.approvals.size > 0 ||
+      if (record.live || record.running.size > 0 || record.approvals.size > 0 ||
           record.queue.messages.length > 0 || record.tasks.some(task => task.state === 'running') || this.#queueBusy(record) ||
           record.transcriptIncomplete || this.#transcripts.hasOutstandingWrite(runtime, id) ||
           this.#descriptorReleases.has(generation) || this.#pendingTranscriptOverlays.has(generation) ||

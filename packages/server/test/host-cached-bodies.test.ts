@@ -143,6 +143,31 @@ test('cache eviction retires only the descriptor for the exact evicted preview',
   await host.call('session/resume', { runtime: runtime.info.id, sessionId: first.id })
 })
 
+test('an idle detached imported preview remains eligible for cache eviction', async t => {
+  const root = tempDir('hd-cache-detached-')
+  const host = new Host(options(root, 1_000_000)); t.after(() => host.dispose())
+  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false } })
+  const external = await runtime.createSession({ cwd: root })
+  runtime.stored.set(external.id, [{ id: 'turn' as import('@harnessdesk/protocol').TurnId, status: 'completed',
+    items: [{ type: 'assistantMessage', id: 'answer' as import('@harnessdesk/protocol').ItemId, text: 'Synthetic cached body' }] }])
+  host.register(runtime); await host.start()
+  await host.call('session/read', { runtime: runtime.info.id, sessionId: external.id })
+  await host.call('session/resume', { runtime: runtime.info.id, sessionId: external.id })
+  runtime.emit({ type: 'session/detached', sessionId: external.id })
+  const record = host.registry.get(runtime.info.id, external.id)!
+  assert.equal(record.detached, true)
+  assert.equal(record.live, null)
+  assert.equal(record.running.size, 0)
+  assert.equal(record.queue.messages.length, 0)
+  const db = new DatabaseSync(join(root, 'sessions.sqlite')); t.after(() => db.close())
+  assert.equal(db.prepare('SELECT body FROM sessions WHERE id=?').get(external.id)?.body, 'cached')
+  const cleared = await host.call('history/clearCached', {})
+  assert.equal(cleared.count, 1)
+  assert.equal(db.prepare('SELECT body FROM sessions WHERE id=?').get(external.id)?.body, 'none')
+  const resumed = await host.call('session/resume', { runtime: runtime.info.id, sessionId: external.id })
+  assert.equal(resumed.turns[0]?.items[0]?.type, 'assistantMessage')
+})
+
 test('an overtaken cache eviction cannot retire a newer descriptor owner', async t => {
   const root = tempDir('hd-cache-descriptor-fence-')
   const host = new Host(options(root, 1_000_000)); t.after(async () => { await host.dispose().catch(() => {}) })
