@@ -596,9 +596,10 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
           if (executed.outcome !== 'succeeded') {
             const result = { ...results[position]!, content: errorText }
             const extra = bytes(json(result)) - bytes(json(results[position]))
-            // A longer policy reason is useful when it fits; the correlated refusal is already present.
-            if (extra <= available) { available -= extra; results[position] = result }
-            else if (executed.decision.effect !== 'allow') {
+            // Allowed failures use a fixed diagnostic covered by this result's errorSpace reservation.
+            // A longer policy reason is useful when it fits; otherwise keep a bounded refusal.
+            if (executed.decision.effect === 'allow' || extra <= available) { available -= extra; results[position] = result }
+            else {
               const fallback = { ...results[position]!, content: TOOL_ERROR.policy }
               available -= bytes(json(fallback)) - bytes(json(results[position]))
               results[position] = fallback

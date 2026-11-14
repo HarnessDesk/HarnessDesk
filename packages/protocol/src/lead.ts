@@ -1111,12 +1111,12 @@ export interface LeadDeskItem {
 export interface LeadDeskSummary {
   /** Exact aggregate counts, independent of the bounded detail scan. */
   readonly totals: LeadDeskTotals
-  /** Per-project counts cover only sessionsScanned when true; totals stay exact. */
+  /** When true, per-project chat counts and chat entries cover only sessionsScanned; totals stay exact. */
   readonly countsPartial: boolean
   readonly sessionsScanned: number
   readonly projectsMore: number
   readonly projects: readonly (LeadDeskTotals & { readonly project: string | null })[]
-  /** Newest first, default eight, at most twenty. */
+  /** Newest first among scanned sessions and Teams, default eight, at most twenty. */
   readonly recent: readonly LeadDeskItem[]
   /** Up to twenty working items, including those outside recent. */
   readonly running: readonly LeadDeskItem[]

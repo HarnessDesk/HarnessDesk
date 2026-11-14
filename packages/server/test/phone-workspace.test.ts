@@ -888,6 +888,19 @@ test('Lead summary scans stop at the Sessions paging bound and expose partial co
   } finally { await f.done() }
 })
 
+test('#2029: a partial scan can omit a visible recent chat behind unknown runtimes', async () => {
+  const f = await fixture()
+  try {
+    for (let n = 0; n < 2000; n++) f.index.upsert(summary(`hidden-${n}`, { runtime: stranger, updatedAt: NOW - n }))
+    f.index.upsert(summary('visible', { updatedAt: NOW - 2001 }))
+    const result = await f.workspace.deskSummary({})
+    assert.equal(result.countsPartial, true)
+    assert.equal(result.sessionsScanned, 0)
+    assert.equal(result.totals.chats.idle, 1, 'the known-runtime aggregate remains exact')
+    assert.deepEqual(result.recent, [], 'recent is drawn from the scanned rows, not all visible chats')
+  } finally { await f.done() }
+})
+
 
 for (const [verb, params] of [
   ['rename', { title: 'New title' }], ['archive', { archived: true }], ['pin', { pinned: true }], ['delete', {}],

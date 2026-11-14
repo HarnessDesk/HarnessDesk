@@ -297,6 +297,71 @@ test('many parallel reads fit beside near-full history without a fixed per-call 
   assert.equal((await s.client.request({ ...input, messages: result.messages }, new AbortController().signal)).status, 'completed')
 })
 
+/** Fill the continuation to a known byte headroom, keeping the production tool-result reserve intact. */
+const nearLimitHistory = async (uses: ReturnType<typeof tool>[], headroom: number) => {
+  const probe = await setup([message()])
+  await probe.client.request(input, new AbortController().signal)
+  const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length
+  const body = JSON.parse(probe.fake.requests[0].body)
+  const wrapper = bytes(body) - bytes(body.messages)
+  const history = [{ role: 'user', content: Array.from({ length: 64 }, () => ({ type: 'text', text: '' })) }]
+  const refused = 'Tool was not permitted: tool or arguments are outside the allowed API.'
+  const largest = 'Tool refused: runs started without the person asking are limited, the account may be near its limit, or the Lead is still loading after a restart, so the person\'s next follow-up keeps its room. Wait for a run to finish, then try again.'
+  const results = uses.map(use => ({ type: 'tool_result', tool_use_id: use.id, is_error: true, content: refused }))
+  const continuation = [...history, { role: 'assistant', content: uses }, { role: 'user', content: results }]
+  let remaining = 1_048_576 - wrapper - bytes(continuation) - uses.length * (bytes(largest) - bytes(refused)) - headroom
+  assert.ok(remaining > 0 && remaining <= 64 * 16_384)
+  for (const block of history[0]!.content) { const size = Math.min(16_384, remaining); block.text = 'x'.repeat(size); remaining -= size }
+  assert.equal(remaining, 0)
+  return history
+}
+
+test('#2029: near-limit admitted failures retain their ordered diagnostics', async () => {
+  const uses = [tool('first', 'library_usage'), tool('failed', 'library_usage'), tool('uncertain', 'chat_start', { text: 'Inspect' })]
+  const history = await nearLimitHistory(uses, 15_000)
+  let calls = 0
+  const s = await setup([message(uses, { stop_reason: 'tool_use' })], { dispatch: async () => {
+    calls++
+    if (calls === 1) return { value: 'x'.repeat(14_900), identity: null }
+    throw new Error('synthetic transport failure')
+  } })
+  const result = await s.client.request({ ...input, messages: history }, new AbortController().signal)
+  assert.equal(result.status, 'completed')
+  assert.deepEqual(result.toolResults.map((item: any) => [item.tool_use_id, item.is_error]), [['first', false], ['failed', true], ['uncertain', true]])
+  assert.equal(result.toolResults[1].content, 'Tool failed: the desk request could not complete.')
+  assert.equal(result.toolResults[2].content, 'Tool failed: completion could not be confirmed; inspect before retrying.')
+  assert.deepEqual(result.permissionDeniedTools, [])
+  assert.ok(new TextEncoder().encode(JSON.stringify(result.messages)).length <= 1_048_576)
+})
+
+test('#2029: a too-long non-rule denial uses the bounded policy fallback', async () => {
+  const uses = [tool('denied', 'chat_start', { text: 'Inspect' })]
+  const history = await nearLimitHistory(uses, 0)
+  const origin = { source: 'pull-request' as const, event: 'mentioned', subject: 'acme/widgets#7', url: 'https://github.com/acme/widgets/pull/7#issuecomment-1' }
+  const control = await setup([message(uses, { stop_reason: 'tool_use' })])
+  await control.journal.setOrigin(origin, 'request-origin')
+  const actual = await control.client.request({ ...input, messages: history }, new AbortController().signal)
+  assert.equal(actual.toolResults[0].content, "Tool was not permitted: A request from an issue or pull request starts and sends nothing without the person's current approval of its plan")
+  assert.deepEqual(control.dispatched, [])
+  const s = await setup([message(uses, { stop_reason: 'tool_use' })])
+  await s.journal.setOrigin(origin, 'request-origin')
+  const execute = s.journal.execute.bind(s.journal)
+  // The real issue-origin fence denies this call. Extend only its reason to
+  // reach the defensive fallback; today's fixed reason fits the reservation.
+  s.journal.execute = async (...args: Parameters<typeof execute>) => {
+    const actual = await execute(...args)
+    assert.equal(actual.outcome, 'denied')
+    assert.equal(actual.decision.rule, null)
+    return { ...actual, decision: { ...actual.decision, reason: 'long refusal '.repeat(30) } }
+  }
+  const result = await s.client.request({ ...input, messages: history }, new AbortController().signal)
+  assert.equal(result.status, 'completed')
+  assert.deepEqual(result.toolResults.map((item: any) => [item.tool_use_id, item.is_error, item.content]),
+    [['denied', true, 'Tool was not permitted: policy refused this operation.']])
+  assert.deepEqual(s.dispatched, [])
+  assert.ok(new TextEncoder().encode(JSON.stringify(result.messages)).length <= 1_048_576)
+})
+
 test('abort during a stalled tool dispatch records a failed read and answers every tool once', async () => {
   const controller = new AbortController()
   let calls = 0, passedSignal: AbortSignal | null = null
