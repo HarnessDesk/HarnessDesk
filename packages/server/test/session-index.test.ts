@@ -549,3 +549,29 @@ test('interrupted pin migration resumes reserved order without replaying edits',
     assert.deepEqual(index.pins(), ['fake:late', 'fake:existing', 'fake:new', 'fake:repin', 'fake:pending-repin'])
   } finally { index.close() }
 })
+
+test('pin migration and reservation changes roll back with failed pin writes', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'hd-pin-atomic-'))
+  const file = join(home, 'sessions.sqlite')
+  let index = new SessionIndex(file)
+  index.upsert(row('one')); index.upsert(row('two'))
+  const db = new DatabaseSync(file)
+  db.exec("CREATE TRIGGER fail_pin BEFORE INSERT ON session_pins WHEN NEW.id='two' BEGIN SELECT RAISE(ABORT,'scripted pin failure'); END")
+  assert.throws(() => index.migratePins(['fake:one', 'fake:two', 'fake:late'], false), /scripted pin failure/)
+  assert.deepEqual(index.pins(), [])
+  assert.equal(db.prepare("SELECT value FROM meta WHERE key='session-pins:plan:v1'").get(), undefined)
+  db.exec('DROP TRIGGER fail_pin')
+  index.migratePins(['fake:late', 'fake:one'], false)
+  db.exec("CREATE TRIGGER fail_pin BEFORE INSERT ON session_pins WHEN NEW.id='late' BEGIN SELECT RAISE(ABORT,'scripted pin failure'); END")
+  assert.throws(() => index.setPinned(runtime, idOf('late'), true), /scripted pin failure/)
+  db.exec('DROP TRIGGER fail_pin')
+  db.close()
+  index.close()
+  index = new SessionIndex(file)
+  try {
+    const pending = index.migratePins([], false)
+    index.upsert(row('late'))
+    index.migratePins(pending)
+    assert.deepEqual(index.pins(), ['fake:late', 'fake:one'])
+  } finally { index.close() }
+})
