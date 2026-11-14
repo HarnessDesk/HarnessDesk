@@ -9,6 +9,7 @@ import { browserProfileStorageName, sessionBrowserProfile } from '@harnessdesk/p
 import type { RuntimeId, SessionId, SessionSummary } from '@harnessdesk/protocol'
 
 import { SessionIndex } from '../src/session-index.js'
+import { tempDir } from './scratch.js'
 
 const runtime = 'fake' as RuntimeId
 const idOf = (id: string): SessionId => id as SessionId
@@ -510,5 +511,85 @@ test('pin migration ignores missing and removed sessions and removing imports dr
     assert.deepEqual(index.pins(), ['fake:kept', 'fake:imported'])
     index.removeImported(runtime)
     assert.deepEqual(index.pins(), ['fake:kept'])
+  } finally { index.close() }
+})
+
+test('two-pass pin migration reserves legacy order while respecting later pin edits', () => {
+  const index = new SessionIndex(':memory:')
+  try {
+    for (const id of ['existing', 'repin', 'unpin', 'new']) index.upsert(row(id))
+    const pending = index.migratePins(['fake:late', 'fake:existing', 'fake:repin', 'fake:unpin', 'fake:late2'], false)
+    index.setPinned(runtime, idOf('unpin'), false)
+    index.setPinned(runtime, idOf('repin'), false)
+    index.setPinned(runtime, idOf('new'), true)
+    index.setPinned(runtime, idOf('repin'), true)
+    index.upsert(row('late')); index.upsert(row('late2'))
+    index.migratePins(pending)
+    assert.deepEqual(index.pins(), ['fake:late', 'fake:existing', 'fake:late2', 'fake:new', 'fake:repin'])
+  } finally { index.close() }
+})
+
+test('interrupted pin migration resumes reserved order without replaying edits', () => {
+  const file = join(tempDir('hd-pin-resume-'), 'sessions.sqlite')
+  let index = new SessionIndex(file)
+  try {
+    for (const id of ['existing', 'repin', 'unpin', 'new']) index.upsert(row(id))
+    index.migratePins(['fake\u0000late', 'fake:existing', 'fake:repin', 'fake:unpin', 'fake:pending-unpin', 'fake:pending-repin'], false)
+    index.setPinned(runtime, idOf('unpin'), false)
+    index.setPinned(runtime, idOf('repin'), false)
+    index.setPinned(runtime, idOf('new'), true)
+    index.setPinned(runtime, idOf('repin'), true)
+    index.setPinned(runtime, idOf('pending-unpin'), false)
+    index.setPinned(runtime, idOf('pending-repin'), true)
+    index.close()
+    index = new SessionIndex(file)
+    const pending = index.migratePins(['fake:unpin', 'fake:pending-unpin'], false)
+    index.upsert(row('late')); index.upsert(row('pending-unpin')); index.upsert(row('pending-repin'))
+    index.migratePins(pending)
+    assert.deepEqual(index.pins(), ['fake:late', 'fake:existing', 'fake:new', 'fake:repin', 'fake:pending-repin'])
+  } finally { index.close() }
+})
+
+test('pin migration and reservation changes roll back with failed pin writes', () => {
+  const file = join(tempDir('hd-pin-atomic-'), 'sessions.sqlite')
+  let index = new SessionIndex(file)
+  try {
+    index.upsert(row('one')); index.upsert(row('two'))
+    const db = new DatabaseSync(file)
+    try {
+      db.exec("CREATE TRIGGER fail_pin BEFORE INSERT ON session_pins WHEN NEW.id='two' BEGIN SELECT RAISE(ABORT,'scripted pin failure'); END")
+      assert.throws(() => index.migratePins(['fake:one', 'fake:two', 'fake:late'], false), /scripted pin failure/)
+      assert.deepEqual(index.pins(), [])
+      assert.equal(db.prepare("SELECT value FROM meta WHERE key='session-pins:plan:v1'").get(), undefined)
+      db.exec('DROP TRIGGER fail_pin')
+      index.migratePins(['fake:late', 'fake:one'], false)
+      db.exec("CREATE TRIGGER fail_pin BEFORE INSERT ON session_pins WHEN NEW.id='late' BEGIN SELECT RAISE(ABORT,'scripted pin failure'); END")
+      assert.throws(() => index.setPinned(runtime, idOf('late'), true), /scripted pin failure/)
+      db.exec('DROP TRIGGER fail_pin')
+    } finally { db.close() }
+    index.close()
+    index = new SessionIndex(file)
+    const pending = index.migratePins([], false)
+    index.upsert(row('late'))
+    index.migratePins(pending)
+    assert.deepEqual(index.pins(), ['fake:late', 'fake:one'])
+  } finally { index.close() }
+})
+
+test('resumed migration immediately pins rows discovered by a partial seed', () => {
+  const file = join(tempDir('hd-pin-partial-seed-'), 'sessions.sqlite')
+  let index = new SessionIndex(file)
+  try {
+    index.upsert(row('existing'))
+    index.migratePins(['fake:early', 'fake:existing', 'fake:later'], false)
+    index.upsert(row('early'))
+    index.close()
+    index = new SessionIndex(file)
+    const pending = index.migratePins([], false)
+    assert.deepEqual(index.pins(), ['fake:early', 'fake:existing'])
+    index.setPinned(runtime, idOf('early'), false)
+    index.upsert(row('later'))
+    index.migratePins(pending)
+    assert.deepEqual(index.pins(), ['fake:existing', 'fake:later'])
   } finally { index.close() }
 })
