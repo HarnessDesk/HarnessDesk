@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Ask before another attempt.** The Lead no longer uses an existing work item to bypass a retry question. A matching positive answer is used for one attempt; an unrelated message or a negative answer cannot start another chat.
+
 - **Keep reading while the Lead replies.** Holding a long scroll gesture no longer lets an arriving reply pull the conversation back to the bottom. A pending upward scroll is noticed before the new reply follows it.
 
 - **Keep saved pins during an upgrade.** Changing how the conversation list is sorted while its history is still loading no longer loses pins saved by an older desk. Unpinning a conversation or pinning another during that load keeps the change you made.
