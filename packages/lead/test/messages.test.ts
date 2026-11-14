@@ -712,6 +712,13 @@ test('#2081: a citation after a clipped envelope keeps its first fragment', () =
     { text: 'Worker said:\n[1] see the docs', dropped: true })
 })
 
+for (const citation of ['[1]: see the docs', '[1]:see the docs', '[123]: see the docs', '[123]:see the docs']) {
+  test(`#2081 R2: preserve ${citation}`, () => {
+    assert.deepEqual(lead.stripLeadOutput(`Worker said:\n{"type":"lead-output","text":\n${citation}`),
+      { text: `Worker said:\n${citation}`, dropped: true })
+  })
+}
+
 test('#2081: wrapped JSON continuations stay with a clipped envelope', () => {
   for (const fragment of [
     '{"version":1,"type":"lead-output",\n  "text": "hidden",',
@@ -719,6 +726,7 @@ test('#2081: wrapped JSON continuations stay with a clipped envelope', () => {
     '{"version":1,"type":"lead-output","ask":\n  {"question":"hidden",',
     '{"version":1,"type":"lead-output","refs":\n  [{"id":"hidden",',
     '{"version":1,"type":"lead-output","refs":\n  [1],',
+    '{"version":1,"type":"lead-output","refs":\n  [123],',
     '{"version":1,"type":"lead-output","refs":\n  [1] ,',
     '{"version":1,"type":"lead-output","text":\n  "hidden",',
     '{"version":1,"type":"lead-output","text":\n  "hidden',

@@ -76,7 +76,7 @@ const jsonEnd = (text: string, start: number, multiline: boolean): number => {
       const key = /^"(?:[^"\\\r\n]|\\.)*"[ \t]*:/.test(next)
       const close = next[0] === (top === '{' ? '}' : ']') && top !== undefined
       const value = previous === ':' || top === '[' && (previous === '[' || previous === ',')
-      const citation = /^\[\d+\][ \t]+[^\s,}\]]/.test(next)
+      const citation = /^\[\d+\](?::|[ \t]+[^\s,}\]])/.test(next)
       const valueToken = !citation && (/^[{[]/.test(next) || /^"(?:[^"\\\r\n]|\\.)*(?:"(?=[ \t]*(?:[,}\]]|\r|\n|$))|(?=\r|\n|$))/.test(next))
       if (quoted || !multiline || !(key || close || value && valueToken)) return index
       continue
