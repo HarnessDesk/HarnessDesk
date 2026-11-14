@@ -1457,6 +1457,22 @@ it('a floating rail goes on a press outside it and on Escape, as the floating si
   expect(shell().dataset.railOpen, 'Escape puts it away').toBe('false')
 })
 
+it('a folded bar\'s More holds the rail toggle, so a press on it leaves a floating rail for Toggle rail to close (#2175)', () => {
+  // Folded, the bar carries Toggle rail in More: put away by the press on More, the rail would be opened again by the
+  // Toggle rail chosen there. Unfolded, the toggle stands in the bar and More is outside the rail like any other press.
+  for (const [fold, after] of [['1', 'true'], ['0', 'false']] as const) {
+    const harness = rig(start => ({ ...start, navigation: { ...start.navigation, current: { kind: 'lead' } } }), { windowWidth: 900 })
+    const Page = () => { useWorkDetails('destination:lead', <div>Lead cards</div>); return <div data-slot="top-bar" data-fold={fold}><div data-topbar="more"><button type="button" data-testid="more">More</button></div></div> }
+    const draw = () => act(() => root.render(<StoreProvider store={harness.store}><Workbench sidebar={null} pageActive pages={<Page />} /></StoreProvider>))
+    draw()
+    const shell = () => container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
+    expect([shell().dataset.railFloats, shell().dataset.railOpen]).toEqual(['true', 'true'])
+    act(() => { container.querySelector('[data-testid="more"]')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true })) })
+    draw()
+    expect(shell().dataset.railOpen, `More in a bar with data-fold=${fold}`).toBe(after)
+  }
+})
+
 it('a row in a floating rail that takes the person somewhere puts the rail away; a standing rail stays (#2175)', () => {
   // The row stands in for a Work row: it opens what it stands for, then tells the shell it left.
   const Row = () => { const leave = useRailLeave(); return <button type="button" data-testid="door" onClick={leave}>Build a small browser game</button> }

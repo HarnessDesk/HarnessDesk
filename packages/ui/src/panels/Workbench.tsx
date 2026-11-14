@@ -520,12 +520,18 @@ const BottomPanel = ({ drawn }: { drawn: boolean }) => {
 /** What a rail row calls after it opens something, when the rail stands beside the page: nothing to put away. */
 const noLeave = (): void => undefined
 
+/** Where a press belongs to the floating rail: the rail, its toggle, and a folded bar's More that holds the toggle. */
+const RAIL_OWN_PRESS = '[data-frame-region="rail"], [data-work-rail-toggle], [data-slot="top-bar"][data-fold="1"] [data-topbar="more"]'
+
 /**
  * A rail floating over the page is on top of what it covers, as the floating sidebar is, so it goes the same ways:
  * Escape puts it away (one surface on the shared stack, so a menu above it takes the key first), and so does a press
  * anywhere in the shell outside it, so the card or button it lay over answers the next press (#2175). A press inside the
- * rail is the rail's own, and its toggle closes it by its own click. A menu drawn from the rail is portalled out of the
- * shell, so a press in it is not outside. A rail standing beside the page covers nothing and never takes either.
+ * rail is the rail's own, and its toggle closes it by its own click. A bar folded too narrow for its tools carries the
+ * toggle in More, so a press on that More is a press on the way to the toggle, not outside: put away there, the rail
+ * would be opened again by the very Toggle rail the person went to More to choose. A menu drawn from the rail is
+ * portalled out of the shell, so a press in it is not outside. A rail standing beside the page covers nothing and never
+ * takes either.
  */
 const useFloatingRail = (floating: boolean, shell: RefObject<HTMLDivElement | null>, close: () => void): void => {
   useEscapeSurface(floating, close)
@@ -535,7 +541,7 @@ const useFloatingRail = (floating: boolean, shell: RefObject<HTMLDivElement | nu
     const element = shell.current
     if (!floating || !element) return
     const press = (event: PointerEvent) => {
-      if (!(event.target instanceof Element) || event.target.closest('[data-frame-region="rail"], [data-work-rail-toggle]')) return
+      if (!(event.target instanceof Element) || event.target.closest(RAIL_OWN_PRESS)) return
       held.current()
     }
     element.addEventListener('pointerdown', press)
