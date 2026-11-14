@@ -181,28 +181,79 @@ export class SessionIndex {
       .map(row => `${row.runtime}:${row.id}`)
   }
 
-  setPinned(runtime: RuntimeId, id: SessionId, pinned: boolean): void {
+  #pinPlan(): { version: 1; ceiling: number; pending: [RuntimeId, SessionId, number][] } | null {
+    const value = this.#db.prepare("SELECT value FROM meta WHERE key='session-pins:plan:v1'").get()?.value
+    if (value === undefined) return null
+    const plan = JSON.parse(String(value)) as { version: number; ceiling: number; pending: [RuntimeId, SessionId, number][] }
+    if (plan.version !== 1 || !Number.isSafeInteger(plan.ceiling) || !Array.isArray(plan.pending) ||
+      !plan.pending.every(item => Array.isArray(item) && item.length === 3 && typeof item[0] === 'string' && typeof item[1] === 'string' && Number.isSafeInteger(item[2]))) {
+      throw new Error('Invalid session pin migration plan')
+    }
+    return plan as { version: 1; ceiling: number; pending: [RuntimeId, SessionId, number][] }
+  }
+
+  #writePinPlan(plan: { version: 1; ceiling: number; pending: [RuntimeId, SessionId, number][] }): void {
+    this.#db.prepare("INSERT INTO meta(key,value) VALUES('session-pins:plan:v1',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(plan))
+  }
+
+  // Called under the caller's transaction, including imported-session removal.
+  #setPinned(runtime: RuntimeId, id: SessionId, pinned: boolean): void {
+    const plan = this.#pinPlan()
+    if (plan) {
+      plan.pending = plan.pending.filter(item => item[0] !== runtime || item[1] !== id)
+      this.#writePinPlan(plan)
+    }
     if (pinned) this.#db.prepare(`INSERT OR IGNORE INTO session_pins(runtime,id,position)
-      VALUES(?,?,(SELECT COALESCE(MAX(position),-1)+1 FROM session_pins))`).run(runtime, id)
+      VALUES(?,?,(SELECT MAX(COALESCE(MAX(position),-1),?)+1 FROM session_pins))`).run(runtime, id, plan?.ceiling ?? -1)
     else this.#db.prepare('DELETE FROM session_pins WHERE runtime=? AND id=?').run(runtime, id)
     this.#notify(runtime, id, false)
   }
 
-  /**
-   * Runs under the database lock, so a second window cannot restore old preferences.
-   * The window stored its pins as `runtime\0id` (`sessionKey`); `runtime:id` is
-   * accepted too. Session ids may contain a colon, so the first separator wins.
-   */
-  migratePins(keys: readonly string[]): void {
-    this.#transaction(() => {
-      if (this.#db.prepare("SELECT 1 FROM meta WHERE key='session-pins:migrated'").get()) return
-      for (const key of keys) {
-        const at = key.includes('\u0000') ? key.indexOf('\u0000') : key.indexOf(':')
-        if (at <= 0 || at === key.length - 1) continue
-        const runtime = key.slice(0, at) as RuntimeId, id = key.slice(at + 1) as SessionId
-        if (this.#row(runtime, id) && !this.isRemoved(runtime, id)) this.setPinned(runtime, id, true)
+  setPinned(runtime: RuntimeId, id: SessionId, pinned: boolean): void {
+    this.#transaction(() => this.#setPinned(runtime, id, pinned))
+  }
+
+  /** Persist the first pass and its reserved positions together. Once a plan
+   * exists it is authoritative, even if the window replaced the preference. */
+  migratePins(keys: readonly string[], final = true): string[] {
+    return this.#transaction(() => {
+      if (this.#db.prepare("SELECT 1 FROM meta WHERE key='session-pins:migrated'").get()) return []
+      let plan = this.#pinPlan()
+      if (!plan) {
+        let ceiling = Number(this.#db.prepare('SELECT COALESCE(MAX(position),-1) AS maximum FROM session_pins').get()!.maximum)
+        const pending: [RuntimeId, SessionId, number][] = []
+        const seen = new Set<string>()
+        for (const key of keys) {
+          const at = key.includes('\u0000') ? key.indexOf('\u0000') : key.indexOf(':')
+          if (at <= 0 || at === key.length - 1) continue
+          const runtime = key.slice(0, at) as RuntimeId, id = key.slice(at + 1) as SessionId
+          const identity = JSON.stringify([runtime, id])
+          if (seen.has(identity)) continue
+          seen.add(identity)
+          const position = ++ceiling
+          if (this.#row(runtime, id) && !this.isRemoved(runtime, id)) {
+            this.#db.prepare('INSERT OR IGNORE INTO session_pins(runtime,id,position) VALUES(?,?,?)').run(runtime, id, position)
+            this.#notify(runtime, id, false)
+          } else pending.push([runtime, id, position])
+        }
+        plan = { version: 1, ceiling, pending }
+        if (!final) this.#writePinPlan(plan)
+      } else {
+        const pending: [RuntimeId, SessionId, number][] = []
+        for (const [runtime, id, position] of plan.pending) {
+          if (this.#row(runtime, id) && !this.isRemoved(runtime, id)) {
+            this.#db.prepare('INSERT OR IGNORE INTO session_pins(runtime,id,position) VALUES(?,?,?)').run(runtime, id, position)
+            this.#notify(runtime, id, false)
+          } else pending.push([runtime, id, position])
+        }
+        plan.pending = pending
+        if (!final) this.#writePinPlan(plan)
       }
-      this.#db.prepare("INSERT INTO meta(key,value) VALUES('session-pins:migrated','1')").run()
+      if (final) {
+        this.#db.prepare("INSERT INTO meta(key,value) VALUES('session-pins:migrated','1')").run()
+        this.#db.prepare("DELETE FROM meta WHERE key='session-pins:plan:v1'").run()
+      }
+      return plan.pending.map(([runtime, id]) => `${runtime}\u0000${id}`)
     })
   }
 
@@ -375,7 +426,7 @@ export class SessionIndex {
     return this.#transaction(() => {
       const rows = this.#db.prepare("SELECT runtime,id FROM sessions WHERE runtime=? AND origin='imported' AND removed_at IS NULL").all(runtime) as unknown as { runtime: RuntimeId; id: SessionId }[]
       for (const row of rows) {
-        this.setPinned(row.runtime, row.id, false)
+        this.#setPinned(row.runtime, row.id, false)
         dropSessionBody(this.#db, row.runtime, row.id)
         this.#db.prepare('DELETE FROM sessions WHERE runtime=? AND id=?').run(row.runtime, row.id)
         this.#clearFacts(row.runtime, row.id)
