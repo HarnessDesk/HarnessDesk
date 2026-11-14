@@ -4240,12 +4240,14 @@ export class Host {
       },
       replies: () => journal.state.messages.reduce((mark, message) => message.role === 'assistant' ? Math.max(mark, message.revision) : mark, 0),
       asked: () => journal.state.messages.reduce((mark, message) => message.role === 'user' && (message.source === undefined || message.source === 'person') ? Math.max(mark, message.revision) : mark, 0),
+      approvedRetry: (item, attempt, question) => this.#leadPresence?.approvedRetry(item, attempt, question) ?? null,
       noted: text => this.#logger.warn(text),
       revision: () => journal.state.seq,
       publish: board => { this.#push({ method: 'lead/work/changed', params: board }); void reminderTimer?.arm() },
     })
     this.#leadWork = work
     this.#leadStores.push(work)
+    this.#onLeadDispose(journal.validateRetryAsks((ask, id) => work.validateRetryAsk(ask, id)))
     this.#onLeadDispose(() => { if (this.#leadWork === work) this.#leadWork = null })
     // #2144: each reply the Lead writes says the reminders its turn's cards called owed, so they are marked said once,
     // on the board both surfaces read and in the cards of every later turn. The turn is the newest user message before
@@ -8867,6 +8869,7 @@ export class Host {
   #recordCarryOn(runtime: string, sessionId: string, item: CarryOnItem): boolean {
     const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
     if (!record) return false
+    if (record.session.turns.some(turn => turn.items.some(existing => existing.type === 'carryOn' && existing.id === item.id))) return true
     const turnId = [...record.running].at(-1) ?? record.session.turns.at(-1)?.id
     if (turnId === undefined) return false
     this.#onEvent(record.runtime, { type: 'item/completed', sessionId: record.session.id, turnId, item })

@@ -232,6 +232,15 @@ test('#2145: an ask option that starts a chat says so with starts: true, and not
   for (const starts of [false, 'yes', 1]) assert.throws(() => parseLeadAsk({ question: 'Try it again?', options: [{ id: 'start', label: 'Start it', starts }, options[1]], recommended: 'read' }))
 })
 
+test('#2145: a retry question names one exact item and previous attempt', () => {
+  const ask = { question: 'Start another chat for the stalled build?', options: [{ id: 'start', label: 'Start another chat', starts: true }, { id: 'later', label: 'Not now' }], recommended: 'later' }
+  const retryOf = { item: 'work-1', attempt: 'fake:session-1' }
+  assert.deepEqual(parseLeadAsk({ ...ask, retryOf }).retryOf, retryOf)
+  for (const bad of [{ item: '', attempt: 'fake:session-1' }, { item: 'work-1', attempt: '' }, { item: 'work-1', attempt: 'fake:session-1', extra: true }]) {
+    assert.throws(() => parseLeadAsk({ ...ask, retryOf: bad }))
+  }
+})
+
 test('autonomy and rules take closed shapes: a kind with a mode, a section with a version, a deadline in whole milliseconds, and nothing else', () => {
   for (const name of autonomyNames) assert.equal(Object.hasOwn(CLIENT_METHODS, name), false, name)
   for (const name of ['lead/autonomy/read', 'lead/rules/read']) { assert.doesNotThrow(() => request(name, {})); assert.throws(() => request(name, { kind: 'brief' }), { name: 'ValidationError' }) }

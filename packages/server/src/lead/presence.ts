@@ -62,7 +62,7 @@ interface Mark {
  */
 interface Seen { from: number; at: number; revision: number; spent: number }
 interface Plan { replaces?: string; baseline?: { from: number; spent: number; revision: number }; end?: { revision: number; spent: number }; kind: LeadDigestKind; from: number; to: number; items: LeadDigestItem[]; more: number; spent: number }
-interface AskRecord { seenAt: number; expiresAt?: number; answer?: { option: string; by: string; at: number } }
+interface AskRecord { seenAt: number; expiresAt?: number; answer?: { option: string; by: string; at: number }; retryAnswerMessageId?: string }
 interface Stored {
   version: 1
   devices: Record<string, Mark>
@@ -253,6 +253,7 @@ interface ExpiryNote { readonly text: string; readonly after: string | undefined
 export class LeadPresenceStore {
   /** Called after admissions and background producers have stopped, before releasing the owner. */
   async idle(): Promise<void> { await this.#tail }
+  readonly #retryCommits = new Set<string>()
   #tail: Promise<unknown> = Promise.resolve()
   #stored: Stored = fresh()
   #loaded = false
@@ -737,6 +738,23 @@ export class LeadPresenceStore {
     if (since.some(one => !asked || !leadRepeatsRequest(asked.text, one.text))) return null
     return { id: message.id, question: ask.question, options: ask.options.map(option => option.label) }
   }
+
+  /** An exact, answered retry proposal. A reference or a later unrelated message is never consent. */
+  approvedRetry(item: string, attempt: string, question: string): string | null {
+    const messages = this.ports.messages()
+    const message = messages.findLast(one => one.role === 'assistant' && askOf(one) !== undefined)
+    const ask = message?.ask
+    if (!message || !ask?.startsMarked || ask.question !== question || ask.recommended !== 'later' || ask.retryOf?.item !== item || ask.retryOf.attempt !== attempt ||
+      ask.options.length !== 2 || !ask.options.some(one => one.id === 'start' && one.label === 'Start another chat' && one.starts === true) ||
+      !ask.options.some(one => one.id === 'later' && one.label === 'Not now' && !one.starts)) return null
+    const answer = this.#stored.asks[message.id]?.answer
+    if (!answer || this.#retryCommits.has(message.id) || !this.#stored.asks[message.id]?.retryAnswerMessageId) return null
+    const option = answer && ask.options.find(one => one.label === answer.option)
+    if (!option?.starts || option.label !== 'Start another chat') return null
+    const after = messages.slice(messages.indexOf(message) + 1).findLast(one => one.role === 'user' && !one.wake && (one.source === undefined || one.source === 'person'))
+    if (!after || after.id !== this.#stored.asks[message.id]?.retryAnswerMessageId || leadAskOption(ask.options, after.text)?.id !== option.id) return null
+    return message.id
+  }
   /** Notes for the model about messages the person sent after a question ran out; each belongs to one message. */
   #notes: ExpiryNote[] = []
 
@@ -828,8 +846,21 @@ export class LeadPresenceStore {
       const claim = { option: option.label, by, at: now }
       if (record) record.answer = claim
       // A send that did not go through gives the answer back, so the question stays open for another try.
-      return async (sent: boolean) => {
+      return async (sent: boolean, messageId?: string) => {
         if (!sent) await this.#write(() => { if (record && this.#stored.asks[target.id]?.answer?.at === claim.at && this.#stored.asks[target.id]?.answer?.by === by) delete this.#stored.asks[target.id]!.answer }).catch(() => {})
+        else if (target.ask.retryOf && messageId) {
+          this.#retryCommits.add(target.id)
+          try {
+            await this.#write(() => {
+              if (record && this.#stored.asks[target.id]?.answer?.at === claim.at && this.#stored.asks[target.id]?.answer?.by === by) record.retryAnswerMessageId = messageId
+            })
+          } catch (error) {
+            if (record) delete record.retryAnswerMessageId
+            throw error
+          } finally {
+            this.#retryCommits.delete(target.id)
+          }
+        }
         this.ports.changed?.()
       }
     })

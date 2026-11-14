@@ -1,4 +1,4 @@
-import { LEAD_LIMITS, LEAD_STEP_REPLYING, LEAD_STEP_THINKING, leadStepWords, type LeadAcceptanceContract, type LeadPermissionPolicy, type LeadProject, type LeadControlRefusal, type LeadPresence } from '@harnessdesk/protocol'
+import { LEAD_LIMITS, LEAD_STEP_REPLYING, LEAD_STEP_THINKING, LEAD_STEP_WORKING, leadStepWords, type LeadAcceptanceContract, type LeadPermissionPolicy, type LeadProject, type LeadControlRefusal, type LeadPresence } from '@harnessdesk/protocol'
 import type { LeadAcceptanceEvidence, LeadJournal, LeadMessagesRequest, LeadMessagesResult, LeadPermissionCall, LeadResolvedTool, LeadSeatChoices, MessagesPrice, MessagesUsage, MessagesTransport, MessagesHttpResponse, LeadWithheldPiece } from '@harnessdesk/lead'
 import { LEAD_MESSAGES_DEFAULTS, leadRememberLines, parseLeadMessagesBody, resolveLeadChatCall } from '@harnessdesk/lead'
 import { LeadSupervisor, chooseLeadRuntime, hostLeadRuntime, type LeadRuntime, type LeadRuntimeProber, type LeadSupervisorOptions } from '@harnessdesk/lead/supervisor'
@@ -163,7 +163,7 @@ export class LeadService {
       onToolActivity: method => {
         const key = Symbol()
         this.#activeTools.set(key, method)
-        this.#step = leadStepWords(method) ?? this.#step
+        this.#step = leadStepWords(method) ?? LEAD_STEP_WORKING
         void options.journal.settingsChanged().catch(() => {})
         return () => {
           if (this.#activeTools.delete(key)) void options.journal.settingsChanged().catch(() => {})

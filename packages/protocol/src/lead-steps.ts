@@ -7,6 +7,8 @@
  * method names. The words are plain: a method name never reaches a person.
  */
 export const LEAD_STEP_THINKING = 'Thinking'
+/** A desk call without its own words still replaces the previous step. */
+export const LEAD_STEP_WORKING = 'Working'
 /** The child has handed its answer over and the host is keeping it. */
 export const LEAD_STEP_REPLYING = 'Writing the reply'
 
@@ -37,10 +39,12 @@ const LEAD_STEP_WORDS: Readonly<Record<string, string>> = {
   'lead/work/note': 'Noting progress',
   'lead/memory/propose': 'Offering a note to keep',
   'lead/memory/search': 'Looking back',
+  'lead/reminder/set': 'Setting a reminder',
+  'lead/reminder/cancel': 'Canceling a reminder',
   'lead/autonomy/propose': 'Proposing a setting',
   'lead/rules/propose': 'Proposing a rule',
 }
 
-/** The words for a desk call, or null for one that names no step of its own (the step before it stays). */
+/** The words for a desk call, or null for one that names no step of its own. */
 export const leadStepWords = (method: string): string | null =>
   Object.hasOwn(LEAD_STEP_WORDS, method) ? LEAD_STEP_WORDS[method]! : null

@@ -222,6 +222,13 @@ The host keeps the Lead's provider conversation in the Lead state folder:
 context of each moment replaced by a one-line stub and model reasoning never
 stored) and `context-checkpoints.json` (the latest eight summaries, oldest
 first; a summary that fails the reply screen keeps its place without its text).
+Before stored turns are used again, the desk screens them for credential-shaped
+pieces and its configured provider key, replacing rejected pieces in the stored
+conversation with the same stand-ins used for requests, preserving tool
+correlations. If the protection service is unavailable, it leaves the stored
+conversation and journal alone and refuses the operation. The journal records the replacement and one content-free
+notice in the thread; a restart completes or discards the replacement according
+to that record. New incoming messages still pass their existing admission check.
 The summary's section of the person's words is built on the desk from the
 person's messages in the Lead's journal, never from what the model wrote or
 from an earlier summary's text, and is stored and served as data (each

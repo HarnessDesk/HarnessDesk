@@ -65,6 +65,16 @@ test('each group pattern still names a test, and the Lead files run on the Lead 
   assert.equal(groupOf('packages/server/dist/test/intake-sub/probe.test.js').name, 'unit')
 })
 
+test('Lead retry wire cases run on Node 26 while ordinary attempt cases stay on Node 22', () => {
+  const wire = 'packages/server/dist/test/lead-attempts-wire.test.js'
+  const ordinary = 'packages/server/dist/test/lead-attempts-host.test.js'
+  assert.ok(files.includes(wire) && files.includes(ordinary), 'both test files are in the CI plan')
+  assert.equal(groupOf(wire).name, 'lead')
+  assert.equal(groupOf(wire).node, 26)
+  assert.equal(groupOf(ordinary).name, 'unit')
+  assert.equal(groupOf(ordinary).node, 22)
+})
+
 test('a file with no recorded seconds counts as the median, and the deal balances by load', () => {
   const sample = ['packages/a/dist/test/big.test.js', 'packages/a/dist/test/b.test.js', 'packages/a/dist/test/c.test.js', 'packages/a/dist/test/d.test.js']
   const jobs = plan(sample, { [sample[0]]: 300, [sample[1]]: 3, [sample[2]]: 3 }, { 22: 2 })

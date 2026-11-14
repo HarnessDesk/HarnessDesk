@@ -93,30 +93,45 @@ test('the preference fixture finishes its pending snapshot before scratch cleanu
     }
     return rename(...args)
   }) as typeof rename)
-  const { state, host } = await rig(t)
-  directory = state.directory
-  const dispose = host.dispose.bind(host)
+  let dispose: (() => Promise<void>) | undefined
   let closing: Promise<void> | undefined
-  // Release the real writer only when cleanup waits for disposal. Starting
-  // disposal without returning its promise must not satisfy this regression.
-  class AwaitedDisposal extends Promise<void> {
-    static override get [Symbol.species]() { return Promise }
-    override then<T = void, U = never>(
-      fulfilled?: ((value: void) => T | PromiseLike<T>) | null,
-      rejected?: ((reason: unknown) => U | PromiseLike<U>) | null,
-    ): Promise<T | U> {
-      release()
-      return super.then(fulfilled, rejected)
-    }
-  }
+  let registered = false
+  // Inspect the hook's return before node:test adopts it: a detached catch
+  // also calls .then, but leaves the runner with nothing to await.
+  const fixtureContext = new Proxy(t, {
+    get(target, property) {
+      if (property !== 'after') return Reflect.get(target, property, target)
+      return (hook: () => unknown) => {
+        registered = true
+        t.after(async () => {
+          try {
+            const result = hook()
+            assert.ok(result != null && typeof (result as PromiseLike<unknown>).then === 'function', 'fixture cleanup must return a thenable')
+            release()
+            await result
+            assert.ok(closing, 'fixture cleanup must dispose the Host')
+            await closing
+          } finally {
+            release()
+            if (dispose) await (closing ?? dispose())
+          }
+        })
+      }
+    },
+  })
+  const { state, host } = await rig(fixtureContext)
+  directory = state.directory
+  dispose = host.dispose.bind(host)
   t.mock.method(host, 'dispose', () => {
-    closing ??= new AwaitedDisposal((resolve, reject) => { void dispose().then(resolve, reject) })
+    closing ??= dispose!()
     return closing
   })
   // The fixture's cleanup was registered first. This check therefore runs at
   // the same boundary as scratch.ts, after the Host has finished disposing.
   t.after(async () => {
     try {
+      assert.ok(registered, 'fixture must register Host cleanup')
+      assert.ok(closing, 'fixture cleanup must dispose the Host')
       assert.ok(snapshot, 'the actual snapshot worker reached its publish step')
       assert.equal(existsSync(snapshot.to), true, 'the pending snapshot finished before scratch cleanup')
       assert.equal(existsSync(snapshot.from), false, 'no staged snapshot remains')
@@ -126,7 +141,7 @@ test('the preference fixture finishes its pending snapshot before scratch cleanu
     } finally {
       release()
       try {
-        await (closing ?? dispose())
+        await (closing ?? dispose!())
       } finally {
         t.mock.restoreAll()
         syncBuiltinESMExports()

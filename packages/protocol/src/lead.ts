@@ -233,6 +233,8 @@ export interface LeadAsk {
   /** The host read this question from the Lead under the rule that marks an option `starts` (#2145). Only then does an
    * answer without a `starts` option refuse a chat start; a question stored before the rule keeps the old behaviour. */
   readonly startsMarked?: true
+  /** The exact work and prior chat this question offers another attempt at. */
+  readonly retryOf?: { readonly item: string; readonly attempt: string }
 }
 /** One host-rendered unprompted finding. Actions navigate existing surfaces; they never grant authority. */
 export interface LeadProactive {
@@ -846,8 +848,12 @@ const askOptions = list(omitUnset(object<LeadAskOption>({ id: askOptionId, label
   return label !== label.trim() || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(label) ? fail(path, 'expected one trimmed plain-text label') : label
 }, starts: optional((value, path = '') => value === true ? true as const : fail(path, 'expected true')) }), ['starts']), 4, 2, option => option.id)
 const startsMarked = optional((value, path = '') => value === true ? true as const : fail(path, 'expected true'))
+const retryOf = optional(object<{ readonly item: string; readonly attempt: string }>({
+  item: (value, path = '') => typeof value === 'string' && /^work-[1-9][0-9]{0,8}$/.test(value) ? value : fail(path, 'expected a work item id'),
+  attempt: text(300),
+}))
 export const parseLeadAsk: Validator<LeadAsk> = (value, path = '') => {
-  const ask = omitUnset(object<LeadAsk>({ question: proactiveLine, options: askOptions, recommended: askOptionId, expiresInMinutes: optional(askExpiry), startsMarked }), ['expiresInMinutes', 'startsMarked'])(value, path)
+  const ask = omitUnset(object<LeadAsk>({ question: proactiveLine, options: askOptions, recommended: askOptionId, expiresInMinutes: optional(askExpiry), startsMarked, retryOf }), ['expiresInMinutes', 'startsMarked', 'retryOf'])(value, path)
   if (new Set(ask.options.map(option => option.label.trim().replace(/\s+/gu, ' ').toLowerCase())).size !== ask.options.length) fail(path, 'duplicate option label')
   if (!ask.options.some(option => option.id === ask.recommended)) fail(path, 'recommendation must name an option')
   return ask

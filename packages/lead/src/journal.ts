@@ -131,6 +131,8 @@ export type LeadJournalEvent =
       readonly beforeTokens: number; readonly afterTokens: number; readonly model: string; readonly usdMicros: number; readonly fallback: boolean }
   /** The pruning stage alone brought the conversation back under its line: a new epoch, no checkpoint. */
   | { readonly type: 'context-pruned'; readonly id: string; readonly at: number; readonly beforeTokens: number; readonly afterTokens: number }
+  /** A screened stored piece was replaced in the context file, with a person-facing notice. */
+  | { readonly type: 'context-withheld' }
   /** The host's memory store changed Core: the Lead reads this at its next epoch. */
   | { readonly type: 'memory-core'; readonly memory: LeadMemoryCore }
   /** Host only. A host notice in the thread that says what the person's own press changed: "Kept · Fact: …" when they
@@ -241,6 +243,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     'context-compaction-started': ['id', 'at', 'trigger'], 'context-compaction-failed': ['id', 'reason'],
     'context-compaction-applied': ['id', 'at', 'fromSeq', 'toSeq', 'beforeTokens', 'afterTokens', 'model', 'usdMicros', 'fallback'],
     'context-pruned': ['id', 'at', 'beforeTokens', 'afterTokens'],
+    'context-withheld': [],
     'memory-core': ['memory'],
     receipt: ['text'],
     'memory-epoch': ['goal', 'epoch', 'memory', ...(Object.hasOwn(source, 'rules') ? ['rules'] : [])],
@@ -336,6 +339,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
         beforeTokens: integer(source.beforeTokens), afterTokens: integer(source.afterTokens), model: identifier(source.model), usdMicros: integer(source.usdMicros), fallback: source.fallback }; break
     }
     case 'context-pruned': event = { type, id: identifier(source.id), at: integer(source.at), beforeTokens: integer(source.beforeTokens), afterTokens: integer(source.afterTokens) }; break
+    case 'context-withheld': event = { type }; break
     case 'memory-core': event = { type, memory: parseLeadMemoryCore(source.memory) }; break
     case 'receipt': event = { type, text: leadReceiptText(source.text) }; break
     case 'memory-epoch': event = { type, goal: leadMemoryEpochGoal(source.goal), epoch: integer(source.epoch), memory: parseLeadMemoryCore(source.memory),
@@ -375,6 +379,12 @@ export { LEAD_MANAGEMENT_REASONS } from '@harnessdesk/protocol'
 /** One serialized management writer. All effects use injected ports; this module owns
  * no files, processes, network, clock or ID generator. IDs come from its trusted owner. */
 export class LeadJournal {
+  #retryAskValidator: ((ask: LeadAsk, messageId: string) => Promise<void>) | undefined
+  /** The host validates bound retry questions against its current work ledger. */
+  validateRetryAsks(validator: (ask: LeadAsk, messageId: string) => Promise<void>): () => void {
+    this.#retryAskValidator = validator
+    return () => { if (this.#retryAskValidator === validator) this.#retryAskValidator = undefined }
+  }
   #childLive = false
   #recovering = 0
   /** Host supervisor owns this latch; never expose it in the child journal port. */
@@ -549,6 +559,7 @@ export class LeadJournal {
     if (this.#state.context.pending?.id !== pruned.id) throw new Error('lead-context-pending')
     return this.#append({ type: 'context-pruned', ...pruned })
   }) }
+  contextWithheld(): Promise<void> { return this.#queue(async () => this.#append({ type: 'context-withheld' })) }
   /** Host only. One receipt notice in the thread for something the person's own press changed. */
   receipt(text: string): Promise<void> { return this.#queue(async () => this.#append({ type: 'receipt', text: leadReceiptText(text) })) }
   /** Host only. Core changed in the memory store; a revision already journaled is not written twice. */
@@ -672,8 +683,12 @@ export class LeadJournal {
   appendReply(text: string, proactive?: LeadProactive, ask?: LeadAsk, refs?: readonly LeadMessageRef[], reminded?: string): Promise<void> {
     return this.#appendReply(text, proactive, ask, refs, reminded, false)
   }
-  #appendReply(text: string, proactive: LeadProactive | undefined, ask: LeadAsk | undefined, refs: readonly LeadMessageRef[] | undefined, reminded: string | undefined, model: boolean): Promise<void> { return this.#queue(() => {
+  #appendReply(text: string, proactive: LeadProactive | undefined, ask: LeadAsk | undefined, refs: readonly LeadMessageRef[] | undefined, reminded: string | undefined, model: boolean): Promise<void> { return this.#queue(async () => {
     const revision = this.#state.seq + 1, id = `message-${revision}`
+    if (ask?.retryOf) {
+      if (!this.#retryAskValidator) throw new Error('Retry questions are unavailable without the work ledger.')
+      await this.#retryAskValidator(ask, id)
+    }
     // Kept once the write is durable and before the observers it notifies run, so they read it as the model's; a reply
     // that does not parse or is not written keeps nothing, and the host notice that takes its number next is not it.
     const committed = model ? () => { this.#modelReplies.push(id); this.#modelReplies.splice(0, this.#modelReplies.length - 16) } : undefined

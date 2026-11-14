@@ -82,6 +82,9 @@ export const GROUPS = [
       'packages/server/dist/test/lead-stuck-recovery.test.js',
       'packages/server/dist/test/lead-repair-host.test.js',
       'packages/server/dist/test/lead-note-host.test.js',
+      // These two wire paths exercise the real Lead runtime admission; the
+      // rest of the attempt regressions remain in Node 22's unit group.
+      'packages/server/dist/test/lead-attempts-wire.test.js',
     ],
     timeout: 120_000, node: 26,
   },
