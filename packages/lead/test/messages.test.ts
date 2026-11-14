@@ -719,6 +719,25 @@ for (const citation of ['[1]: see the docs', '[1]:see the docs', '[123]: see the
   })
 }
 
+test('#2081 R3: clipped object keys are withheld without swallowing later prose', () => {
+  for (const fragment of [
+    '{"type":"lead-output",\n  "tex',
+    '{"type":"lead-output",\n  "te\\"x',
+    '{"type":"lead-output","ask":{\n  "ques',
+    '{"type":"lead-output","ask":{\n  "question":"hidden",\n  "opti',
+    '{"type":"lead-output","ask":{\n  "que\\"stion":"hidden",\n  "opti',
+  ]) {
+    assert.deepEqual(lead.stripLeadOutput(`Worker said:\n${fragment}\nDone.`),
+      { text: 'Worker said:\nDone.', dropped: true }, fragment)
+    assert.deepEqual(lead.stripLeadOutput(`Worker said:\n${fragment}`),
+      { text: 'Worker said:', dropped: true }, fragment)
+  }
+  assert.deepEqual(lead.stripLeadOutput('Worker said:\n{"type":"lead-output","text":\n  "incomplete value\nDone.'),
+    { text: 'Worker said:\nDone.', dropped: true })
+  assert.deepEqual(lead.stripLeadOutput('Worker said:\n{"type":"lead-output",\n"Quoted prose line" said the worker.'),
+    { text: 'Worker said:\n"Quoted prose line" said the worker.', dropped: true })
+})
+
 test('#2081: wrapped JSON continuations stay with a clipped envelope', () => {
   for (const fragment of [
     '{"version":1,"type":"lead-output",\n  "text": "hidden",',

@@ -74,11 +74,14 @@ const jsonEnd = (text: string, start: number, multiline: boolean): number => {
       const next = text.slice(index).replace(/^[\r\n \t]*/, '')
       const top = containers.at(-1)
       const key = /^"(?:[^"\\\r\n]|\\.)*"[ \t]*:/.test(next)
+      // An unfinished object key has no closing quote or colon yet; only take
+      // it where the current object expects a key, leaving complete quoted prose.
+      const clippedKey = top === '{' && (previous === '{' || previous === ',') && /^"(?:[^"\\\r\n]|\\[^\r\n])*\\?(?=\r|\n|$)/.test(next)
       const close = next[0] === (top === '{' ? '}' : ']') && top !== undefined
       const value = previous === ':' || top === '[' && (previous === '[' || previous === ',')
       const citation = /^\[\d+\](?::|[ \t]+[^\s,}\]])/.test(next)
       const valueToken = !citation && (/^[{[]/.test(next) || /^"(?:[^"\\\r\n]|\\.)*(?:"(?=[ \t]*(?:[,}\]]|\r|\n|$))|(?=\r|\n|$))/.test(next))
-      if (quoted || !multiline || !(key || close || value && valueToken)) return index
+      if (quoted || !multiline || !(key || clippedKey || close || value && valueToken)) return index
       continue
     }
     if (quoted) {
