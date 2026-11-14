@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { allowed, inspectPaths, SSH_SHIM } from './ambient-shape.mjs'
 import { compareReceipt, compareSnapshot } from './receipt-diagnostics.mjs'
+import { makeGuardMetrics } from './guard-metrics.mjs'
 
 const taskSource = resolve('.')
 const taskSha = '8d30cf17f720e4014020aac8c345776a4372953e'
@@ -13,8 +14,10 @@ const sha = path => createHash('sha256').update(readFileSync(path)).digest('hex'
 const git = (...args) => execFileSync('git', ['-C',taskSource,...args], {encoding:'utf8'}).trim()
 if (process.platform !== 'darwin' || process.env.GITHUB_ACTIONS !== 'true' || process.env.RUNNER_ENVIRONMENT !== 'github-hosted') throw new Error('hosted macOS runner required')
 if (git('merge-base','HEAD',taskSha)!==taskSha) throw new Error('source base mismatch')
-const changed=git('diff','--name-only',taskSha,'HEAD','--',':(exclude).github/workflows/ci.yml',':(exclude)diagnostic/retention-pilot')
+const changed=git('diff','--name-only',taskSha,'HEAD','--',':(exclude).github/workflows/ci.yml',':(exclude)diagnostic/retention-pilot',':(exclude)packages/server/src/host.ts')
 if (changed || git('status','--porcelain=v1')) throw new Error('production source or checkout changed')
+const originalHost=execFileSync('git',['-C',taskSource,'show',`${taskSha}:packages/server/src/host.ts`])
+if(sha(join(taskSource,'packages/server/src/host.ts'))!=='dc85352a3b4ad67aa4fd8caac4bd78010a546f089b45032d3bde9ff65b14234a' || createHash('sha256').update(originalHost).digest('hex')!=='304b7c38003520c80cfd5d5fbc47562cbbe9e37c394ab380fbc511e8174859d8') throw new Error('Host diagnostic source fingerprint changed')
 const fixture=join(taskSource,'diagnostic/retention-pilot/fake-codex-1545.mjs')
 const fixtureHashes={
  'packages/adapter-codex/test/fixtures/fake-codex.mjs':'f4d8fcb27e24a3e871dd5660030e4c0fbd718bc429952e98970de81f43e7b1d1',
@@ -42,9 +45,10 @@ const fakeSsh=join(taskFakebin,'ssh');write(fakeSsh,SSH_SHIM,0o700);chmodSync(fa
 accessSync('/usr/bin/false',constants.X_OK)
 const sshProbe=spawnSync(fakeSsh,[],{env:{PATH:'/usr/bin:/bin'},encoding:'utf8',timeout:5000})
 if(sshProbe.status!==1 || sshProbe.stdout!=='' || sshProbe.stderr!=='') throw new Error('ssh refusal probe failed')
-const env={HOME:osHome,USER:process.env.USER??'',LOGNAME:process.env.LOGNAME??'',LANG:'en_US.UTF-8',HARNESSDESK_HOME:taskDeskHome,CODEX_HOME:taskCodexProfile,HARNESSDESK_CODEX_BINARY:fixture,PATH:[taskFakebin,'/usr/bin','/bin','/usr/sbin','/sbin'].join(':'),HARNESSDESK_PATH:taskFakebin,SHELL:'',TMPDIR:taskRoot,HARNESSDESK_NO_UPDATE_CHECK:'1',HARNESSDESK_LEAD:'0',HARNESSDESK_PHONE_LINK:'0',HARNESSDESK_MENU_BAR:'off',HARNESSDESK_CATALOG_REFRESH_MINUTES:'0',HARNESSDESK_ACP_REGISTRY_URL:'http://127.0.0.1:1/disabled',HARNESSDESK_CLOUD_URL:'http://127.0.0.1:1',HD_1545_OUTPUT_BYTES:'32768',HARNESSDESK_CODEX_PROCESS_GROUP:randomUUID(),FAKE_CODEX_ROLLOUT_HOME:taskCodexProfile,FAKE_CODEX_PERSIST_TURN:'1',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_TERMINAL_PROMPT:'0',GIT_ALLOW_PROTOCOL:'file',GIT_SSH_COMMAND:'/usr/bin/false'}
+const env={HOME:osHome,USER:process.env.USER??'',LOGNAME:process.env.LOGNAME??'',LANG:'en_US.UTF-8',HARNESSDESK_HOME:taskDeskHome,CODEX_HOME:taskCodexProfile,HARNESSDESK_CODEX_BINARY:fixture,PATH:[taskFakebin,'/usr/bin','/bin','/usr/sbin','/sbin'].join(':'),HARNESSDESK_PATH:taskFakebin,SHELL:'',TMPDIR:taskRoot,HARNESSDESK_RETENTION_PILOT:'1',HARNESSDESK_NO_UPDATE_CHECK:'1',HARNESSDESK_LEAD:'0',HARNESSDESK_PHONE_LINK:'0',HARNESSDESK_MENU_BAR:'off',HARNESSDESK_CATALOG_REFRESH_MINUTES:'0',HARNESSDESK_ACP_REGISTRY_URL:'http://127.0.0.1:1/disabled',HARNESSDESK_CLOUD_URL:'http://127.0.0.1:1',HD_1545_OUTPUT_BYTES:'32768',HARNESSDESK_CODEX_PROCESS_GROUP:randomUUID(),FAKE_CODEX_ROLLOUT_HOME:taskCodexProfile,FAKE_CODEX_PERSIST_TURN:'1',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_TERMINAL_PROMPT:'0',GIT_ALLOW_PROTOCOL:'file',GIT_SSH_COMMAND:'/usr/bin/false'}
 const result={source:taskSha,fixtureSha256:sha(fixture),phase:'prepared',checks:{}}
 let desk
+const guardMetrics=makeGuardMetrics()
 const waitFor=async (label,fn,ms=30000)=>{const until=Date.now()+ms;while(Date.now()<until){const value=await fn();if(value)return value;await sleep(200)}throw new Error(`${label}: readiness deadline`)}
 const assertListeners = (group) => {
  const rows=execFileSync('/bin/ps',['-axo','pid=,ppid=,pgid='],{encoding:'utf8'}).trim().split('\n').map(line=>line.trim().split(/\s+/).map(Number))
@@ -59,6 +63,7 @@ const assertListeners = (group) => {
 }
 try {
  result.phase='launch'; desk=await launchDesk({app:taskSource,home:taskDeskHome,userDataDir:taskElectron,env})
+ desk.child.stderr?.on('data',guardMetrics.add)
  result.checks.listenersAtLaunch=assertListeners(desk.processGroup)
  const cdp=desk.cdp
  await waitFor('store connected',()=>cdp.eval("window.__hdStore?.getSnapshot().status === 'open'"),30000)
@@ -126,4 +131,4 @@ try {
  if(restored?.identity!==snapshot.identity||restored.turns!==snapshot.turns)throw new Error('restored body identity mismatch')
  result.checks.restoreExact=true;result.checks.listenersAtEnd=assertListeners(desk.processGroup);result.phase='passed'
 } catch { result.error='checkpoint failed';process.exitCode=1 }
-finally {try{await closeDesk(desk??{})}catch{result.cleanupError=true;process.exitCode=1} console.log(JSON.stringify(result)); rmSync(taskRoot,{recursive:true,force:true})}
+finally {try{await closeDesk(desk??{})}catch{result.cleanupError=true;process.exitCode=1} result.checks.hostGuardMetrics=guardMetrics.summary();console.log(JSON.stringify(result)); rmSync(taskRoot,{recursive:true,force:true})}

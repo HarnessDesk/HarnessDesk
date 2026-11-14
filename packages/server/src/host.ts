@@ -10163,44 +10163,63 @@ export class Host {
 
   /** A storage fact only; renderers must not unload without the recovery fence. */
   async #prepareEviction(params: HostParams<'session/prepare-eviction'>): Promise<HostResult<'session/prepare-eviction'>> {
-    if (!/^[a-f0-9]{64}$/.test(params.identity)) return null
+    // Diagnostic branch only: fixed labels, no session data; never alters a guard's result.
+    const pass = (reason: string, value: boolean): boolean => {
+      if (!value && process.env['HARNESSDESK_RETENTION_PILOT'] === '1') {
+        try { process.stderr.write(`HD1545_RECEIPT ${JSON.stringify({ reason })}\n`) } catch { /* Observation cannot own the receipt. */ }
+      }
+      return value
+    }
+    if (!pass('invalid_identity', /^[a-f0-9]{64}$/.test(params.identity))) return null
     const record = this.registry.get(params.runtime, params.sessionId)
-    if (!record || !record.cacheClosed || record.transcriptIncomplete || this.#transcripts.hasGenerationConflict(params.runtime, params.sessionId) || this.#pendingTranscriptOverlays.has(record.bodyGeneration) || this.#recoveredTranscriptBases.has(record.bodyGeneration)) return null
+    if (!pass('missing_record', !!record)) return null
+    if (!record) return null
+    if (!pass('cache_not_closed', record.cacheClosed) || !pass('transcript_incomplete', !record.transcriptIncomplete) ||
+        !pass('generation_conflict', !this.#transcripts.hasGenerationConflict(params.runtime, params.sessionId)) ||
+        !pass('pending_overlay', !this.#pendingTranscriptOverlays.has(record.bodyGeneration)) ||
+        !pass('recovered_base', !this.#recoveredTranscriptBases.has(record.bodyGeneration))) return null
     const key = recordKey(record)
-    const quiet = () => record.cacheClosed && !record.live && !record.detached && record.running.size === 0 &&
-      record.approvals.size === 0 && record.queue.messages.length === 0 &&
-      !record.tasks.some(task => task.state === 'running') && !this.#queueBusy(record) &&
-      !this.#reattaching.has(key) && !this.#reopenWaiters.has(key) && !this.#transcriptOperations.has(key) && !this.#draining.has(key) && !this.#dispatching.has(key)
+    const quiet = () => pass('quiet_cache_not_closed', record.cacheClosed) && pass('quiet_live', !record.live) &&
+      pass('quiet_detached', !record.detached) && pass('quiet_running', record.running.size === 0) &&
+      pass('quiet_approvals', record.approvals.size === 0) && pass('quiet_queue', record.queue.messages.length === 0) &&
+      pass('quiet_tasks', !record.tasks.some(task => task.state === 'running')) && pass('quiet_queue_busy', !this.#queueBusy(record)) &&
+      pass('quiet_reattaching', !this.#reattaching.has(key)) && pass('quiet_reopen_waiter', !this.#reopenWaiters.has(key)) &&
+      pass('quiet_transcript_operation', !this.#transcriptOperations.has(key)) && pass('quiet_draining', !this.#draining.has(key)) &&
+      pass('quiet_dispatching', !this.#dispatching.has(key))
     if (!quiet()) return null
     const held = record.session
-    if (held.partialHistory) return null
-    if (!held.itemsLoaded && this.#recoveryDescriptors.get(record.bodyGeneration)?.identity !== params.identity) return null
+    if (!pass('held_partial_history', !held.partialHistory)) return null
+    if (!held.itemsLoaded && !pass('descriptor_identity', this.#recoveryDescriptors.get(record.bodyGeneration)?.identity === params.identity)) return null
     const revision = record.bodyRevision
     const sequence = this.#transcriptSequences.get(record) ?? 0
-    const ownerCurrent = () => this.registry.get(params.runtime, params.sessionId) === record &&
-      record.session === held && record.bodyRevision === revision && quiet()
-    const stillCurrent = () => ownerCurrent() && (this.#transcriptSequences.get(record) ?? 0) === sequence
+    const ownerCurrent = () => pass('owner_record_changed', this.registry.get(params.runtime, params.sessionId) === record) &&
+      pass('owner_session_changed', record.session === held) && pass('owner_revision_changed', record.bodyRevision === revision) && quiet()
+    const stillCurrent = () => ownerCurrent() && pass('sequence_changed', (this.#transcriptSequences.get(record) ?? 0) === sequence)
     let session: Session, expectedBase: import('./transcripts.js').DurableTranscriptBase
     if (held.itemsLoaded) {
       const base = this.#durableTranscriptBases.get(record)
-      if (!base || !this.#transcripts.matchesBase(held, base)) return null
+      if (!base) { pass('missing_base', false); return null }
+      if (!pass('base_mismatch', this.#transcripts.matchesBase(held, base))) return null
       expectedBase = base
       session = held
     } else {
       const descriptor = this.#recoveryDescriptors.get(record.bodyGeneration)
-      if (!descriptor?.durableIdentity) return null
+      if (!descriptor?.durableIdentity) { pass('missing_durable_descriptor', false); return null }
       const turns = this.#transcripts.readRetainedTurnsAtBase(record.runtime, record.session.id, descriptor.durableIdentity)
-      if (!turns) return null
+      if (!turns) { pass('missing_retained_turns', false); return null }
       expectedBase = { kind: 'body', identity: descriptor.durableIdentity }
       session = { ...held, turns, itemsLoaded: true }
     }
-    if (session.partialHistory || !stillCurrent()) return null
+    if (!pass('session_partial_history', !session.partialHistory) || !stillCurrent()) return null
     const canonical = canonicalTranscriptBody(session.turns).canonical
-    if (createHash('sha256').update(canonical).digest('hex') !== params.identity) return null
-    if (!await this.#transcripts.persistExactBody(session, session, expectedBase) || !ownerCurrent() ||
-        canonicalTranscriptBody(session.turns).canonical !== canonical || !this.#transcripts.matchesExactBody(session)) return null
+    if (!pass('identity_mismatch', createHash('sha256').update(canonical).digest('hex') === params.identity)) return null
+    if (!pass('persist_exact_refused', await this.#transcripts.persistExactBody(session, session, expectedBase)) || !ownerCurrent() ||
+        !pass('body_changed', canonicalTranscriptBody(session.turns).canonical === canonical) ||
+        !pass('durable_body_mismatch', this.#transcripts.matchesExactBody(session))) return null
     const verified = this.#transcripts.verifiedBase(session)
-    if (!verified || verified.kind !== 'body' || (expectedBase.kind === 'body' && verified.identity !== expectedBase.identity)) return null
+    if (!verified) { pass('verified_base_missing', false); return null }
+    if (verified.kind !== 'body') { pass('verified_base_kind', false); return null }
+    if (expectedBase.kind === 'body' && !pass('verified_base_identity', verified.identity === expectedBase.identity)) return null
     if (expectedBase.kind === 'missing') {
       this.#durableTranscriptBases.set(record, verified)
       this.#transcripts.bindBase(session, record.bodyGeneration, verified)
