@@ -5,6 +5,7 @@ import { tmpdir, homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { allowed, inspectPaths, SSH_SHIM } from './ambient-shape.mjs'
+import { compareReceipt, compareSnapshot } from './receipt-diagnostics.mjs'
 
 const taskSource = resolve('.')
 const taskSha = '8d30cf17f720e4014020aac8c345776a4372953e'
@@ -75,9 +76,28 @@ try {
  const addr={runtime,sessionId:id}
  result.phase='snapshot';const snapshot=await waitFor('host snapshot',()=>cdp.json(`window.__hdStore.transport.request('session/cache-snapshot',${JSON.stringify(addr)}).then(x=>x&&({identity:x.identity,watermark:x.watermark,turns:x.session.turns.length}))`),30000)
  result.checks.snapshot={identityLength:snapshot.identity?.length,watermarkFields:['epoch','generation','revision','sequence'].every(k=>snapshot.watermark?.[k]!==undefined),turns:snapshot.turns}
- const receipt=await waitFor('fresh host receipt',()=>cdp.json(`window.__hdStore.transport.request('session/prepare-eviction',${JSON.stringify({...addr,identity:snapshot.identity})}).then(x=>x&&({identity:x.identity,epoch:x.epoch,generation:x.generation,revision:x.revision,sequence:x.sequence}))`),30000)
- if(receipt.identity!==snapshot.identity||['epoch','generation','revision','sequence'].some(k=>receipt[k]!==snapshot.watermark[k]))throw new Error('receipt does not match host snapshot')
- result.checks.exactReceipt=true
+ result.phase='receipt'
+ const receiptProbe={attempts:0,nulls:0,requestError:false}
+ result.checks.receipt=receiptProbe
+ try {
+  const receipt=await waitFor('fresh host receipt',async()=>{
+   receiptProbe.attempts++
+   try {
+    const value=await cdp.json(`window.__hdStore.transport.request('session/prepare-eviction',${JSON.stringify({...addr,identity:snapshot.identity})}).then(x=>x&&({identity:x.identity,epoch:x.epoch,generation:x.generation,revision:x.revision,sequence:x.sequence}))`)
+    if(!value)receiptProbe.nulls++
+    return value
+   } catch(error) { receiptProbe.requestError=true; throw error }
+  },30000)
+  receiptProbe.comparison=compareReceipt(snapshot,receipt)
+  if(Object.values(receiptProbe.comparison).some(matches=>!matches))throw new Error('receipt does not match host snapshot')
+  result.checks.exactReceipt=true
+ } catch(error) {
+  try {
+   const latest=await cdp.json(`window.__hdStore.transport.request('session/cache-snapshot',${JSON.stringify(addr)}).then(x=>x&&({identity:x.identity,watermark:x.watermark}))`)
+   receiptProbe.latestSnapshot=compareSnapshot(snapshot,latest)
+  } catch { receiptProbe.latestSnapshotError=true }
+  throw error
+ }
  result.phase='release';await waitFor('real release',()=>cdp.eval(`window.__hdStore.unloadTranscript(${JSON.stringify(runtime)},${JSON.stringify(id)})`),30000)
  if(await cdp.eval(`window.__hdStore.getSnapshot().sessions.get(${JSON.stringify(key)})?.itemsLoaded`)!==false)throw new Error('body was not released')
  result.phase='restore';if(!await cdp.eval(`window.__hdStore.restoreTranscript(${JSON.stringify(runtime)},${JSON.stringify(id)})`))throw new Error('restore refused')
