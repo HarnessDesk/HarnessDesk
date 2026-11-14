@@ -23,6 +23,8 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - name: Refuse ambient profile locations
+        run: node diagnostic/retention-pilot/ambient-shape.mjs
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
       - name: One synthetic conversation and receipt
