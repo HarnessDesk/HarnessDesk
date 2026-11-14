@@ -240,3 +240,55 @@ for (const damage of ['json', 'directory'] as const) test(`ordinary desk opens w
   assert.ok((await readdir(home)).some(name => name.startsWith('features.json.preserved-')))
   assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { lead: false, mobile: false })
 })
+
+
+for (const finish of ['disable', 'repair'] as const) test(`partial Lead creation retains its failure and lease until ${finish} drains host owners`, async t => {
+  const { IntakePlane } = await import('../src/intake/plane.js')
+  const { LeadService } = await import('../src/lead/service.js')
+  const { LeadFileJournal } = await import('../src/lead/journal.js')
+  const home = tempDir('hd-feature-partial-lead-'), desk = await start({ catalogRefreshMs: 0 }, home)
+  t.after(() => halt(desk))
+  await desk.host.call('workspace/open', { path: desk.stateDir })
+  await desk.host.call(set, { feature: 'lead', enabled: true })
+  const failure = new Error('synthetic follow registration failure'), follow = IntakePlane.prototype.followPullRequests
+  let attempts = 0, subscriptions = 0
+  t.mock.method(IntakePlane.prototype, 'followPullRequests', function(this: InstanceType<typeof IntakePlane>, ...args: Parameters<typeof follow>) {
+    if (++attempts === 1) throw failure
+    return follow.apply(this, args)
+  })
+  const create = desk.host.createLeadService
+  t.mock.method(desk.host, 'createLeadService', function(this: typeof desk.host, options: Parameters<typeof create>[0]) {
+    const onChange = options.journal.onChange.bind(options.journal)
+    t.mock.method(options.journal, 'onChange', (listener: Parameters<typeof onChange>[0]) => {
+      subscriptions++
+      const off = onChange(listener)
+      return () => { subscriptions--; off() }
+    })
+    return create.call(this, options)
+  })
+  await assert.rejects(desk.host.call('lead/thread/read', {}), error => error === failure)
+  assert.ok(subscriptions > 0, 'failure happens after host owners and listeners were registered')
+  await assert.rejects(desk.host.call('lead/thread/read', {}), error => error === failure)
+  assert.equal(attempts, 1)
+  await assert.rejects(LeadFileJournal.open(home, 'desk'), /lead-journal-open-refused/)
+  const close = LeadService.prototype.close
+  let entered!: () => void, release!: () => void
+  const inside = new Promise<void>(resolve => { entered = resolve }), held = new Promise<void>(resolve => { release = resolve })
+  t.after(() => release())
+  t.mock.method(LeadService.prototype, 'close', async function(this: InstanceType<typeof LeadService>) {
+    entered(); await held; return close.call(this)
+  })
+  const closing = finish === 'disable' ? desk.host.call(set, { feature: 'lead', enabled: false }) : desk.host.call('app/features/repair', {})
+  await inside
+  try {
+    assert.ok(subscriptions > 0, 'listeners remain owned while the service drains')
+    await assert.rejects(LeadFileJournal.open(home, 'desk'), /lead-journal-open-refused/)
+  } finally { release() }
+  await closing
+  assert.equal(subscriptions, 0, 'all partial owners detach before the journal reopens')
+  const storage = await LeadFileJournal.open(home, 'desk')
+  await storage.close()
+  await desk.host.call(set, { feature: 'lead', enabled: true })
+  assert.equal((await desk.host.call('lead/thread/read', {})).settings?.name, 'dex')
+  assert.equal(attempts, 2, 're-enable builds one fresh service after draining the failed one')
+})
