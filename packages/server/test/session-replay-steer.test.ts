@@ -300,3 +300,89 @@ for (const announces of [true, false]) test(`stable repeated prompt identities r
   const db = new TranscriptDatabase(join(dir, 'sessions.sqlite'))
   try { assert.deepEqual(db.read(runtime.info.id, sid)!.turns.map(turn => turn.items), saved.map(turn => turn.items)) } finally { db.close() }
 })
+
+for (const scenario of ['appended tail', 'same turn tail', 'source facts', 'split facts', 'stored usage', 'source usage'] as const) test(`reconciled replay keeps ${scenario} through a Host restart`, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-replay-review-')), sid = sessionId('review-session')
+  const runtime = new FakeRuntime()
+  const makeHost = () => new Host({ logger: silent, state: new StateStore(join(dir, 'state.json')), builtinAgents: dir, catalogRefreshMs: 0, idleStopMs: 0 })
+  const host = makeHost(); host.register(runtime); await host.start()
+  let disposed = false, cold: Host | undefined
+  t.after(async () => { if (cold) await cold.dispose().catch(() => {}); if (!disposed) await host.dispose(); await rm(dir, { recursive: true, force: true }) })
+  const tokens = { totalTokens: 150, inputTokens: 120, cachedInputTokens: 0, outputTokens: 30, reasoningOutputTokens: 0 }
+  const usage = { contextUsed: 120, contextWindow: 1000, total: tokens, last: tokens }
+  const freshUsage = { ...usage, contextUsed: 200 }
+  const base: Session = { ...new FakeSession(runtime, sid, { cwd: dir, model: 'fake-1' }, {}).snapshot(), itemsLoaded: true }
+  const notice: AgentItem = { id: itemId('host-review-note'), type: 'notice', kind: 'conversation:warning', text: 'saved notice' }
+  const saved = [{ ...turn('one', [message('u1', 'first', 'user'), message('a1', 'answer', 'assistant'), notice, ...(scenario === 'split facts' ? [message('u2', 'steer', 'user'), message('a2', 'reply', 'assistant')] : [])]), startedAt: 10, durationMs: 50, diff: 'old diff', plan: [{ step: 'old plan', status: 'completed' as const }] }]
+  runtime.emit({ type: 'session/started', session: { ...base, turns: saved, usage } })
+  await host.dispose(); disposed = true
+  const source = { ...turn('one', [message('new-u1', 'first', 'user'), message('new-a1', 'answer', 'assistant')]), ...(scenario === 'source facts' ? { status: 'failed' as const, durationMs: 80, diff: 'new diff', plan: [{ step: 'new plan', status: 'completed' as const }] } : {}) }
+  const tail = turn('two', [message('new-u2', 'later', 'user'), message('new-a2', 'later answer', 'assistant')])
+  const split = { ...turn('two', [message('nu2', 'steer', 'user'), message('na2', 'reply', 'assistant')]), durationMs: 200, diff: 'split diff' }
+  const sameTurn = { ...source, items: [...source.items, ...tail.items], durationMs: 300, diff: 'continued diff' }
+  const replay: Session = { ...base, turns: scenario === 'appended tail' ? [source, tail] : scenario === 'same turn tail' ? [sameTurn] : scenario === 'split facts' ? [{ ...source, durationMs: 100, diff: 'first diff' }, split] : [source], usage: scenario === 'source usage' ? freshUsage : null }
+  const next = new FakeRuntime(); next.readSession = async () => { if (scenario !== 'stored usage' && scenario !== 'source usage') next.emit({ type: 'session/started', session: replay }); return replay }
+  cold = makeHost(); cold.register(next); await cold.start()
+  const read = await cold.call('session/read', { runtime: next.info.id, sessionId: sid }) as Session
+  assert.notEqual(read.historyPending, true)
+  assert.deepEqual(words(read.turns), (scenario === 'appended tail' || scenario === 'same turn tail') ? ['first', 'answer', 'later', 'later answer'] : scenario === 'split facts' ? ['first', 'answer', 'steer', 'reply'] : ['first', 'answer'])
+  assert.equal(read.turns.flatMap(one => one.items).filter(item => item.id === notice.id).length, 1)
+  if (scenario === 'same turn tail') { assert.equal(read.turns[0]?.items[2]?.id, notice.id); assert.equal(read.turns[0]?.durationMs, 300) }
+  if (scenario === 'source facts') assert.deepEqual([read.turns[0]?.status, read.turns[0]?.durationMs, read.turns[0]?.diff, read.turns[0]?.plan?.[0]?.step], ['failed', 80, 'new diff', 'new plan'])
+  if (scenario === 'split facts') assert.deepEqual(read.turns.map(t => [t.durationMs, t.diff]), [[100, 'first diff'], [200, 'split diff']])
+  if (scenario === 'stored usage') assert.deepEqual([read.turns[0]?.startedAt, read.turns[0]?.durationMs, read.turns[0]?.diff, read.turns[0]?.plan?.[0]?.step], [10, 50, 'old diff', 'old plan'])
+  if (scenario === 'stored usage') assert.deepEqual(read.usage, usage)
+  if (scenario === 'source usage') assert.deepEqual(read.usage, freshUsage)
+  await cold.dispose(); cold = undefined
+  const db = new TranscriptDatabase(join(dir, 'sessions.sqlite'))
+  try {
+    const stored = db.read(runtime.info.id, sid)!
+    assert.deepEqual(words(stored.turns), words(read.turns))
+    if (scenario === 'source facts') assert.deepEqual([stored.turns[0]?.status, stored.turns[0]?.durationMs, stored.turns[0]?.diff], ['failed', 80, 'new diff'])
+    if (scenario === 'same turn tail') { assert.equal(stored.turns[0]?.items[2]?.id, notice.id); assert.equal(stored.turns[0]?.durationMs, 300) }
+    if (scenario === 'split facts') assert.deepEqual(stored.turns.map(t => [t.durationMs, t.diff]), [[100, 'first diff'], [200, 'split diff']])
+    if (scenario === 'stored usage' || scenario === 'source usage') assert.deepEqual(stored.usage, scenario === 'stored usage' ? usage : freshUsage)
+  } finally { db.close() }
+})
+
+test('reconciled store read restores usage only while the same final turn remains', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-replay-usage-')); t.after(() => rm(dir, { recursive: true, force: true }))
+  const runtime = new FakeRuntime(), sid = sessionId('usage-session')
+  const base: Session = { ...new FakeSession(runtime, sid, { cwd: dir, model: 'fake-1' }, {}).snapshot(), itemsLoaded: true }
+  const tokens = { totalTokens: 150, inputTokens: 120, cachedInputTokens: 0, outputTokens: 30, reasoningOutputTokens: 0 }
+  const usage = { contextUsed: 120, contextWindow: 1000, total: tokens, last: tokens }
+  const store = new TranscriptStore(join(dir, 'transcripts')); t.after(() => store.close())
+  store.record({ ...base, turns: [turn('one', [message('u', 'first', 'user'), message('a', 'answer', 'assistant')])], usage }, { now: true }); await store.flush()
+  const replay = { ...base, usage: null, turns: [turn('one', [message('new-u', 'first', 'user'), message('new-a', 'answer', 'assistant')])] }
+  assert.deepEqual((await store.enrich(replay)).usage, usage)
+  const current = { ...usage, contextUsed: 200 }
+  assert.deepEqual((await store.enrich({ ...replay, usage: current })).usage, current)
+  const advanced = { ...replay, turns: [...replay.turns, turn('two', [message('next', 'later', 'user')])] }
+  assert.equal((await store.enrich(advanced)).usage, null, 'old usage does not describe the later turn')
+})
+
+test('split replay retains individual source facts without aggregating them', () => {
+  const runtime = new FakeRuntime(), sid = sessionId('split-source-facts')
+  const base: Session = { ...new FakeSession(runtime, sid, { cwd: '/synthetic', model: 'fake-1' }, {}).snapshot(), itemsLoaded: true }
+  const notice: AgentItem = { id: itemId('split-note'), type: 'notice', kind: 'conversation:warning', text: 'saved notice' }
+  const held = [turn('old', [message('u1', 'first', 'user'), message('a1', 'answer', 'assistant'), notice, message('u2', 'steer', 'user'), message('a2', 'reply', 'assistant')])]
+  const first = { ...turn('new1', [message('nu1', 'first', 'user'), message('na1', 'answer', 'assistant')]), durationMs: 100, diff: 'first diff' }
+  const second = { ...turn('new2', [message('nu2', 'steer', 'user'), message('na2', 'reply', 'assistant')]), durationMs: 200, diff: 'second diff' }
+  const result = reconcileProseReplay({ ...base, turns: [first, second] }, { turns: held })
+  assert.equal(result.kind, 'reconciled')
+  if (result.kind !== 'reconciled') return
+  assert.deepEqual(result.session.turns.map(t => [t.id, t.durationMs, t.diff]), [[first.id, 100, 'first diff'], [second.id, 200, 'second diff']])
+  assert.equal(result.session.turns[0]?.items[2]?.id, notice.id)
+})
+
+test('a later source turn may reuse an old segmentation ID without duplicating it', () => {
+  const runtime = new FakeRuntime(), sid = sessionId('tail-id-collision')
+  const base: Session = { ...new FakeSession(runtime, sid, { cwd: '/synthetic', model: 'fake-1' }, {}).snapshot(), itemsLoaded: true }
+  const held = [turn('one', [message('u1', 'first', 'user'), message('a1', 'answer', 'assistant'), message('u2', 'steer', 'user'), message('a2', 'reply', 'assistant')]), turn('three', [message('u3', 'third', 'user'), message('a3', 'done', 'assistant')])]
+  const replay = [turn('one', [message('n1', 'first', 'user'), message('na1', 'answer', 'assistant')]), turn('two', [message('n2', 'steer', 'user'), message('na2', 'reply', 'assistant')]), turn('four', [message('n3', 'third', 'user'), message('na3', 'done', 'assistant')]), turn('three', [message('n4', 'later', 'user'), message('na4', 'later answer', 'assistant')])]
+  const result = reconcileProseReplay({ ...base, turns: replay }, { turns: held })
+  assert.equal(result.kind, 'reconciled')
+  if (result.kind !== 'reconciled') return
+  assert.equal(new Set(result.session.turns.map(t => t.id)).size, 4)
+  assert.deepEqual(words(result.session.turns), ['first', 'answer', 'steer', 'reply', 'third', 'done', 'later', 'later answer'])
+})

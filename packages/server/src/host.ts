@@ -10752,13 +10752,13 @@ export class Host {
       event.session.runtime === runtime && event.session.itemsLoaded && !event.session.partialHistory &&
       !this.#sessionIndex.isRemoved(runtime, event.session.id) && this.#transcripts.mayObserveInitialBase(event.session)
       ? this.#transcripts.observeBase(event.session, true) : undefined
-    let ambiguousProse = false
+    let ambiguousProse = false, replaceReplayTurns = false
     if (held && event.type === 'session/started' && held.session.itemsLoaded && !held.transcriptIncomplete) {
       if (held.running.size > 0) ambiguousProse = conflictsWithRunningPrompt(event.session, held.session, held.running)
       else if (!this.#transcripts.pendingReplayConflict(event.session, held.bodyGeneration, held.bodyAuthorityEpoch, held.session)) {
         const candidate = reconcileProseReplay(event.session, held.session)
         ambiguousProse = candidate.kind === 'ambiguous'
-        if (candidate.kind === 'reconciled') event = { ...event, session: candidate.session }
+        if (candidate.kind === 'reconciled') { event = { ...event, session: candidate.session }; replaceReplayTurns = candidate.replaceTurns === true }
       }
     }
     if (held && event.type === 'session/started' && !ambiguousProse) {
@@ -10834,7 +10834,7 @@ export class Host {
     // Decide before registry.apply can fold the replay into that base.
     if (wasUnloaded && held?.session.itemsLoaded && !held.transcriptIncomplete && held.running.size === 0 && event.type === 'session/started') {
       const candidate = reconcileProseReplay(event.session, held.session)
-      if (candidate.kind === 'reconciled') event = { ...event, session: candidate.session }
+      if (candidate.kind === 'reconciled') { event = { ...event, session: candidate.session }; replaceReplayTurns = candidate.replaceTurns === true }
       else if (candidate.kind === 'ambiguous') {
         const conflict = this.#quarantineTranscriptReplay(held, runtime)
         conflict.capture.quarantine(event, conflict.owner)
@@ -10849,6 +10849,12 @@ export class Host {
       replayOnlyBody = !this.#transcripts.hasOutstandingWrite(runtime, held.session.id) &&
         enriched !== event.session && isDeepStrictEqual(transcriptSessionFacts(enriched), transcriptSessionFacts(held.session))
       event = { ...event, session: enriched }
+    }
+    // The exact prose proof covers both histories. When source segmentation
+    // carries independent facts, merging turns by ID would duplicate moved
+    // items; fold against that proven replacement instead.
+    if (replaceReplayTurns && held && !held.transcriptIncomplete && event.type === 'session/started') {
+      held.session = { ...held.session, turns: event.session.turns }
     }
     if (event.type === 'account/changed') this.#accountReads.get(runtime)?.invalidate()
     if (event.type === 'catalog/changed' || event.type === 'runtime/options') {

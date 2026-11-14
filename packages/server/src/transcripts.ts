@@ -1025,7 +1025,10 @@ export class TranscriptStore {
     const recordedTurns = withDeskContext(session.turns, stored.turns)
     if (recordedTurns !== session.turns) session = { ...session, turns: recordedTurns }
     const prose = reconcileProseReplay(session, stored)
-    if (prose.kind === 'reconciled') return prose.session
+    if (prose.kind === 'reconciled') {
+      const usage = restorableUsage(session, stored, pairTurns(session.turns, stored.turns))
+      return usage ? { ...prose.session, usage } : prose.session
+    }
     if (prose.kind === 'ambiguous') return session
     const pairs = pairTurns(session.turns, stored.turns)
     // Where each item the read knows about lives. A stored turn that would
