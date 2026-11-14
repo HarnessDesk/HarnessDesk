@@ -9306,7 +9306,7 @@ export class Host {
       // The ordinary event path owns hydration, conflict capture and fencing.
       this.#onEvent(runtime.info.id, { type: 'session/started', session: raw }, runtime)
     }
-    return replay?.kind === 'reconciled' && replay.advanced === true && !raw.usage ? { record: held, revision, epoch } : undefined
+    return replay?.kind !== 'ambiguous' && replay?.advanced === true && !raw.usage ? { record: held, revision, epoch } : undefined
   }
 
   async #readTranscriptUntracked(runtime: AgentRuntime, id: SessionId, allowReopen = true, admitCwd?: DispatchAdmission<string>): Promise<Session> {
@@ -10773,6 +10773,7 @@ export class Host {
         const candidate = reconcileProseReplay(event.session, held.session)
         ambiguousProse = candidate.kind === 'ambiguous'
         if (candidate.kind === 'reconciled') { event = { ...event, session: candidate.session }; replaceReplayTurns = candidate.replaceTurns === true; clearReplayUsage = candidate.advanced === true && !candidate.session.usage }
+        else if (candidate.kind === 'ordinary' && candidate.advanced) clearReplayUsage = !event.session.usage
       }
     }
     if (held && event.type === 'session/started' && !ambiguousProse) {
@@ -10849,6 +10850,7 @@ export class Host {
     if (wasUnloaded && held?.session.itemsLoaded && !held.transcriptIncomplete && held.running.size === 0 && event.type === 'session/started') {
       const candidate = reconcileProseReplay(event.session, held.session)
       if (candidate.kind === 'reconciled') { event = { ...event, session: candidate.session }; replaceReplayTurns = candidate.replaceTurns === true; clearReplayUsage = candidate.advanced === true && !candidate.session.usage }
+      else if (candidate.kind === 'ordinary' && candidate.advanced) clearReplayUsage = !event.session.usage
       else if (candidate.kind === 'ambiguous') {
         const conflict = this.#quarantineTranscriptReplay(held, runtime)
         conflict.capture.quarantine(event, conflict.owner)

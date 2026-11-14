@@ -8,7 +8,7 @@ const canonical = (value: unknown): string => JSON.stringify(value, (_key, entry
 })
 
 /** An exact, unique correspondence is needed before moving host-only rows. */
-export type ProseReplay = { readonly kind: 'ordinary' } | { readonly kind: 'ambiguous' } | { readonly kind: 'reconciled'; readonly session: Session; readonly replaceTurns?: boolean; readonly advanced?: boolean }
+export type ProseReplay = { readonly kind: 'ordinary'; readonly advanced?: boolean } | { readonly kind: 'ambiguous' } | { readonly kind: 'reconciled'; readonly session: Session; readonly replaceTurns?: boolean; readonly advanced?: boolean }
 
 /** A running turn may grow, but an existing person item cannot change identity or content. */
 export function conflictsWithRunningPrompt(read: Session, held: Pick<Session, 'turns'>, running: ReadonlySet<Turn['id']>): boolean {
@@ -62,6 +62,33 @@ export function reconcileProseReplay(read: Session, held: Pick<Session, 'turns'>
     return true
   }) }))
   if (encountered.size) read = { ...read, turns: withoutHostRows }
+  // Stable identities and exact existing content prove an append without
+  // changing the ordinary merge or requiring unique prompt text. Ignore only
+  // the host-owned rows the runtime is not expected to replay.
+  if (!invalidHostRow && read.turns.length === held.turns.length) {
+    const ids = new Set<string>(), turnIds = new Set<string>()
+    let stable = true, advanced = false
+    for (let i = 0; i < held.turns.length && stable; i++) {
+      const old = held.turns[i]!, fresh = read.turns[i]!
+      if (old.id !== fresh.id || turnIds.has(String(old.id))) { stable = false; break }
+      turnIds.add(String(old.id))
+      const oldItems = old.items.filter(item => item.type !== 'notice' && item.type !== 'publication' && item.type !== 'carryOn')
+      const last = i === held.turns.length - 1
+      if (fresh.items.length < oldItems.length || (!last && fresh.items.length !== oldItems.length)) { stable = false; break }
+      for (let j = 0; j < oldItems.length; j++) {
+        const item = oldItems[j]!, id = String(item.id)
+        if (ids.has(id) || !isDeepStrictEqual(item, fresh.items[j])) { stable = false; break }
+        ids.add(id)
+      }
+      if (!stable) break
+      for (const item of fresh.items.slice(oldItems.length)) {
+        const id = String(item.id)
+        if (ids.has(id) || hostRows.has(id)) { stable = false; break }
+        ids.add(id); advanced = true
+      }
+    }
+    if (stable && advanced) return { kind: 'ordinary', advanced: true }
+  }
   const users = (turn: Turn) => turn.items.filter((item): item is Extract<AgentItem, { type: 'userMessage' }> => item.type === 'userMessage' && item.content.length > 0)
   const heldById = new Map(held.turns.map(turn => [String(turn.id), turn]))
   // Counter reuse is relevant only when both turns name a person message.

@@ -1138,7 +1138,7 @@ export class TranscriptStore {
       turns.splice(at, 0, { ...held, items })
       changed = true
     }
-    const usage = restorableUsage(session, stored, pairs)
+    const usage = prose.advanced ? null : restorableUsage(session, stored, pairs)
     if (!changed && !usage) return session
     return { ...session, turns, ...(usage ? { usage } : {}) }
   }

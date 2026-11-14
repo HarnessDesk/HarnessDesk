@@ -398,3 +398,88 @@ test('a later source turn may reuse an old segmentation ID without duplicating i
   assert.equal(new Set(result.session.turns.map(t => t.id)).size, 4)
   assert.deepEqual(words(result.session.turns), ['first', 'answer', 'steer', 'reply', 'third', 'done', 'later', 'later answer'])
 })
+
+for (const suffix of ['none', 'person', 'assistant', 'tool'] as const) test(`stable-ID same-turn ${suffix} append invalidates saved usage in store`, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-stable-usage-store-')); t.after(() => rm(dir, { recursive: true, force: true }))
+  const runtime = new FakeRuntime(), sid = sessionId('stable-usage-store')
+  const base: Session = { ...new FakeSession(runtime, sid, { cwd: dir, model: 'fake-1' }, {}).snapshot(), itemsLoaded: true }
+  const tokens = { totalTokens: 150, inputTokens: 120, cachedInputTokens: 0, outputTokens: 30, reasoningOutputTokens: 0 }
+  const usage = { contextUsed: 120, contextWindow: 1000, total: tokens, last: tokens }
+  const store = new TranscriptStore(join(dir, 'transcripts')); t.after(() => store.close())
+  const existing = [message('u', 'first', 'user'), message('a', 'answer', 'assistant')]
+  store.record({ ...base, turns: [turn('one', existing)], usage }, { now: true }); await store.flush()
+  const newItems: AgentItem[] = suffix === 'none' ? [] : suffix === 'person' ? [message('u2', 'later', 'user'), message('a2', 'reply', 'assistant')] : suffix === 'assistant' ? [message('a2', 'later answer', 'assistant')] :
+    [{ id: itemId('tool'), type: 'toolCall', tool: 'read', source: { kind: 'builtin' }, status: 'completed', args: {}, result: [{ type: 'text', text: 'synthetic result' }] }]
+  const replay = { ...base, usage: null, turns: [turn('one', [...existing, ...newItems])] }
+  const result = await store.enrich(replay)
+  assert.deepEqual(result.usage ?? null, suffix === 'none' ? usage : null)
+  assert.deepEqual(result.turns[0]!.items, [...existing, ...newItems])
+  assert.deepEqual((await store.enrich({ ...replay, usage })).usage, usage, 'source usage wins')
+  assert.deepEqual((await store.enrich({ ...base, usage: null, turns: [turn('one', existing)] })).usage, usage, 'unchanged stable content keeps usage')
+})
+
+for (const suffix of ['none', 'person', 'assistant', 'tool'] as const) for (const announces of [true, false]) for (const withUsage of [false, true]) test(`stable-ID same-turn ${suffix} append uses ${withUsage ? 'source' : 'no'} usage on ${announces ? 'announced' : 'silent'} Host read and restart`, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-stable-usage-host-')), sid = sessionId('stable-usage-host')
+  const runtime = new FakeRuntime()
+  const makeHost = () => new Host({ logger: silent, state: new StateStore(join(dir, 'state.json')), builtinAgents: dir, catalogRefreshMs: 0, idleStopMs: 0 })
+  const host = makeHost(); host.register(runtime); await host.start()
+  let disposed = false, cold: Host | undefined
+  t.after(async () => { if (cold) await cold.dispose().catch(() => {}); if (!disposed) await host.dispose(); await rm(dir, { recursive: true, force: true }) })
+  const base: Session = { ...new FakeSession(runtime, sid, { cwd: dir, model: 'fake-1' }, {}).snapshot(), itemsLoaded: true }
+  const tokens = { totalTokens: 150, inputTokens: 120, cachedInputTokens: 0, outputTokens: 30, reasoningOutputTokens: 0 }
+  const usage = { contextUsed: 120, contextWindow: 1000, total: tokens, last: tokens }
+  const existing = [message('u', 'first', 'user'), message('a', 'answer', 'assistant')]
+  const notice: AgentItem = { id: itemId('owned'), type: 'notice', kind: 'conversation:warning', text: 'saved notice' }
+  runtime.emit({ type: 'session/started', session: { ...base, turns: [turn('one', [...existing, notice])], usage } })
+  await host.dispose(); disposed = true
+  const newItems: AgentItem[] = suffix === 'none' ? [] : suffix === 'person' ? [message('u2', 'later', 'user'), message('a2', 'reply', 'assistant')] : suffix === 'assistant' ? [message('a2', 'later answer', 'assistant')] :
+    [{ id: itemId('tool'), type: 'toolCall', tool: 'read', source: { kind: 'builtin' }, status: 'completed', args: {}, result: [{ type: 'text', text: 'synthetic result' }] }]
+  const sourceUsage = { ...usage, contextUsed: 200 }
+  const replay: Session = { ...base, usage: withUsage ? sourceUsage : null, turns: [turn('one', [...existing, ...newItems])] }
+  const next = new FakeRuntime(); next.readSession = async () => { if (announces) next.emit({ type: 'session/started', session: replay }); return replay }
+  cold = makeHost(); cold.register(next); await cold.start()
+  const read = await cold.call('session/read', { runtime: next.info.id, sessionId: sid }) as Session
+  assert.notEqual(read.historyPending, true)
+  assert.deepEqual(read.usage ?? null, withUsage ? sourceUsage : suffix === 'none' ? usage : null, 'the source value wins; saved usage needs an unadvanced body')
+  assert.equal(read.turns.flatMap(turn => turn.items).filter(item => item.id === notice.id).length, 1)
+  for (const item of newItems) assert.equal(read.turns.flatMap(turn => turn.items).filter(current => current.id === item.id).length, 1)
+  await cold.dispose(); cold = undefined
+  const db = new TranscriptDatabase(join(dir, 'sessions.sqlite'))
+  try {
+    const saved = db.read(runtime.info.id, sid)!
+    assert.deepEqual(saved.usage ?? null, withUsage ? sourceUsage : suffix === 'none' ? usage : null)
+    assert.equal(saved.turns.flatMap(turn => turn.items).filter(item => item.id === notice.id).length, 1)
+    for (const item of newItems) assert.equal(saved.turns.flatMap(turn => turn.items).filter(current => current.id === item.id).length, 1)
+  } finally { db.close() }
+})
+
+for (const suffix of ['assistant', 'tool'] as const) test(`stable repeated person prompts stay ordinary when the last turn gains an ${suffix} item`, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-stable-repeat-usage-')); t.after(() => rm(dir, { recursive: true, force: true }))
+  const runtime = new FakeRuntime(), sid = sessionId('stable-repeat-usage')
+  const base: Session = { ...new FakeSession(runtime, sid, { cwd: dir, model: 'fake-1' }, {}).snapshot(), itemsLoaded: true }
+  const tokens = { totalTokens: 150, inputTokens: 120, cachedInputTokens: 0, outputTokens: 30, reasoningOutputTokens: 0 }
+  const usage = { contextUsed: 120, contextWindow: 1000, total: tokens, last: tokens }
+  const saved = [turn('one', [message('u1', 'continue', 'user'), message('a1', 'first', 'assistant')]), turn('two', [message('u2', 'continue', 'user'), message('a2', 'second', 'assistant')])]
+  const tool: AgentItem = { id: itemId('tool'), type: 'toolCall', tool: 'read', source: { kind: 'builtin' }, status: 'completed', args: {}, result: [{ type: 'text', text: 'synthetic result' }] }
+  const appended = suffix === 'assistant' ? message('a3', 'later answer', 'assistant') : tool
+  const replay: Session = { ...base, usage: null, turns: [saved[0]!, turn('two', [...saved[1]!.items, appended])] }
+  const store = new TranscriptStore(join(dir, 'transcripts')); t.after(() => store.close())
+  store.record({ ...base, turns: saved, usage }, { now: true }); await store.flush()
+  assert.equal(reconcileProseReplay(replay, { turns: saved }).kind, 'ordinary')
+  const result = await store.enrich(replay)
+  assert.equal(result.usage ?? null, null)
+  assert.deepEqual(result.turns, replay.turns)
+})
+
+test('stable append proof refuses changed prefix content and reused item IDs', () => {
+  const runtime = new FakeRuntime(), sid = sessionId('stable-append-proof')
+  const base: Session = { ...new FakeSession(runtime, sid, { cwd: '/synthetic', model: 'fake-1' }, {}).snapshot(), itemsLoaded: true }
+  const saved = [turn('one', [message('u', 'first', 'user'), message('a', 'answer', 'assistant')])]
+  for (const items of [
+    [message('u', 'first', 'user'), message('a', 'changed answer', 'assistant'), message('new', 'later', 'assistant')],
+    [message('u', 'first', 'user'), message('a', 'answer', 'assistant'), message('a', 'reused identity', 'assistant')],
+  ]) {
+    const result = reconcileProseReplay({ ...base, turns: [turn('one', items)] }, { turns: saved })
+    assert.ok(result.kind === 'ambiguous' || result.advanced !== true)
+  }
+})
