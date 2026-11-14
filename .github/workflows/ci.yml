@@ -28,4 +28,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
       - name: One synthetic conversation and receipt
-        run: node diagnostic/retention-pilot/controller.mjs
+        run: |
+          node diagnostic/retention-pilot/ambient-shape.mjs
+          node diagnostic/retention-pilot/controller.mjs
