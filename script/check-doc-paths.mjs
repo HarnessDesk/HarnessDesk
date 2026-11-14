@@ -103,7 +103,6 @@ export const ALLOWED = new Map([
   ['lead/memory-conversation.jsonl', "the Lead's search copy of its conversation in the desk's state folder, written at run time, not a file in this tree"],
   ['lead/memory.json', "the Lead's earlier memory file in the desk's state folder, read once to carry its lines across, not a file in this tree"],
   ['packages/acp/acp/src/index.ts', "DeepSeek Harness's own tree, as the sentence naming it says"],
-  ['packages/ui/dist/index.html', "the UI build's output, made by `pnpm build` and gitignored; the release steps check that it exists"],
   ['rmcp-client/src/oauth/store_lock.rs', "DeepSeek Harness's own Rust source"],
   ['sdk/packages/core/src/services/usage.ts', "upstream Cline's own source, quoted for evidence — not vendored here"],
   ['src/server.js', "an invented file name in a demo board card — a path in the reader's project, not this one"],

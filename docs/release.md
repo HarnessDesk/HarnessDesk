@@ -226,7 +226,7 @@ merge commit's bytes and nothing left over from another branch; `pnpm build`
 (not `build:node`, which builds everything except the interface) is what makes
 `packages/ui/dist`. `packages/desktop/script/before-pack.mjs` now refuses to
 pack when any `extraResources` source is missing or empty, or when
-`packages/ui/dist/index.html` is absent, but the line above costs nothing and
+`packages/ui/dist` has no `index.html`, but the line above costs nothing and
 says so before twenty minutes of signing do.
 
 Every command from here to the end runs from the root of that worktree.
@@ -458,8 +458,8 @@ for its selected architecture. `packages/desktop/script/before-pack.mjs` also pr
 existing pinned Lead runtime preparation. `HARNESSDESK_NO_DOWNLOADS=1` refuses
 packing if that verified Lead cache is absent. Last, it refuses packing when any
 `build.extraResources` source is missing or an empty directory, holds none of
-the literal paths its `filter` names, or when `packages/ui/dist/index.html` is
-absent (step 4 says why).
+the literal paths its `filter` names, or when `packages/ui/dist` has no
+`index.html` (step 4 says why).
 
 The resource is `Contents/Resources/native/ios/hd-ios-control`, listed in
 `build.mac.binaries` so the normal release signs it with the app identity and
