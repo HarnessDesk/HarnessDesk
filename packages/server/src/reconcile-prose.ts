@@ -7,6 +7,14 @@ const canonical = (value: unknown): string => JSON.stringify(value, (_key, entry
   return Object.fromEntries(Object.entries(entry).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0))
 })
 
+/** Replay can omit or restamp observation timings without changing an item. */
+const withoutItemTiming = (item: AgentItem) => {
+  const { startedAt: _start, completedAt: _end, durationMs: _duration, ...content } = item as AgentItem & {
+    startedAt?: number | null; completedAt?: number | null; durationMs?: number | null
+  }
+  return content
+}
+
 /** An exact, unique correspondence is needed before moving host-only rows. */
 export type ProseReplay = { readonly kind: 'ordinary'; readonly advanced?: boolean } | { readonly kind: 'ambiguous' } | { readonly kind: 'reconciled'; readonly session: Session; readonly replaceTurns?: boolean; readonly advanced?: boolean }
 
@@ -77,7 +85,8 @@ export function reconcileProseReplay(read: Session, held: Pick<Session, 'turns'>
       if (fresh.items.length < oldItems.length || (!last && fresh.items.length !== oldItems.length)) { stable = false; break }
       for (let j = 0; j < oldItems.length; j++) {
         const item = oldItems[j]!, id = String(item.id)
-        if (ids.has(id) || !isDeepStrictEqual(item, fresh.items[j])) { stable = false; break }
+        const incoming = fresh.items[j]
+        if (ids.has(id) || !incoming || !isDeepStrictEqual(withoutItemTiming(item), withoutItemTiming(incoming))) { stable = false; break }
         ids.add(id)
       }
       if (!stable) break

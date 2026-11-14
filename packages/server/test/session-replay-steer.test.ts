@@ -483,3 +483,52 @@ test('stable append proof refuses changed prefix content and reused item IDs', (
     assert.ok(result.kind === 'ambiguous' || result.advanced !== true)
   }
 })
+
+for (const timing of ['omitted', 'changed'] as const) test(`stable-ID ${timing} item timings with an appended tool invalidate store usage`, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-stable-time-store-')); t.after(() => rm(dir, { recursive: true, force: true }))
+  const runtime = new FakeRuntime(), sid = sessionId('stable-time-store')
+  const base: Session = { ...new FakeSession(runtime, sid, { cwd: dir, model: 'fake-1' }, {}).snapshot(), itemsLoaded: true }
+  const tokens = { totalTokens: 150, inputTokens: 120, cachedInputTokens: 0, outputTokens: 30, reasoningOutputTokens: 0 }
+  const usage = { contextUsed: 120, contextWindow: 1000, total: tokens, last: tokens }
+  const store = new TranscriptStore(join(dir, 'transcripts')); t.after(() => store.close())
+  const raw = [message('u', 'first', 'user'), message('a', 'answer', 'assistant')]
+  const saved = raw.map(item => ({ ...item, startedAt: 10, completedAt: 20, durationMs: 10 }))
+  store.record({ ...base, turns: [turn('one', saved)], usage }, { now: true }); await store.flush()
+  const source = timing === 'omitted' ? raw : raw.map(item => ({ ...item, startedAt: 30, completedAt: 50, durationMs: 20 }))
+  const tool: AgentItem = { id: itemId('tool'), type: 'toolCall', tool: 'read', source: { kind: 'builtin' }, status: 'completed', args: {}, result: [{ type: 'text', text: 'synthetic result' }] }
+  const replay: Session = { ...base, usage: null, turns: [turn('one', [...source, tool])] }
+  const result = await store.enrich(replay)
+  assert.equal(result.usage ?? null, null)
+  assert.equal(result.turns[0]?.items.some(item => item.id === tool.id), true)
+  assert.deepEqual((await store.enrich({ ...replay, usage })).usage, usage, 'source usage remains authoritative')
+})
+
+for (const timing of ['omitted', 'changed'] as const) for (const announces of [true, false]) test(`stable-ID ${timing} item timings and tool advance clear usage on ${announces ? 'announced' : 'silent'} Host read`, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-stable-time-host-')), sid = sessionId('stable-time-host')
+  const runtime = new FakeRuntime()
+  const makeHost = () => new Host({ logger: silent, state: new StateStore(join(dir, 'state.json')), builtinAgents: dir, catalogRefreshMs: 0, idleStopMs: 0 })
+  const host = makeHost(); host.register(runtime); await host.start()
+  let disposed = false, cold: Host | undefined
+  t.after(async () => { if (cold) await cold.dispose().catch(() => {}); if (!disposed) await host.dispose(); await rm(dir, { recursive: true, force: true }) })
+  const base: Session = { ...new FakeSession(runtime, sid, { cwd: dir, model: 'fake-1' }, {}).snapshot(), itemsLoaded: true }
+  const tokens = { totalTokens: 150, inputTokens: 120, cachedInputTokens: 0, outputTokens: 30, reasoningOutputTokens: 0 }
+  const usage = { contextUsed: 120, contextWindow: 1000, total: tokens, last: tokens }
+  const raw = [message('u', 'first', 'user'), message('a', 'answer', 'assistant')]
+  const saved = raw.map(item => ({ ...item, startedAt: 10, completedAt: 20, durationMs: 10 }))
+  const notice: AgentItem = { id: itemId('owned'), type: 'notice', kind: 'conversation:warning', text: 'saved notice' }
+  runtime.emit({ type: 'session/started', session: { ...base, turns: [turn('one', [...saved, notice])], usage } })
+  await host.dispose(); disposed = true
+  const source = timing === 'omitted' ? raw : raw.map(item => ({ ...item, startedAt: 30, completedAt: 50, durationMs: 20 }))
+  const tool: AgentItem = { id: itemId('tool'), type: 'toolCall', tool: 'read', source: { kind: 'builtin' }, status: 'completed', args: {}, result: [{ type: 'text', text: 'synthetic result' }] }
+  const replay: Session = { ...base, usage: null, turns: [turn('one', [...source, tool])] }
+  const next = new FakeRuntime(); next.readSession = async () => { if (announces) next.emit({ type: 'session/started', session: replay }); return replay }
+  cold = makeHost(); cold.register(next); await cold.start()
+  const read = await cold.call('session/read', { runtime: next.info.id, sessionId: sid }) as Session
+  assert.notEqual(read.historyPending, true)
+  assert.equal(read.usage ?? null, null)
+  assert.equal(read.turns.flatMap(turn => turn.items).filter(item => item.id === tool.id).length, 1)
+  assert.equal(read.turns.flatMap(turn => turn.items).filter(item => item.id === notice.id).length, 1)
+  await cold.dispose(); cold = undefined
+  const db = new TranscriptDatabase(join(dir, 'sessions.sqlite'))
+  try { const stored = db.read(runtime.info.id, sid)!; assert.equal(stored.usage ?? null, null); assert.equal(stored.turns.flatMap(t => t.items).filter(item => item.id === tool.id).length, 1) } finally { db.close() }
+})
