@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as lead from '@harnessdesk/lead'
@@ -535,7 +535,7 @@ test('a step recorded against an earlier epoch lands after the turns the checkpo
 
 test('checkpoints are listed oldest first, and one that fails the reply screen keeps its place without its text', async t => {
   const s = await bareStore(t, 20_000)
-  await s.store.connect({ screen: async words => { if (words.includes('sk-fixture')) throw new Error('lead-secret-refused') } })
+  await s.store.connect({ screen: async words => { if (words.includes('sk-fixture')) throw Object.assign(new Error('lead-secret-refused'), { wireCode: 'lead-secret-refused' }) } })
   await s.feed(40, 1500)
   assert.equal(await s.store.compact('manual', s.written('Kept the token sk-fixture for later.')), 'applied')
   await s.feed(40, 1500, 40)
@@ -1002,4 +1002,244 @@ test('#2171: a soft compaction that would save almost nothing is skipped and spe
   assert.equal(s.store.epoch, epoch, 'no epoch was spent on it')
   assert.equal(s.records.length, records, 'nothing was recorded')
   assert.equal(s.store.due(), null, 'and it is not due again at once')
+})
+
+test('stored credential-shaped pieces are durably withheld once and leave tool pairs aligned', async t => {
+  const home = await directory(t)
+  const { journal, records } = await journalOver()
+  const options = { directory: home, journal, model: MODEL, now: () => 1000, nextId: () => 'withhold-1' }
+  const store = await LeadContextStore.open(options)
+  const secret = 'password=hunter2' // hd-secrets-ok: synthetic credential-shaped fixture
+  await store.record({ epoch: store.epoch, base: 0, extend: [], turns: [
+    { role: 'user', content: [text('Read the config.')] },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'read-1', name: 'chat_read', input: {} }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'read-1', content: secret, is_error: false }] },
+    { role: 'assistant', content: [text('I read it.')] }
+  ], usage: null })
+  const request = await store.request()
+  assert.ok(!JSON.stringify(request.messages).includes(secret))
+  assert.equal((request.messages[2]!.content[0] as any).tool_use_id, 'read-1')
+  assert.equal((request.messages[2]!.content[0] as any).content, lead.LEAD_WITHHELD_TEXT)
+  assert.ok(!JSON.stringify(store.turns).includes(secret))
+  assert.ok(!JSON.stringify(await readFile(join(home, 'context.jsonl'), 'utf8')).includes(secret))
+  assert.equal(journal.state.messages.filter(message => /earlier message.*withheld/i.test(message.text)).length, 1)
+  const reopenedJournal = (await journalOver(records)).journal
+  const reopened = await LeadContextStore.open({ ...options, journal: reopenedJournal })
+  assert.ok(!JSON.stringify((await reopened.request()).messages).includes(secret))
+  assert.equal(reopenedJournal.state.messages.filter(message => /earlier message.*withheld/i.test(message.text)).length, 1)
+})
+
+test('a stored withholding swap recovers on either side of the journal commit', async t => {
+  const home = await directory(t)
+  const records: lead.LeadJournalRecord[] = []
+  let failCommit = true
+  const makeJournal = () => lead.createLeadJournal({ async read() { return structuredClone(records) }, async append(record) {
+    if (record.type === 'context-withheld' && failCommit) throw new Error('simulated journal failure')
+    records.push(structuredClone(record))
+  } })
+  const journal = await makeJournal()
+  const options = { directory: home, journal, model: MODEL, now: () => 1000, nextId: () => 'withhold-fault' }
+  const store = await LeadContextStore.open(options)
+  const secret = 'password=hunter2' // hd-secrets-ok: synthetic credential-shaped fixture
+  await store.record({ epoch: 0, base: 0, extend: [], turns: [{ role: 'user', content: [text(secret)] }], usage: null })
+  const oldFile = await readFile(join(home, 'context.jsonl'), 'utf8')
+  await assert.rejects(store.request(), /lead-journal-append-failed/)
+  assert.equal(records.filter(record => record.type === 'context-withheld').length, 0)
+  assert.equal(await readFile(join(home, 'context.jsonl'), 'utf8'), oldFile)
+  // A restart discards the uncommitted NEXT file, then retries the same replacement.
+  failCommit = false
+  const restarted = await LeadContextStore.open({ ...options, journal: await makeJournal() })
+  await restarted.request()
+  const newFile = await readFile(join(home, 'context.jsonl'), 'utf8')
+  assert.ok(!newFile.includes(secret))
+  assert.equal(records.filter(record => record.type === 'context-withheld').length, 1)
+  // Simulate a crash after the journal commit but before the rename.
+  await writeFile(join(home, 'context.jsonl'), oldFile)
+  await writeFile(join(home, 'context.next.jsonl'), newFile)
+  const afterCommitJournal = await makeJournal()
+  const recovered = await LeadContextStore.open({ ...options, journal: afterCommitJournal })
+  assert.ok(!JSON.stringify((await recovered.request()).messages).includes(secret))
+  assert.equal(afterCommitJournal.state.messages.filter(message => /earlier message.*withheld/i.test(message.text)).length, 1)
+  assert.equal(records.filter(record => record.type === 'context-withheld').length, 1)
+})
+
+test('a fake provider receives the repaired stored conversation on later requests and after restart', async t => {
+  const first = await harness(t, { window: 40_000 })
+  const secret = 'password=hunter2' // hd-secrets-ok: synthetic credential-shaped fixture
+  await first.store.record({ epoch: first.store.epoch, base: 0, extend: [], turns: [
+    { role: 'user', content: [text('Earlier request.')] },
+    { role: 'assistant', content: [text(`Earlier result: ${secret}`)] }
+  ], usage: null })
+  assert.equal(await first.say('Continue.'), 'Noted.')
+  assert.equal(await first.say('Continue again.'), 'Noted.')
+  assert.ok(first.provider.requests.every(request => !JSON.stringify(request.body).includes(secret)))
+  assert.ok(JSON.stringify(first.provider.requests[0]!.body).includes(lead.LEAD_WITHHELD_TEXT))
+  assert.equal(first.journal.state.messages.filter(message => /earlier message.*withheld/i.test(message.text)).length, 1)
+  const second = await harness(t, { window: 40_000, home: first.home, records: first.records })
+  assert.equal(await second.say('Continue after restart.'), 'Noted.')
+  assert.ok(!JSON.stringify(second.provider.requests[0]!.body).includes(secret))
+  assert.equal(second.journal.state.messages.filter(message => /earlier message.*withheld/i.test(message.text)).length, 1)
+})
+
+test('a checkpoint cannot restore an earlier withheld person message from the journal', async t => {
+  const home = await directory(t)
+  const initial = await journalOver()
+  const secret = 'password=hunter2' // hd-secrets-ok: synthetic credential-shaped fixture
+  await initial.journal.appendMessage('legacy-person', 'Old words: placeholder', 'person')
+  const legacy = initial.records.find(record => record.type === 'message')!
+  if (legacy.type !== 'message') throw new Error('missing legacy message')
+  Object.assign(legacy.message, { text: `Old words: ${secret}` })
+  const { journal } = await journalOver(initial.records)
+  const store = await LeadContextStore.open({ directory: home, journal, model: MODEL, now: () => 1000, nextId: () => 'withheld-checkpoint', window: 40_000 })
+  const turns: lead.MessagesTurn[] = []
+  for (let n = 0; n < 20; n++) turns.push({ role: 'user', content: [text(`Question ${n}`)] }, { role: 'assistant', content: [text(`Answer ${n}`)] })
+  await store.record({ epoch: store.epoch, base: store.turns.length, extend: [], turns, usage: null })
+  await store.request()
+  assert.equal(await store.compact('manual', async () => ({ status: 'failed', reason: 'lead-messages-request' })), 'applied')
+  assert.ok(!JSON.stringify(store.turns).includes(secret))
+  assert.ok(!JSON.stringify(store.facts()).includes(secret))
+  await store.request()
+  assert.equal(journal.state.messages.filter(message => /earlier message.*withheld/i.test(message.text)).length, 1)
+})
+
+
+test('a committed withholding whose file cannot be installed blocks writes until restart', async t => {
+  const home = await directory(t)
+  const records: lead.LeadJournalRecord[] = []
+  let sabotage = true
+  const makeJournal = () => lead.createLeadJournal({ async read() { return structuredClone(records) }, async append(record) {
+    records.push(structuredClone(record))
+    if (record.type === 'context-withheld' && sabotage) {
+      await rename(join(home, 'context.jsonl'), join(home, 'old-context.jsonl'))
+      await mkdir(join(home, 'context.jsonl'))
+    }
+  } })
+  const options = { directory: home, journal: await makeJournal(), model: MODEL, now: () => 1, nextId: () => 'withhold-rename' }
+  const store = await LeadContextStore.open(options)
+  await store.record({ epoch: 0, base: 0, extend: [], turns: [{ role: 'user', content: [text('password=hunter2')] }], usage: null }) // hd-secrets-ok: synthetic credential-shaped fixture
+  await assert.rejects(store.request())
+  await assert.rejects(store.request(), /lead-context-recovery-required/)
+  sabotage = false
+  await rm(join(home, 'context.jsonl'), { recursive: true })
+  await rename(join(home, 'old-context.jsonl'), join(home, 'context.jsonl'))
+  const recovered = await LeadContextStore.open({ ...options, journal: await makeJournal() })
+  assert.ok(JSON.stringify((await recovered.request()).messages).includes(lead.LEAD_WITHHELD_TEXT))
+  assert.equal(records.filter(record => record.type === 'context-withheld').length, 1)
+})
+
+test('host-only provider key in stored tool results is withheld once through requests and restart', async t => {
+  const key = 'fixture-provider-value-not-a-pattern' // hd-secrets-ok: synthetic provider key
+  assert.equal(lead.leadContainsSecret(key), false)
+  const screen = async (value: string) => { if (value.includes(key)) throw Object.assign(new Error('refused'), { wireCode: 'lead-secret-refused' }) }
+  const first = await harness(t, { window: 40_000, screen })
+  await first.store.record({ epoch: first.store.epoch, base: 0, extend: [], turns: [
+    { role: 'user', content: [text('Read the config.')] },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'read-exact', name: 'chat_read', input: { hint: key } }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'read-exact', content: `value ${key}`, is_error: false }] },
+    { role: 'assistant', content: [text('Done.')] }
+  ], usage: null })
+  assert.equal(await first.say('Continue.'), 'Noted.')
+  assert.equal(await first.say('Continue again.'), 'Noted.')
+  const sent = first.provider.requests[0]!.body.messages
+  const result = sent.flatMap((turn: any) => turn.content).find((block: any) => block.type === 'tool_result')
+  assert.equal(result.tool_use_id, 'read-exact')
+  assert.deepEqual(sent.flatMap((turn: any) => turn.content).find((block: any) => block.type === 'tool_use').input, {})
+  assert.equal(result.content, lead.LEAD_WITHHELD_TEXT)
+  assert.ok(first.provider.requests.every(request => !JSON.stringify(request.body).includes(key)))
+  assert.ok(!JSON.stringify(first.store.turns).includes(key))
+  const second = await harness(t, { window: 40_000, home: first.home, records: first.records, screen })
+  assert.equal(await second.say('Continue after restart.'), 'Noted.')
+  assert.ok(!JSON.stringify(second.provider.requests[0]!.body).includes(key))
+  assert.equal(second.journal.state.messages.filter(message => /earlier message.*withheld/i.test(message.text)).length, 1)
+})
+
+test('host-only screening failure leaves the stored conversation and journal untouched', async t => {
+  const home = await directory(t)
+  const { journal, records } = await journalOver()
+  const store = await LeadContextStore.open({ directory: home, journal, model: MODEL, now: () => 1, nextId: () => 'screen-unavailable' })
+  await store.record({ epoch: 0, base: 0, extend: [], turns: [{ role: 'user', content: [text('ordinary saved text')] }], usage: null })
+  const before = await readFile(join(home, 'context.jsonl'), 'utf8')
+  const beforeRecords = structuredClone(records)
+  await store.connect({ screen: async () => { throw Object.assign(new Error('unavailable'), { wireCode: 'lead-protection-unavailable' }) } })
+  await assert.rejects(store.request(), (error: any) => error.wireCode === 'lead-protection-unavailable')
+  assert.equal(await readFile(join(home, 'context.jsonl'), 'utf8'), before)
+  assert.deepEqual(records, beforeRecords)
+  assert.ok(JSON.stringify(store.turns).includes('ordinary saved text'))
+})
+
+test('host-only screening applies to a context read and checkpoint person quotes', async t => {
+  const home = await directory(t)
+  const initial = await journalOver()
+  const key = 'fixture-provider-value-not-a-pattern' // hd-secrets-ok: synthetic provider key
+  await initial.journal.appendMessage('legacy-exact', 'Old words: placeholder', 'person')
+  const legacy = initial.records.find(record => record.type === 'message')!
+  if (legacy.type !== 'message') throw new Error('missing legacy message')
+  Object.assign(legacy.message, { text: `Old words: ${key}` })
+  const { journal } = await journalOver(initial.records)
+  const store = await LeadContextStore.open({ directory: home, journal, model: MODEL, now: () => 1000, nextId: () => 'exact-checkpoint', window: 40_000 })
+  await store.connect({ screen: async value => { if (value.includes(key)) throw Object.assign(new Error('refused'), { wireCode: 'lead-secret-refused' }) } })
+  const turns: lead.MessagesTurn[] = []
+  for (let n = 0; n < 20; n++) turns.push({ role: 'user', content: [text(`Question ${n}`)] }, { role: 'assistant', content: [text(`Answer ${n}`)] })
+  await store.record({ epoch: store.epoch, base: store.turns.length, extend: [], turns, usage: null })
+  const fresh = await store.read(store.epoch)
+  assert.ok(fresh && !JSON.stringify(fresh.messages).includes(key))
+  assert.equal(await store.compact('manual', async () => ({ status: 'failed', reason: 'lead-messages-request' })), 'applied')
+  assert.ok(!JSON.stringify(store.turns).includes(key))
+  assert.ok(!JSON.stringify(store.facts()).includes(key))
+  await store.request()
+  assert.equal(journal.state.messages.filter(message => /earlier message.*withheld/i.test(message.text)).length, 1)
+})
+
+test('direct compaction withholds a host-only key before sending its checkpoint', async t => {
+  const home = await directory(t)
+  const { journal } = await journalOver()
+  const key = 'fixture-provider-value-not-a-pattern' // hd-secrets-ok: synthetic provider key
+  const store = await LeadContextStore.open({ directory: home, journal, model: MODEL, now: () => 1000, nextId: () => 'direct-checkpoint', window: 40_000 })
+  await store.connect({ screen: async value => { if (lead.leadContainsSecret(value, key)) throw Object.assign(new Error('refused'), { wireCode: 'lead-secret-refused' }) } })
+  const turns: lead.MessagesTurn[] = []
+  for (let n = 0; n < 20; n++) turns.push({ role: 'user', content: [text(n === 0 ? `Earlier ${key}` : `Question ${n}`)] }, { role: 'assistant', content: [text(`Answer ${n}`)] })
+  await store.record({ epoch: store.epoch, base: 0, extend: [], turns, usage: null })
+  let called = false
+  assert.equal(await store.compact('manual', async input => {
+    called = true
+    assert.ok(!JSON.stringify(input.messages).includes(key))
+    return { status: 'failed', reason: 'lead-messages-request' }
+  }), 'applied')
+  assert.ok(called)
+  assert.ok(!JSON.stringify(store.turns).includes(key))
+  assert.equal(journal.state.messages.filter(message => /earlier message.*withheld/i.test(message.text)).length, 1)
+})
+
+test('host screening keeps valid flow preview tokens under the existing exemption', async t => {
+  const home = await directory(t)
+  const { journal } = await journalOver()
+  const key = 'fixture-provider-value-not-a-pattern' // hd-secrets-ok: synthetic provider key
+  const token = '123e4567-e89b-42d3-a456-426614174000' // hd-secrets-ok: a flow preview UUID, not a credential
+  const store = await LeadContextStore.open({ directory: home, journal, model: MODEL, now: () => 1, nextId: () => 'flow-token' })
+  await store.connect({ screen: async value => { if (lead.leadContainsSecret(value, key)) throw Object.assign(new Error('refused'), { wireCode: 'lead-secret-refused' }) } })
+  await store.record({ epoch: 0, base: 0, extend: [], turns: [
+    { role: 'user', content: [text('Preview.')] },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'preview', name: 'flow_preview', input: {} }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'preview', content: JSON.stringify({ token }), is_error: false }] },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'start', name: 'flow_start_goal', input: { token } }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'start', content: 'Started.', is_error: false }] }
+  ], usage: null })
+  const built = await store.request()
+  assert.ok(JSON.stringify(built.messages).includes(token))
+  assert.equal(journal.state.messages.filter(message => /earlier message.*withheld/i.test(message.text)).length, 0)
+})
+
+test('a protection failure while isolating a rejected block commits no partial replacement', async t => {
+  const home = await directory(t)
+  const { journal, records } = await journalOver()
+  const key = 'fixture-provider-value-not-a-pattern' // hd-secrets-ok: synthetic provider key
+  const store = await LeadContextStore.open({ directory: home, journal, model: MODEL, now: () => 1, nextId: () => 'partial-screen' })
+  await store.record({ epoch: 0, base: 0, extend: [], turns: [{ role: 'user', content: [text(`Earlier ${key}`), text('ordinary text')] }], usage: null })
+  const before = await readFile(join(home, 'context.jsonl'), 'utf8'), beforeRecords = structuredClone(records)
+  let calls = 0
+  await store.connect({ screen: async () => { throw Object.assign(new Error('refused'), { wireCode: ++calls === 1 ? 'lead-secret-refused' : 'lead-protection-unavailable' }) } })
+  await assert.rejects(store.request(), (error: any) => error.wireCode === 'lead-protection-unavailable')
+  assert.equal(await readFile(join(home, 'context.jsonl'), 'utf8'), before)
+  assert.deepEqual(records, beforeRecords)
+  assert.ok(JSON.stringify(store.turns).includes(key))
 })

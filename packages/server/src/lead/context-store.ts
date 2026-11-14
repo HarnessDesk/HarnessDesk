@@ -4,7 +4,7 @@ import {
   LEAD_CONTEXT, leadCheckpointInstruction, leadCheckpointMessages, leadCheckpointRefusal, leadCheckpointText, leadCheckpointTurn,
   leadContextBoundary, leadContextBytes, leadContextMarkOf, leadContextPressure, leadContextSplit, leadContextWindow, leadEstimatedTokens,
   leadCheckpointCompose, leadFallbackCheckpoint, leadFitTurns, leadHistory, leadMergedTurns, leadNextSoftShare, leadPairedTurns, leadPersonSection, leadPersonQuotes, leadCheckpointModelPart,
-  leadPruneAndFold, parseLeadContextTurns, LEAD_CONTEXT_UNCOUNTED,
+  leadPruneAndFold, parseLeadContextTurns, LEAD_CONTEXT_UNCOUNTED, leadContainsSecret, LEAD_WITHHELD_TEXT, leadWithholdCredentialsReport, leadCredentialScreenViews,
   type LeadCompactionTrigger, type LeadContextMark, type LeadContextRecordInput, type LeadJournal, type LeadMessagesRequest,
   type LeadMessagesResult, type MessagesText, type MessagesTurn, leadClip, LEAD_WAKE_REFERENCE
 } from '@harnessdesk/lead'
@@ -96,6 +96,7 @@ export class LeadContextStore {
   #fullAt: number | null = null
   #connections: LeadContextConnections = {}
   #fileBytes = 0
+  #needsRecovery = false
   #tail: Promise<unknown> = Promise.resolve()
   private constructor(private readonly options: LeadContextStoreOptions) {}
 
@@ -123,7 +124,10 @@ export class LeadContextStore {
   get turns(): readonly MessagesTurn[] { return this.#turns }
 
   #serial<T>(work: () => Promise<T>): Promise<T> {
-    const next = this.#tail.then(work)
+    const next = this.#tail.then(() => {
+      if (this.#needsRecovery) throw new Error('lead-context-recovery-required')
+      return work()
+    })
     this.#tail = next.catch(() => {})
     return next
   }
@@ -204,18 +208,65 @@ export class LeadContextStore {
   #header(epoch = this.#epoch): Header {
     return { type: 'header', version: 1, epoch, known: this.#known.slice(-KNOWN), overhead: this.#overhead, softAt: this.#softAt }
   }
+  /** Replace screened stored pieces and commit the notice with the epoch before installing the new file. */
+  async #withholdStored(): Promise<void> {
+    let screened = leadWithholdCredentialsReport(this.#turns)
+    const screen = this.#connections.screen
+    if (screen) {
+      // Screen the same normalized views as the request guard, then isolate only refused blocks. A broker failure
+      // is not evidence of a credential and must abort before either the journal or the context file changes.
+      const views = leadCredentialScreenViews(screened.messages)
+      if (await this.#screenRefused(JSON.stringify(views))) {
+        const extra = views.map(turn => turn.map(() => false))
+        const blocks = views.flatMap((turn, index) => turn.map((view, position) => ({ view, index, position })))
+        // A clean half needs no individual broker calls. The final whole-screen check below still catches any
+        // refusal that cannot be attributed to a block.
+        const isolate = async (items: typeof blocks): Promise<void> => {
+          if (!items.length || !await this.#screenRefused(JSON.stringify(items.map(item => item.view)))) return
+          if (items.length === 1) { const item = items[0]!; extra[item.index]![item.position] = true; return }
+          const middle = Math.floor(items.length / 2)
+          await isolate(items.slice(0, middle)); await isolate(items.slice(middle))
+        }
+        await isolate(blocks)
+        const exact = leadWithholdCredentialsReport(screened.messages, undefined, extra)
+        screened = { messages: exact.messages, withheld: [...screened.withheld, ...exact.withheld] }
+        // Some fields, such as tool IDs, must remain intact for the protocol. Never commit a partial repair that
+        // still fails the screen; the caller can report the refusal instead.
+        if (await this.#screenRefused(JSON.stringify(leadCredentialScreenViews(screened.messages)))) throw Object.assign(new Error('lead-secret-refused'), { wireCode: 'lead-secret-refused' })
+      }
+    }
+    if (!screened.withheld.length) return
+    const epoch = this.#epoch + 1
+    const turns = await this.#snapshot(NEXT, epoch, screened.messages)
+    await this.options.journal.contextWithheld()
+    this.#needsRecovery = true
+    this.#epoch = epoch
+    this.#turns = turns
+    await rename(this.#path(NEXT), this.#path(FILE))
+    this.#fileBytes = Buffer.byteLength(await readFile(this.#path(FILE), 'utf8'))
+    this.#measured = null
+    this.#needsRecovery = false
+  }
+  async #screenRefused(text: string): Promise<boolean> {
+    try { await this.#connections.screen?.(text); return false }
+    catch (error) {
+      if ((error as { wireCode?: unknown })?.wireCode === 'lead-secret-refused') return true
+      throw error
+    }
+  }
   /** The whole conversation as one record, written beside the file and moved over it. */
-  async #snapshot(name: string, epoch = this.#epoch, turns = this.#turns): Promise<void> {
+  async #snapshot(name: string, epoch = this.#epoch, turns = this.#turns): Promise<readonly MessagesTurn[]> {
     turns = this.#bounded(leadMergedTurns(turns))
     if (name === FILE) this.#turns = turns
     const text = `${JSON.stringify(this.#header(epoch))}\n${JSON.stringify({ type: 'record', base: 0, extend: [], turns, measured: null } satisfies RecordLine)}\n`
     const temporary = this.#path(`${name}.tmp`)
     const handle = await open(temporary, 'w', 0o600)
     try { await handle.writeFile(text); await handle.sync() } finally { await handle.close() }
-    if (name === NEXT) { await rename(temporary, this.#path(NEXT)); return }
+    if (name === NEXT) { await rename(temporary, this.#path(NEXT)); return turns }
     await rename(temporary, this.#path(FILE))
     this.#fileBytes = Buffer.byteLength(text)
     this.#measured = null
+    return turns
   }
   /** Never more than the disk bound: older tool results trimmed first, then the oldest turns dropped at a person's
    * turn. Compaction runs long before this; it is the bound, not the policy. */
@@ -240,12 +291,19 @@ export class LeadContextStore {
    * only record of what the person said. Never read back from an earlier checkpoint's text, which the model wrote around.
    * A message the journal no longer holds is named by its reference.
    */
-  #personSection(region: readonly MessagesTurn[], tail: readonly MessagesTurn[]): LeadCheckpointPerson {
+  async #personSection(region: readonly MessagesTurn[], tail: readonly MessagesTurn[]): Promise<LeadCheckpointPerson> {
     const wakes = new Set(this.options.journal.state.messages.flatMap(message => message.wake ? [message.id] : []))
     const later = new Set(personIds(tail)), ids = [...new Set([...this.#known, ...spokenIds(region)])].filter(id => !later.has(id) && !wakes.has(id))
     const recorded = new Map(this.options.journal.state.messages.flatMap(message => message.role === 'user' && !message.wake ? [[message.id, message.text] as const] : []))
     const covered = new Set(ids)
-    const words = this.options.journal.state.messages.flatMap(message => message.role === 'user' && !message.wake && covered.has(message.id) ? [{ id: message.id, text: message.text }] : [])
+    // A legacy journal message can now fail the same screen as the stored turn. Do not reintroduce it through a
+    // checkpoint's independently reconstructed person section after the stored copy has been withheld.
+    const words: { id: string; text: string }[] = []
+    for (const message of this.options.journal.state.messages) {
+      if (message.role !== 'user' || message.wake || !covered.has(message.id)) continue
+      const refused = leadContainsSecret(message.text) || await this.#screenRefused(message.text)
+      words.push({ id: message.id, text: refused ? LEAD_WITHHELD_TEXT : message.text })
+    }
     return leadPersonQuotes(words, ids.filter(id => !recorded.has(id)))
   }
   /**
@@ -273,6 +331,7 @@ export class LeadContextStore {
    */
   request(): Promise<{ readonly messages: MessagesTurn[]; readonly epoch: number; readonly persons: readonly string[]; readonly base?: LeadContextMark; readonly stable?: LeadContextMark }> {
     return this.#serial(async () => {
+      await this.#withholdStored()
       if (!this.#turns.length) {
         const fresh = this.#unstored()
         if (fresh.length) await this.#append({ base: 0, extend: [], turns: fresh, measured: null })
@@ -330,6 +389,7 @@ export class LeadContextStore {
   /** The stored conversation for a child whose copy is from another epoch; null when its copy is current. */
   read(epoch: number, room = READ_BYTES): Promise<{ readonly epoch: number; readonly messages: readonly MessagesTurn[] } | null> {
     return this.#serial(async () => {
+      await this.#withholdStored()
       if (epoch === this.#epoch || !this.#turns.length) return null
       // One frame carries it: past that, the checkpoint and the latest turns that fit; none fitting waits for the
       // host's own next request.
@@ -368,6 +428,7 @@ export class LeadContextStore {
   }
   get compacting(): boolean { return this.#compacting }
   async #compact(trigger: LeadCompactionTrigger, send: LeadContextSend): Promise<LeadCompactionOutcome> {
+    await this.#serial(() => this.#withholdStored())
     const { journal, now, nextId } = this.options
     const id = nextId(), beforeTokens = this.tokens()
     const pruned = leadPruneAndFold(this.#turns)
@@ -394,9 +455,9 @@ export class LeadContextStore {
     if (prune && idle && before - share(pruned) < LEAD_CONTEXT.minSaving) prune = false
     const kept = (from: number) => smallest ? leadPruneAndFold(this.#turns.slice(from), 0) : this.#turns.slice(from)
     if (!prune && (split === null || idle && before - share([room, ...kept(split)]) < LEAD_CONTEXT.minSaving)) return leave()
-    await journal.contextCompactionStarted(id, now(), trigger)
     try {
       if (prune) {
+        await journal.contextCompactionStarted(id, now(), trigger)
         const afterTokens = this.tokens(pruned)
         await this.#replace(id, current => leadPruneAndFold(current), () => journal.contextPruned({ id, at: now(), beforeTokens, afterTokens }), share(pruned))
         return 'pruned'
@@ -411,7 +472,8 @@ export class LeadContextStore {
       try { deskNow = await this.#connections.deskNow?.() ?? null } catch { /* Without it the checkpoint is written from the conversation alone. */ }
       const regionBytes = leadContextBytes(region)
       // The person's words come from the desk, never from the model: only a message the desk recorded as theirs.
-      const quotes = this.#personSection(region, this.#turns.slice(from)), person = leadPersonSection(quotes)
+      const quotes = await this.#personSection(region, this.#turns.slice(from)), person = leadPersonSection(quotes)
+      await journal.contextCompactionStarted(id, now(), trigger)
       const attempts = journal.state.context.failures >= LEAD_CONTEXT.breaker ? 1 : LEAD_CONTEXT.attempts
       let text: string | null = null, usdMicros = 0, turnedAway = 0
       for (let attempt = 0; attempt < attempts && text === null; attempt++) {
