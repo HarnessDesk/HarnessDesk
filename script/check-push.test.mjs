@@ -393,7 +393,7 @@ test('planner dependencies select planner tests, alongside changed scripts and t
   const plan = createPlan(root, { paths: ['script/ci-browser-shards.mjs', 'script/check-push.test.mjs', 'script/check-layering.mjs'], fast: true })
   assert.deepEqual(plan.steps.find(step => step.name === 'Script tests').args, ['--test',
     'script/check-layering.test.mjs', 'script/check-push.test.mjs', 'script/ci-browser-plan.test.mjs',
-    'script/ci-browser-shards.test.mjs', 'script/ci-changes.test.mjs', 'script/ci-imports.test.mjs', 'script/ci-planners.test.mjs', 'script/ci-unit-shards.test.mjs', 'script/ci-unit-tests.test.mjs', 'script/gates.test.mjs', 'script/ui-impact.test.mjs'])
+    'script/ci-browser-shards.test.mjs', 'script/ci-changes.test.mjs', 'script/ci-imports.test.mjs', 'script/ci-planners.test.mjs', 'script/ci-scoped.test.mjs', 'script/ci-unit-shards.test.mjs', 'script/ci-unit-tests.test.mjs', 'script/gates.test.mjs', 'script/ui-impact.test.mjs'])
 })
 
 test('the unit duration table selects the unit deal regression tests', async () => {
