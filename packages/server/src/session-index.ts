@@ -238,13 +238,16 @@ export class SessionIndex {
         }
         plan = { version: 1, ceiling, pending }
         if (!final) this.#writePinPlan(plan)
-      } else if (final) {
+      } else {
+        const pending: [RuntimeId, SessionId, number][] = []
         for (const [runtime, id, position] of plan.pending) {
           if (this.#row(runtime, id) && !this.isRemoved(runtime, id)) {
             this.#db.prepare('INSERT OR IGNORE INTO session_pins(runtime,id,position) VALUES(?,?,?)').run(runtime, id, position)
             this.#notify(runtime, id, false)
-          }
+          } else pending.push([runtime, id, position])
         }
+        plan.pending = pending
+        if (!final) this.#writePinPlan(plan)
       }
       if (final) {
         this.#db.prepare("INSERT INTO meta(key,value) VALUES('session-pins:migrated','1')").run()
