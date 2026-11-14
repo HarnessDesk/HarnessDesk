@@ -5330,11 +5330,17 @@ export class Host {
       const emptyControl = (!this.#leadEnabled || this.#disposed) &&
         (method === 'lead/chats/control' || method === 'lead/chats/resetControl' || method === 'lead/chat/takeOver' || method === 'lead/chat/handBack')
       if (!passive && !emptyControl) throw leadRefusal('lead-unavailable')
+      // Admission stays with this request across every await. A later enable
+      // cannot lend its owners to a read that never joined their lifetime.
+      if (passive) return this.#call(method, params, { ...this.#context,
+        leadDeskSummary: params => this.#leadDeskSummary(params, false),
+        leadInbox: () => this.#leadInboxRead(undefined, false),
+      })
     }
     return this.#call(method, params)
   }
 
-  async #call<M extends HostMethodName>(method: M, params: HostParams<M>): Promise<HostResult<M>> {
+  async #call<M extends HostMethodName>(method: M, params: HostParams<M>, context = this.#context): Promise<HostResult<M>> {
     try { this.#noteReach(params) }
     catch (error) {
       if (method === 'approval/respond' && error instanceof Error) Object.assign(error, { approvalNotDelivered: true })
@@ -5359,7 +5365,7 @@ export class Host {
     }
     const finish = method !== 'session/prepare-eviction' && method !== 'session/cache-snapshot' && typeof address?.runtime === 'string' && typeof address.sessionId === 'string'
       ? this.#beginTranscriptOperation(runtimeId(address.runtime), makeSessionId(address.sessionId)) : null
-    try { return await dispatch(this.#context, method, params) }
+    try { return await dispatch(context, method, params) }
     finally { finish?.() }
   }
 
@@ -6716,11 +6722,7 @@ export class Host {
       leadUsageSummary: () => this.#phoneWorkspaceView().usageSummary(this.#trackedUsage(this.#cachedUsage())),
       // The waiting count rides the summary from the Inbox the bell and the phone show, the open question included, so
       // a count the Lead says matches the rows it lists (#2182).
-      leadDeskSummary: async params => {
-        const summary = await this.#phoneWorkspaceView().deskSummary(params)
-        const inbox = await this.#leadInboxRead(summary).catch(() => null)
-        return inbox ? { ...summary, waiting: leadInboxWaiting(inbox) } : summary
-      },
+      leadDeskSummary: params => this.#leadDeskSummary(params),
       leadThreadRead: async () => (await this.#leadWindow()).readThread(),
       // One inbox for the bell and the phone: the Lead's window, the desk's needs-you work, and the kept notices.
       leadInbox: () => this.#leadInboxRead(),
@@ -12455,14 +12457,20 @@ export class Host {
       Array.isArray(off) ? off.filter((id): id is RuntimeId => typeof id === 'string') : [], Date.now(), id => this.#usageService.asked(id))
   }
 
+  async #leadDeskSummary(params: HostParams<'lead/desk/summary'>, includeLead = true): Promise<LeadDeskSummary> {
+    const summary = await this.#phoneWorkspaceView().deskSummary(params)
+    const inbox = await this.#leadInboxRead(summary, includeLead).catch(() => null)
+    return inbox ? { ...summary, waiting: leadInboxWaiting(inbox) } : summary
+  }
+
   /** One inbox for the bell, the phone and the Work list: the Lead's window, the desk's needs-you work, the kept notices. */
-  async #leadInboxRead(summary?: LeadDeskSummary): Promise<LeadInbox> {
+  async #leadInboxRead(summary?: LeadDeskSummary, includeLead = true): Promise<LeadInbox> {
     return leadInbox({
-      window: this.#leadEnabled && this.#leadReady && !this.#disposed && !this.#features.read().problem
+      window: includeLead && this.#leadEnabled && this.#leadReady && !this.#disposed && !this.#features.read().problem
         ? await this.#leadWindow().then(window => window.readThread()).catch(() => null) : null,
       desk: summary ?? await this.#phoneWorkspaceView().deskSummary({ limit: 20 }).catch(() => null),
-      kept: this.#currentNotices(), now: Date.now(), askSeenAt: id => this.#leadPresence?.askSeenAt(id),
-      ask: this.#leadPresence?.openAsk() ?? null,
+      kept: this.#currentNotices(), now: Date.now(), askSeenAt: id => includeLead ? this.#leadPresence?.askSeenAt(id) : undefined,
+      ask: includeLead ? this.#leadPresence?.openAsk() ?? null : null,
     })
   }
 
@@ -12769,17 +12777,20 @@ export class Host {
 
   /** The phone's snapshot, conversation and approval answers, built on first use over the same planes. */
   #phoneWorkView(): PhoneWork {
+    // Phone snapshots have their own lifetime, but each Lead-backed projection
+    // must join the current Lead owner before touching it and stay until done.
+    const readLead = async <T>(read: () => Promise<T>): Promise<T | null> => await this.#leadLifetime?.run(read) ?? null
     return this.#phoneWork ??= new PhoneWork({
       workspace: this.#phoneWorkspaceView(),
-      leadWork: async () => this.#leadWork && !this.#disposed ? await this.#leadWork.board() : null,
-      leadInbox: async () => this.#leadWork && !this.#disposed ? await this.#leadInboxRead() : null,
+      leadWork: () => readLead(async () => this.#leadWork ? await this.#leadWork.board() : null),
+      leadInbox: () => readLead(async () => this.#leadWork ? await this.#leadInboxRead() : null),
       leadTeams: async () => (await this.#goals.list()).map(view => ({ goal: view.goal.id as string, room: view.board?.id ?? null })),
-      leadAutonomy: async () => this.#leadAutonomy && !this.#disposed ? await this.#leadAutonomy.view() : null,
-      leadMemory: async () => {
-        if (!this.#leadWork || this.#disposed) return null
+      leadAutonomy: () => readLead(async () => this.#leadAutonomy ? await this.#leadAutonomy.view() : null),
+      leadMemory: () => readLead(async () => {
+        if (!this.#leadWork) return null
         const view = (await this.#leadMemory()).view()
         return { revision: view.revision, inbox: view.inbox, core: view.core.length, archive: view.archive.length, auto: view.auto }
-      },
+      }),
       wrapTeam: team => this.#wrapLeadTeam(team),
       cancelRecovery: async id => {
         const project = this.#leadChatProject

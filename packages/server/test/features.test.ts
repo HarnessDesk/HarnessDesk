@@ -59,6 +59,95 @@ test('Lead Off drains an admitted passive inbox read before closing its owners',
   assert.equal(disabled, true)
 })
 
+test('passive inbox admitted before the enable save stays outside the live Lead owner', async t => {
+  const { LeadControls } = await import('../src/lead/controls.js')
+  const desk = await start({ catalogRefreshMs: 0 }, tempDir('hd-feature-passive-enable-'))
+  t.after(() => halt(desk))
+  await desk.host.call('workspace/open', { path: desk.stateDir })
+  const save = holdRename(t, join(desk.stateDir, 'features.json'))
+  const enabling = desk.host.call(set, { feature: 'lead', enabled: true })
+  await save.inside
+  assert.equal((await desk.host.call(read, {})).lead, false)
+  const readThread = LeadControls.prototype.readThread
+  const ownerRead = t.mock.method(LeadControls.prototype, 'readThread', function(this: InstanceType<typeof LeadControls>) { return readThread.call(this) })
+  try {
+    await desk.host.call('lead/inbox/read', {})
+    assert.equal(ownerRead.mock.callCount(), 0, 'an unacknowledged enable cannot admit an untracked owner read')
+  } finally { save.release(); await enabling }
+})
+
+test('passive desk summary admitted while off stays outside a subsequently enabled Lead owner', async t => {
+  const { LeadControls } = await import('../src/lead/controls.js')
+  const { LeadPresenceStore } = await import('../src/lead/presence.js')
+  const { PhoneWorkspace } = await import('../src/phone-workspace.js')
+  const desk = await start({ catalogRefreshMs: 0 }, tempDir('hd-feature-passive-summary-'))
+  t.after(() => halt(desk))
+  await desk.host.call('workspace/open', { path: desk.stateDir })
+  let entered!: () => void, release!: () => void
+  const inside = new Promise<void>(resolve => { entered = resolve }), held = new Promise<void>(resolve => { release = resolve })
+  const deskSummary = PhoneWorkspace.prototype.deskSummary
+  let once = true
+  t.mock.method(PhoneWorkspace.prototype, 'deskSummary', async function(this: InstanceType<typeof PhoneWorkspace>, ...args: Parameters<typeof deskSummary>) {
+    if (once) { once = false; entered(); await held }
+    return deskSummary.apply(this, args)
+  })
+  t.after(() => release())
+  const readThread = LeadControls.prototype.readThread
+  const ownerRead = t.mock.method(LeadControls.prototype, 'readThread', function(this: InstanceType<typeof LeadControls>) { return readThread.call(this) })
+  const reading = desk.host.call('lead/desk/summary', {})
+  await inside
+  try {
+    await desk.host.call(set, { feature: 'lead', enabled: true })
+    const openAsk = LeadPresenceStore.prototype.openAsk
+    const presenceRead = t.mock.method(LeadPresenceStore.prototype, 'openAsk', function(this: InstanceType<typeof LeadPresenceStore>) { return openAsk.call(this) })
+    // A concurrent, admitted read still sees the live owners. Its permission
+    // must neither hide them globally nor grant them to the older request.
+    await desk.host.call('lead/inbox/read', {})
+    assert.equal(ownerRead.mock.callCount(), 1)
+    assert.ok(presenceRead.mock.callCount() > 0)
+    ownerRead.mock.resetCalls(); presenceRead.mock.resetCalls()
+    release(); await reading
+    assert.equal(ownerRead.mock.callCount(), 0, 'an await cannot promote an offline read into the new owner')
+    assert.equal(presenceRead.mock.callCount(), 0, 'the offline projection cannot read the new presence owner either')
+  } finally { release(); await reading }
+})
+
+test('Lead Off drains a phone inbox projection and refuses later phone owner reads', async t => {
+  const { LeadControls } = await import('../src/lead/controls.js')
+  const { LeadLifetime } = await import('../src/lead/lifetime.js')
+  const desk = await start({ catalogRefreshMs: 0 }, tempDir('hd-feature-phone-drain-'))
+  t.after(() => halt(desk))
+  await desk.host.call('workspace/open', { path: desk.stateDir })
+  await desk.host.call(set, { feature: 'lead', enabled: true })
+  await desk.host.call('lead/thread/read', {})
+  let entered!: () => void, release!: () => void, draining!: () => void
+  const inside = new Promise<void>(resolve => { entered = resolve }), held = new Promise<void>(resolve => { release = resolve })
+  const atDrain = new Promise<void>(resolve => { draining = resolve })
+  t.after(() => release())
+  const readThread = LeadControls.prototype.readThread
+  let ownerReads = 0, drained = false
+  t.mock.method(LeadControls.prototype, 'readThread', async function(this: InstanceType<typeof LeadControls>) {
+    if (++ownerReads === 1) { entered(); await held }
+    return readThread.call(this)
+  })
+  const drain = LeadLifetime.prototype.drain
+  t.mock.method(LeadLifetime.prototype, 'drain', async function(this: InstanceType<typeof LeadLifetime>) {
+    draining(); await drain.call(this); drained = true
+  })
+  const reading = desk.host.call('workspace/read', {})
+  await inside
+  const disabling = desk.host.call(set, { feature: 'lead', enabled: false })
+  try {
+    await atDrain
+    // Let an empty drain finish; the held projection must keep this one open.
+    await new Promise<void>(resolve => setImmediate(resolve))
+    assert.equal(drained, false, 'the phone projection retains its Lead lifetime until its final await')
+    await desk.host.call('workspace/read', {})
+    assert.equal(ownerReads, 1, 'a phone refresh after sealing cannot enter the Lead owner')
+  } finally { release(); await reading; await disabling }
+  assert.equal(drained, true)
+})
+
 test('features toggle live, notify another client and persist explicit false over launch defaults', async t => {
   const home = tempDir('hd-features-')
   let desk = await start({ catalogRefreshMs: 0 }, home)
