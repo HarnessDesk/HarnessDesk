@@ -1490,7 +1490,7 @@ Moves a thread to its end and keeps it following there, as when the person sends
 
 `packages/ui/src/design/patterns/ConversationShell.tsx`
 
-Whether a thread is following its end: true until the reader scrolls away from it.
+Reconcile a held-pointer move before a reply or resize follows, even if its scroll event is still pending.
 
 ### `ConversationDock`
 

@@ -7,9 +7,10 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Keep reading while the Lead replies.** Holding a long scroll gesture no longer lets an arriving reply pull the conversation back to the bottom. A pending upward scroll is noticed before the new reply follows it.
+- **Keep saved pins during an upgrade.** Changing how the conversation list is sorted while its history is still loading no longer loses pins saved by an older desk. Unpinning a conversation or pinning another during that load keeps the change you made.
 - **Turn Lead and Mobile on from Settings.** Both pages stay available while off, and their switches apply immediately and remember your choice. Turning Lead off stops its work and keeps history; turning Mobile off disconnects phones and keeps pairings. Account sign-in stays separate. Interrupted settings offer an explicit repair. Backups carry acknowledged choices, including Off, and a failed activation reports an error on restore.
 - **Settings follows the work.** Preferences, Agents, Conversations and Access group the pages in that order, with Lead under Agents and Mobile first in Access. Existing links still arrive, and every navigation glyph shares the app's hover motion, respecting reduced motion.
-- **Keep saved pins during an upgrade.** Changing how the conversation list is sorted while its history is still loading no longer loses pins saved by an older desk. Unpinning a conversation or pinning another during that load keeps the change you made.
 
 ## 0.7.1 — 2026-11-13
 
