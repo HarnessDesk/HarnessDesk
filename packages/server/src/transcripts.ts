@@ -1026,7 +1026,7 @@ export class TranscriptStore {
     if (recordedTurns !== session.turns) session = { ...session, turns: recordedTurns }
     const prose = reconcileProseReplay(session, stored)
     if (prose.kind === 'reconciled') {
-      const usage = restorableUsage(session, stored, pairTurns(session.turns, stored.turns))
+      const usage = prose.advanced ? null : restorableUsage(session, stored, pairTurns(session.turns, stored.turns))
       return usage ? { ...prose.session, usage } : prose.session
     }
     if (prose.kind === 'ambiguous') return session

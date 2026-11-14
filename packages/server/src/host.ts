@@ -9285,9 +9285,9 @@ export class Host {
   }
 
   /** Check a silent read against the exact retained body before it can be saved. */
-  async #gateReplayRead(runtime: AgentRuntime, raw: Session): Promise<void> {
+  async #gateReplayRead(runtime: AgentRuntime, raw: Session): Promise<{ record: SessionRecord; revision: number; epoch: number } | undefined> {
     const held = this.registry.get(runtime.info.id, raw.id)
-    if (!held || held.transcriptIncomplete || held.running.size > 0) return
+    if (!held || held.transcriptIncomplete || held.running.size > 0) return undefined
     const revision = held.bodyRevision, epoch = held.bodyAuthorityEpoch
     const descriptor = this.#recoveryDescriptors.get(held.bodyGeneration)
     const turns = held.session.itemsLoaded ? held.session.turns : descriptor
@@ -9301,10 +9301,12 @@ export class Host {
       throw Object.assign(new Error('Conversation history changed while it was being read.'), { wireCode: 'historyUnavailable' })
     }
     const basis = verified ? turns : durable?.itemsLoaded ? durable.turns : null
-    if ((basis && reconcileProseReplay(raw, { turns: basis }).kind === 'ambiguous') || (!basis && !held.session.itemsLoaded && !!descriptor)) {
+    const replay = basis ? reconcileProseReplay(raw, { turns: basis }) : null
+    if (replay?.kind === 'ambiguous' || (!basis && !held.session.itemsLoaded && !!descriptor)) {
       // The ordinary event path owns hydration, conflict capture and fencing.
       this.#onEvent(runtime.info.id, { type: 'session/started', session: raw }, runtime)
     }
+    return replay?.kind === 'reconciled' && replay.advanced === true && !raw.usage ? { record: held, revision, epoch } : undefined
   }
 
   async #readTranscriptUntracked(runtime: AgentRuntime, id: SessionId, allowReopen = true, admitCwd?: DispatchAdmission<string>): Promise<Session> {
@@ -9338,7 +9340,7 @@ export class Host {
     try {
       await this.#prepareReopenTranscript(runtime.info.id, id)
       const raw = await runtime.readSession(id)
-      await this.#gateReplayRead(runtime, raw)
+      const advancedWithoutUsage = await this.#gateReplayRead(runtime, raw)
       const replayed = this.registry.get(runtime.info.id, id)
       if (replayed?.transcriptIncomplete) {
         if (admitCwd) throw Object.assign(new Error('The chat project location cannot be verified while its history is unsaved.'), { wireCode: 'historyUnavailable' })
@@ -9347,6 +9349,18 @@ export class Host {
       // The index owns the desk's display location, not proof of a runtime
       // transcript's scope. Check the body being returned before replacing cwd.
       await admitCwd?.(raw.cwd)
+      // A silent read has no runtime announcement to clear the old usage in
+      // the registry. Fold the proven advance after scope admission so the
+      // ordinary registry fallback cannot restore the superseded figure.
+      if (advancedWithoutUsage && this.registry.get(runtime.info.id, id) === advancedWithoutUsage.record &&
+          advancedWithoutUsage.record.bodyRevision === advancedWithoutUsage.revision && advancedWithoutUsage.record.bodyAuthorityEpoch === advancedWithoutUsage.epoch) {
+        this.#onEvent(runtime.info.id, { type: 'session/started', session: raw }, runtime)
+        const record = this.registry.get(runtime.info.id, id)
+        if (record?.transcriptIncomplete) {
+          if (admitCwd) throw Object.assign(new Error('The chat project location cannot be verified while its history is unsaved.'), { wireCode: 'historyUnavailable' })
+          return this.#pendingTranscriptView(record)
+        }
+      }
       this.#admitFirstReadBase(raw)
       const enriched = await this.#transcripts.enrichForRefresh(raw)
       const session = { ...enriched.session,
@@ -10752,13 +10766,13 @@ export class Host {
       event.session.runtime === runtime && event.session.itemsLoaded && !event.session.partialHistory &&
       !this.#sessionIndex.isRemoved(runtime, event.session.id) && this.#transcripts.mayObserveInitialBase(event.session)
       ? this.#transcripts.observeBase(event.session, true) : undefined
-    let ambiguousProse = false, replaceReplayTurns = false
+    let ambiguousProse = false, replaceReplayTurns = false, clearReplayUsage = false
     if (held && event.type === 'session/started' && held.session.itemsLoaded && !held.transcriptIncomplete) {
       if (held.running.size > 0) ambiguousProse = conflictsWithRunningPrompt(event.session, held.session, held.running)
       else if (!this.#transcripts.pendingReplayConflict(event.session, held.bodyGeneration, held.bodyAuthorityEpoch, held.session)) {
         const candidate = reconcileProseReplay(event.session, held.session)
         ambiguousProse = candidate.kind === 'ambiguous'
-        if (candidate.kind === 'reconciled') { event = { ...event, session: candidate.session }; replaceReplayTurns = candidate.replaceTurns === true }
+        if (candidate.kind === 'reconciled') { event = { ...event, session: candidate.session }; replaceReplayTurns = candidate.replaceTurns === true; clearReplayUsage = candidate.advanced === true && !candidate.session.usage }
       }
     }
     if (held && event.type === 'session/started' && !ambiguousProse) {
@@ -10834,7 +10848,7 @@ export class Host {
     // Decide before registry.apply can fold the replay into that base.
     if (wasUnloaded && held?.session.itemsLoaded && !held.transcriptIncomplete && held.running.size === 0 && event.type === 'session/started') {
       const candidate = reconcileProseReplay(event.session, held.session)
-      if (candidate.kind === 'reconciled') { event = { ...event, session: candidate.session }; replaceReplayTurns = candidate.replaceTurns === true }
+      if (candidate.kind === 'reconciled') { event = { ...event, session: candidate.session }; replaceReplayTurns = candidate.replaceTurns === true; clearReplayUsage = candidate.advanced === true && !candidate.session.usage }
       else if (candidate.kind === 'ambiguous') {
         const conflict = this.#quarantineTranscriptReplay(held, runtime)
         conflict.capture.quarantine(event, conflict.owner)
@@ -10853,8 +10867,8 @@ export class Host {
     // The exact prose proof covers both histories. When source segmentation
     // carries independent facts, merging turns by ID would duplicate moved
     // items; fold against that proven replacement instead.
-    if (replaceReplayTurns && held && !held.transcriptIncomplete && event.type === 'session/started') {
-      held.session = { ...held.session, turns: event.session.turns }
+    if ((replaceReplayTurns || clearReplayUsage) && held && !held.transcriptIncomplete && event.type === 'session/started') {
+      held.session = { ...held.session, ...(replaceReplayTurns ? { turns: event.session.turns } : {}), ...(clearReplayUsage ? { usage: null } : {}) }
     }
     if (event.type === 'account/changed') this.#accountReads.get(runtime)?.invalidate()
     if (event.type === 'catalog/changed' || event.type === 'runtime/options') {

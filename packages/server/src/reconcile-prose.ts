@@ -8,7 +8,7 @@ const canonical = (value: unknown): string => JSON.stringify(value, (_key, entry
 })
 
 /** An exact, unique correspondence is needed before moving host-only rows. */
-export type ProseReplay = { readonly kind: 'ordinary' } | { readonly kind: 'ambiguous' } | { readonly kind: 'reconciled'; readonly session: Session; readonly replaceTurns?: boolean }
+export type ProseReplay = { readonly kind: 'ordinary' } | { readonly kind: 'ambiguous' } | { readonly kind: 'reconciled'; readonly session: Session; readonly replaceTurns?: boolean; readonly advanced?: boolean }
 
 /** A running turn may grow, but an existing person item cannot change identity or content. */
 export function conflictsWithRunningPrompt(read: Session, held: Pick<Session, 'turns'>, running: ReadonlySet<Turn['id']>): boolean {
@@ -163,7 +163,7 @@ export function reconcileProseReplay(read: Session, held: Pick<Session, 'turns'>
       ...(index === 0 ? hostAt.get(0) ?? [] : []),
       ...turn.items.flatMap(item => { pos++; return [item, ...(hostAt.get(pos) ?? [])] }),
     ] }))
-    return { kind: 'reconciled', session: { ...read, turns: [...turns, ...tail] }, replaceTurns: true }
+    return { kind: 'reconciled', session: { ...read, turns: [...turns, ...tail] }, replaceTurns: true, advanced: newItems.length > oldProse.length }
   }
   const turns = held.turns.map((turn, i) => {
     const range = oldRanges[i]!, j = newRangeIndices.get(rangeKey(range))
@@ -173,5 +173,5 @@ export function reconcileProseReplay(read: Session, held: Pick<Session, 'turns'>
       completedAt: fresh.completedAt ?? (fresh.status === 'inProgress' ? fresh.completedAt : turn.completedAt), durationMs: fresh.durationMs ?? turn.durationMs,
       plan: fresh.plan ?? turn.plan, diff: fresh.diff ?? turn.diff }
   })
-  return { kind: 'reconciled', session: { ...read, turns: [...turns, ...tail] } }
+  return { kind: 'reconciled', session: { ...read, turns: [...turns, ...tail] }, advanced: newItems.length > oldProse.length }
 }

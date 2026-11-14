@@ -301,7 +301,7 @@ for (const announces of [true, false]) test(`stable repeated prompt identities r
   try { assert.deepEqual(db.read(runtime.info.id, sid)!.turns.map(turn => turn.items), saved.map(turn => turn.items)) } finally { db.close() }
 })
 
-for (const scenario of ['appended tail', 'same turn tail', 'source facts', 'split facts', 'stored usage', 'source usage'] as const) test(`reconciled replay keeps ${scenario} through a Host restart`, async t => {
+for (const scenario of ['appended tail', 'same turn tail', 'same turn silent', 'same turn tool', 'same turn source usage', 'same turn silent source usage', 'source facts', 'split facts', 'stored usage', 'source usage'] as const) test(`reconciled replay keeps ${scenario} through a Host restart`, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-replay-review-')), sid = sessionId('review-session')
   const runtime = new FakeRuntime()
   const makeHost = () => new Host({ logger: silent, state: new StateStore(join(dir, 'state.json')), builtinAgents: dir, catalogRefreshMs: 0, idleStopMs: 0 })
@@ -319,20 +319,22 @@ for (const scenario of ['appended tail', 'same turn tail', 'source facts', 'spli
   const source = { ...turn('one', [message('new-u1', 'first', 'user'), message('new-a1', 'answer', 'assistant')]), ...(scenario === 'source facts' ? { status: 'failed' as const, durationMs: 80, diff: 'new diff', plan: [{ step: 'new plan', status: 'completed' as const }] } : {}) }
   const tail = turn('two', [message('new-u2', 'later', 'user'), message('new-a2', 'later answer', 'assistant')])
   const split = { ...turn('two', [message('nu2', 'steer', 'user'), message('na2', 'reply', 'assistant')]), durationMs: 200, diff: 'split diff' }
+  const tool: AgentItem = { id: itemId('tail-tool'), type: 'toolCall', tool: 'read', source: { kind: 'builtin' }, status: 'completed', args: {}, result: [{ type: 'text', text: 'synthetic result' }] }
   const sameTurn = { ...source, items: [...source.items, ...tail.items], durationMs: 300, diff: 'continued diff' }
-  const replay: Session = { ...base, turns: scenario === 'appended tail' ? [source, tail] : scenario === 'same turn tail' ? [sameTurn] : scenario === 'split facts' ? [{ ...source, durationMs: 100, diff: 'first diff' }, split] : [source], usage: scenario === 'source usage' ? freshUsage : null }
-  const next = new FakeRuntime(); next.readSession = async () => { if (scenario !== 'stored usage' && scenario !== 'source usage') next.emit({ type: 'session/started', session: replay }); return replay }
+  const replay: Session = { ...base, turns: scenario === 'appended tail' ? [source, tail] : (scenario === 'same turn tail' || scenario === 'same turn silent' || scenario === 'same turn source usage' || scenario === 'same turn silent source usage') ? [sameTurn] : scenario === 'same turn tool' ? [{ ...source, items: [...source.items, tool] }] : scenario === 'split facts' ? [{ ...source, durationMs: 100, diff: 'first diff' }, split] : [source], usage: scenario === 'source usage' || scenario === 'same turn source usage' || scenario === 'same turn silent source usage' ? freshUsage : null }
+  const next = new FakeRuntime(); next.readSession = async () => { if (scenario !== 'stored usage' && scenario !== 'source usage' && scenario !== 'same turn silent' && scenario !== 'same turn silent source usage') next.emit({ type: 'session/started', session: replay }); return replay }
   cold = makeHost(); cold.register(next); await cold.start()
   const read = await cold.call('session/read', { runtime: next.info.id, sessionId: sid }) as Session
   assert.notEqual(read.historyPending, true)
-  assert.deepEqual(words(read.turns), (scenario === 'appended tail' || scenario === 'same turn tail') ? ['first', 'answer', 'later', 'later answer'] : scenario === 'split facts' ? ['first', 'answer', 'steer', 'reply'] : ['first', 'answer'])
+  assert.deepEqual(words(read.turns), (scenario === 'appended tail' || scenario === 'same turn tail' || scenario === 'same turn silent' || scenario === 'same turn source usage' || scenario === 'same turn silent source usage') ? ['first', 'answer', 'later', 'later answer'] : scenario === 'split facts' ? ['first', 'answer', 'steer', 'reply'] : ['first', 'answer'])
   assert.equal(read.turns.flatMap(one => one.items).filter(item => item.id === notice.id).length, 1)
   if (scenario === 'same turn tail') { assert.equal(read.turns[0]?.items[2]?.id, notice.id); assert.equal(read.turns[0]?.durationMs, 300) }
   if (scenario === 'source facts') assert.deepEqual([read.turns[0]?.status, read.turns[0]?.durationMs, read.turns[0]?.diff, read.turns[0]?.plan?.[0]?.step], ['failed', 80, 'new diff', 'new plan'])
   if (scenario === 'split facts') assert.deepEqual(read.turns.map(t => [t.durationMs, t.diff]), [[100, 'first diff'], [200, 'split diff']])
   if (scenario === 'stored usage') assert.deepEqual([read.turns[0]?.startedAt, read.turns[0]?.durationMs, read.turns[0]?.diff, read.turns[0]?.plan?.[0]?.step], [10, 50, 'old diff', 'old plan'])
   if (scenario === 'stored usage') assert.deepEqual(read.usage, usage)
-  if (scenario === 'source usage') assert.deepEqual(read.usage, freshUsage)
+  if (scenario === 'source usage' || scenario === 'same turn source usage' || scenario === 'same turn silent source usage') assert.deepEqual(read.usage, freshUsage)
+  if (scenario === 'same turn tail' || scenario === 'same turn silent' || scenario === 'same turn tool') assert.equal(read.usage ?? null, null, 'earlier usage cannot describe the appended prompt')
   await cold.dispose(); cold = undefined
   const db = new TranscriptDatabase(join(dir, 'sessions.sqlite'))
   try {
@@ -341,7 +343,9 @@ for (const scenario of ['appended tail', 'same turn tail', 'source facts', 'spli
     if (scenario === 'source facts') assert.deepEqual([stored.turns[0]?.status, stored.turns[0]?.durationMs, stored.turns[0]?.diff], ['failed', 80, 'new diff'])
     if (scenario === 'same turn tail') { assert.equal(stored.turns[0]?.items[2]?.id, notice.id); assert.equal(stored.turns[0]?.durationMs, 300) }
     if (scenario === 'split facts') assert.deepEqual(stored.turns.map(t => [t.durationMs, t.diff]), [[100, 'first diff'], [200, 'split diff']])
-    if (scenario === 'stored usage' || scenario === 'source usage') assert.deepEqual(stored.usage, scenario === 'stored usage' ? usage : freshUsage)
+    if (scenario === 'same turn tool') assert.equal(stored.turns[0]?.items.some(item => item.id === tool.id), true)
+    if (scenario === 'same turn tail' || scenario === 'same turn silent' || scenario === 'same turn tool') assert.equal(stored.usage ?? null, null, 'stale usage is not persisted')
+    if (scenario === 'stored usage' || scenario === 'source usage' || scenario === 'same turn source usage' || scenario === 'same turn silent source usage') assert.deepEqual(stored.usage, scenario === 'stored usage' ? usage : freshUsage)
   } finally { db.close() }
 })
 
@@ -357,6 +361,14 @@ test('reconciled store read restores usage only while the same final turn remain
   assert.deepEqual((await store.enrich(replay)).usage, usage)
   const current = { ...usage, contextUsed: 200 }
   assert.deepEqual((await store.enrich({ ...replay, usage: current })).usage, current)
+  const sameTurnAdvanced = { ...replay, turns: [turn('one', [...replay.turns[0]!.items, message('next', 'later', 'user'), message('next-a', 'new answer', 'assistant')])] }
+  assert.equal((await store.enrich(sameTurnAdvanced)).usage ?? null, null, 'same turn ID does not make older usage current')
+  assert.deepEqual((await store.enrich({ ...sameTurnAdvanced, usage: current })).usage, current)
+  const tool: AgentItem = { id: itemId('tool'), type: 'toolCall', tool: 'read', source: { kind: 'builtin' }, status: 'completed', args: {}, result: [{ type: 'text', text: 'synthetic result' }] }
+  const toolAdvanced = { ...replay, turns: [turn('one', [...replay.turns[0]!.items, tool])] }
+  const enrichedTool = await store.enrich(toolAdvanced)
+  assert.equal(enrichedTool.usage ?? null, null, 'a non-prose source item also advances the context')
+  assert.equal(enrichedTool.turns[0]?.items.some(item => item.id === tool.id), true)
   const advanced = { ...replay, turns: [...replay.turns, turn('two', [message('next', 'later', 'user')])] }
   assert.equal((await store.enrich(advanced)).usage, null, 'old usage does not describe the later turn')
 })
