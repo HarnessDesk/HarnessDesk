@@ -63,27 +63,36 @@ const trailing = (text: string, start: number, end: number): boolean => {
 /** Where a run of JSON-shaped text that opens at `start` stops: just past the brace that balances it, at the first
  * character JSON could not hold there (a word, a backtick, "nullable"), or at a line break inside a string, which no
  * JSON string holds. With `multiline` it goes on past a line break only when the next line carries on as JSON, its
- * first character a quote, brace or bracket; a prose line after it ends it at the break. Without, it stops at the end
- * of the line. String-aware. */
+ * next token a key, a matching close, or a value where one is expected; a prose line ends it at the break. Without,
+ * it stops at the end of the line. String-aware. */
 const jsonEnd = (text: string, start: number, multiline: boolean): number => {
-  let depth = 0, quoted = false, escaped = false, index = start
+  const containers: string[] = []
+  let previous = '', quoted = false, escaped = false, index = start
   for (; index < text.length; index++) {
     const char = text[index]!
     if (char === '\n' || char === '\r') {
-      if (quoted || !multiline || !/^\s*["{[\]}]/.test(text.slice(index))) return index
+      const next = text.slice(index).replace(/^[\r\n \t]*/, '')
+      const top = containers.at(-1)
+      const key = /^"(?:[^"\\\r\n]|\\.)*"[ \t]*:/.test(next)
+      const close = next[0] === (top === '{' ? '}' : ']') && top !== undefined
+      const value = previous === ':' || top === '[' && (previous === '[' || previous === ',')
+      const citation = /^\[\d+\][ \t]+[^\s,}\]]/.test(next)
+      const valueToken = !citation && (/^[{[]/.test(next) || /^"(?:[^"\\\r\n]|\\.)*(?:"(?=[ \t]*(?:[,}\]]|\r|\n|$))|(?=\r|\n|$))/.test(next))
+      if (quoted || !multiline || !(key || close || value && valueToken)) return index
       continue
     }
     if (quoted) {
       if (escaped) escaped = false
       else if (char === '\\') escaped = true
-      else if (char === '"') quoted = false
+      else if (char === '"') { quoted = false; previous = '"' }
       continue
     }
     if (char === '"') quoted = true
-    else if (char === '{' || char === '[') depth++
-    else if (char === '}' || char === ']') { if (--depth <= 0) return index + 1 }
+    else if (char === '{' || char === '[') containers.push(char)
+    else if (char === '}' || char === ']') { containers.pop(); if (containers.length === 0) return index + 1 }
     else if (/^(?:true|false|null)(?![\p{L}\p{N}_])/u.test(text.slice(index, index + 6))) index += text[index] === 'f' ? 4 : 3
     else if (!/[ \t:,0-9.eE+-]/.test(char)) return index
+    if (!/[ \t]/.test(char)) previous = char
   }
   return index
 }
