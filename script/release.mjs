@@ -8,8 +8,9 @@
  * that are pure mechanics and worth getting byte-identical every time:
  * listing what a changelog pass needs to cover, bumping the two versions
  * that matter, pointing the site demo at the new download, computing
- * checksums, and re-proving a signed artifact the same way a person reading
- * the release notes would.
+ * checksums, re-proving a signed artifact the same way a person reading
+ * the release notes would, and booting the app inside each artifact before
+ * anything is published.
  *
  * Usage:
  *   node script/release.mjs gap [<since-tag>]
@@ -30,7 +31,20 @@
  *   node script/release.mjs verify-artifacts [<dir>]
  *     Check SHA256SUMS.txt, then run `xcrun stapler validate` and
  *     `spctl --assess` on every .dmg in <dir>. Exits non-zero on the first
- *     one that doesn't say "Notarized Developer ID".
+ *     one that doesn't say "Notarized Developer ID". Each DMG is then mounted
+ *     read-only: its app must carry Contents/Resources/ui/index.html and say
+ *     the version packages/desktop/package.json says, and its iOS helper is
+ *     inspected (see docs/release.md).
+ *
+ *   node script/release.mjs smoke-artifacts [<dir>] [--allow-skip]
+ *     The launch gate. Mount every .dmg in <dir> read-only and run
+ *     packages/desktop/script/smoke-packaged.mjs against the HarnessDesk.app
+ *     inside it. A DMG this Mac cannot run (x64 without Rosetta on Apple
+ *     silicon) is not smoked and is listed as NOT SMOKED; that fails the
+ *     command unless --allow-skip is given. Any failed smoke, an interruption,
+ *     or no DMG smoked at all always fails it. SIGINT or SIGTERM stops the
+ *     smoke and detaches the volume before exiting. verify-artifacts proves
+ *     signing; this proves the app starts.
  */
 
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -39,6 +53,8 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { withIosReleaseMount } from './ios-release-mount.mjs'
+import { smokeArtifacts, smokeVerdict } from './smoke-artifacts.mjs'
+import { verifyAppContents } from './verify-app-contents.mjs'
 import { verifyIosArtifact } from './verify-ios-artifact.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -160,6 +176,7 @@ const verifyArtifacts = dirArg => {
   const dir = resolve(root, dirArg ?? 'packages/desktop/release')
   const dmgs = readdirSync(dir).filter(f => f.endsWith('.dmg')).sort()
   if (dmgs.length === 0) fail(`no .dmg files in ${dir}`)
+  const version = JSON.parse(readFileSync(join(root, 'packages/desktop/package.json'), 'utf8')).version
 
   const shasum = runCaptured('shasum', ['-a', '256', '-c', 'SHA256SUMS.txt'], { cwd: dir })
   if (shasum.status !== 0) fail(`\nSHA256SUMS.txt does not match what is on disk in ${dir} — stop here.`)
@@ -186,8 +203,36 @@ const verifyArtifacts = dirArg => {
     )
     const arch = /-arm64\.dmg$/.test(dmg) ? 'arm64' : /-x64\.dmg$/.test(dmg) ? 'x64' : null
     if (!arch) fail(`${dmg}: the artifact name does not identify its architecture.`)
+    // One read-only mount per DMG for everything read from inside it: what the
+    // bundle holds first (a signature says nothing about that — 0.7.1 was
+    // notarized without its interface), then the iOS helper. Errors are thrown,
+    // not fail()ed, so the mount's cleanup runs before the process exits.
     const mount = mkdtempSync(join(dir, '.verify-ios-'))
-    withIosReleaseMount(join(dir, dmg), mount, () => verifyIosArtifact(join(mount, 'HarnessDesk.app'), arch), { run })
+    try {
+      withIosReleaseMount(join(dir, dmg), mount, () => {
+        const app = join(mount, 'HarnessDesk.app')
+        verifyAppContents(app, version)
+        console.log(`${dmg}: carries its interface and says version ${version}`)
+        verifyIosArtifact(app, arch)
+      }, { run })
+    } catch (error) {
+      fail(`\n${dmg}: ${error instanceof Error ? error.message : String(error)} Do not publish it.`)
+    }
+  }
+}
+
+const smokeArtifactsCommand = async args => {
+  const allowSkip = args.includes('--allow-skip')
+  const unknown = args.filter(arg => arg.startsWith('--') && arg !== '--allow-skip')
+  if (unknown.length > 0) fail(`smoke-artifacts: unknown option ${unknown.join(' ')}`)
+  const dir = resolve(root, args.find(arg => !arg.startsWith('--')) ?? 'packages/desktop/release')
+  const result = await smokeArtifacts(dir, { run })
+  if (result.dmgs.length === 0) fail(`no .dmg files in ${dir}`)
+  const { lines, problem, exitCode } = smokeVerdict(result, { allowSkip })
+  console.log(`\n=== smoke-artifacts\n${lines.join('\n')}`)
+  if (problem) {
+    console.error(`\n${problem}`)
+    process.exit(exitCode)
   }
 }
 
@@ -207,6 +252,9 @@ switch (command) {
   case 'verify-artifacts':
     verifyArtifacts(args[0])
     break
+  case 'smoke-artifacts':
+    await smokeArtifactsCommand(args)
+    break
   default:
-    fail('usage: node script/release.mjs <gap|bump|checksums|verify-artifacts> [args]\nSee docs/release.md for the full recipe.')
+    fail('usage: node script/release.mjs <gap|bump|checksums|verify-artifacts|smoke-artifacts> [args]\nSee docs/release.md for the full recipe.')
 }

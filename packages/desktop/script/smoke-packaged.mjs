@@ -29,12 +29,15 @@
  * owns it. The script refuses a port that already answers, so it can never
  * judge somebody else's Electron.
  */
-import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
 
+import { stopProcessesUnder } from '../../../script/mounted-processes.mjs'
+import { binaryArchs, runsTranslated } from '../../../script/smoke-artifacts.mjs'
+import { verifyAppInterface } from '../../../script/verify-app-contents.mjs'
 import { verifyIosHelperUniqueness } from '../../../script/verify-ios-artifact.mjs'
 import { LEAD_NODE, LEAD_NODE_RESOURCE } from '../electron/lead-runtime.mjs'
 
@@ -52,7 +55,9 @@ const fail = (message) => {
 }
 
 const appPath = (() => {
-  if (process.argv[2]) return process.argv[2]
+  // Absolute, so the app's own command line starts with the same path its
+  // helpers' do, and the leftover-process match below sees all of them.
+  if (process.argv[2]) return resolve(process.argv[2])
   const candidates = ['release/mac-arm64', 'release/mac', 'release/mac-x64'].map((dir) =>
     join(here, '..', dir, 'HarnessDesk.app'),
   )
@@ -64,11 +69,35 @@ if (!existsSync(binary)) {
   process.exit(1)
 }
 
+// Without its interface the app stops at a modal "HarnessDesk is incomplete"
+// that never exits, which would read here as a five-minute "no renderer page".
+try { verifyAppInterface(appPath) }
+catch (error) { fail(error.message); process.exit(1) }
+console.log('smoke: the interface is bundled')
+
+// Rosetta translates an x86_64 binary on its first launch from a new place —
+// measured at 9.1s for the bundled Lead Node on a freshly mounted DMG, 0.07s
+// after — so a check that gives such a binary a few seconds is a coin toss on
+// Apple silicon. Each one is started once, with time to spare, before it is
+// timed. A native binary is not touched; the product's own timeouts stay.
+const WARM_MS = 120_000
+const warmIfTranslated = (path, args, label) => {
+  if (!runsTranslated(binaryArchs(path))) return
+  const started = Date.now()
+  const warmed = spawnSync(path, args, { stdio: 'ignore', timeout: WARM_MS })
+  if (warmed.status !== 0) {
+    throw new Error(`the ${label} did not run under Rosetta within ${WARM_MS / 1000}s: ${warmed.error?.message ?? `exit ${warmed.status}`}`)
+  }
+  console.log(`smoke: warmed the x64 ${label} under Rosetta (${((Date.now() - started) / 1000).toFixed(1)}s)`)
+}
+
 // The actual bundled native executable, independent of a booted simulator or account.
 let iosHelper
 try { iosHelper = verifyIosHelperUniqueness(appPath) }
 catch (error) { fail(error.message); process.exit(1) }
 console.log('smoke: bundled iOS input helper is unique')
+try { warmIfTranslated(iosHelper, ['--version'], 'iOS input helper') }
+catch (error) { fail(error.message); process.exit(1) }
 const iosVersion = spawnSync(iosHelper, ['--version'], { encoding: 'utf8', timeout: 5000 })
 if (iosVersion.status !== 0) { fail('the bundled iOS input helper could not report its version'); process.exit(1) }
 try {
@@ -285,6 +314,8 @@ try {
     }
   }
   console.log(`smoke: ok — the Lead's Node ${LEAD_NODE.version} is on disk, executable and signed with the app (team ${app.team})`)
+  // Before the probe and the restricted child below, which give it 10s each.
+  warmIfTranslated(leadNode, ['-e', '0'], 'Lead Node')
 
   const leadModule = [
     'Contents/Resources/app.asar.unpacked/node_modules/@harnessdesk/lead/dist/src/supervisor.js',
@@ -333,6 +364,30 @@ try {
       child.kill('SIGKILL')
       await waitForExit(3000)
     }
+  }
+  // The pid above is not the whole app. The shell answers an uncaught
+  // exception by relaunching itself (electron/crash-policy.mjs), and a
+  // relaunch is a new process with these same arguments that outlives the
+  // one spawned here. The x64 smoke of 0.7.1 left a HarnessDesk with these
+  // arguments running from the release volume after the spawned process had
+  // exited, which a SIGKILL'd pid cannot do and a relaunch does. Anything
+  // still running from this bundle is stopped, matched by the path it was
+  // started from, so an installed copy elsewhere never is.
+  const left = await stopProcessesUnder(appPath, { label: 'smoke' })
+  // The shell writes these under HARNESSDESK_HOME, which is this smoke's own
+  // throwaway home, so read them before it is deleted.
+  const crashDir = join(home, 'logs', 'crashes')
+  const crashes = existsSync(crashDir) ? readdirSync(crashDir).sort() : []
+  for (const file of crashes) {
+    let record = {}
+    try { record = JSON.parse(readFileSync(join(crashDir, file), 'utf8')) } catch { /* reported by name alone */ }
+    console.error(`smoke: the shell recorded ${record.kind ?? 'a crash'}${record.platform ? ` (${record.platform})` : ''}: ${String(record.message ?? file).slice(0, 500)}`)
+    if (record.stack) console.error(String(record.stack).split('\n').slice(1, 6).join('\n'))
+  }
+  if (existsSync(join(home, 'logs', 'last-relaunch'))) {
+    fail('the app relaunched itself after an uncaught exception during the smoke (logs/last-relaunch was written) — see the crash above')
+  } else if (left.length > 0) {
+    console.error(`smoke: ${left.length} process(es) were still running from ${appPath} after the app's own process exited, and were stopped`)
   }
   rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })

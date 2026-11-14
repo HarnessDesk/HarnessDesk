@@ -93,6 +93,7 @@ export const pathsIn = (markdown) =>
  */
 export const ALLOWED = new Map([
   ['.cursor-plugin/plugin.json', 'the plugin directory the Cursor bridge generates per chat, in a temp tree'],
+  ['Contents/Resources/ui/index.html', "the interface inside a packaged HarnessDesk.app, which the release checks require — not a file in this tree"],
   ['archify/assets/template.html', 'upstream Archify, quoted at a pinned commit — not vendored here'],
   ['docs/built.md', "a maintainer's working file under the gitignored internal/, as the sentence naming it says"],
   ['lead/work.json', "the Lead's work ledger in the desk's state folder, written at run time, not a file in this tree"],
