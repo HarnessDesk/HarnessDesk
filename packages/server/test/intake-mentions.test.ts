@@ -1002,6 +1002,35 @@ test('#2070 R1: an expired or failed thread read holds the firing until the next
   await until(() => delivered.includes(`trigger-${firing}`) ? true : null, 'a fresh successful read permits the waiting firing')
 })
 
+test('#2070: resumed work on an evicted pending thread attaches its new goal and stays deduplicated after restart', async () => {
+  const home = tempDir('hd-intake-pending-resume-')
+  const first = 'a'.repeat(64), resumed = 'b'.repeat(64)
+  const thread = { id: 'w-pending', trigger: 'ask', project: '/fixture', repository: 'acme/widgets',
+    origin: { kind: 'issue' as const, number: 1 }, links: { issues: [1], pulls: [], goals: ['goal-first'] }, state: 'open', closed: null,
+    resumes: 0, observations: 0, openedAt: 0, firings: [first], pendingFirings: [first], seen: [], workItem: 'work-fixture' }
+  await writeFile(join(home, LEDGER), JSON.stringify({ version: 1, decisions: [], threads: [], pendingThreads: [thread], modes: {}, assessed: { day: '', count: 0 } }))
+  const pending = new Set([first]), attachments: string[][] = []
+  const port = { home, forge: {}, assess: null, leadName: () => 'dex', pendingFirings: () => [...pending], knowsFirings: () => true,
+    observationWindowMs: 300_000, now: () => 1000, signal: new AbortController().signal, changed() {}, log() {},
+    workItems: { attach: async (_origin: unknown, links: { goals: readonly string[] }) => { attachments.push([...links.goals]); return 'work-fixture' } },
+  } as any
+  const arm = { project: '/fixture', id: 'ask', definition: parseTriggers(ASK()).definitions[0]!, baseline: 0, armedAt: 0,
+    binding: { project: '/fixture', incarnation: 'fixture', source: 'fixture', closure: 'fixture', account: '7', repository: 'acme/widgets' } }
+  const fact = { source: 'mention' as const, project: '/fixture', repository: 'acme/widgets', subject: '1', event: 'commented', action: 'commented' as const,
+    head: null, fork: false, title: 'Fixture', trigger: null,
+    at: 1000, author: '7', login: 'jane-doe', body: '@dex please fix the docs too', url: 'https://github.com/acme/widgets/issues/1#issuecomment-9001' }
+  const triage = new MentionTriage(port)
+  await triage.setMode(arm, 'act')
+  await triage.judge(arm, fact, async () => { pending.add(resumed); return { outcome: 'fired', firing: resumed, goal: 'goal-resumed', reason: null } })
+  const saved = JSON.parse(await readFile(join(home, LEDGER), 'utf8'))
+  assert.deepEqual(saved.threads, [], 'resuming does not restore evicted display history')
+  assert.deepEqual(saved.pendingThreads[0].links.goals, ['goal-first', 'goal-resumed'], 'the new goal is durable')
+  assert.deepEqual(attachments, [['goal-first', 'goal-resumed']], 'the existing work item receives the resumed goal immediately')
+  const restarted = new MentionTriage(port)
+  await restarted.judge(arm, fact, async () => { throw new Error('a seen comment must not be readmitted') })
+  assert.equal(attachments.length, 1, 'replay neither admits nor attaches duplicate work')
+})
+
 test('#2070 R1: the bounded sweep rotates pending authority and expires deferred observations', async t => {
   const home = tempDir('hd-intake-pending-rotation-')
   const keys = Array.from({ length: 257 }, (_, i) => (i + 1).toString(16).padStart(64, '0'))

@@ -537,7 +537,8 @@ export class MentionTriage {
             goals: answer.goal && !one.links.goals.includes(answer.goal) ? [...one.links.goals, answer.goal] : one.links.goals,
           },
         }))
-        const resumed = (await this.#read()).threads.find((one) => one.id === linked.id)
+        ledger = await this.#read()
+        const resumed = [...ledger.threads, ...ledger.pendingThreads].find((one) => one.id === linked.id)
         if (resumed) await this.#attach(resumed)
         this.#port.changed(arm.project)
         return
