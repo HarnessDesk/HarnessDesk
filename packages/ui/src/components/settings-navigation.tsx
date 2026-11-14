@@ -35,7 +35,7 @@ const LEAD_KEYWORDS: readonly string[] = [
 const MOBILE_KEYWORDS: readonly string[] = [
   'feature', 'features', 'enable mobile', 'disable mobile', 'enable phone', 'disable phone',
   'enabling mobile', 'disabling mobile', 'enabling phone', 'disabling phone', 'turn on mobile', 'turn off mobile',
-  'nearby phone', 'nearby mobile', 'phone', 'pair', 'qr', 'code', 'mobile', 'devices', 'allow', 'remove',
+  'nearby phone', 'nearby mobile', 'phone', 'pair', 'pairing', 'qr', 'code', 'mobile', 'devices', 'allow', 'remove',
   'linked phones', 'reachable', 'relay', 'account',
 ]
 export const settingsGroups = (snapshot: AppSnapshot, runtime: RuntimeInfo): readonly SettingsNavGroup[] => {

@@ -172,14 +172,16 @@ test('feature search finds disabled services by enablement and nearby-phone lang
     <SettingsNavigation section="general" onSection={vi.fn()} onBack={vi.fn()} />
   </StoreProvider>))
   const matches = () => [...container.querySelectorAll<HTMLButtonElement>('[data-left-settings-list] [data-left-row] button')].map(button => button.getAttribute('aria-label'))
-  for (const query of ['enable', 'disable', 'features']) {
+  for (const query of ['enable', 'disable', 'feature', 'features']) {
     filter(query)
     expect(matches(), query).toEqual(['Lead', 'Mobile'])
   }
-  for (const query of ['nearby', 'enable phone', 'disable mobile']) {
+  for (const query of ['mobile', 'nearby', 'relay', 'pairing', 'enable phone', 'disable mobile']) {
     filter(query)
     expect(matches(), query).toEqual(['Mobile'])
   }
+  filter('phone')
+  expect(matches()).toContain('Mobile')
   filter('enable lead')
   expect(matches()).toEqual(['Lead'])
 })
