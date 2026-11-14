@@ -36,13 +36,15 @@
  *     the version packages/desktop/package.json says, and its iOS helper is
  *     inspected (see docs/release.md).
  *
- *   node script/release.mjs smoke-artifacts [<dir>]
+ *   node script/release.mjs smoke-artifacts [<dir>] [--allow-skip]
  *     The launch gate. Mount every .dmg in <dir> read-only and run
  *     packages/desktop/script/smoke-packaged.mjs against the HarnessDesk.app
- *     inside it. Exits non-zero if any smoke fails, or if no DMG could be
- *     smoked here. An x64 DMG on an Apple-silicon Mac without Rosetta is
- *     skipped with the reason printed. verify-artifacts proves signing; this
- *     proves the app starts.
+ *     inside it. A DMG this Mac cannot run (x64 without Rosetta on Apple
+ *     silicon) is not smoked and is listed as NOT SMOKED; that fails the
+ *     command unless --allow-skip is given. Any failed smoke, an interruption,
+ *     or no DMG smoked at all always fails it. SIGINT or SIGTERM stops the
+ *     smoke and detaches the volume before exiting. verify-artifacts proves
+ *     signing; this proves the app starts.
  */
 
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -51,7 +53,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { withIosReleaseMount } from './ios-release-mount.mjs'
-import { smokeArtifacts } from './smoke-artifacts.mjs'
+import { smokeArtifacts, smokeVerdict } from './smoke-artifacts.mjs'
 import { verifyAppContents } from './verify-app-contents.mjs'
 import { verifyIosArtifact } from './verify-ios-artifact.mjs'
 
@@ -219,16 +221,19 @@ const verifyArtifacts = dirArg => {
   }
 }
 
-const smokeArtifactsCommand = dirArg => {
-  const dir = resolve(root, dirArg ?? 'packages/desktop/release')
-  const { dmgs, passed, failed, skipped } = smokeArtifacts(dir, { run })
-  if (dmgs.length === 0) fail(`no .dmg files in ${dir}`)
-  console.log('\n=== smoke-artifacts')
-  for (const dmg of passed) console.log(`  passed   ${dmg}`)
-  for (const { dmg, reason } of skipped) console.log(`  skipped  ${dmg}: ${reason}`)
-  for (const { dmg, reason } of failed) console.log(`  FAILED   ${dmg}: ${reason}`)
-  if (failed.length > 0) fail(`\n${failed.length} artifact(s) did not pass the packaged smoke — do not publish them.`)
-  if (passed.length === 0) fail('\nNo artifact could be smoked on this Mac, so nothing is proven to start — do not publish.')
+const smokeArtifactsCommand = async args => {
+  const allowSkip = args.includes('--allow-skip')
+  const unknown = args.filter(arg => arg.startsWith('--') && arg !== '--allow-skip')
+  if (unknown.length > 0) fail(`smoke-artifacts: unknown option ${unknown.join(' ')}`)
+  const dir = resolve(root, args.find(arg => !arg.startsWith('--')) ?? 'packages/desktop/release')
+  const result = await smokeArtifacts(dir, { run })
+  if (result.dmgs.length === 0) fail(`no .dmg files in ${dir}`)
+  const { lines, problem, exitCode } = smokeVerdict(result, { allowSkip })
+  console.log(`\n=== smoke-artifacts\n${lines.join('\n')}`)
+  if (problem) {
+    console.error(`\n${problem}`)
+    process.exit(exitCode)
+  }
 }
 
 const [, , command, ...args] = process.argv
@@ -248,7 +253,7 @@ switch (command) {
     verifyArtifacts(args[0])
     break
   case 'smoke-artifacts':
-    smokeArtifactsCommand(args[0])
+    await smokeArtifactsCommand(args)
     break
   default:
     fail('usage: node script/release.mjs <gap|bump|checksums|verify-artifacts|smoke-artifacts> [args]\nSee docs/release.md for the full recipe.')

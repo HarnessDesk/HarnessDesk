@@ -282,11 +282,25 @@ launch gate. It mounts each DMG read-only and runs
 `packages/desktop/script/smoke-packaged.mjs` against the `HarnessDesk.app`
 inside it — the app boots with a throwaway home, and the smoke reads the agent
 catalogue through the real renderer, runs the bundled command line and probes
-the Lead's Node. An x64 DMG on an Apple-silicon Mac without Rosetta is skipped
-with the reason printed; the command fails if any smoke fails or if no DMG
-could be smoked at all. The first launch of a freshly signed app can sit in
+the Lead's Node. The first launch of a freshly signed app can sit in
 Gatekeeper's scan for minutes, so allow it. **Nothing is published until
 `smoke-artifacts` passes.**
+
+A DMG this Mac cannot run — the x64 one on an Apple-silicon Mac without
+Rosetta (`softwareupdate --install-rosetta`) — is not smoked, and the summary
+names it as `NOT SMOKED: <dmg> (<reason>)`. That fails the command: an
+artifact nobody started is not proven to start. Smoke it on a Mac that can run
+it, or, deciding that the other architecture's pass is enough, rerun with
+`node script/release.mjs smoke-artifacts --allow-skip`, which passes with the
+same `NOT SMOKED` line printed. A failed smoke, or no DMG smoked at all, fails
+it either way.
+
+Ctrl-C (SIGINT) or SIGTERM stops the running smoke and the app it launched,
+detaches the volume and exits non-zero. If a run was killed outright and left
+a volume behind, `hdiutil info` lists it (its mount point is a `.smoke-*` or
+`.verify-ios-*` folder under `packages/desktop/release`); quit any HarnessDesk
+still running from it, then `hdiutil detach <mount point>` (add `-force` if
+it refuses) and remove the empty folder.
 
 ## 6. Write the release notes and publish
 
@@ -323,14 +337,17 @@ The release starts as a draft, which no installed app sees. Download one DMG
 from the draft and check it against `SHA256SUMS.txt` before anyone else can:
 
 ```
-gh release download v<version> --dir ../draft-check \
-  --pattern 'HarnessDesk-<version>-arm64.dmg' --pattern SHA256SUMS.txt
-(cd ../draft-check && shasum -a 256 -c SHA256SUMS.txt --ignore-missing)
+gh release download v<version> --repo HarnessDesk/HarnessDesk --dir ../draft-check \
+  --pattern '*-arm64.dmg' --pattern SHA256SUMS.txt
+(cd ../draft-check && grep 'arm64.dmg$' SHA256SUMS.txt | shasum -a 256 -c)
 rm -r ../draft-check
 ```
 
-`--ignore-missing` because only one DMG was downloaded; the line it checks
-must still say `OK`.
+Only the downloaded DMG's line is checked, and it must say `OK`. A draft is
+visible only to an authenticated `gh` with push access to the repository,
+which finds it by the tag it will get; if `gh` answers `release not found`,
+`gh release list --repo HarnessDesk/HarnessDesk` shows whether the draft
+exists.
 
 That proves the uploaded bytes are the ones step 5 verified and smoked. Then
 publish it, and confirm GitHub now names it as the latest release:
@@ -359,7 +376,22 @@ gh release edit v<version> --prerelease --latest=false
 ```
 
 That stops auto-update from offering it at once, and every download link
-keeps working, so a page or a post that points at it does not break. Then:
+keeps working, so a page or a post that points at it does not break.
+
+It does nothing for anyone who already installed the broken build, and
+neither does anything that follows: auto-update cannot reach them. A build
+like 0.7.1 quits at the missing-interface check in
+`packages/desktop/electron/main.mjs` before `attachAppUpdates` ever runs, and
+even an app that does run its updater would not be offered the same version
+it already has. They have to download again by hand, so say so wherever the
+release was announced.
+
+Which repair to make follows from who has it. When the broken build was public
+only briefly and few if any people installed it, rebuild and re-upload the
+same version, below. When people are likely to have it installed and the
+broken app can still run its updater, cut a new patch version through the
+whole recipe instead — that is the only thing their updater will offer them —
+and leave this release as a prerelease. To re-upload:
 
 1. Move the bad artifacts out of `packages/desktop/release`, so nothing from
    them can be uploaded again by mistake.
@@ -411,8 +443,9 @@ without full Xcode warn and stay usable. Packaging requires a successful build
 for its selected architecture. `packages/desktop/script/before-pack.mjs` also preserves the
 existing pinned Lead runtime preparation. `HARNESSDESK_NO_DOWNLOADS=1` refuses
 packing if that verified Lead cache is absent. Last, it refuses packing when any
-`build.extraResources` source is missing or an empty directory, or when
-`packages/ui/dist/index.html` is absent (step 4 says why).
+`build.extraResources` source is missing or an empty directory, holds none of
+the literal paths its `filter` names, or when `packages/ui/dist/index.html` is
+absent (step 4 says why).
 
 The resource is `Contents/Resources/native/ios/hd-ios-control`, listed in
 `build.mac.binaries` so the normal release signs it with the app identity and
