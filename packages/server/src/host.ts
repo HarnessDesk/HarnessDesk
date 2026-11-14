@@ -5318,8 +5318,19 @@ export class Host {
   // ------------------------------------------------------------------ methods
 
   async call<M extends HostMethodName>(method: M, params: HostParams<M>): Promise<HostResult<M>> {
-    if (method.startsWith('lead/') && (this.#features.read().problem || !this.#features.read().lead || !this.#leadEnabled || !this.#leadReady || this.#disposed)) throw leadRefusal('lead-unavailable')
-    if (method.startsWith('lead/')) return this.#leadLifetime!.track(() => this.#call(method, params))
+    if (method.startsWith('lead/')) {
+      const features = this.#features.read()
+      if (!features.problem && features.lead && this.#leadEnabled && this.#leadReady && !this.#disposed)
+        return this.#leadLifetime!.track(() => this.#call(method, params))
+      // These are desk views, independent of the optional Lead's owners. Their
+      // passive handlers must remain usable by the bell and allowance surfaces.
+      const passive = method === 'lead/usage/summary' || method === 'lead/desk/summary' || method === 'lead/inbox/read'
+      // The existing disabled controls contract is an empty list, including
+      // mutations that have nothing to control. Never reach a live store here.
+      const emptyControl = (!this.#leadEnabled || this.#disposed) &&
+        (method === 'lead/chats/control' || method === 'lead/chats/resetControl' || method === 'lead/chat/takeOver' || method === 'lead/chat/handBack')
+      if (!passive && !emptyControl) throw leadRefusal('lead-unavailable')
+    }
     return this.#call(method, params)
   }
 
@@ -12447,7 +12458,8 @@ export class Host {
   /** One inbox for the bell, the phone and the Work list: the Lead's window, the desk's needs-you work, the kept notices. */
   async #leadInboxRead(summary?: LeadDeskSummary): Promise<LeadInbox> {
     return leadInbox({
-      window: await this.#leadWindow().then(window => window.readThread()).catch(() => null),
+      window: this.#leadEnabled && this.#leadReady && !this.#disposed && !this.#features.read().problem
+        ? await this.#leadWindow().then(window => window.readThread()).catch(() => null) : null,
       desk: summary ?? await this.#phoneWorkspaceView().deskSummary({ limit: 20 }).catch(() => null),
       kept: this.#currentNotices(), now: Date.now(), askSeenAt: id => this.#leadPresence?.askSeenAt(id),
       ask: this.#leadPresence?.openAsk() ?? null,

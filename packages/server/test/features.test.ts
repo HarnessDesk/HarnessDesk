@@ -12,6 +12,53 @@ import { tempDir } from './scratch.js'
 const read = 'app/features/read' as const
 const set = 'app/features/set' as const
 
+for (const state of ['off', 'preferences damaged', 'transition interrupted'] as const) test(`passive desk reads stay available with Lead ${state} without creating its owners`, async t => {
+  const home = tempDir('hd-feature-passive-')
+  if (state === 'preferences damaged') await fs.writeFile(join(home, 'features.json'), '{damaged')
+  if (state === 'transition interrupted') await fs.writeFile(join(home, 'features.json'), JSON.stringify({ pending: { previous: { lead: true, mobile: false }, feature: 'lead', enabled: false } }))
+  const desk = await start({ catalogRefreshMs: 0 }, home)
+  t.after(() => halt(desk))
+  let creations = 0
+  t.mock.method(desk.host, 'createLeadService', () => { creations++; throw new Error('passive read started Lead') })
+  const leadFiles = async () => (await fs.readdir(home)).filter(name => name.startsWith('lead'))
+  const before = await leadFiles()
+  assert.deepEqual((await desk.host.call('lead/usage/summary', {})).accounts, [])
+  await desk.host.call('lead/desk/summary', {})
+  await desk.host.call('lead/inbox/read', {})
+  for (const method of ['lead/chats/resetControl', 'lead/chats/control', 'lead/chat/takeOver', 'lead/chat/handBack'] as const)
+    assert.deepEqual(await desk.host.call(method, { id: 'fixture:s1' } as never), { project: null, chats: [] })
+  for (const method of ['lead/thread/read', 'lead/thread/send', 'lead/chat/start', 'lead/chat/send', 'lead/settings/update', 'lead/repeat/control'] as const)
+    await assert.rejects(desk.host.call(method, {} as never), /lead-unavailable/)
+  assert.equal(creations, 0)
+  assert.deepEqual(await leadFiles(), before, 'passive reads create no Lead files or lease')
+})
+
+test('Lead Off drains an admitted passive inbox read before closing its owners', async t => {
+  const { LeadControls } = await import('../src/lead/controls.js')
+  const { LeadLifetime } = await import('../src/lead/lifetime.js')
+  const desk = await start({ catalogRefreshMs: 0 }, tempDir('hd-feature-passive-drain-'))
+  t.after(() => halt(desk))
+  await desk.host.call('workspace/open', { path: desk.stateDir })
+  await desk.host.call(set, { feature: 'lead', enabled: true })
+  await desk.host.call('lead/thread/read', {})
+  let entered!: () => void, release!: () => void
+  const inside = new Promise<void>(resolve => { entered = resolve }), held = new Promise<void>(resolve => { release = resolve })
+  t.after(() => release())
+  const readThread = LeadControls.prototype.readThread
+  t.mock.method(LeadControls.prototype, 'readThread', async function(this: InstanceType<typeof LeadControls>) { entered(); await held; return readThread.call(this) })
+  const reading = desk.host.call('lead/inbox/read', {}); await inside
+  let draining!: () => void
+  const atDrain = new Promise<void>(resolve => { draining = resolve }), drain = LeadLifetime.prototype.drain
+  t.mock.method(LeadLifetime.prototype, 'drain', function(this: InstanceType<typeof LeadLifetime>) { draining(); return drain.call(this) })
+  let disabled = false
+  const disabling = desk.host.call(set, { feature: 'lead', enabled: false }).then(() => { disabled = true })
+  await atDrain
+  assert.equal(disabled, false)
+  await assert.rejects(desk.host.call('lead/thread/send', {} as never), /lead-unavailable/)
+  release(); await reading; await disabling
+  assert.equal(disabled, true)
+})
+
 test('features toggle live, notify another client and persist explicit false over launch defaults', async t => {
   const home = tempDir('hd-features-')
   let desk = await start({ catalogRefreshMs: 0 }, home)
