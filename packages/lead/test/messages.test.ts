@@ -751,6 +751,41 @@ test('#2081 R4: complete wrapped JSON primitives stay inside a clipped envelope'
   }
 })
 
+test('#2081 R5: comma prose remains whole after a clipped value', () => {
+  for (const prose of ['1,000 users saw this', 'true, but only sometimes', '"quoted", said the worker', '1, 2, 3 more prose', 'false, then continue']) {
+    for (const opening of ['{"type":"lead-output","text":', '{"type":"lead-output","refs":[']) {
+      assert.deepEqual(lead.stripLeadOutput(`Worker said:\n${opening}\n${prose}`),
+        { text: `Worker said:\n${prose}`, dropped: true }, `${opening} ${prose}`)
+    }
+  }
+})
+
+test('#2081 R5: whole continuation lines distinguish JSON prefixes from prose', () => {
+  for (const [opening, continuation] of [
+    ['{"type":"lead-output","refs":[', '1, 2, 3'],
+    ['{"type":"lead-output","refs":[', 'true, false, null'],
+    ['{"type":"lead-output","text":', '[1,2,3],'],
+    ['{"type":"lead-output","refs":[', '"one", "two",'],
+    ['{"type":"lead-output","refs":[', '{"id":"x", "next": [1, 2'],
+    ['{"type":"lead-output",', '"refs": [1, 2], "text": "hidden",'],
+    ['{"type":"lead-output",', '"ask": {"question": "hidden", "opti'],
+    ['{"type":"lead-output","text":', '"incomplete value'],
+    ['{"type":"lead-output","refs":[', '-1.25e+3, null,'],
+  ] as const) {
+    assert.deepEqual(lead.stripLeadOutput(`Worker said:\n${opening}\n${continuation}\nDone.`),
+      { text: 'Worker said:\nDone.', dropped: true }, continuation)
+  }
+  for (const prose of ['1, 2, 3 more prose', '1,000 users saw this', 'true, but only sometimes', '"quoted", said the worker', 'false, then continue', 'null, not applicable', '[1,2,3] more people arrived', '1,] more text', '1. First step', 'trueword', 'nullable', '[1]: see the docs']) {
+    assert.deepEqual(lead.stripLeadOutput(`Worker said:\n{"type":"lead-output","refs":[\n${prose}`),
+      { text: `Worker said:\n${prose}`, dropped: true }, prose)
+  }
+})
+
+test('#2081 R5: a wrapped JSON separator stays with its surrounding values', () => {
+  assert.deepEqual(lead.stripLeadOutput('Before.\n{"type":"lead-output", "refs": [\n{"id":1}\n,\n{"id":2}\nAfter.'),
+    { text: 'Before.\nAfter.', dropped: true })
+})
+
 test('#2081: wrapped JSON continuations stay with a clipped envelope', () => {
   for (const fragment of [
     '{"version":1,"type":"lead-output",\n  "text": "hidden",',

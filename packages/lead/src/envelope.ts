@@ -60,6 +60,59 @@ const trailing = (text: string, start: number, end: number): boolean => {
   return (before.match(/```/g)?.length ?? 0) % 2 === 0
 }
 
+/** A continuation must be a JSON prefix through the whole line, not just begin like one. */
+const continuationLine = (text: string, containers: readonly string[], previous: string): boolean => {
+  type State = 'key' | 'keyOrEnd' | 'value' | 'valueOrEnd' | 'colon' | 'after'
+  const stack = containers.map(kind => ({ kind, state: 'after' as State }))
+  const top = stack.at(-1)
+  if (!top) return false
+  top.state = previous === ':' ? 'value' : top.kind === '[' && previous === '[' ? 'valueOrEnd'
+    : top.kind === '[' && previous === ',' ? 'value' : top.kind === '{' && previous === '{' ? 'keyOrEnd'
+      : top.kind === '{' && previous === ',' ? 'key' : 'after'
+  const line = text.split(/[\r\n]/, 1)[0]!
+  let i = 0
+  while (i < line.length) {
+    if (/[ \t]/.test(line[i]!)) { i++; continue }
+    const frame = stack.at(-1)
+    if (!frame) return false
+    const char = line[i]!
+    if ((char === '}' && frame.kind === '{' || char === ']' && frame.kind === '[') &&
+        (frame.state === 'after' || frame.state === 'keyOrEnd' || frame.state === 'valueOrEnd')) {
+      stack.pop(); i++; continue
+    }
+    if (frame.state === 'colon') { if (char !== ':') return false; frame.state = 'value'; i++; continue }
+    if (frame.state === 'after') { if (char !== ',') return false; frame.state = frame.kind === '{' ? 'key' : 'value'; i++; continue }
+    if (char === '"') {
+      let closed = false
+      i++
+      while (i < line.length) {
+        const c = line[i++]!
+        if (c === '"') { closed = true; break }
+        if (c.charCodeAt(0) < 0x20) return false
+        if (c === '\\') {
+          if (i === line.length) return true
+          const escape = line[i++]!
+          if (escape === 'u') {
+            const digits = line.slice(i, i + 4)
+            if (!/^[0-9a-fA-F]{0,4}$/.test(digits)) return false
+            i += digits.length
+            if (digits.length < 4) return true
+          } else if (!'"\\/bfnrt'.includes(escape)) return false
+        }
+      }
+      if (!closed) return true
+      frame.state = frame.state === 'key' || frame.state === 'keyOrEnd' ? 'colon' : 'after'
+      continue
+    }
+    if (frame.state === 'key' || frame.state === 'keyOrEnd') return false
+    if (char === '{' || char === '[') { frame.state = 'after'; stack.push({ kind: char, state: char === '{' ? 'keyOrEnd' : 'valueOrEnd' }); i++; continue }
+    const token = /^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/.exec(line.slice(i))
+    if (!token) return false
+    i += token[0].length; frame.state = 'after'
+  }
+  return true
+}
+
 /** Where a run of JSON-shaped text that opens at `start` stops: just past the brace that balances it, at the first
  * character JSON could not hold there (a word, a backtick, "nullable"), or at a line break inside a string, which no
  * JSON string holds. With `multiline` it goes on past a line break only when the next line carries on as JSON, its
@@ -82,7 +135,7 @@ const jsonEnd = (text: string, start: number, multiline: boolean): number => {
       const citation = /^\[\d+\](?::|[ \t]+[^\s,}\]])/.test(next)
       const primitive = /^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=[ \t]*(?:[,}\]]|\r|\n|$))/.test(next)
       const valueToken = !citation && (/^[{[]/.test(next) || primitive || /^"(?:[^"\\\r\n]|\\.)*(?:"(?=[ \t]*(?:[,}\]]|\r|\n|$))|(?=\r|\n|$))/.test(next))
-      if (quoted || !multiline || !(key || clippedKey || close || value && valueToken)) return index
+      if (quoted || !multiline || !(key || clippedKey || close || next[0] === ',' || value && valueToken) || !continuationLine(next, containers, previous)) return index
       continue
     }
     if (quoted) {
