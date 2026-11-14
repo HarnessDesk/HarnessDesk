@@ -8657,6 +8657,7 @@ export class Host {
   #recordCarryOn(runtime: string, sessionId: string, item: CarryOnItem): boolean {
     const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
     if (!record) return false
+    if (record.session.turns.some(turn => turn.items.some(existing => existing.type === 'carryOn' && existing.id === item.id))) return true
     const turnId = [...record.running].at(-1) ?? record.session.turns.at(-1)?.id
     if (turnId === undefined) return false
     this.#onEvent(record.runtime, { type: 'item/completed', sessionId: record.session.id, turnId, item })

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { renameSync, writeFileSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
@@ -696,6 +697,74 @@ test('an admitted handoff whose markers could not be written yet settles moved a
   assert.deepEqual(phases(r), ['claude new-1 arrived', 'codex s1 left'])
   const left = r.marks.find(mark => mark.item.phase === 'left')!
   assert.deepEqual(left.item.link, { runtime: 'claude', sessionId: 'new-1' })
+  assert.equal((await disk(r.file)).records[0]!['unwritten'], undefined)
+})
+
+test('retry after the marker lands but its ledger clear fails keeps the same identity across restart', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  const transcript = new Map<string, CarryOnItem>()
+  let ready = false, barrier = true
+  const directory = join(r.file, '..'), backup = `${directory}-held`
+  const record: CarryOnPorts['record'] = (_runtime, _id, item) => {
+    if (!ready) return false
+    transcript.set(String(item.id), item)
+    if (barrier) {
+      barrier = false
+      renameSync(directory, backup)
+      writeFileSync(directory, 'block the ledger directory')
+    }
+    return true
+  }
+  const service = r.reopen({ record })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  ready = true
+  await assert.rejects(service.reachable('codex', 's1'))
+  assert.equal(transcript.size, 1, 'the marker landed before the ledger failed')
+  unlinkSync(directory); renameSync(backup, directory)
+  service.close()
+  const restarted = r.reopen({ record })
+  t.after(() => restarted.close())
+  await restarted.restore()
+  await restarted.reachable('codex', 's1')
+  assert.equal(transcript.size, 1, 'the retry refers to the marker already inserted')
+  await restarted.reachable('claude', 'new-1')
+  assert.equal(transcript.size, 2, 'the other marker has its own identity')
+  assert.equal((await disk(r.file)).records[0]!['unwritten'], undefined)
+})
+
+test('legacy waiting markers get durable distinct identities before either insert', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  const initially = r.reopen({ record: () => false })
+  await initially.ended('codex', 's1', LIMIT)
+  initially.close()
+  const saved = await disk(r.file)
+  const record = saved.records[0]!
+  const waiting = record['unwritten'] as Record<string, unknown>[]
+  const legacy = { ...waiting[0] }; delete legacy['id']
+  record['unwritten'] = [legacy, { ...legacy }]
+  await writeFile(r.file, JSON.stringify(saved))
+  const transcript = new Map<string, CarryOnItem>()
+  const attempts: string[] = []
+  let barrier = true
+  const directory = join(r.file, '..'), backup = `${directory}-held`
+  const service = r.reopen({ record: (_runtime, _id, item) => {
+    attempts.push(String(item.id)); transcript.set(String(item.id), item)
+    if (barrier) { barrier = false; renameSync(directory, backup); writeFileSync(directory, 'blocked') }
+    return true
+  } })
+  t.after(() => service.close())
+  await service.restore()
+  await assert.rejects(service.reachable('codex', 's1'))
+  unlinkSync(directory); renameSync(backup, directory)
+  const persisted = (await disk(r.file)).records[0]!['unwritten'] as { id: string }[]
+  assert.equal(new Set(persisted.map(one => one.id)).size, 2)
+  assert.ok(persisted.every(one => one.id))
+  service.close()
+  const restarted = r.reopen({ record: (_runtime, _id, item) => { transcript.set(String(item.id), item); return true } })
+  t.after(() => restarted.close())
+  await restarted.restore(); await restarted.reachable('codex', 's1')
+  assert.equal(transcript.size, 2, 'two equal-looking markers remain distinct across retry')
   assert.equal((await disk(r.file)).records[0]!['unwritten'], undefined)
 })
 

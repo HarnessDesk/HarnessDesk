@@ -364,11 +364,11 @@ export class CarryOnService {
   }
 
   #mark(record: CarryOnRecord, at: { readonly runtime: string; readonly sessionId: string }, phase: CarryOnPhase,
-    extra: { readonly to?: CarryOnSide; readonly mode?: CarryOnMode; readonly note?: string; readonly link?: { readonly runtime: string; readonly sessionId: string } } = {}): boolean {
+    extra: { readonly to?: CarryOnSide; readonly mode?: CarryOnMode; readonly note?: string; readonly link?: { readonly runtime: string; readonly sessionId: string } } = {}, id = `carry-on-${randomUUID()}`): boolean {
     try {
       const { link, ...rest } = extra
       return this.ports.record(at.runtime, at.sessionId, {
-        id: itemId(`carry-on-${randomUUID()}`), type: 'carryOn', phase, cause: record.cause, from: record.from,
+        id: itemId(id), type: 'carryOn', phase, cause: record.cause, from: record.from,
         ...(record.resetsAt !== null && (phase === 'waiting' || phase === 'stopped' || phase === 'exhausted') ? { resetsAt: record.resetsAt } : {}),
         ...rest, ...(link ? { link: { runtime: runtimeId(link.runtime), sessionId: makeSessionId(link.sessionId) } } : {}),
       })
@@ -377,8 +377,9 @@ export class CarryOnService {
 
   /** The marker, written now; or, when the conversation cannot take it yet, returned to be kept on the record. */
   #markOrKeep(record: CarryOnRecord, at: { readonly runtime: string; readonly sessionId: string }, phase: CarryOnPhase,
-    extra: Omit<CarryOnUnwritten, 'runtime' | 'sessionId' | 'phase'> = {}): CarryOnUnwritten[] {
-    return this.#mark(record, at, phase, extra) ? [] : [{ runtime: at.runtime, sessionId: at.sessionId, phase, ...extra }]
+    extra: Omit<CarryOnUnwritten, 'id' | 'runtime' | 'sessionId' | 'phase'> = {}): CarryOnUnwritten[] {
+    const id = `carry-on-${randomUUID()}`
+    return this.#mark(record, at, phase, extra, id) ? [] : [{ id, runtime: at.runtime, sessionId: at.sessionId, phase, ...extra }]
   }
 
   /** The record's waiting markers with these added, as a patch to settle with. */
@@ -394,14 +395,19 @@ export class CarryOnService {
     const here = (one: CarryOnUnwritten) => one.runtime === runtime && one.sessionId === sessionId
     if (this.#closed || !this.#incidents.all().some(record => record.unwritten?.some(here))) return Promise.resolve()
     return this.#incidents.serial(async () => {
-      for (const record of this.#incidents.all()) {
-        const waiting = record.unwritten
-        if (!waiting?.some(here)) continue
+      for (let record of this.#incidents.all()) {
+        if (!record.unwritten?.some(here)) continue
+        // Old ledgers did not carry identities. Save them before the first insert.
+        if (record.unwritten.some(one => !one.id)) {
+          record = { ...record, unwritten: record.unwritten.map(one => one.id ? one : { ...one, id: `carry-on-${randomUUID()}` }) }
+          await this.#put(record)
+        }
+        const waiting = record.unwritten!
         let blocked = false
         const still = waiting.filter(one => {
           if (!here(one) || blocked) return true
-          const { runtime: _r, sessionId: _s, phase, ...extra } = one
-          if (this.#mark(record, one, phase, extra)) return false
+          const { id, runtime: _r, sessionId: _s, phase, ...extra } = one
+          if (this.#mark(record, one, phase, extra, id)) return false
           blocked = true
           return true
         })
