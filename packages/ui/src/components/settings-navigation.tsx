@@ -24,12 +24,19 @@ export interface SettingsNavGroup {
 /** Every row the Lead page holds, so search finds the page by any of them. The autonomy and rule titles come from
  * the protocol's own labels, so a renamed row is still found. */
 const LEAD_KEYWORDS: readonly string[] = [
+  'feature', 'features', 'enable lead', 'disable lead', 'enabling lead', 'disabling lead', 'turn on lead', 'turn off lead',
   'dex', 'lex', 'who runs your desk', 'provider key', 'model', 'allowances', 'spending limit', 'round allowance', 'plan consent',
   'permissions', 'permission mode', 'rules', 'triggers', 'checks failed', 'review comment', 'follow pull requests',
   'conversation', 'context', 'cache', 'summarise', 'summaries', 'autonomy', 'goal deadline',
   ...Object.values(LEAD_AUTONOMY_LABELS).map(label => label.title.toLowerCase()), 'mention', 'stuck', 'repeat',
   ...Object.values(LEAD_RULE_TITLES).map(title => title.toLowerCase()), 'morning brief', 'brief',
   'scheduled tasks', 'reminder', 'reminders', 'quiet hours', 'memory', 'notes', 'remember', 'forget',
+]
+const MOBILE_KEYWORDS: readonly string[] = [
+  'feature', 'features', 'enable mobile', 'disable mobile', 'enable phone', 'disable phone',
+  'enabling mobile', 'disabling mobile', 'enabling phone', 'disabling phone', 'turn on mobile', 'turn off mobile',
+  'nearby phone', 'nearby mobile', 'phone', 'pair', 'qr', 'code', 'mobile', 'devices', 'allow', 'remove',
+  'linked phones', 'reachable', 'relay', 'account',
 ]
 export const settingsGroups = (snapshot: AppSnapshot, runtime: RuntimeInfo): readonly SettingsNavGroup[] => {
   const accountCount = snapshot.runtimes.reduce((n, info) => n + (snapshot.accountsByRuntime[info.id]?.accounts.length ?? 0), 0)
@@ -58,7 +65,7 @@ export const settingsGroups = (snapshot: AppSnapshot, runtime: RuntimeInfo): rea
       { id: 'storage', label: 'Storage', icon: <ResourceIcon size={16} />, keywords: ['storage', 'disk', 'space', 'clean up', 'worktrees', 'cache'] },
     ] },
     { label: 'Access', entries: [
-      { id: 'phone', label: 'Mobile', icon: <MobileIcon size={16} />, keywords: ['phone', 'pair', 'qr', 'code', 'mobile', 'devices', 'allow', 'remove', 'linked phones', 'reachable', 'relay', 'account'] },
+      { id: 'phone', label: 'Mobile', icon: <MobileIcon size={16} />, keywords: MOBILE_KEYWORDS },
       { id: 'permissions', label: 'Permissions', icon: <ShieldIcon size={16} />, keywords: ['git', 'push', 'pull request', 'gateway', 'record', 'approve', 'approval', 'sandbox', 'rules', 'deny', 'allow', 'commands', 'file changes', 'network', 'ceiling', 'ceilings', 'held', 'asked', 'clients', 'command-line', 'answer'] },
       { id: 'browser', label: 'Browser', icon: <GlobeIcon size={16} />, keywords: ['pane', 'chrome', 'links', 'window', 'profile', 'cookies', 'logins', 'browsing data'] },
     ] },

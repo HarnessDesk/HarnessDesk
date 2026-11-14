@@ -166,3 +166,20 @@ test('every Settings destination uses the shared animated glyph facade', () => {
     expect(row(entry.label)?.querySelector('svg')?.getAttribute('data-glyph'), entry.label).toBe('animated')
   }
 })
+
+test('feature search finds disabled services by enablement and nearby-phone language', () => {
+  act(() => root.render(<StoreProvider store={previewStore({ leadAvailable: false, phoneLink: false })}>
+    <SettingsNavigation section="general" onSection={vi.fn()} onBack={vi.fn()} />
+  </StoreProvider>))
+  const matches = () => [...container.querySelectorAll<HTMLButtonElement>('[data-left-settings-list] [data-left-row] button')].map(button => button.getAttribute('aria-label'))
+  for (const query of ['enable', 'disable', 'features']) {
+    filter(query)
+    expect(matches(), query).toEqual(['Lead', 'Mobile'])
+  }
+  for (const query of ['nearby', 'enable phone', 'disable mobile']) {
+    filter(query)
+    expect(matches(), query).toEqual(['Mobile'])
+  }
+  filter('enable lead')
+  expect(matches()).toEqual(['Lead'])
+})

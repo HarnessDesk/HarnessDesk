@@ -36,10 +36,12 @@ test('feature problem fences switches and repair follows its acknowledged off st
   const dialog = page.getByRole('alertdialog')
   await expect(dialog).toContainText('History and phone pairings are retained.')
   await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+  // Base UI's boundary guards transfer focus on the next animation frame.
+  // Assert each exact destination after that transfer, rather than the transient guard.
   await page.keyboard.press('Tab')
-  expect(await dialog.evaluate(node => node.contains(document.activeElement))).toBe(true)
+  await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeFocused()
   await page.keyboard.press('Shift+Tab')
-  expect(await dialog.evaluate(node => node.contains(document.activeElement))).toBe(true)
+  await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
   await dialog.getByRole('button', { name: 'Repair feature settings', exact: true }).click()
   await expect(dialog).toHaveCount(0); await expect(toggle).toBeEnabled(); await expect(toggle).not.toBeChecked()
   await expect(toggle).toBeFocused()
