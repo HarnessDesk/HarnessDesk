@@ -254,7 +254,7 @@ export function browserPlan(root, { browser, inputs, serverInputs, event, refNam
   const bounded = !completeSelection && tier === 'bounded' && browser === 'all' && !unknownChange && !unnarrowedDevelopment && !executionConfig ? boundedSpecs(root, selected ?? all, inputs, impact, graph ?? repositoryGraph(root), globals.length > 0 ? sha || before : null) : null
   if (bounded && (selected !== null || bounded.deferred.length > 0)) selected = bounded.selected
   const count = browser === 'all'
-    ? bounded?.count ?? shardCount((selected ?? all).map(spec => spec.slice('e2e/ui-system/'.length)), recordedSeconds(root, matrix))
+    ? bounded?.count ?? shardCount((selected ?? all).map(spec => spec.slice('e2e/ui-system/'.length)), recordedSeconds(root, matrix), { matrix })
     : 0
   return {
     browser, matrix, count, tier, deferred: bounded?.deferred ?? [],

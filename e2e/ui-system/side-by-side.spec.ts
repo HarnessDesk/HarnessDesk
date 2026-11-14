@@ -17,7 +17,7 @@ for (const theme of ['light', 'dark'] as const) {
 
   test(`tile transcripts open at latest and follow dock resizing in ${theme}`, async ({ page }) => {
     await page.setViewportSize({width:1440, height:900})
-    await page.goto('/preview.html?side-by-side')
+    await page.goto('/preview.html?side-by-side&isolate')
     await page.getByRole('combobox', {name:'theme', exact:true}).selectOption(theme)
     const frame = page.locator('[data-frame-id="comparison-picked"]')
     // Leave transcript space after the shell's body controls and the enlarged dock.
@@ -110,6 +110,7 @@ const setPreviewDials = async (page: Page, theme: 'light' | 'dark', look: 'desk'
 
 const gotoPreview = async (page: Page) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
+  // The keyboard journey also focuses the separate Browser pane in the catalogue.
   await page.goto('/preview.html?side-by-side')
   await page.waitForSelector('[data-frame-id="side-by-side-four"] [data-slot="side-by-side-grid"]')
   await page.evaluate(async () => { await document.fonts.ready })
