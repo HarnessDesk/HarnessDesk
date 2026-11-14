@@ -5,6 +5,13 @@ import { closeTeamDetails, seatActions, selectTeamPage, teamBar, teamSeats } fro
 
 const members = teamSeats
 
+/** A brand mark's own ids: `brand-<owner>-<id>` with the copy's suffix (BrandMark in BrandIcons.tsx). */
+const ownIds = (markup: string): string[] => [...markup.matchAll(/id="(brand-[^"]*)"/g)].map(match => match[1]!)
+/** The drawing with each copy's id suffix taken off, so two copies of one mark read the same. */
+const sharedDrawing = (markup: string): string => markup
+  .replace(/id="(brand-[^"]*)-[0-9a-z]+"/g, 'id="$1"')
+  .replace(/url\(#(brand-[^)]*)-[0-9a-z]+\)/g, 'url(#$1)')
+
 for (const theme of ['light', 'dark'] as const) {
   {
 
@@ -77,9 +84,13 @@ for (const theme of ['light', 'dark'] as const) {
       const face = (await members(frame)).locator('[data-slot="list-row"]').filter({ has: page.getByRole('button', { name: `Actions for ${name}`, exact: true }) }).locator('[data-slot="list-row-lead"] svg')
       const receiptFaces = frame.locator('[data-slot="goal-receipt"] [data-slot="member-name"]').filter({ hasText: name }).locator('[data-slot="icon-tile"]')
       await expect(receiptFaces).toHaveCount(2)
+      const reference = await face.innerHTML()
       for (const one of await receiptFaces.all()) {
         await expect(one).toHaveAttribute('data-shape', 'face')
-        expect(await one.locator('svg').innerHTML()).toBe(await face.innerHTML())
+        const drawn = await one.locator('svg').innerHTML()
+        // Each copy of a mark owns the ids its drawing defines (#2118), so it is the same drawing under its own ids.
+        expect(ownIds(drawn).filter(id => ownIds(reference).includes(id))).toEqual([])
+        expect(sharedDrawing(drawn)).toBe(sharedDrawing(reference))
       }
     }
   })
