@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
 import { builtinAgentRoot } from '../src/host.js'
@@ -295,7 +295,12 @@ test('a stalled nested root holds its own files while a read elsewhere in the ou
     const asked = disk.calls.length
     const held = await client.call('workspace/readFile', { path: join(inner, 'other.txt') }) as { kind?: string }
     assert.equal(held.kind, 'unreadable')
-    assert.deepEqual(disk.calls.slice(asked), [], 'the inner root is not walked again')
+    // Other host work can read siblings of the inner root independently.
+    const innerCalls = disk.calls.slice(asked).filter(call => {
+      const path = call.slice(call.indexOf(' ') + 1)
+      return path === inner || path.startsWith(inner + sep)
+    })
+    assert.deepEqual(innerCalls, [], 'the inner root is not walked again')
     const read = await client.call('workspace/readFile', { path: notes }) as { kind?: string; content?: string }
     assert.equal(read.kind, 'text')
     assert.equal(read.content, 'outer draft\n')
