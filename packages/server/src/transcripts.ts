@@ -440,10 +440,12 @@ export class TranscriptStore {
       pending?.generation === generation && pending.authorityEpoch === epoch && isDeepStrictEqual(pending.session, session)
   }
 
-  evictCached(cap: number, live: (runtime: RuntimeId, id: SessionId) => boolean): { count: number; bytes: number } {
+  evictCached(cap: number, live: (runtime: RuntimeId, id: SessionId) => boolean,
+    evicted?: (runtime: RuntimeId, id: SessionId) => void): { count: number; bytes: number } {
     const result = this.#database.evictCached(cap, (runtime, id) => this.#protectedWrites.has(keyOf(runtime, id)) || this.#unboundWrites.has(keyOf(runtime, id)) || live(runtime, id))
     for (const row of result.removed) this.onDurableChange(row.runtime, row.id)
     this.forgetMemory(result.removed)
+    for (const row of result.removed) evicted?.(row.runtime, row.id)
     return { count: result.count, bytes: result.bytes }
   }
 

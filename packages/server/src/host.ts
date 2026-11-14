@@ -10517,7 +10517,33 @@ export class Host {
   }
 
   #evictCached(cap = this.options.cachedBodyCapBytes ?? 500 * 1024 * 1024): { count: number; bytes: number } {
-    return this.#transcripts.evictCached(cap, (runtime, id) => Boolean(this.registry.get(runtime, id)?.live))
+    // A cache eviction intentionally removes the durable base. Only that exact
+    // transaction can retire its released descriptor; a missing or unreadable
+    // body observed by a later read is not proof that the cache evicted it.
+    const owners = new Map<string, { record: SessionRecord; revision: number; epoch: number }>()
+    return this.#transcripts.evictCached(cap, (runtime, id) => {
+      const record = this.registry.get(runtime, id)
+      if (!record) return false
+      const generation = record.bodyGeneration, key = recordKey(record)
+      if (record.live || record.detached || record.running.size > 0 || record.approvals.size > 0 ||
+          record.queue.messages.length > 0 || record.tasks.some(task => task.state === 'running') || this.#queueBusy(record) ||
+          record.transcriptIncomplete || this.#transcripts.hasOutstandingWrite(runtime, id) ||
+          this.#descriptorReleases.has(generation) || this.#pendingTranscriptOverlays.has(generation) ||
+          this.#recoveredTranscriptBases.has(generation) || this.#transcriptOperations.has(key) || this.#reattaching.has(key) ||
+          this.#reopenWaiters.has(key) || this.#dispatching.has(key) || this.#draining.has(key)) return true
+      owners.set(String(sessionKey(runtime, id)), { record, revision: record.bodyRevision, epoch: record.bodyAuthorityEpoch })
+      return false
+    }, (runtime, id) => {
+      const owner = owners.get(String(sessionKey(runtime, id)))
+      if (!owner || this.registry.get(runtime, id) !== owner.record || owner.record.bodyRevision !== owner.revision ||
+          owner.record.bodyAuthorityEpoch !== owner.epoch || owner.record.session.itemsLoaded || owner.record.live ||
+          owner.record.transcriptIncomplete) return
+      const generation = owner.record.bodyGeneration
+      this.#recoveryDescriptors.remove(generation)
+      this.#descriptorOwners.delete(generation)
+      this.#durableTranscriptBases.delete(owner.record)
+      this.#transcripts.unbindBase(owner.record.session, generation)
+    })
   }
 
   #scheduleCacheEviction(): void {
