@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type ComponentProps, type ReactNode } from 'react'
 
 import { Button } from '../ui/button'
 import { cn } from '../../lib/utils'
@@ -42,6 +42,7 @@ export const ConfirmDialog = ({
   busyLabel,
   pending = false,
   focusCancel = false,
+  finalFocus,
   alternative,
   onConfirm,
   onCancel,
@@ -72,6 +73,8 @@ export const ConfirmDialog = ({
   pending?: boolean
   /** Move focus to the keeping verb when a live update removes the opener or disables confirmation. */
   focusCancel?: boolean
+  /** Override the return target when the action removes its own opener. */
+  finalFocus?: ComponentProps<typeof AlertDialogContent>['finalFocus']
   /** A third answer, such as discarding edits while Save remains the primary action. */
   alternative?: { readonly label: string; readonly onClick: () => void }
   onConfirm: () => void
@@ -110,6 +113,7 @@ export const ConfirmDialog = ({
          the preview drew every confirm with a second 16px frame. */
       className={cn(DIALOG_WIDTH.sm, 'flex max-h-(--hd-dialog-max-height) flex-col gap-0 overflow-hidden p-0')}
       initialFocus={false}
+      finalFocus={finalFocus}
       aria-describedby={descriptionId}
     >
       <DialogHead

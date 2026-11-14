@@ -1220,6 +1220,7 @@ class PreviewStore {
       // Preview seeds model a full history unless they name the separate
       // identity history explicitly (as the unloaded-search fixture does).
       // Keep that store invariant when a screen supplies its own history.
+      features: seed.features ?? { lead: seed.leadAvailable ?? false, mobile: seed.phoneLink ?? false },
       historyIdentity: seed.historyIdentity ?? seed.history ?? previewHistory,
     } as AppSnapshot
     this.#watchWindowWidth()
@@ -1243,7 +1244,20 @@ class PreviewStore {
 
   getSnapshot = (): AppSnapshot => this.#snapshot
 
+  async loadFeatures(): Promise<void> {}
+  async setFeature(feature: 'lead' | 'mobile', enabled: boolean): Promise<void> {
+    const features = this.#snapshot.features ?? { lead: false, mobile: false }
+    if (features.problem) throw new Error(features.problem.message)
+    this.patch({ features: { ...features, [feature]: enabled } })
+  }
+  async repairFeatures(): Promise<void> { this.patch({ features: { lead: false, mobile: false } }) }
+
   patch(partial: Partial<AppSnapshot>): void {
+    if (partial.features) {
+      partial = { ...partial, leadAvailable: partial.features.lead && !partial.features.problem, phoneLink: partial.features.mobile && !partial.features.problem }
+      if (!partial.phoneLink) this.phone.reset()
+      else this.phone.changed({ method: 'phone/changed', params: { ...this.phone.state, enabled: true, deskName: 'Studio', deskId: 'preview-desk', port: 4455 } })
+    }
     const next = { ...this.#snapshot, ...partial }
     if (partial.windowWidth !== undefined || partial.workbench !== undefined) {
       const narrowWindow = sidebarCannotHaveColumn(next.workbench, next.windowWidth)
@@ -2244,6 +2258,15 @@ class PreviewStore {
   #previewTicket = 0
   transport = {
     request: async (method: string, params?: unknown): Promise<unknown> => {
+      if (method === 'app/features/read') return this.#snapshot.features
+      if (method === 'app/features/set') {
+        const { feature, enabled } = params as { feature: 'lead' | 'mobile'; enabled: boolean }
+        await this.setFeature(feature, enabled)
+        return this.#snapshot.features
+      }
+      if (method === 'app/features/repair') { await this.repairFeatures(); return this.#snapshot.features }
+      if (method === 'phone/state') return this.phone.state
+      if (method === 'phone/pairing') return { url: 'harnessdesk://pair?c=preview', expiresAt: Date.now() + 600_000, addresses: [], away: false }
       if (method.startsWith('account/')) {
         if (method === 'account/signIn') await this.signInToHarnessDesk()
         if (method === 'account/cancel' || method === 'account/signOut') await this.cancelHarnessDeskSignIn()

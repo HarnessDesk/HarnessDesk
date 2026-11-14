@@ -54,8 +54,10 @@ const mount = (over: Partial<AppSnapshot> = {}) => {
   return { read: () => snapshot }
 }
 
-const select = (title: string) =>
-  container.querySelector<HTMLSelectElement>(`select[aria-label='Where "${title}" is shown']`)!
+const select = (title: string) => {
+  if (!container.querySelector('select[aria-label^="Where"]')) act(() => [...container.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Message routing')!.click())
+  return container.querySelector<HTMLSelectElement>(`select[aria-label='Where "${title}" is shown']`)!
+}
 
 const choose = (element: HTMLSelectElement, value: string) =>
   act(() => {
@@ -70,8 +72,8 @@ it('keeps the guide folded while notification controls remain available', () => 
   const guide = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'How messages reach you')!
   expect(guide.getAttribute('aria-expanded')).toBe('false')
   expect(text).not.toContain('Shown on the composer of the conversation it stops, and nowhere else.')
-  expect(text).toContain('When something stops a turn')
-  expect(text).toContain('When there is something to do later')
+  expect(text).not.toContain('When something stops a turn')
+  expect(text).not.toContain('When there is something to do later')
   expect(select('Out of quota').value).toBe('composer')
   expect(container.querySelector('[aria-label="System notifications"]')).not.toBeNull()
 })

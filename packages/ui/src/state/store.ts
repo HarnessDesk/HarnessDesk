@@ -1,3 +1,4 @@
+import type { DeskFeature, DeskFeatureState } from '@harnessdesk/protocol'
 import { sessionVisible } from './session-visible'
 import { AdjacentReadChanges, preserveAdjacentLocal, reconcileAdjacentRead } from './adjacent-read'
 import { isChatFolder, readChatsPreferences, recentWorkspace } from '../lib/chats'
@@ -929,7 +930,7 @@ export class AppStore {
   readonly phone: ReturnType<typeof createPhoneState>
   /** Carry-on questions of Team and Flow seats, answered from the Team's `limit` notice. */
   readonly seatCarryOn: ReturnType<typeof createSeatCarryOnState>
-  #leadCapabilityEpoch = 0
+  #featureRevision = 0
   #chatRootsVersion: { epoch: string; revision: number } | null = null
   #chatConnectionGeneration = 0
   /**
@@ -1767,8 +1768,9 @@ export class AppStore {
           this.#harnessDeskAccountRevision += 1
           this.#patch({ harnessDeskAccount: notification.params.status })
         }
-        this.lead.changed(notification)
-        this.phone.changed(notification)
+        if (notification.method === 'app/features/changed') { ++this.#featureRevision; this.#applyFeatures(notification.params) }
+        if (this.#snapshot.leadAvailable) this.lead.changed(notification)
+        if (this.#snapshot.features?.mobile && !this.#snapshot.features.problem) this.phone.changed(notification)
         this.seatCarryOn.changed(notification)
         if (notification.method === 'provenance/changed') {
           const { project, revision, health } = notification.params
@@ -2150,10 +2152,10 @@ export class AppStore {
           this.#chatConnectionGeneration += 1
           if (this.#snapshot.adjacentSession) this.#patch({ adjacentSession: { ...this.#snapshot.adjacentSession, loading: false, error: 'Connection lost. Reconnecting…' } })
           this.#chatRootsVersion = null
-          this.#leadCapabilityEpoch += 1
+          this.#featureRevision += 1
           this.#captureEpoch += 1
           this.#flowGeneration += 1
-          this.#patch({ status, leadAvailable: false, captureHealth: new Map(), provenanceRevision: new Map() })
+          this.#patch({ status, features: null, leadAvailable: false, captureHealth: new Map(), provenanceRevision: new Map() })
           this.lead.reset()
           this.phone.reset()
           this.seatCarryOn.reset()
@@ -2180,7 +2182,7 @@ export class AppStore {
     })
     this.lead = createLeadState(this.transport, () => this.#snapshot.leadAvailable)
     this.phone = createPhoneState(this.transport)
-    this.phone.subscribe(() => { const phoneLink = this.phone.state.enabled; if (phoneLink !== this.#snapshot.phoneLink) this.#patch({ phoneLink }) })
+    this.phone.subscribe(() => { const phoneLink = this.#snapshot.features?.mobile === true && !this.#snapshot.features.problem; if (phoneLink !== this.#snapshot.phoneLink) this.#patch({ phoneLink }) })
     this.seatCarryOn = createSeatCarryOnState(this.transport)
     this.seatCarryOn.subscribe(() => this.#patch({ seatCarryOn: this.seatCarryOn.state }))
     this.#watchWindowWidth()
@@ -2249,22 +2251,42 @@ export class AppStore {
     })
   }
 
+  #applyFeatures(features: DeskFeatureState): void {
+    const previous = this.#snapshot
+    const leadAvailable = features.lead === true && !features.problem
+    const mobile = features.mobile === true && !features.problem
+    this.#patch({ features, leadAvailable, phoneLink: mobile })
+    if (!leadAvailable) this.lead.reset()
+    else if (!previous.leadAvailable) this.#readLeadChatControl()
+    if (!mobile) this.phone.reset()
+    else if (!previous.phoneLink) this.#readPhoneLink(true)
+  }
+
+  async loadFeatures(): Promise<void> {
+    const revision = ++this.#featureRevision
+    const state = await this.transport.request('app/features/read', {})
+    if (revision === this.#featureRevision) this.#applyFeatures(state)
+  }
+
+  async setFeature(feature: DeskFeature, enabled: boolean): Promise<void> {
+    const revision = ++this.#featureRevision
+    const state = await this.transport.request('app/features/set', { feature, enabled })
+    if (revision === this.#featureRevision) this.#applyFeatures(state)
+  }
+
+  async repairFeatures(): Promise<void> {
+    const revision = ++this.#featureRevision
+    const state = await this.transport.request('app/features/repair', {})
+    if (revision === this.#featureRevision) this.#applyFeatures(state)
+  }
+
   async #refreshLeadAvailability(): Promise<void> {
-    const epoch = this.#leadCapabilityEpoch
-    try {
-      const hello = await this.transport.request('host/hello', { clientVersion: '0.1.0' })
-      if (epoch === this.#leadCapabilityEpoch && this.#snapshot.status === 'open') {
-        this.#patch({ leadAvailable: hello.capabilities?.lead === true })
-        this.#readPhoneLink(hello.capabilities?.phone === true)
-        if (this.#snapshot.leadAvailable) this.#readLeadChatControl()
-      }
-    } catch { /* Remain disabled until the host can prove the capability. */ }
+    try { await this.loadFeatures() } catch { /* Remain disabled until the host answers. */ }
   }
 
   async connect(): Promise<void> {
     this.transport.connect()
     await this.#waitForOpen()
-    const capabilityEpoch = this.#leadCapabilityEpoch
     const hello = await this.transport.request('host/hello', { clientVersion: '0.1.0' })
     this.#patch({
       runtimes: hello.runtimes,
@@ -2273,10 +2295,8 @@ export class AppStore {
       home: hello.home,
       stateDir: hello.stateDir,
       goalMigrationPending: hello.goalMigrationPending,
-      leadAvailable: capabilityEpoch === this.#leadCapabilityEpoch && this.#snapshot.status === 'open' && hello.capabilities?.lead === true,
     })
-    this.#readPhoneLink(hello.capabilities?.phone === true)
-    if (this.#snapshot.leadAvailable) this.#readLeadChatControl()
+    void this.loadFeatures().catch(() => {})
     // The local index does not wait for an agent or its account catalogue.
     const history = this.loadHistory({ reset: true })
     // Preferences first: they may restore the runtime the user last worked

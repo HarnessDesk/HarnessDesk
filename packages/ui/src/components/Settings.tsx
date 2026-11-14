@@ -60,6 +60,7 @@ import { ClientAnswersSection } from './SettingsClientAnswers'
 import { RemoveWorktree } from './RemoveWorktree'
 import {
   Dot,
+  LeftColumnSettings,
   LeftColumnGroup,
   LeftColumnHead,
   LeftColumnRow,
@@ -149,8 +150,8 @@ const SECTIONS: readonly Section[] = [
   'profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'history', 'storage',
   'runtimes', 'models', 'skills', 'hooks', 'extensions', 'library', 'plugins', 'permissions', 'browser', 'lead', 'phone',
 ]
-export const resolveSection = (name: string | null | undefined, fallback: Section = 'runtimes', leadAvailable = false): Section =>
-  name === 'lead' && !leadAvailable ? fallback : name && (SECTIONS as readonly string[]).includes(name)
+export const resolveSection = (name: string | null | undefined, fallback: Section = 'runtimes', _leadAvailable = false): Section =>
+  name && (SECTIONS as readonly string[]).includes(name)
     ? (name as Section)
     : (name && MOVED[name]) || fallback
 
@@ -1316,19 +1317,17 @@ export const WorkspacesSection = ({focus=null,project,onProject}: {readonly focu
 export const GeneralSectionRows = () => (
   <>
     <SettingsNewConversations />
-    <SettingsChatsFolder />
+    <Section title="Conversation folders"><SettingsChatsFolder /></Section>
     <PrivacyRows />
-    <SectionHead level="label" name="Backup" />
-    <BackupRows />
+    <Section title="Backup"><BackupRows /></Section>
 
-    <SectionHead level="label" name="Support" />
-    <Rows>
+    <Section title="Support"><Rows>
       <Row
         title="Diagnostics"
         desc="Versions, runtime health, plugin state and the recent log, scrubbed."
         control={<DiagnosticsButton />}
       />
-    </Rows>
+    </Rows></Section>
   </>
 )
 
@@ -1342,7 +1341,7 @@ export const PrivacyRows = () => {
   const hide = useSnapshot().hideAccountAddresses
   return (
     <>
-      <SectionHead level="label" name="Privacy" />
+      <Section title="Privacy">
       <Rows>
         <Row
           title="Hide account addresses"
@@ -1355,7 +1354,7 @@ export const PrivacyRows = () => {
             />
           }
         />
-      </Rows>
+      </Rows></Section>
     </>
   )
 }
@@ -1540,7 +1539,7 @@ const WorktreeRows = () => {
 const SETTINGS_LABELS = {
   profile: 'Account', general: 'General', appearance: 'Appearance', notifications: 'Notifications', shortcuts: 'Keyboard shortcuts',
   workspaces: 'Workspaces', archive: 'Archive', history: 'History', storage: 'Storage', runtimes: 'Runtimes', models: 'Models',
-  skills: 'Skills', hooks: 'Hooks', extensions: 'Extensions', permissions: 'Permissions', browser: 'Browser', lead: 'Lead', phone: 'Phone',
+  skills: 'Skills', hooks: 'Hooks', extensions: 'Extensions', permissions: 'Permissions', browser: 'Browser', lead: 'Lead', phone: 'Mobile',
 } as const
 export const Settings = ({ route, onRoute, onSignIn }: {
   readonly route: SettingsRoute; readonly onRoute: (route: SettingsRoute) => void; readonly onSignIn: (runtime: RuntimeId) => void
@@ -1549,13 +1548,12 @@ export const Settings = ({ route, onRoute, onSignIn }: {
 
   const store = useStore(), runtime = useRuntime(), snapshot = useSnapshot()
   const { active } = useDestinationPage()
-  const section: SettingsSection = route.kind === 'section' ? route.section === 'lead' && !snapshot.leadAvailable ? 'runtimes' : route.section : route.kind === 'project' ? 'workspaces' : route.kind === 'skill' ? 'skills' : 'runtimes'
+  const section: SettingsSection = route.kind === 'section' ? route.section : route.kind === 'project' ? 'workspaces' : route.kind === 'skill' ? 'skills' : 'runtimes'
   const focus = route.kind === 'section' ? route.focus : null, nonce = route.kind === 'section' ? route.nonce : undefined
   const sectionRoute = (next: SettingsSection, nextFocus: string | null = null): void => onRoute({ kind: 'section', section: next, focus: nextFocus })
   const hasExtensions = runtime.capabilities.extensionStore || runtime.capabilities.mcp
   useEffect(() => {
     if (!destinationActive) return
- if (active && route.kind === 'section' && route.section === 'lead' && !snapshot.leadAvailable) sectionRoute('runtimes')
  if (active && section === 'extensions' && !hasExtensions) sectionRoute('runtimes') }, [destinationActive, active, section, hasExtensions, snapshot.leadAvailable])
   const runtimeExists = (id: RuntimeId) => snapshot.runtimes.some(info => info.id === id)
   const runtimeView: RuntimeSettingsView = route.kind === 'runtime' && runtimeExists(route.runtime) ? { kind: 'agent', runtime: route.runtime }
@@ -1601,7 +1599,7 @@ export const Settings = ({ route, onRoute, onSignIn }: {
       onUse={() => store.returnToWork()} />}
     {section === 'permissions' && <PermissionsSection focus={focus} />}
     {section === 'browser' && <BrowserSection />}
-    {section === 'lead' && snapshot.leadAvailable && <LeadSettingsSection focus={focus} nonce={nonce} />}
+    {section === 'lead' && <LeadSettingsSection focus={focus} nonce={nonce} />}
     {section === 'phone' && <PhoneSettingsSection />}
   </Page>
 }
@@ -1612,10 +1610,10 @@ export const SettingsNavigation = ({ section, onSection, onBack }: {
   const snapshot = useSnapshot(), runtime = useRuntime()
   const [query, setQuery] = useState('')
   const groups = filterSettingsGroups(settingsGroups(snapshot, runtime), query)
-  return <nav aria-label="Settings navigation" data-left-settings onKeyDown={moveSettingsNavigationFocus}>
+  return <LeftColumnSettings onKeyDown={moveSettingsNavigationFocus} header={<>
     <LeftColumnRow label="Back" icon={<ArrowLeftIcon size={16} />} onClick={onBack} />
     <LeftColumnHead search={<Search value={query} onChange={setQuery}
-      label="Search settings" placeholder="Search settings…" />} />
+      label="Search settings" placeholder="Search settings…" />} /></>}>
     {groups.map(group => <LeftColumnGroup key={group.label} label={group.label}>
       {group.entries.map(entry => {
         const trailing: LeftColumnTrail | undefined = entry.state
@@ -1626,5 +1624,5 @@ export const SettingsNavigation = ({ section, onSection, onBack }: {
       })}
     </LeftColumnGroup>)}
     {groups.length === 0 && <Text as="p" role="meta">Nothing in settings matches “{query.trim()}”.</Text>}
-  </nav>
+  </LeftColumnSettings>
 }

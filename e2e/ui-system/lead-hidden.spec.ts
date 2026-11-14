@@ -23,7 +23,7 @@ const settleDestination = async (page: Page, destination: string) => {
   if (destination === 'flows') await expect(page.getByText('Reading Flows…', { exact: true })).toHaveCount(0)
 }
 
-for (const theme of ['light', 'dark'] as const) test(`the flag-off host has no Lead surface and preserves existing destinations in ${theme}`, async ({ browser }) => {
+for (const theme of ['light', 'dark'] as const) test(`the flag-off host preserves destinations and keeps Lead settings available in ${theme}`, async ({ browser }) => {
   test.setTimeout(120_000)
   const baseline = await openLeadHost(browser, renderer)
   const expected = new Map<string, string>()
@@ -69,18 +69,19 @@ for (const theme of ['light', 'dark'] as const) test(`the flag-off host has no L
       await expect(page.locator('[data-page-destination="lead"]')).toHaveCount(0)
       await expect(page.getByRole('region', { name: 'Dex thread', exact: true })).toHaveCount(0)
       await expect(page.locator('[data-slot="top-bar"]').getByRole('button', { name: 'Lead settings', exact: true })).toHaveCount(0)
-      // Neither programmatic route may replace Agents, Flows or Dashboard.
+      // The conversation stays gated; its settings remain reachable.
       await page.evaluate(() => (window as any).__hdStore.openDestination({ kind: 'lead' }))
       await expect(body).toBeVisible()
       await page.evaluate(() => (window as any).__hdStore.openDestination({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: null } }))
-      await expect(body).toBeVisible()
+      await expect(page.getByRole('switch', { name: 'Enable Lead', exact: true })).toBeVisible()
+      await expect(page.getByRole('switch', { name: 'Enable Lead', exact: true })).not.toBeChecked()
       await expect(page.locator('[data-page-destination="lead"]')).toHaveCount(0)
       // Inspect a real Settings navigation, rather than asserting against
       // a section that has never been mounted.
       await page.evaluate(() => (window as any).__hdStore.openDestination({ kind: 'settings', route: { kind: 'section', section: 'general', focus: null } }))
       const settings = page.getByRole('navigation', { name: 'Settings navigation', exact: true })
       await expect(settings).toBeVisible()
-      await expect(settings.getByRole('button', { name: 'Lead', exact: true })).toHaveCount(0)
+      await expect(settings.getByRole('button', { name: 'Lead', exact: true })).toBeVisible()
       await expect(page.getByRole('heading', { name: 'Lead', exact: true })).toHaveCount(0)
       await expect(page.getByRole('button', { name: 'Lead settings', exact: true })).toHaveCount(0)
       await expect(page.getByRole('spinbutton', { name: /^(Dollar|Round) allowance$/ })).toHaveCount(0)
@@ -90,15 +91,15 @@ for (const theme of ['light', 'dark'] as const) test(`the flag-off host has no L
     // Restored or programmatic navigation cannot mount a hidden destination.
     await page.evaluate(() => (window as any).__hdStore.openDestination({ kind: 'lead' }))
     await page.evaluate(() => (window as any).__hdStore.openDestination({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: null } }))
-    await expect(page.getByRole('button', { name: 'Lead', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('navigation', { name: 'Settings navigation', exact: true }).getByRole('button', { name: 'Lead', exact: true })).toBeVisible()
     await expect(page.locator('[data-page-destination="lead"]')).toHaveCount(0)
     // Search the real palette as well as the nav and restored route.
-    await page.getByRole('button', { name: 'Search everything', exact: true }).click()
+    await page.keyboard.press('ControlOrMeta+k')
     const palette = page.getByRole('dialog', { name: 'Command palette', exact: true })
     const search = palette.getByRole('searchbox')
     await search.fill('lead')
     await expect(search).toHaveValue('lead')
-    await expect(palette.getByRole('option').filter({ hasText: 'Settings › Lead' })).toHaveCount(0)
+    await expect(palette.getByRole('option').filter({ hasText: 'Settings › Lead' })).toBeVisible()
     await page.keyboard.press('Escape')
     const refusal = await bounded('disabled Lead wire refusal', () => page.evaluate(async () => {
       try { await (window as any).__hdStore.transport.request('lead/thread/read', {}); return null }

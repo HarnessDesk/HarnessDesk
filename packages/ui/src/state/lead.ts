@@ -47,8 +47,15 @@ export interface LeadState {
   readonly projectMissing?: boolean
 }
 /** State and actions only. The owner supplies a feature capability, never a runtime id. */
-export const createLeadState = (transport: LeadTransport, available: () => boolean) => {
+export const createLeadState = (source: LeadTransport, available: () => boolean) => {
   const initial = (): LeadState => ({ chats: [], chatControlProblem: null, savedApprovals: [], revokedApprovals: [], personActions: [], stage: 'idle', stageReason: 'idle', revision: -1, thread: null, settings: null, requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, progress: null, team: null, presence: null, steers: null, error: null })
+  let generation = 0
+  const transport: LeadTransport = { request: async (method, params) => {
+    const started = generation
+    const result = await source.request(method, params)
+    if (started !== generation) throw Object.assign(new Error('Lead settings changed. Try again.'), { code: 'lead-unavailable' })
+    return result
+  } }
   let state = initial(), wakeRevision = -1
   const listeners = new Set<() => void>()
   const check = () => { if (!available()) throw Object.assign(new Error('Lead is unavailable'), { code: 'lead-unavailable' }) }
@@ -157,7 +164,7 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
   }
   return {
     get state(): LeadState { return state },
-    reset(): void { ++controlVersion; cancelControlRetry(); retriedControl.clear(); state = initial(); wakeRevision = -1; for (const listener of listeners) listener() },
+    reset(): void { ++generation; ++autonomyVersion; ++controlVersion; cancelControlRetry(); retriedControl.clear(); state = initial(); wakeRevision = -1; for (const listener of listeners) listener() },
     subscribe(listener: () => void): () => void { listeners.add(listener); return () => { listeners.delete(listener) } },
     changed(notification: WireNotification): void {
       if (!available()) return

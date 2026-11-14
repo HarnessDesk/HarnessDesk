@@ -98,6 +98,7 @@ it.each(['fresh', 'read', 'ended', 'unavailable'] as const)('hydrates a %s wait 
   vi.spyOn(store.transport, 'status', 'get').mockReturnValue('open')
   for (const method of ['loadHistory', 'refreshRuntime', 'loadWorkspaces', 'loadPlugins', 'loadAccounts', 'loadUsage'] as const) vi.spyOn(store, method).mockResolvedValue(undefined as never)
   request.mockImplementation((async (method: HostMethodName) => {
+    if (method === 'app/features/read') return { lead: false, mobile: false }
     if (method === 'host/hello') return { runtimes: [], home: '/fixture', stateDir: '/fixture' }
     if (method === 'app/state/get') return { inbox: saved }
     if (method === 'goal/list') return [{ ...fixture.snapshot.goals.get(board.id)!, board }]

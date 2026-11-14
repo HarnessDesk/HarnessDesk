@@ -209,9 +209,7 @@ export const Sidebar = ({
   return <>
     {starting && projectRootOf(snapshot.workspace) && <FrontDoor context={{ kind: 'project', root: projectRootOf(snapshot.workspace)! }} onClose={() => setStarting(false)} onStarted={execution => { store.openGoal(execution.goal); setStarting(false) }} />}
   <LeftColumn active={active} top={<>{top}{brand}</>} head={<LeftColumnModeHead hidden={Boolean(settings) || explorerShown}>{sessionsHead}</LeftColumnModeHead>}
-    body={<>{sessionsBody}{explorerShown && <Explorer session={explorerSession} />}<LeftColumnBody hidden={!settings}>
-      {settings && <SettingsNavigation section={settings.section} onSection={settings.onSection} onBack={settings.onBack} />}
-    </LeftColumnBody></>}
+    body={<>{sessionsBody}{explorerShown && <Explorer session={explorerSession} />}{settings && <SettingsNavigation section={settings.section} onSection={settings.onSection} onBack={settings.onBack} />}</>}
     footer={<><Slot name="sidebar.panel" />{!settings && <SidebarNotices />}<SidebarUpdate /><AccountFooter notifications={<InboxPanel side="top" size="icon-sm" messages={inbox} waiting={waiting.rows} needs={waiting.needs}
       onOpen={id => store.markInboxRead(id)} onMarkAllRead={() => store.markInboxRead(null)}
       onClear={() => store.clearInbox()} />}

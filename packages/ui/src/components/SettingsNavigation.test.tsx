@@ -46,10 +46,10 @@ test('the Settings middle keeps preference order across agent capabilities', () 
   const runtime = { ...source, presentation: { ...source.presentation, skillsLabel: 'Commands' },
     capabilities: { ...source.capabilities, extensionStore: false, mcp: false } }
   const groups = settingsGroups(snapshot, runtime)
-  expect(groups.map(group => group.label)).toEqual(['Preferences', 'Conversations', 'Runtimes', 'Access'])
+  expect(groups.map(group => group.label)).toEqual(['Preferences', 'Agents', 'Conversations', 'Access'])
   expect(groups.flatMap(group => group.entries.map(entry => entry.id))).toEqual([
-    'profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'history', 'storage', 'archive',
-    'runtimes', 'models', 'hooks', 'extensions', 'permissions', 'browser',
+    'profile', 'general', 'appearance', 'notifications', 'shortcuts',
+    'runtimes', 'models', 'lead', 'hooks', 'extensions', 'workspaces', 'history', 'archive', 'storage', 'phone', 'permissions', 'browser',
   ])
   const skills = groups.flatMap(group => group.entries).find(entry => entry.id === 'hooks')!
   expect(skills.label).toBe('Hooks')
@@ -67,7 +67,7 @@ test('only the Runtimes group names its own destination and each destination has
 
   for (const group of groups) {
     expect(group.entries.filter(entry => entry.label === group.label).map(entry => entry.id))
-      .toEqual(group.label === 'Runtimes' ? ['runtimes'] : [])
+      .toEqual([])
   }
   const iconTypes = entries.map(entry => {
     expect(isValidElement(entry.icon)).toBe(true)
@@ -142,4 +142,16 @@ test('search finds the Lead page by the rows it holds', () => {
     filter(word)
     expect(row('Lead'), word).not.toBeNull()
   }
+})
+
+ test('disabled features stay discoverable and Back/search sit outside the scrolling list', () => {
+  act(() => root.render(<StoreProvider store={previewStore({ leadAvailable: false, phoneLink: false })}>
+    <SettingsNavigation section="phone" onSection={vi.fn()} onBack={vi.fn()} />
+  </StoreProvider>))
+  expect(row('Lead')).not.toBeNull()
+  expect(row('Mobile')).not.toBeNull()
+  const list = container.querySelector('[data-left-settings-list]')!
+  expect(list).not.toBeNull()
+  expect(list.contains(row('Back'))).toBe(false)
+  expect(list.contains(container.querySelector('input[aria-label="Search settings"]'))).toBe(false)
 })
