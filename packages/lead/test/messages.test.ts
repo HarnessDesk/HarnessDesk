@@ -738,6 +738,19 @@ test('#2081 R3: clipped object keys are withheld without swallowing later prose'
     { text: 'Worker said:\n"Quoted prose line" said the worker.', dropped: true })
 })
 
+test('#2081 R4: complete wrapped JSON primitives stay inside a clipped envelope', () => {
+  for (const token of ['1', '0', '-0', '-123.45e+6', '3E-2', 'true', 'false', 'null']) {
+    const fragment = `{"type":"lead-output","refs":[\n  ${token}\n]`
+    assert.deepEqual(lead.stripLeadOutput(`Worker said:\n${fragment}\nDone.`), { text: 'Worker said:\nDone.', dropped: true }, token)
+    const nested = `{"type":"lead-output","ask":{"flag":\n  ${token}\n}`
+    assert.deepEqual(lead.stripLeadOutput(`Worker said:\n${nested}\nDone.`), { text: 'Worker said:\nDone.', dropped: true }, `nested ${token}`)
+  }
+  for (const prose of ['1. First step', '123 more words', 'nullable fields', 'trueish result', 'false alarm', 'null value', '[1] see the docs', '"Quoted prose line" said the worker.']) {
+    assert.deepEqual(lead.stripLeadOutput(`Worker said:\n{"type":"lead-output","refs":[\n${prose}`),
+      { text: `Worker said:\n${prose}`, dropped: true }, prose)
+  }
+})
+
 test('#2081: wrapped JSON continuations stay with a clipped envelope', () => {
   for (const fragment of [
     '{"version":1,"type":"lead-output",\n  "text": "hidden",',
