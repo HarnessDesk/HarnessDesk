@@ -1,6 +1,6 @@
 import { selectFrameTab } from './frame-actions'
 import { expect, test, type Page } from '@playwright/test'
-import { installFramePreviewFixture } from './frame-preview-fixture'
+import { installFramePreviewFixture, setFrameLook } from './frame-preview-fixture'
 
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 const openFrame = async (page: Page, query: string, theme: 'light' | 'dark' = 'light') => {
@@ -88,10 +88,11 @@ const openFrame = async (page: Page, query: string, theme: 'light' | 'dark' = 'l
   for (const [item0, theme] of (['light', 'dark'] as const).entries()) test(`FIX10 theme thumbnails keep their selected rows visible and neutral [item ${[item0].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, 'frame-wall=settings&frame-section=appearance', theme)
-    for (const face of ['studio', 'desk']) {
-      await page.getByRole('combobox', { name: 'Interface', exact: true }).selectOption(face)
+    for (const face of ['studio', 'desk'] as const) {
+      await setFrameLook(page, face)
       for (const accent of ['Violet', 'Green']) {
         await page.getByRole('radio', { name: accent, exact: true }).click()
+        await expect.poll(() => page.locator('body').getAttribute('data-hd-interface')).toBe(face === 'desk' ? null : face)
         const colors = await page.getByRole('radiogroup', { name: 'Theme', exact: true }).locator('svg g').evaluateAll(groups => groups.map(group => {
           const fill = (selector: string) => getComputedStyle(group.querySelector(selector)!).fill
           return { selected: fill('rect[x="10"][y="30"]'), rail: fill('rect[x="0"][width="64"]'), ink: fill('rect[x="186"][y="118"]') }

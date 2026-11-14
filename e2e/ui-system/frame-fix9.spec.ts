@@ -1,7 +1,7 @@
 import { selectFrameTab } from './frame-actions'
 import { teamDetails, teamSeats } from './team-frame-actions'
 import { expect, test, type Page } from '@playwright/test'
-import { installFramePreviewFixture } from './frame-preview-fixture'
+import { installFramePreviewFixture, setFrameLook } from './frame-preview-fixture'
 import { FRAME } from '../../packages/ui/src/design/frame'
 
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
@@ -195,7 +195,7 @@ test('FIX9 spend grouping uses sentence case', async ({ page }) => {
   for (const [item0, theme] of (['light', 'dark'] as const).entries()) test(`FIX9 theme thumbnails use neutral selection across accents [item ${[item0].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, 'frame-wall=settings&frame-section=appearance', 1280, theme)
-    await page.getByRole('combobox', { name: 'Interface', exact: true }).selectOption('studio')
+    await setFrameLook(page, 'studio')
     await expect(page.locator('body')).toHaveAttribute('data-hd-interface', 'studio')
     const rows = page.getByRole('radiogroup', { name: 'Theme', exact: true }).locator('svg rect[x="10"][y="30"]')
     await expect(rows).toHaveCount(4)
@@ -208,6 +208,7 @@ test('FIX9 spend grouping uses sentence case', async ({ page }) => {
     const green = await rows.evaluateAll(elements => elements.map(element => getComputedStyle(element).fill))
     expect(green).toEqual(violet)
     expect(green).toEqual(neutral)
+    await expect(page.locator('body')).toHaveAttribute('data-hd-interface', 'studio')
 
 
   })

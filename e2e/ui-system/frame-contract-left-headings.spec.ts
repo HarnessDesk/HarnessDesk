@@ -39,7 +39,9 @@ for (const theme of WALL_THEMES) {
     for (const [item0, mode] of (['conversation', 'settings-navigation'] as const).entries()) test(`D8 column scrolling has no permanent scrollbar in normal and Settings mode in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
 
       await openFrame(page, `frame-wall=${mode}`, theme)
-      const body = page.locator('[data-left-column]:visible [data-region="sidebar-content"]:visible').first()
+      const body = page.locator(mode === 'settings-navigation'
+        ? '[data-left-column]:visible [data-left-settings-list]'
+        : '[data-left-column]:visible [data-region="sidebar-content"]:visible').first()
       await expect(body).toBeVisible()
       expect(await body.evaluate(node => getComputedStyle(node).scrollbarWidth)).toBe('none')
 
@@ -95,7 +97,7 @@ for (const theme of WALL_THEMES) {
     await openFrame(page, 'frame-wall=settings-navigation&frame-sidebar-notice=1', theme)
     const column = page.locator('[data-left-column]:visible').first()
     await expect(column.locator('[data-slot="notice-card"]')).toHaveCount(0)
-    const body = column.locator('[data-region="sidebar-content"]:visible').first()
+    const body = column.locator('[data-left-settings-list]')
     await body.evaluate(node => { node.scrollTop = node.scrollHeight })
     const browser = column.locator('[data-left-settings]').getByRole('button', { name: 'Browser', exact: true })
     await expect(browser).toBeVisible()
