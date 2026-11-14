@@ -33,16 +33,21 @@ const END_SLACK = 24
 const ends = new WeakMap<Element, { readonly atEnd: boolean; readonly written: number | null; readonly top: number; readonly height: number }>()
 /** When the person last scrolled a thread themselves: a wheel, a touch, a key or a press on it. */
 const gestures = new WeakMap<Element, number>()
+/** A pointer stays a live gesture for the whole drag, including a slow scrollbar drag. */
+const pressed = new WeakMap<Element, Set<number>>()
 /** How long after a gesture a scroll still counts as the person's. */
 const GESTURE_MS = 1000
-const PERSON_SCROLLS = ['wheel', 'touchmove', 'keydown', 'pointerdown'] as const
+const PERSON_SCROLLS = ['wheel', 'touchmove', 'keydown'] as const
 /** Moves a thread to its end and keeps it following there, as when the person sends a message. */
 export const scrollThreadToEnd = (element: HTMLElement): void => {
   element.scrollTop = element.scrollHeight
   ends.set(element, { atEnd: true, written: element.scrollTop, top: element.scrollTop, height: element.scrollHeight })
 }
-/** Whether a thread is following its end: true until the reader scrolls away from it. */
-export const threadFollowsEnd = (element: HTMLElement): boolean => ends.get(element)?.atEnd ?? true
+/** Reconcile a held-pointer move before a reply or resize follows, even if its scroll event is still pending. */
+export const threadFollowsEnd = (element: HTMLElement): boolean => {
+  if (pressed.get(element)?.size) readScroll(element)
+  return ends.get(element)?.atEnd ?? true
+}
 const readScroll = (element: HTMLElement): void => {
   const last = ends.get(element), top = element.scrollTop
   const own = last?.written !== null && last?.written !== undefined && Math.abs(top - last.written) < 1
@@ -50,7 +55,7 @@ const readScroll = (element: HTMLElement): void => {
   const notUp = last !== undefined && top >= last.top - 1
   // Moved up while the content changed height, with no gesture of the person's: anchoring after a shrink above.
   const gesture = gestures.get(element)
-  const anchored = last !== undefined && element.scrollHeight !== last.height && (gesture === undefined || performance.now() - gesture > GESTURE_MS)
+  const anchored = last !== undefined && element.scrollHeight !== last.height && !pressed.get(element)?.size && (gesture === undefined || performance.now() - gesture > GESTURE_MS)
   const atEnd = element.scrollHeight - top - element.clientHeight <= END_SLACK || (own || notUp || anchored) && (last?.atEnd ?? true)
   ends.set(element, { atEnd, written: own ? last!.written : null, top, height: element.scrollHeight })
 }
@@ -62,8 +67,27 @@ export const ConversationThread = forwardRef<HTMLDivElement, ComponentProps<'div
     const element = node.current
     if (!keepEnd || !element) return
     const mark = (): void => { gestures.set(element, performance.now()) }
+    const pointers = new Set<number>()
+    pressed.set(element, pointers)
+    const down = (event: PointerEvent): void => { pointers.add(event.pointerId); mark() }
+    const up = (event: PointerEvent): void => { if (pointers.delete(event.pointerId)) mark() }
+    const blur = (): void => { if (pointers.size) { pointers.clear(); mark() } }
+    const document = element.ownerDocument
+    const window = document.defaultView
     for (const kind of PERSON_SCROLLS) element.addEventListener(kind, mark, { passive: true })
-    return () => { for (const kind of PERSON_SCROLLS) element.removeEventListener(kind, mark) }
+    element.addEventListener('pointerdown', down, { passive: true })
+    // A scrollbar drag can end outside the thread; capture also sees a stopped propagation.
+    document.addEventListener('pointerup', up, true)
+    document.addEventListener('pointercancel', up, true)
+    window?.addEventListener('blur', blur)
+    return () => {
+      for (const kind of PERSON_SCROLLS) element.removeEventListener(kind, mark)
+      element.removeEventListener('pointerdown', down)
+      document.removeEventListener('pointerup', up, true)
+      document.removeEventListener('pointercancel', up, true)
+      window?.removeEventListener('blur', blur)
+      pressed.delete(element)
+    }
   }, [keepEnd])
   useLayoutEffect(() => {
     const element = node.current

@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { ConversationThread } from './ConversationShell'
+import { ConversationThread, threadFollowsEnd } from './ConversationShell'
 
 /**
  * The dock floats over the thread and the thread reserves its measured height
@@ -36,6 +36,7 @@ afterEach(() => {
   act(() => root.unmount())
   container.remove()
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 const box = (element: HTMLElement, sizes: { scrollHeight: number, clientHeight: number }) => {
@@ -125,6 +126,106 @@ it('lets go of the end when the person scrolls up while the content changes', ()
   act(() => thread.dispatchEvent(new Event('scroll')))
   act(() => resize.forEach(callback => callback()))
   expect(thread.scrollTop).toBe(300)
+})
+
+const pointer = (type: string, pointerId = 1): Event => Object.assign(new Event(type, { bubbles: true }), { pointerId })
+
+it('observes a held-pointer move before a reply or resize can follow, even before the scroll event arrives', () => {
+  let now = 0
+  vi.spyOn(performance, 'now').mockImplementation(() => now)
+  act(() => root.render(<ConversationThread keepEnd><p>last message</p></ConversationThread>))
+  const thread = container.firstElementChild as HTMLElement
+  const sizes = { scrollHeight: 1200, clientHeight: 800 }
+  box(thread, sizes)
+  thread.scrollTop = 400
+  act(() => thread.dispatchEvent(new Event('scroll')))
+  act(() => thread.dispatchEvent(pointer('pointerdown')))
+  now = 2000
+  thread.scrollTop = 300
+  sizes.scrollHeight = 1600
+  // LeadPage checks this before following a new reply; ResizeObserver can
+  // also run before the browser delivers the reader's pending scroll event.
+  expect(threadFollowsEnd(thread)).toBe(false)
+  act(() => resize.forEach(callback => callback()))
+  expect(thread.scrollTop).toBe(300)
+})
+
+it('lets go during a pointer drag longer than the gesture grace period, even while content grows (#2164)', () => {
+  let now = 0
+  vi.spyOn(performance, 'now').mockImplementation(() => now)
+  act(() => root.render(<ConversationThread keepEnd><p>last message</p></ConversationThread>))
+  const thread = container.firstElementChild as HTMLElement
+  const sizes = { scrollHeight: 1200, clientHeight: 800 }
+  box(thread, sizes)
+  thread.scrollTop = 400
+  act(() => thread.dispatchEvent(new Event('scroll')))
+
+  act(() => thread.dispatchEvent(pointer('pointerdown')))
+  now = 2000
+  sizes.scrollHeight = 1600
+  thread.scrollTop = 300
+  act(() => thread.dispatchEvent(new Event('scroll')))
+  act(() => resize.forEach(callback => callback()))
+  expect(thread.scrollTop).toBe(300)
+})
+
+it.each(['pointerup', 'pointercancel'])('ends a drag on %s outside the thread, so later anchoring still follows', type => {
+  let now = 0
+  vi.spyOn(performance, 'now').mockImplementation(() => now)
+  act(() => root.render(<ConversationThread keepEnd><p>last message</p></ConversationThread>))
+  const thread = container.firstElementChild as HTMLElement
+  const sizes = { scrollHeight: 1200, clientHeight: 800 }
+  box(thread, sizes)
+  thread.scrollTop = 400
+  act(() => thread.dispatchEvent(new Event('scroll')))
+  act(() => thread.dispatchEvent(pointer('pointerdown')))
+  act(() => document.body.dispatchEvent(pointer(type)))
+
+  now = 2000
+  sizes.scrollHeight = 1600
+  thread.scrollTop = 300
+  act(() => thread.dispatchEvent(new Event('scroll')))
+  act(() => resize.forEach(callback => callback()))
+  expect(thread.scrollTop).toBe(1600)
+})
+
+it('does not end another pointer\'s ongoing drag when the first pointer releases', () => {
+  let now = 0
+  vi.spyOn(performance, 'now').mockImplementation(() => now)
+  act(() => root.render(<ConversationThread keepEnd><p>last message</p></ConversationThread>))
+  const thread = container.firstElementChild as HTMLElement
+  const sizes = { scrollHeight: 1200, clientHeight: 800 }
+  box(thread, sizes)
+  thread.scrollTop = 400
+  act(() => thread.dispatchEvent(new Event('scroll')))
+  act(() => thread.dispatchEvent(pointer('pointerdown', 1)))
+  act(() => thread.dispatchEvent(pointer('pointerdown', 2)))
+  act(() => document.body.dispatchEvent(pointer('pointerup', 1)))
+  now = 2000
+  sizes.scrollHeight = 1600
+  thread.scrollTop = 300
+  act(() => thread.dispatchEvent(new Event('scroll')))
+  act(() => resize.forEach(callback => callback()))
+  expect(thread.scrollTop).toBe(300)
+})
+
+it('clears a held pointer when the window loses focus, so anchoring can follow again', () => {
+  let now = 0
+  vi.spyOn(performance, 'now').mockImplementation(() => now)
+  act(() => root.render(<ConversationThread keepEnd><p>last message</p></ConversationThread>))
+  const thread = container.firstElementChild as HTMLElement
+  const sizes = { scrollHeight: 1200, clientHeight: 800 }
+  box(thread, sizes)
+  thread.scrollTop = 400
+  act(() => thread.dispatchEvent(new Event('scroll')))
+  act(() => thread.dispatchEvent(pointer('pointerdown')))
+  act(() => window.dispatchEvent(new Event('blur')))
+  now = 2000
+  sizes.scrollHeight = 1600
+  thread.scrollTop = 300
+  act(() => thread.dispatchEvent(new Event('scroll')))
+  act(() => resize.forEach(callback => callback()))
+  expect(thread.scrollTop).toBe(1600)
 })
 
 it('leaves a reader who scrolled up where they are', () => {
