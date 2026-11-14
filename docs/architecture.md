@@ -1039,7 +1039,15 @@ use `HARNESSDESK_LEAD=1` or `HARNESSDESK_PHONE_LINK=1`. The separate pending int
 and repair barrier fence uncertain outcomes until an explicit repair stops both
 features, preserves the artifacts and acknowledges Off. Lead shutdown fences
 admissions, drains its lifetime, stops owned work and closes its assembly; a new
-enablement opens a fresh lifetime over the kept journal. Account services stay
+enablement opens a fresh lifetime over the kept journal. Direct Lead calls,
+including lazy assembly, retain that lifetime through completion; background
+producers and store writes drain before the journal lease is released.
+Startup activation uses the same controller without saving launch defaults.
+An optional activation failure latches a visible repair problem and preserves
+acknowledged partial choices while the ordinary desk remains available.
+Explicit repair stops both features but leaves damaged phone identity artifacts
+untouched; enabling again requires those artifacts or external listener failures
+to have been resolved. Account services stay
 independent of either feature.
 
 Backup export uses `DeskFeatures.choices()`, never raw preference or intent files.
@@ -1064,7 +1072,8 @@ enrollment offers do not. A code works once for ten minutes. The person
 approves the phone before its Read, Run and Answer grants take effect.
 `PHONE_POLICY` allowlists the phone's methods and event topics; renderer file
 and general settings methods are outside that surface. Turning Mobile off
-closes LAN and relay connections and their listeners while
+seals new controls and endpoint admissions, drains admitted controls and endpoint
+enrollment/touch/registry writes, then closes the lane and its listeners while
 keeping the phone identity and paired-device registry. Re-enabling reopens them;
 closing the host closes the lane too. Account sign-in, sign-out and deletion do
 not enable Mobile or delete its independent LAN pairings.

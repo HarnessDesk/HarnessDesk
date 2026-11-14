@@ -76,6 +76,24 @@ export class DeskFeatures {
     return next
   }
   #latch(problem: DeskFeatureProblem): void { this.#problem = problem; this.changed(this.read()) }
+  /** Activate defaults and acknowledged choices without turning defaults into preferences.
+   * Failed optional restoration is recoverable from Settings, never a failed desk startup. */
+  initialize(): Promise<void> {
+    return this.#queue(async () => {
+      if (this.#problem) return
+      for (const feature of ['lead', 'mobile'] as const) {
+        if (!this.#state[feature]) continue
+        try { await this.transition(feature, true) }
+        catch {
+          this.#latch({ kind: 'transition', feature, message: `${feature === 'lead' ? 'Lead' : 'Mobile'} could not start. Repair feature settings to turn both features off. Retained service files, history and pairings are left unchanged. Check the service configuration or seek diagnostic support before enabling it again.` })
+          // Preserve the acknowledged partial choices. The intent keeps failure visible after restart.
+          try { await this.io.write(this.#pending, { version: 1, previous: this.#state, choices: this.#choices, feature, enabled: true }) }
+          catch { /* The live latch still fences admission; repair preserves whatever reached disk. */ }
+          break
+        }
+      }
+    })
+  }
   set(feature: DeskFeature, enabled: boolean): Promise<DeskFeatureState> {
     return this.#queue(async () => {
       if (this.#problem) throw Error('Repair feature settings before changing features.')

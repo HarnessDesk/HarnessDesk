@@ -251,6 +251,8 @@ export const leadAskOption = <T extends { readonly label: string }>(options: rea
 export const LEAD_LATE_TAP_MS = 10 * 60_000
 interface ExpiryNote { readonly text: string; readonly after: string | undefined; readonly note: string; messageId?: string }
 export class LeadPresenceStore {
+  /** Called after admissions and background producers have stopped, before releasing the owner. */
+  async idle(): Promise<void> { await this.#tail }
   #tail: Promise<unknown> = Promise.resolve()
   #stored: Stored = fresh()
   #loaded = false

@@ -927,6 +927,7 @@ export class Host {
   #leadEnabled = false
   #leadClosing = false
   #leadLifetime: LeadLifetime | null = null
+  readonly #leadStores: { idle(): Promise<void> }[] = []
   readonly #leadDisposers: (() => Promise<void> | void)[] = []
   #leadRestoring: Promise<void> = Promise.resolve()
   #mobileService: RunningPhoneLink | null = null
@@ -3406,13 +3407,7 @@ export class Host {
     if ((this.options.catalogRefreshMs ?? 1) > 0) this.#catalogs.start()
     this.#startIdleReaper()
     this.onDispose(() => this.#closeLead())
-    if (!this.#features.read().problem && this.#features.read().mobile) await this.#setFeature('mobile', true)
-    this.#leadReady = this.#leadEnabled === true
-    if (this.#leadReady) {
-      this.#leadAssembly = this.#assembleLead()
-      this.#leadRestoring = this.#leadAssembly.restore()
-      void this.#leadRestoring.catch(() => { this.#logger.warn('Lead could not restore its saved thread') })
-    }
+    await this.#features.initialize()
   }
 
   /**
@@ -4088,13 +4083,18 @@ export class Host {
     await this.#leadLifetime?.drain()
     this.#leadControls?.close()
     await this.#leadControls?.idle()
-    this.#leadLifetime = null
+    await this.#leadMemoryOpen?.catch(() => {})
     // Drain listeners and timers before releasing the journal lease. Failed cleanup remains retryable.
     while (this.#leadDisposers.length) {
       await this.#leadDisposers[0]!()
       this.#leadDisposers.shift()
     }
+    // Disposers remove producers first. Stores may have queued writes from journal callbacks
+    // or a refresh which began before the fence; the lease still belongs to them here.
+    for (const store of this.#leadStores) await store.idle()
+    this.#leadStores.length = 0
     await this.#leadAssembly?.close()
+    this.#leadLifetime = null
     this.#leadAssembly = null
     this.#leadService = null
     this.#leadClosing = false
@@ -4152,6 +4152,7 @@ export class Host {
     this.#leadListenersAvailable = true
     this.#leadEnabled = true
     this.#leadReady = true
+    this.#leadLifetime = new LeadLifetime(() => !this.#features.read().problem && this.#features.read().lead && this.#leadReady && !this.#disposed)
     this.#leadAssembly = this.#assembleLead()
     try {
       this.#leadRestoring = this.#leadAssembly.restore()
@@ -4175,7 +4176,7 @@ export class Host {
     if (!this.#leadReady) throw new Error('lead-host-starting')
     if (this.#leadService) throw new Error('lead-service-exists')
     const { journal, project } = options
-    const lifetime = new LeadLifetime(() => !this.#features.read().problem && this.#features.read().lead && this.#leadReady && !this.#disposed)
+    const lifetime = this.#leadLifetime ?? new LeadLifetime(() => !this.#features.read().problem && this.#features.read().lead && this.#leadReady && !this.#disposed)
     this.#leadLifetime = lifetime
     const leadAvailable = lifetime.available
     const chatControl = this.#chatControlStore()
@@ -4225,6 +4226,7 @@ export class Host {
       publish: board => { this.#push({ method: 'lead/work/changed', params: board }); void reminderTimer?.arm() },
     })
     this.#leadWork = work
+    this.#leadStores.push(work)
     this.#onLeadDispose(() => { if (this.#leadWork === work) this.#leadWork = null })
     // #2144: each reply the Lead writes says the reminders its turn's cards called owed, so they are marked said once,
     // on the board both surfaces read and in the cards of every later turn. The turn is the newest user message before
@@ -4238,7 +4240,7 @@ export class Host {
         if (message.role !== 'assistant' || message.revision <= repliedAt) continue
         repliedAt = message.revision
         const turn = messages.slice(0, index).findLast(earlier => earlier.role === 'user')
-        if (turn && journal.isModelReply(message.id)) void work.saidInReply(turn.revision).catch(() => { this.#logger.warn('The Lead work ledger could not mark a reminder said') })
+        if (turn && journal.isModelReply(message.id)) void lifetime.run(() => work.saidInReply(turn.revision)).catch(() => { this.#logger.warn('The Lead work ledger could not mark a reminder said') })
       }
     }))
     // Presence: seen marks per device, the away digest, the morning brief and the state of each ask. Built from the
@@ -4257,6 +4259,7 @@ export class Host {
       push: notice => this.#push({ method: 'lead/presence/changed', params: { notice } }),
       changed: () => this.#push({ method: 'lead/presence/changed', params: {} }) })
     this.#leadPresence = presence
+    this.#leadStores.push(presence)
     // Autonomy: Off / Observe / Act per proactive kind, the person's rule sections and the goal deadline. Host-enforced.
     const autonomy = new LeadAutonomyStore({ file: join(this.#state.directory, 'lead', 'autonomy.json'), now: () => Date.now(), journal,
       goal: () => { const budget = journal.state.budget; return budget ? { id: budget.logicalGoalId, open: !['accepted', 'declined', 'stopped'].includes(journal.state.phase) } : null },
@@ -4265,16 +4268,17 @@ export class Host {
       // Where a proposal card sits (under the Lead's next reply), and whether the person has written since a No.
       seq: () => journal.state.seq, personSeq: () => this.#leadPersonSeq(), receipt: text => this.#leadReceipt(text) })
     this.#leadAutonomy = autonomy
+    this.#leadStores.push(autonomy)
     void autonomy.attach().catch(() => { this.#logger.warn('The Lead autonomy settings could not be read') })
     this.#onLeadDispose(() => { if (this.#leadAutonomy === autonomy) this.#leadAutonomy = null })
     // An ask's clock starts when the journal appends it, not when somebody first looks at the thread.
-    this.#onLeadDispose(journal.onChange(() => { void presence.observe().catch(() => {}) }))
+    this.#onLeadDispose(journal.onChange(() => { void lifetime.run(() => presence.observe()).catch(() => {}) }))
     this.#onLeadDispose(() => { if (this.#leadPresence === presence) this.#leadPresence = null })
     let workTimer: ReturnType<typeof setTimeout> | null = null
     const pokeWork = () => {
       work.stale()
       if (workTimer || this.#disposed || !this.#leadReady) return
-      workTimer = setTimeout(() => { workTimer = null; void work.refresh().catch(() => { this.#logger.warn('The Lead work ledger could not refresh') }) }, 250)
+      workTimer = setTimeout(() => { workTimer = null; void lifetime.run(() => work.refresh()).catch(() => { this.#logger.warn('The Lead work ledger could not refresh') }) }, 250)
       workTimer.unref?.()
     }
     this.#onLeadDispose(() => { if (workTimer) clearTimeout(workTimer) })
@@ -4294,7 +4298,7 @@ export class Host {
       if (signature === goalLinks) return
       goalLinks = signature
       const kind = state.origin?.source === 'schedule' ? 'repeat' as const : state.origin ? 'trigger' as const : 'person' as const
-      void work.attach({ kind, ref: `goal:${goal}`, title: contract.goal }, { teams, prs, issues }).then(pokeWork, () => { goalLinks = '' })
+      void lifetime.run(() => work.attach({ kind, ref: `goal:${goal}`, title: contract.goal }, { teams, prs, issues })).then(pokeWork, () => { goalLinks = '' })
     }
     this.#onLeadDispose(journal.onChange(() => { syncGoal(); pokeWork() }))
     const WORK_EVENTS = new Set(['session/started', 'session/status', 'session/closed', 'turn/started', 'turn/completed', 'approval/requested', 'approval/resolved'])
@@ -4954,6 +4958,7 @@ export class Host {
     return this.#leadMemoryOpen ??= LeadMemoryStore.open({ dir: join(this.#state.directory, 'lead'), legacy: () => this.#leadPlanner().readMemory(),
       // Forgotten is forgotten in search too: the conversation the desk kept loses the passages that said it.
       onForget: async texts => { const corpus = await this.#leadCorpus(); await (texts === 'all' ? corpus.clear() : corpus.forget(texts)) } }).then(store => {
+      this.#leadStores.push(store)
       this.#leadMemoryReady = store
       this.#onLeadDispose(store.onChange(revision => this.#push({ method: 'lead/memory/changed', params: { revision } })))
       return store
@@ -5295,6 +5300,11 @@ export class Host {
 
   async call<M extends HostMethodName>(method: M, params: HostParams<M>): Promise<HostResult<M>> {
     if (method.startsWith('lead/') && (this.#features.read().problem || !this.#features.read().lead || !this.#leadEnabled || !this.#leadReady || this.#disposed)) throw leadRefusal('lead-unavailable')
+    if (method.startsWith('lead/')) return this.#leadLifetime!.track(() => this.#call(method, params))
+    return this.#call(method, params)
+  }
+
+  async #call<M extends HostMethodName>(method: M, params: HostParams<M>): Promise<HostResult<M>> {
     try { this.#noteReach(params) }
     catch (error) {
       if (method === 'approval/respond' && error instanceof Error) Object.assign(error, { approvalNotDelivered: true })

@@ -114,6 +114,8 @@ const keep = (list: StoredProposal[]): StoredProposal[] => {
  * the file after a crash between the two. Nothing here is reachable by the Lead: its tools have no such method.
  */
 export class LeadAutonomyStore {
+  /** Called after admissions and background producers have stopped, before releasing the owner. */
+  async idle(): Promise<void> { await this.#tail }
   #tail: Promise<unknown> = Promise.resolve()
   #stored: Stored = fresh()
   #loaded = false

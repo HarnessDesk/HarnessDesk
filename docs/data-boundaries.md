@@ -508,7 +508,7 @@ never become the desktop's desk token.
 | `GET /v1/desk/account` | Desk bearer token; no body | After approval, on restoring an existing sign-in and while signed in at intervals of 1–60 seconds, bounded by session renewal; transient background failures retry after 30 seconds |
 | Picture `GET` to the returned HTTPS picture URL | Raster accept header; no cookies, credentials or referrer | When account metadata names a picture not already cached; the host validates the public address and bounded image before supplying local image data |
 | `POST /v1/desk/rename` | Desk bearer token and new desk name | When Rename is confirmed while signed in; a signed-out rename only saves locally |
-| `POST /v1/links/revoke` | Desk bearer token, desk id and phone device id | When Unlink is confirmed in Account; followed by an account refresh |
+| `POST /v1/links/revoke` | Desk bearer token, desk id and phone device id | When Unlink is confirmed in Settings › Mobile; followed by an account refresh |
 | `POST /v1/desks/revoke` | Desk bearer token and this desk's id | On ordinary sign-out, or best-effort cleanup of an approved but unfinished sign-in; local-only sign-out makes no account request |
 | `POST /v1/account/delete` | Desk bearer token and an empty JSON object | After confirming Delete account; session renewal may first obtain a challenge and session |
 | `POST /v1/invites` | Desk bearer token and an empty JSON object | When Show code or New code is chosen in Settings › Mobile while signed in, Reachable from your phone is on and the phone link runs; the one-time invite goes into the pairing code only |
@@ -563,7 +563,7 @@ Cancel or startup using the desk key, best effort.
 
 **Retention:** the cloud keeps the account's desk registration and phone-link
 revocation records; signing out revokes this desk and its links rather than
-deleting the cloud account. Settings › Account can unlink a phone or sign out
+deleting the cloud account. Settings › Mobile can unlink a phone; Settings › Account can sign out
 of HarnessDesk. Sign-out clears the local key, token and cached account
 identity and stops account polling. If the cloud cannot be reached, the
 confirmation offers **Sign out on this desk only**: it clears the local

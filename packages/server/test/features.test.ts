@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import test, { type TestContext } from 'node:test'
+import fs from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
+import { createServer } from 'node:net'
 import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Client, start, halt } from './fixtures/harness.js'
@@ -291,4 +294,229 @@ for (const finish of ['disable', 'repair'] as const) test(`partial Lead creation
   await desk.host.call(set, { feature: 'lead', enabled: true })
   assert.equal((await desk.host.call('lead/thread/read', {})).settings?.name, 'dex')
   assert.equal(attempts, 2, 're-enable builds one fresh service after draining the failed one')
+})
+
+// Hold the actual atomic replacement; in-memory state alone cannot prove lifetime isolation.
+const holdRename = (t: TestContext, file: string) => {
+  const rename = fs.rename
+  let entered!: () => void, release!: () => void, once = true
+  const inside = new Promise<void>(resolve => { entered = resolve })
+  const held = new Promise<void>(resolve => { release = resolve })
+  const mocked = t.mock.method(fs, 'rename', async (...args: Parameters<typeof fs.rename>) => {
+    if (String(args[1]) === file && once) { once = false; entered(); await held }
+    return rename(...args)
+  })
+  syncBuiltinESMExports()
+  t.after(() => { release(); mocked.mock.restore(); syncBuiltinESMExports() })
+  return { inside, release }
+}
+
+for (const owner of ['presence', 'autonomy'] as const) test(`Lead Off drains the actual ${owner} rename before replacement`, async t => {
+  const home = tempDir('hd-feature-lead-write-'), desk = await start({ catalogRefreshMs: 0 }, home)
+  t.after(() => halt(desk))
+  await desk.host.call('workspace/open', { path: home })
+  await desk.host.call(set, { feature: 'lead', enabled: true })
+  await desk.host.call('lead/thread/read', {})
+  // Settle assembly/background writes before interposing this specific direct mutation.
+  await desk.host.call('lead/brief/update', { at: '07:30' })
+  await desk.host.call('lead/autonomy/set', { kind: 'brief', mode: 'off' })
+  const hold = holdRename(t, join(home, 'lead', `${owner}.json`))
+  const updating = owner === 'presence' ? desk.host.call('lead/brief/update', { at: '08:45' })
+    : desk.host.call('lead/autonomy/set', { kind: 'brief', mode: 'observe' })
+  await hold.inside
+  let disabled = false
+  const disabling = desk.host.call(set, { feature: 'lead', enabled: false }).then(() => { disabled = true })
+  await new Promise(resolve => setTimeout(resolve, 80))
+  const early = disabled
+  hold.release(); await updating; await disabling
+  await desk.host.call(set, { feature: 'lead', enabled: true })
+  await desk.host.call('lead/thread/read', {})
+  if (owner === 'presence') {
+    assert.equal((await desk.host.call('lead/brief/read', {})).at, '08:45')
+    await desk.host.call('lead/brief/update', { at: '09:15' })
+    assert.equal(JSON.parse(await readFile(join(home, 'lead/presence.json'), 'utf8')).brief.at, '09:15')
+  } else {
+    assert.equal((await desk.host.call('lead/autonomy/read', {})).modes.brief, 'observe')
+    await desk.host.call('lead/autonomy/set', { kind: 'brief', mode: 'act' })
+    await desk.host.call(set, { feature: 'lead', enabled: false })
+    await desk.host.call(set, { feature: 'lead', enabled: true })
+    assert.equal((await desk.host.call('lead/autonomy/read', {})).modes.brief, 'act')
+  }
+  assert.equal(early, false, 'Off must wait for the old owner actual filesystem write')
+})
+
+test('Mobile Off drains actual revoke persistence before reopening a registry', async t => {
+  const home = tempDir('hd-feature-mobile-write-')
+  const { PhoneSim } = await import('@harnessdesk/phone-link/sim')
+  const desk = await start({ catalogRefreshMs: 0, mobileEnabled: true, phoneLink: { host: '127.0.0.1' } }, home)
+  t.after(() => halt(desk))
+  const code = await desk.host.call('phone/pairing', {})
+  const phone = await PhoneSim.fromCode(code.url)
+  t.after(() => phone.close())
+  await phone.open((await desk.host.call('phone/state', {})).port!, phone.offer!.deskPub)
+  await phone.enroll(phone.offer!.enroll, 'Demo phone')
+  let pending = (await desk.host.call('phone/state', {})).pending
+  while (!pending.length) { await new Promise(resolve => setTimeout(resolve, 10)); pending = (await desk.host.call('phone/state', {})).pending }
+  await desk.host.call('phone/allow', { id: pending[0]!.id })
+  await phone.next(message => message.t === 'enroll.ok')
+  const hold = holdRename(t, join(home, 'phone-link/phone-devices.json'))
+  const removing = desk.host.call('phone/revoke', { device: phone.id })
+  await hold.inside
+  let disabled = false
+  const disabling = desk.host.call(set, { feature: 'mobile', enabled: false }).then(() => { disabled = true })
+  await new Promise(resolve => setTimeout(resolve, 80))
+  const early = disabled
+  await assert.rejects(desk.host.call('phone/pairing', {}), /phone-link-unavailable/)
+  hold.release(); await removing; await disabling
+  await desk.host.call(set, { feature: 'mobile', enabled: true })
+  const reopened = await desk.host.call('phone/state', {})
+  assert.deepEqual(reopened.devices, [])
+  const returning = await PhoneSim.create(phone.key)
+  t.after(() => returning.close())
+  await returning.open(reopened.port!, phone.offer!.deskPub)
+  await returning.auth()
+  assert.equal((await returning.closedWith()).code, 4423, 'retained revoked authority is refused by the real endpoint')
+  assert.equal(early, false, 'Off must wait for registry persistence')
+})
+
+for (const damaged of ['desk-key.json', 'phone-devices.json', 'listener', 'lead-project'] as const)
+  test(`saved optional activation failure (${damaged}) leaves ordinary sessions and explicit repair available`, async t => {
+    const home = tempDir('hd-feature-start-fail-')
+    const lead = damaged === 'lead-project'
+    await fs.writeFile(join(home, 'features.json'), JSON.stringify(lead ? { lead: true } : { mobile: true }))
+    await mkdir(join(home, lead ? 'lead' : 'phone-link'))
+    const file = join(home, lead ? 'lead/project.json' : `phone-link/${damaged}`)
+    const damagedText = '{damaged-PRIVATE_IDENTITY_CANARY'
+    if (damaged !== 'listener') await fs.writeFile(file, damagedText)
+    const occupied = damaged === 'listener' ? createServer() : null
+    if (occupied) await new Promise<void>(resolve => occupied.listen(0, '127.0.0.1', resolve))
+    t.after(async () => { if (occupied?.listening) await new Promise<void>(resolve => occupied.close(() => resolve())) })
+    const address = occupied?.address()
+    const port = address && typeof address === 'object' ? address.port : undefined
+    const desk = await start({ catalogRefreshMs: 0, ...(port ? { phoneLink: { host: '127.0.0.1', port } } : {}) }, home)
+    t.after(() => halt(desk))
+    const state = await desk.host.call(read, {})
+    assert.equal(state.problem?.feature, lead ? 'lead' : 'mobile')
+    assert.match(state.problem!.message, /could not start.*Retained service files/s)
+    const wire = await Client.connect(desk.server)
+    try {
+      const shown = JSON.stringify(await wire.call(read, {}))
+      assert.equal(shown.includes('PRIVATE_IDENTITY_CANARY'), false)
+      assert.equal(shown.includes(home), false, 'private state paths stay out of the feature problem')
+    } finally { wire.close() }
+    assert.equal(state[lead ? 'lead' : 'mobile'], true)
+    assert.deepEqual(JSON.parse(await readFile(join(home, 'features.json'), 'utf8')), lead ? { lead: true } : { mobile: true })
+    const chat = await desk.host.call('session/create', { runtime: desk.runtime.info.id, options: { cwd: home } })
+    assert.ok(chat.id)
+    await assert.rejects(desk.host.call('phone/pairing', {}), /phone-link-unavailable/)
+    assert.deepEqual(await desk.host.call('app/features/repair', {}), { lead: false, mobile: false })
+    if (damaged !== 'listener') {
+      assert.equal(await readFile(file, 'utf8'), damagedText, 'repair must not erase retained identity or Lead evidence')
+      await assert.rejects(desk.host.call(set, { feature: lead ? 'lead' : 'mobile', enabled: true }), /Repair/)
+      assert.equal(await readFile(file, 'utf8'), damagedText, 'retry also preserves damaged artifacts')
+      await desk.host.call('app/features/repair', {})
+      await fs.rm(file) // external repair in this synthetic fixture
+      await desk.host.call(set, { feature: lead ? 'lead' : 'mobile', enabled: true })
+    } else {
+      await new Promise<void>(resolve => occupied!.close(() => resolve()))
+      await desk.host.call(set, { feature: 'mobile', enabled: true })
+      assert.equal((await desk.host.call('phone/state', {})).enabled, true)
+    }
+  })
+
+test('successful launch defaults remain absent from portable explicit choices', async t => {
+  const home = tempDir('hd-feature-default-only-'), desk = await start({ catalogRefreshMs: 0, mobileEnabled: true, leadEnabled: true }, home)
+  t.after(() => halt(desk))
+  assert.deepEqual(await desk.host.call(read, {}), { lead: true, mobile: true })
+  await assert.rejects(readFile(join(home, 'features.json')), { code: 'ENOENT' })
+})
+
+for (const mutation of ['enrollment', 'touch'] as const) test(`Mobile Off drains endpoint-owned ${mutation} persistence`, async t => {
+  const { PhoneSim } = await import('@harnessdesk/phone-link/sim')
+  const home = tempDir('hd-feature-endpoint-write-')
+  const desk = await start({ catalogRefreshMs: 0, mobileEnabled: true, phoneLink: { host: '127.0.0.1' } }, home)
+  t.after(() => halt(desk))
+  const code = await desk.host.call('phone/pairing', {})
+  const phone = await PhoneSim.fromCode(code.url)
+  t.after(() => phone.close())
+  await phone.open((await desk.host.call('phone/state', {})).port!, phone.offer!.deskPub)
+  await phone.enroll(phone.offer!.enroll, 'Demo phone')
+  let pending = (await desk.host.call('phone/state', {})).pending
+  while (!pending.length) { await new Promise(resolve => setTimeout(resolve, 10)); pending = (await desk.host.call('phone/state', {})).pending }
+  if (mutation === 'touch') {
+    await desk.host.call('phone/allow', { id: pending[0]!.id })
+    await phone.next(message => message.t === 'enroll.ok')
+    phone.close()
+  }
+  const hold = holdRename(t, join(home, 'phone-link/phone-devices.json'))
+  if (mutation === 'enrollment') await desk.host.call('phone/allow', { id: pending[0]!.id })
+  else {
+    const returning = await PhoneSim.create(phone.key)
+    t.after(() => returning.close())
+    await returning.open((await desk.host.call('phone/state', {})).port!, phone.offer!.deskPub)
+    await returning.auth()
+  }
+  await hold.inside
+  let disabled = false
+  const disabling = desk.host.call(set, { feature: 'mobile', enabled: false }).then(() => { disabled = true })
+  await new Promise(resolve => setTimeout(resolve, 80))
+  const early = disabled
+  hold.release(); await disabling
+  await desk.host.call(set, { feature: 'mobile', enabled: true })
+  const devices = (await desk.host.call('phone/state', {})).devices
+  assert.equal(devices[0]?.id, phone.id)
+  if (mutation === 'touch') assert.ok(devices[0]!.lastSeenAt)
+  assert.equal(early, false, 'endpoint writes drain before releasing the registry owner')
+})
+
+test('Mobile stop retries a failed close on the same owner', async t => {
+  const { PhoneLinkService } = await import('@harnessdesk/phone-link')
+  const home = tempDir('hd-feature-close-retry-'), desk = await start({ catalogRefreshMs: 0, mobileEnabled: true }, home)
+  t.after(() => halt(desk))
+  const close = PhoneLinkService.prototype.close
+  let first: import('@harnessdesk/phone-link').PhoneLinkService | undefined, attempts = 0
+  t.mock.method(PhoneLinkService.prototype, 'close', async function(this: import('@harnessdesk/phone-link').PhoneLinkService) {
+    if (!first) first = this
+    else assert.equal(this, first, 'repair retries the retained service')
+    if (++attempts === 1) throw Error('synthetic close failure')
+    return close.call(this)
+  })
+  await assert.rejects(desk.host.call(set, { feature: 'mobile', enabled: false }), /Repair/)
+  await assert.rejects(desk.host.call('phone/pairing', {}), /phone-link-unavailable/)
+  assert.equal((await desk.host.call(read, {})).problem?.feature, 'mobile')
+  await desk.host.call('app/features/repair', {})
+  assert.equal(attempts, 2)
+  assert.equal((await desk.host.call('phone/state', {})).enabled, false)
+})
+
+test('failed saved Lead restore drains partial owners before exposing repair on the ordinary desk', async t => {
+  const { IntakePlane } = await import('../src/intake/plane.js')
+  const { LeadService } = await import('../src/lead/service.js')
+  const { LeadFileJournal } = await import('../src/lead/journal.js')
+  const home = tempDir('hd-feature-restore-owner-')
+  await fs.writeFile(join(home, 'features.json'), JSON.stringify({ lead: true }))
+  await mkdir(join(home, 'lead'))
+  await fs.writeFile(join(home, 'lead/project.json'), JSON.stringify({ version: 1, path: home }))
+  t.mock.method(IntakePlane.prototype, 'followPullRequests', () => { throw Error('synthetic restore registration failure') })
+  const close = LeadService.prototype.close
+  let entered!: () => void, release!: () => void
+  const inside = new Promise<void>(resolve => { entered = resolve }), held = new Promise<void>(resolve => { release = resolve })
+  t.after(() => release())
+  t.mock.method(LeadService.prototype, 'close', async function(this: InstanceType<typeof LeadService>) {
+    entered(); await held; return close.call(this)
+  })
+  let started = false
+  const starting = start({ catalogRefreshMs: 0 }, home).then(desk => { started = true; return desk })
+  await inside
+  try {
+    assert.equal(started, false, 'the failed restore still owns its cleanup')
+    await assert.rejects(LeadFileJournal.open(home, 'desk'), /lead-journal-open-refused/)
+  } finally { release() }
+  const desk = await starting
+  t.after(() => halt(desk))
+  assert.equal((await desk.host.call(read, {})).problem?.feature, 'lead')
+  const storage = await LeadFileJournal.open(home, 'desk')
+  await storage.close()
+  assert.ok((await desk.host.call('session/create', { runtime: desk.runtime.info.id, options: { cwd: home } })).id)
+  assert.deepEqual(await desk.host.call('app/features/repair', {}), { lead: false, mobile: false })
 })

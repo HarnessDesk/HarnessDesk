@@ -265,6 +265,8 @@ const isItem = (value: unknown): value is Item => {
  * window, the phone and the Lead's own request.
  */
 export class LeadWorkLedger {
+  /** Called after admissions and background producers have stopped, before releasing the owner. */
+  async idle(): Promise<void> { await this.#refreshing?.catch(() => {}); await this.#tail }
   #tail: Promise<unknown> = Promise.resolve()
   #pending = new Map<number, LeadWorkClaim>()
   #token = 0

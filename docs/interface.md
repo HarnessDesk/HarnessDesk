@@ -569,17 +569,8 @@ and detail in the account trigger's tooltip. Dismissing or silencing the notice
 also removes that warning from the tooltip for the same occurrence or kind.
 
 **Settings › Account** shows the HarnessDesk identity and a separate sign-out
-action; **This desk** contains its name, Rename and **Reachable from your
-phone**, off until turned on. With it on, paired phones reach the desk through
-the account relay when they are away from its network; a chip beside the label
-says **Connected** or **Connecting…**, and a warning chip says **Can’t reach
-HarnessDesk** after three failed tries, **In use elsewhere** when another copy
-of this desk took the relay, or **Refused** when the account no longer lets the
-desk in. Its tooltip says what to do. **Linked phones** lists each phone
-and its last seen time; Unlink confirms before removing access. Sign in on a phone with the
-same account to add another. **Without an account** offers **Pair a phone with
-a code** through **Mobile settings**, including when Mobile is off so it can be
-enabled there.
+action. **This desk** contains its name and Rename. Phone connectivity and
+linked-phone access controls live in **Settings › Mobile**.
 Account status comes from the host, independently of runtime accounts; credentials stay out of the renderer. Account pictures are bounded
 raster data supplied by the host; the renderer never loads the account’s
 remote picture URL, and the app’s image content policy stays unchanged.
@@ -605,8 +596,17 @@ confirmation also appears when another page is open. Phones lists the name,
 Read/Run/Answer grants, and **Connected on this network**, **Connected through
 your account** or the last-seen time. Remove asks for confirmation,
 disconnects the device and requires a new pairing to return. This local pairing
-requires no account link. The Account page's linked phones belong to its
-separate service lane.
+requires no account link.
+
+Mobile also contains the account-owned **Reachable from your phone** control,
+off until turned on, and **Linked phones**. With Reachable on and Mobile
+enabled, paired phones reach this desk through the account relay away from
+its network. A chip says **Connected** or **Connecting…**; warnings say
+**Can’t reach HarnessDesk**, **In use elsewhere**, or **Refused**, with recovery
+in the tooltip. Unlink confirms before removing account access. These controls
+remain available while local Mobile is off or feature settings need repair,
+so access can still be reduced. Account sign-in and sign-out retain their
+independent lifetime.
 
 A paired phone can page through active and archived sessions, open their
 redacted conversations, and, with Run granted, start a session, reply or stop
