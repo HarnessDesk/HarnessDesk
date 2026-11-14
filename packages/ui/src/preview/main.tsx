@@ -621,8 +621,9 @@ const SETTINGS_SECTIONS = [
 
 /** Keep appearance subscriptions off the catalogue parent: its independent
  * specimens inherit the CSS and keep their own store subscriptions. */
+const PreviewTheme = () => { useTheme(); return null }
+
 const PreviewAppearanceControls = ({ compact = false }: { compact?: boolean }) => {
-  useTheme()
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot)
   const theme = (
         <Dial
@@ -681,7 +682,7 @@ const PreviewSaveAsAgent = ({ onClose }: { onClose: () => void }) => {
   return <SaveAsAgentDialog session={snapshot.sessions.get(PREVIEW_SESSION_KEY)!} onClose={onClose} />
 }
 
-const Preview = () => {
+const PreviewContent = () => {
   useEffect(() => {
     if (new URLSearchParams(window.location.search).has('measure-preview')) {
       const measured = window as unknown as { __hdPreviewParentCommits?: number }
@@ -1274,6 +1275,10 @@ const Preview = () => {
   )
 }
 
+// The effect is a sibling of the catalogue so every focused early return keeps
+// theming without subscribing the catalogue parent to the whole store.
+const Preview = () => <><PreviewTheme /><PreviewContent /></>
+
 /** An audited Run frame mounts only its own synthetic data, like the Brief dialog. */
 const RunPreview = () => {
   useTheme()
@@ -1300,6 +1305,7 @@ const IsolatedPreview = () => {
   else if (params.has('composer-slots')) frames = <ComposerSlotsFrames />
   else throw new Error('Unknown isolated preview: name a supported fixture')
   return <div className="min-h-full bg-background p-4 text-foreground">
+    <PreviewTheme />
     <PreviewAppearanceControls compact />
     {frames}
   </div>

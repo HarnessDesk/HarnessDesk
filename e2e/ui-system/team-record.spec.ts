@@ -37,6 +37,19 @@ test('appearance changes update the controls and theme without rerendering the w
   expect(await commits()).toBe(before)
 })
 
+for (const route of ['storage', 'history', 'icon-followups']) {
+  test(`focused ${route} keeps theme effects without catalogue controls`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'light' })
+    await page.goto(`/preview.html?${route}`)
+    await page.evaluate(() => {
+      const store = (window as unknown as { __hdPreview: { store: { setTheme(value: string): void; setPalette(value: string): void } } }).__hdPreview.store
+      store.setTheme('dark'); store.setPalette('editorial')
+    })
+    await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
+    await expect(page.locator('body')).toHaveAttribute('data-hd-palette', 'editorial')
+  })
+}
+
 for (const theme of ['light', 'dark'] as const) {
   test(`Wrapped Team: the shell title and receipt keep their own measured edges in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
