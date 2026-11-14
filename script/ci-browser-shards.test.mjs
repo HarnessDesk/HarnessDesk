@@ -16,6 +16,16 @@ const job = (name) => {
   return match[1]
 }
 
+test('runner admission shares the input-selection job instead of queuing another prerequisite', () => {
+  assert.doesNotMatch(workflow, /^  runners:$/m)
+  assert.match(job('changes'), /name: Pick the Linux runner/)
+  assert.match(job('changes'), /linux: \$\{\{ steps.pick.outputs.linux \}\}/)
+  for (const name of ['ui-typecheck', 'gates']) {
+    assert.match(job(name), /^    needs: changes$/m)
+    assert.match(job(name), /fromJSON\(needs.changes.outputs.linux\)/)
+  }
+})
+
 test('browser CI sizes its shards to the work, up to sixteen, with time for setup and reports (#1140)', () => {
   const browser = job('ui-system-browser')
   assert.match(browser, /^    name: UI system browser integration shard \$\{\{ matrix.shard \}\}\/\$\{\{ needs.changes.outputs.shard_count \}\}$/m)
@@ -31,6 +41,7 @@ test('browser CI sizes its shards to the work, up to sixteen, with time for setu
   assert.match(browser, /^            node script\/ui-system-run\.mjs "\$\{specs\[@\]\}"$/m)
   assert.doesNotMatch(browser, /--shard=/)
   assert.match(browser, /^      fail-fast: false$/m)
+  assert.ok(browser.includes("max-parallel: ${{ needs.changes.outputs.record == 'true' && 17 || 12 }}"), 'built-page runs leave hosted slots for core checks and other PRs')
 })
 
 test('the plan reaches the shards and metadata selects the tier, with manual dispatch always full', () => {
@@ -244,7 +255,7 @@ test('the gate check waits for every part of the gate and packaging waits for it
     assert.ok(gate.includes(`${key}: \${{ needs.${part}.result }}`), key)
     // Each part builds what it runs against: none of them borrows another's checkout.
     if (part === 'ios-native-tests') { assert.match(job(part), /runs-on: macos-15/); assert.match(job(part), /run: node script\/test-ios-control\.mjs/); continue }
-    if (part !== 'ui-tests') assert.match(job(part), /^      - name: Build\n        run: pnpm run build$/m, `${part} builds`)
+    if (part !== 'ui-tests') assert.match(job(part), part === 'node-tests' ? /^      - name: Build\n        run: pnpm run build:node$/m : /^      - name: Build\n        run: pnpm run build$/m, `${part} builds`)
     else assert.match(job(part), /^    needs: \[changes, ui-typecheck, ui-unit-tests\]$/m, 'UI tests aggregates jobs that build their own inputs')
   }
   assert.match(job('package'), /^    needs: verify$/m)

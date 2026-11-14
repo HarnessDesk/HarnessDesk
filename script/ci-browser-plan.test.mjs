@@ -7,6 +7,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { MAX_SHARDS, SHARD_SECONDS, plan, plannedWallSeconds, recordedSeconds, secondsFromLogs, selectedSpecs, shardCount, specFiles } from './ci-browser-shards.mjs'
+import { ciBrowserWorkers } from './ui-system-run.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const CLI = fileURLToPath(new URL('./ci-browser-shards.mjs', import.meta.url))
@@ -52,6 +53,13 @@ test('recording either browser baseline stays serial even on CI with a worker ov
     })
     assert.equal(run.status, 0, run.stderr)
     assert.deepEqual(JSON.parse(run.stdout), { workers: 1, fullyParallel: false }, flag)
+  }
+})
+
+test('built pages use at most three CI browsers; the compiling dev server retains half the cores', () => {
+  for (const [cores, built, dev] of [[1, 1, 1], [2, 1, 1], [4, 3, 2], [8, 3, 4]]) {
+    assert.equal(ciBrowserWorkers(cores, true), built)
+    assert.equal(ciBrowserWorkers(cores, false), dev)
   }
 })
 

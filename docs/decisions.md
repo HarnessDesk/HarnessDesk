@@ -6275,3 +6275,46 @@ hover motion and reduced-motion policy rather than a page-specific
 animation. The screenshot rig clears feature preferences, preserved repair
 artifacts and feature-owned Lead/phone state only after its existing isolated
 home, ownership and symlink guards pass.
+
+## Full CI spends its browsers on the specimen under test — 2026-11-14
+
+A focused browser contract was opening the complete preview catalogue on each
+navigation, mounting unrelated conversations, settings, graphs and their effects
+before it could measure one fixture. Focused contracts now opt into `isolate`
+for a supported fixture family, or an explicit `frames` list for catalogue
+specimens. The complete catalogue remains the default. The component coverage
+census, whole-page audits and behavior journeys keep their original scope.
+Theme and interface controls remain available on isolated families.
+
+The two geometry loops in `flow-graph.spec.ts` and the receipt-title loop in
+`team-record.spec.ts` only read separate drawings/stores. Their 42 duplicate
+page startups are replaced by named scene steps: every original scene, theme
+and assertion still runs. Keyboard, approval, navigation, persistence, process
+cleanup and permission tests are not removed. Two new browser contracts check
+that fixture isolation actually omits unrelated specimens and keeps controls.
+
+Built pages on a four-core CI runner can use three browser workers because
+they do not compile source; the dev server keeps two. Built-page runs keep all
+shards but start at most twelve together, so one PR cannot occupy sixteen of
+the twenty hosted slots with browsers. Recording runs retain their existing
+seventeen-slot ceiling. Baseline recording stays
+serial, retries stay zero, and test deadlines do not change. The full tier still
+runs every browser spec, both theme matrices where required, and native smoke.
+
+CPU profiling of the long context test found repeated credential scans: the
+outbound check screened an entire subtree, then repeated that work at each
+child. The outbound short-key rule now participates in the shared traversal.
+All journal credential-name, canary, encoded-JSON and outbound rules remain a
+union. A traversal-count regression and an oracle using the former composition
+check this, alongside the existing security and conversation tests. The 400-turn
+conversation and forty-question workload retain their inputs and deadlines.
+
+Runner selection shares the input-selection job, preserving its existing
+fork/token/online/scheduled-stop fallback rules while removing another hosted
+queue and prerequisite. Node test jobs build their workspace packages and
+fixtures; Gates and native smoke retain the full application build. All required
+check names, tier admission and tree-proof requirements remain in place.
+
+**Rule:** measure execution separately from runner wait. Remove repeated setup
+or computation only when the same failure remains detectable; a smaller count
+of test invocations is not itself a reason to remove an assertion.

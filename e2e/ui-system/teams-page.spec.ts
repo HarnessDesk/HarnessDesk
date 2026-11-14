@@ -111,7 +111,7 @@ for (const theme of ['light','dark'] as const) {
   await expect(ready.locator('[aria-label="Unread changes"]')).toHaveCount(0)
  })
  test(`Teams preview states render the production board ${theme}`,async({page})=>{
-  await page.goto(`/preview.html?teams-page&theme=${theme}`)
+  await page.goto(`/preview.html?teams-page&isolate&theme=${theme}`)
   for(const scene of ['active','needs-you','settled','empty','pending','failed','narrow']){
    const frame=page.locator(`#teams-page-${scene}`)
    if(scene==='empty')await expect(frame.getByRole('heading',{name:'No Teams yet'})).toBeVisible()

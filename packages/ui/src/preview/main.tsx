@@ -455,8 +455,12 @@ const TeamStandaloneFrame = ({room, overview = false}:{room:string;overview?:boo
   return <Mount with={own}><TeamFramePreview room={room} view={overview ? { kind: 'room', room, framePage: 'overview' } : undefined} /></Mount>
 }
 
+// An explicit specimen list is for focused contracts only. Catalogue-wide scans
+// omit it, so no exported component disappears from the coverage census.
+const selectedFrames = new Set((new URLSearchParams(window.location.search).get('frames') ?? '').split(',').filter(Boolean))
+
 /** A stand-in pane, so the frame's own edges are what the frame shows. */
-export const Frame = ({ id, title, children }: { id: string; title: string; children: ReactNode }) => (
+export const Frame = ({ id, title, children }: { id: string; title: string; children: ReactNode }) => selectedFrames.size && !selectedFrames.has(id) ? null : (
   <section data-frame-id={id} className="min-w-0">
     <h2 data-preview-caption="" className="mb-2 text-sm font-semibold text-muted-foreground">{title}</h2>
     <div className="overflow-hidden rounded-lg border bg-background">
@@ -1259,6 +1263,29 @@ const RunPreview = () => {
   return <><RunViewFrames />{params.has('run-inspector') && <RunInspectorFrames />}</>
 }
 
+/** Focused browser contracts opt in; the complete catalogue remains the default. */
+const IsolatedPreview = () => {
+  useTheme()
+  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot)
+  const params = new URLSearchParams(window.location.search)
+  let frames
+  if (params.has('team-record')) frames = <TeamRecordFrames />
+  else if (params.has('flow-graph')) frames = <FlowGraphFrames />
+  else if (params.has('team-overview')) frames = <TeamOverviewFrames />
+  else if (params.has('sidebar-structure')) frames = <SidebarStructureExample />
+  else if (params.has('teams-page')) frames = <TeamsPageFrames />
+  else if (params.has('run-controls')) frames = <RunControlsFrames variant={ABANDON_VARIANTS.find(one => one === params.get('abandon')) ?? null} />
+  else if (params.has('run-inspector')) frames = <RunInspectorFrames />
+  else if (params.has('side-by-side')) frames = <SideBySideFrames />
+  else if (params.has('composer-slots')) frames = <ComposerSlotsFrames />
+  else throw new Error('Unknown isolated preview: name a supported fixture')
+  return <div className="min-h-full bg-background p-4 text-foreground">
+    <Dial label="theme" value={snapshot.theme} options={['system', 'light', 'dark'] as const} onChange={next => store.setTheme(next)} />
+    <Dial label="interface" value={snapshot.look} options={['desk', 'studio'] as const} onChange={next => store.setLook(next)} />
+    {frames}
+  </div>
+}
+
 const container = document.getElementById('root')
 if (!container) throw new Error('#root is missing from preview.html')
 
@@ -1422,7 +1449,7 @@ createRoot(container).render(
           : new URLSearchParams(window.location.search).has('flow-brief')
           ? <FlowBriefDialog scene={(BRIEF_SCENES.find((one) => one === new URLSearchParams(window.location.search).get('flow-brief')) ?? 'empty') as BriefScene} />
           : new URLSearchParams(window.location.search).has('flow-overlay') ? <FlowOverlayFrames />
-          : ['run-shapes', 'run-view', 'run-again', 'run-ending-rig', 'run-dock'].some(one => new URLSearchParams(window.location.search).has(one)) ? <RunPreview /> : <Preview />}
+          : ['run-shapes', 'run-view', 'run-again', 'run-ending-rig', 'run-dock'].some(one => new URLSearchParams(window.location.search).has(one)) ? <RunPreview /> : new URLSearchParams(window.location.search).has('isolate') ? <IsolatedPreview /> : <Preview />}
       </SignInMode.Provider>
     </StoreProvider>
   </StrictMode>,
