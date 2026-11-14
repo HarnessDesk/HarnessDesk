@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Keep words after a clipped reply.** Quoted words and citations following incomplete Lead output no longer lose their opening fragment.
+
 - **Keep steered replies readable after reopening.** Matching prose replayed in separate turns no longer repeats messages from the saved conversation. If the histories cannot be matched safely, the saved copy stays protected with its history warning.
 
 - **Keep reading while the Lead replies.** Holding a long scroll gesture no longer lets an arriving reply pull the conversation back to the bottom. A pending upward scroll is noticed before the new reply follows it.

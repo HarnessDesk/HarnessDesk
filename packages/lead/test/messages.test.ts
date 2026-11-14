@@ -698,6 +698,41 @@ test('a clipped envelope ends at the line break where its JSON stops, so the pro
   assert.deepEqual(lead.stripLeadOutput('Log: {"type":"lead-output","ok":trueish and more text after. Rest stays.'), { text: 'Log: trueish and more text after. Rest stays.', dropped: true })
 })
 
+test('#2081: quoted prose after a clipped envelope keeps its first fragment', () => {
+  assert.deepEqual(lead.stripLeadOutput('Worker said:\n{"version":1,"type":"lead-output",\n"Quoted prose line" said the worker.'),
+    { text: 'Worker said:\n"Quoted prose line" said the worker.', dropped: true })
+  assert.deepEqual(lead.stripLeadOutput('Worker said:\n{"type":"lead-output","text":\n"Quoted prose line" said the worker.'),
+    { text: 'Worker said:\n"Quoted prose line" said the worker.', dropped: true })
+})
+
+test('#2081: a citation after a clipped envelope keeps its first fragment', () => {
+  assert.deepEqual(lead.stripLeadOutput('Worker said:\n{"version":1,"type":"lead-output",\n[1] see the docs'),
+    { text: 'Worker said:\n[1] see the docs', dropped: true })
+  assert.deepEqual(lead.stripLeadOutput('Worker said:\n{"type":"lead-output","text":\n[1] see the docs'),
+    { text: 'Worker said:\n[1] see the docs', dropped: true })
+})
+
+test('#2081: wrapped JSON continuations stay with a clipped envelope', () => {
+  for (const fragment of [
+    '{"version":1,"type":"lead-output",\n  "text": "hidden",',
+    '{"version":1,"type":"lead-output",\n  \n  "text": "hidden",',
+    '{"version":1,"type":"lead-output","ask":\n  {"question":"hidden",',
+    '{"version":1,"type":"lead-output","refs":\n  [{"id":"hidden",',
+    '{"version":1,"type":"lead-output","refs":\n  [1],',
+    '{"version":1,"type":"lead-output","refs":\n  [1] ,',
+    '{"version":1,"type":"lead-output","text":\n  "hidden",',
+    '{"version":1,"type":"lead-output","text":\n  "hidden',
+    '{"version":1,"type":"lead-output","refs":[\n  "hidden",',
+    '{"version":1,"type":"lead-output","refs":[\n  ]',
+  ]) {
+    assert.deepEqual(lead.stripLeadOutput(`Worker said:\n${fragment}\nDone.`), { text: 'Worker said:\nDone.', dropped: true }, fragment)
+  }
+  const complete = '{\n  "version": 1,\n  "type": "lead-output",\n  "text": "Done."\n}'
+  assert.deepEqual(lead.splitLeadOutput(`Before.\n${complete}`), { prose: 'Before.', envelope: { version: 1, type: 'lead-output', text: 'Done.' } })
+  assert.deepEqual(lead.stripLeadOutput('Worker said:\r\n{"type":"lead-output",\r\n[1] see the docs'),
+    { text: 'Worker said:\r\n[1] see the docs', dropped: true })
+})
+
 test('stripping an envelope tidies only where it was: other quote separators, list markers and blank lines stay', () => {
   const envelope = JSON.stringify({ version: 1, type: 'lead-output', text: 'Merging now.' })
   const kept = 'A quote:\n> first\n>\n> second\n\nSteps:\n1.\n   Do the thing.\n\n\n\nLater.'
