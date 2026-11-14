@@ -276,3 +276,27 @@ test('large repeated-prompt history remains protected without pairing by text', 
   assert.equal(held.length, count)
   assert.equal(replay.length, count)
 })
+
+for (const announces of [true, false]) test(`stable repeated prompt identities remain readable on ${announces ? 'announcement' : 'silent read'}`, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-stable-repeat-')), sid = sessionId('stable-repeat')
+  const runtime = new FakeRuntime()
+  const makeHost = () => new Host({ logger: silent, state: new StateStore(join(dir, 'state.json')), builtinAgents: dir, catalogRefreshMs: 0, idleStopMs: 0 })
+  const host = makeHost(); host.register(runtime); await host.start()
+  let closed = false, cold: Host | undefined
+  t.after(async () => { if (cold) await cold.dispose().catch(() => {}); if (!closed) await host.dispose(); await rm(dir, { recursive: true, force: true }) })
+  const base: Session = { ...new FakeSession(runtime, sid, { cwd: dir, model: 'fake-1' }, {}).snapshot(), itemsLoaded: true }
+  const notice: AgentItem = { id: itemId('host-notice'), type: 'notice', kind: 'conversation:warning', text: 'host-only' }
+  const saved = [turn('one', [message('u1', 'continue', 'user'), message('a1', 'first answer', 'assistant'), notice]),
+    turn('two', [message('u2', 'continue', 'user'), message('a2', 'second answer', 'assistant')])]
+  runtime.emit({ type: 'session/started', session: { ...base, turns: saved } })
+  await host.dispose(); closed = true
+  const replay: Session = { ...base, turns: [turn('one', saved[0]!.items.slice(0, 2) as AgentItem[]), turn('two', [...saved[1]!.items])] }
+  const next = new FakeRuntime(); next.readSession = async () => { if (announces) next.emit({ type: 'session/started', session: replay }); return replay }
+  cold = makeHost(); cold.register(next); await cold.start()
+  const read = await cold.call('session/read', { runtime: next.info.id, sessionId: sid }) as Session
+  assert.notEqual(read.historyPending, true, 'unchanged message identities are not ambiguous')
+  assert.deepEqual(read.turns.map(turn => turn.items), saved.map(turn => turn.items), 'the omitted host notice remains on its original turn')
+  await cold.dispose(); cold = undefined
+  const db = new TranscriptDatabase(join(dir, 'sessions.sqlite'))
+  try { assert.deepEqual(db.read(runtime.info.id, sid)!.turns.map(turn => turn.items), saved.map(turn => turn.items)) } finally { db.close() }
+})

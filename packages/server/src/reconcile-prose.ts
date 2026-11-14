@@ -34,12 +34,19 @@ export function reconcileProseReplay(read: Session, held: Pick<Session, 'turns'>
   // different counter is evidence of possible resegmentation, not a match by
   // text: the exact, unique whole-history check below still has to succeed.
   const homes = new Map<string, { turn: Turn['id']; item: AgentItem['id']; multiple: boolean }>()
+  const identities = new Map<string, string | null>()
   for (const turn of held.turns) for (const item of users(turn)) {
     const k = canonical(item.content), prior = homes.get(k)
     homes.set(k, prior ? { ...prior, multiple: true } : { turn: turn.id, item: item.id, multiple: false })
+    const identity = canonical([turn.id, item.id])
+    identities.set(identity, identities.has(identity) ? null : k)
   }
   const moved = read.turns.some(turn => users(turn).some(item => {
-    const prior = homes.get(canonical(item.content))
+    const k = canonical(item.content)
+    // A repeated sentence is harmless when its exact turn and item identity
+    // still carries the same content. A changed identity needs more proof.
+    if (identities.get(canonical([turn.id, item.id])) === k) return false
+    const prior = homes.get(k)
     return !!prior && (prior.multiple || prior.turn !== turn.id || prior.item !== item.id)
   }))
   if (!conflict && !moved) return { kind: 'ordinary' }
