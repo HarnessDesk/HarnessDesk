@@ -150,6 +150,25 @@ it('observes a held-pointer move before a reply or resize can follow, even befor
   expect(thread.scrollTop).toBe(300)
 })
 
+it('keeps a completed drag released when the pointerup arrives before its pending scroll event', () => {
+  let now = 0
+  vi.spyOn(performance, 'now').mockImplementation(() => now)
+  act(() => root.render(<ConversationThread keepEnd><p>last message</p></ConversationThread>))
+  const thread = container.firstElementChild as HTMLElement
+  const sizes = { scrollHeight: 1200, clientHeight: 800 }
+  box(thread, sizes)
+  thread.scrollTop = 400
+  act(() => thread.dispatchEvent(new Event('scroll')))
+  act(() => thread.dispatchEvent(pointer('pointerdown')))
+  now = 2000
+  act(() => document.body.dispatchEvent(pointer('pointerup')))
+  thread.scrollTop = 300
+  sizes.scrollHeight = 1600
+  expect(threadFollowsEnd(thread)).toBe(false)
+  act(() => resize.forEach(callback => callback()))
+  expect(thread.scrollTop).toBe(300)
+})
+
 it('lets go during a pointer drag longer than the gesture grace period, even while content grows (#2164)', () => {
   let now = 0
   vi.spyOn(performance, 'now').mockImplementation(() => now)

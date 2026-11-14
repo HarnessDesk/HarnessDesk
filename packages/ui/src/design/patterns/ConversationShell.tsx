@@ -45,7 +45,8 @@ export const scrollThreadToEnd = (element: HTMLElement): void => {
 }
 /** Reconcile a held-pointer move before a reply or resize follows, even if its scroll event is still pending. */
 export const threadFollowsEnd = (element: HTMLElement): boolean => {
-  if (pressed.get(element)?.size) readScroll(element)
+  const gesture = gestures.get(element)
+  if (pressed.get(element)?.size || gesture !== undefined && performance.now() - gesture <= GESTURE_MS) readScroll(element)
   return ends.get(element)?.atEnd ?? true
 }
 const readScroll = (element: HTMLElement): void => {
@@ -87,6 +88,7 @@ export const ConversationThread = forwardRef<HTMLDivElement, ComponentProps<'div
       document.removeEventListener('pointercancel', up, true)
       window?.removeEventListener('blur', blur)
       pressed.delete(element)
+      gestures.delete(element)
     }
   }, [keepEnd])
   useLayoutEffect(() => {
