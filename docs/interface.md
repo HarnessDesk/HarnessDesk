@@ -1281,7 +1281,7 @@ including before the runtime catalogue arrives. Capabilities govern the page's
 contents, never the presence or name of its navigation row.
 Lead and Mobile stay in the rail while off and open their own enable control;
 existing Lead and Phone links reach those pages too. Navigation glyphs use the
-shared hover/focus motion and remain still when reduced motion is requested.
+shared hover motion and remain still when reduced motion is requested.
 The Account page retains the older internal `profile` route. Presets are edited
 where they are created rather than on a page of their own; and workspaces,
 backup and support sit under General and Workspaces, because none of them is a

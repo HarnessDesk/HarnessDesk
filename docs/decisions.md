@@ -6222,7 +6222,7 @@ service admission and shutdown), and another restore-only lifecycle.
 
 Navigation reads Preferences, Agents, Conversations, Access. Lead and Mobile
 stay reachable through older routes. Every Settings glyph uses the shared
-hover/focus motion and reduced-motion policy rather than a page-specific
+hover motion and reduced-motion policy rather than a page-specific
 animation. The screenshot rig clears feature preferences, preserved repair
 artifacts and feature-owned Lead/phone state only after its existing isolated
 home, ownership and symlink guards pass.
