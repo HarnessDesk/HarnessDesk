@@ -72,7 +72,27 @@ try {
  await waitFor('fake approval',async()=>{const pending=await cdp.json(`window.__hdStore.getSnapshot().approvals.map(entry=>({key:entry.key,id:entry.approval.id,type:entry.approval.type,command:entry.approval.command,option:(entry.approval.options??[]).find(o=>o.intent==='approve')?.id}))`);if(!pending.length)return false;if(pending.length!==1||pending[0].type!=='command'||pending[0].command!=='ls -la'||!pending[0].option)throw new Error('unexpected approval refused');const a=pending[0];await cdp.eval(`window.__hdStore.respondToApproval(${JSON.stringify(a.key)},${JSON.stringify(a.id)},{type:'option',optionId:${JSON.stringify(a.option)}})`);return true},20000)
  await waitFor('completed synthetic command',()=>cdp.eval(`(()=>{const s=window.__hdStore.getSnapshot().sessions.get(${JSON.stringify(key)});return !!s?.turns.some(t=>t.status==='completed'&&t.items.some(i=>i.type==='command'&&typeof i.output==='string'&&i.output.length===32768))})()`),30000)
  result.checks.syntheticCompletion=true;result.checks.listenersDuringTurn=assertListeners(desk.processGroup)
- result.phase='close';await cdp.eval('window.__hdStore.closePane(window.__hdStore.getSnapshot().layout.focused)')
+ result.phase='close'
+ // Observe only the target close request; attach handlers without replacing its result or changing dispatch.
+ await cdp.eval(`(()=>{const s=window.__hdStore,t=s.transport,original=t.request,p={sent:0,resolved:0,rejected:0};
+  window.__hd1545CloseProbe=p;
+  t.request=function(method,params,...rest){
+   const match=method==='session/close'&&params?.runtime===${JSON.stringify(runtime)}&&params?.sessionId===${JSON.stringify(id)};
+   if(match)p.sent++;
+   try {const answer=Reflect.apply(original,this,[method,params,...rest]);if(match)Promise.resolve(answer).then(()=>p.resolved++,()=>p.rejected++);return answer}
+   catch(error){if(match)p.rejected++;throw error}
+  };return true})()`)
+ const closeState=()=>cdp.json(`(()=>{const s=window.__hdStore.getSnapshot(),key=${JSON.stringify(key)},session=s.sessions.get(key);
+  const panes=n=>!n?[]:n.kind==='pane'?[n]:n.kind==='split'?[...panes(n.first),...panes(n.second)]:[];
+  const all=panes(s.layout.root), focused=all.find(p=>p.id===s.layout.focused), target=all.filter(p=>p.view?.kind==='conversation'&&p.view.session===key);
+  const probe=window.__hd1545CloseProbe;
+  return {focusedMatches:!!focused&&focused.view?.kind==='conversation'&&focused.view.session===key,targetPaneCount:target.length,
+   itemsLoaded:session?.itemsLoaded===true,sessionActive:session?.status?.type==='active',runningTurns:session?.turns?.filter(t=>t.status==='inProgress').length??0,
+   approvals:s.approvals.filter(a=>a.key===key).length,closeSent:probe.sent,closeResolved:probe.resolved,closeRejected:probe.rejected}
+ })()`)
+ result.checks.beforeClose=await closeState()
+ await cdp.eval('window.__hdStore.closePane(window.__hdStore.getSnapshot().layout.focused)')
+ result.checks.afterClose=await closeState()
  const addr={runtime,sessionId:id}
  result.phase='snapshot';const snapshot=await waitFor('host snapshot',()=>cdp.json(`window.__hdStore.transport.request('session/cache-snapshot',${JSON.stringify(addr)}).then(x=>x&&({identity:x.identity,watermark:x.watermark,turns:x.session.turns.length}))`),30000)
  result.checks.snapshot={identityLength:snapshot.identity?.length,watermarkFields:['epoch','generation','revision','sequence'].every(k=>snapshot.watermark?.[k]!==undefined),turns:snapshot.turns}
@@ -92,6 +112,7 @@ try {
   if(Object.values(receiptProbe.comparison).some(matches=>!matches))throw new Error('receipt does not match host snapshot')
   result.checks.exactReceipt=true
  } catch(error) {
+  try { receiptProbe.closeState=await closeState() } catch { receiptProbe.closeStateError=true }
   try {
    const latest=await cdp.json(`window.__hdStore.transport.request('session/cache-snapshot',${JSON.stringify(addr)}).then(x=>x&&({identity:x.identity,watermark:x.watermark}))`)
    receiptProbe.latestSnapshot=compareSnapshot(snapshot,latest)
