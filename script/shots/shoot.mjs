@@ -599,6 +599,35 @@ try {
    * floor rather than a wager, and costs nothing on a take that was going to
    * pass anyway.
    */
+  // Diagnostic branch only: structural facts, never DOM text, values or attributes.
+  const frontDoorProbes = []
+  const probeFrontDoor = async (stage, point = null) => {
+    try {
+      const state = await cdp.json(`(() => {
+        const dialog = document.querySelector('[role="dialog"][aria-label="New Team"]')
+        const section = dialog?.querySelector('section[aria-label="Completion and dry run"]')
+        const button = section?.querySelector('button')
+        const input = dialog?.querySelector('input[aria-label="Done when · optional"]')
+        const who = dialog?.querySelector('section[aria-label="Who does what"]')
+        const p = ${JSON.stringify(point)}
+        const hit = p ? document.elementFromPoint(p.x, p.y) : null
+        const rect = e => { if (!e) return null; const r=e.getBoundingClientRect(); return { x:r.x,y:r.y,width:r.width,height:r.height } }
+        const tag = e => e && /^(HTML|BODY|DIV|SECTION|BUTTON|SPAN|SVG|PATH|INPUT|LABEL|MAIN|NAV)$/.test(e.tagName) ? e.tagName : 'OTHER'
+        const ancestry = []; for (let e=hit; e && ancestry.length<10; e=e.parentElement) ancestry.push(tag(e))
+        const scroll = []; for (let e=button?.parentElement; e && scroll.length<10; e=e.parentElement) {
+          if (e.scrollHeight>e.clientHeight || e.scrollWidth>e.clientWidth) scroll.push({rect:rect(e),top:e.scrollTop,left:e.scrollLeft,clientHeight:e.clientHeight,scrollHeight:e.scrollHeight})
+        }
+        return {dialog:!!dialog,who:!!who,section:!!section,inputCount:dialog?.querySelectorAll('input[aria-label="Done when · optional"]').length ?? 0,
+          labelCount:dialog ? [...dialog.querySelectorAll('label')].filter(e=>e.textContent.trim()==='Done when · optional').length : 0,
+          expanded:button?.getAttribute('aria-expanded')==='true', hidden:input ? !!input.closest('[hidden]') : null,
+          viewport:{width:innerWidth,height:innerHeight},button:rect(button),dialogRect:rect(dialog),point:p,
+          hitAncestry:ancestry,hitWithinButton:!!(hit && button?.contains(hit)),hitWithinDialog:!!(hit && dialog?.contains(hit)),scroll}
+      })()`)
+      frontDoorProbes.push({stage,state})
+    } catch { frontDoorProbes.push({stage,unavailable:true}) }
+  }
+  const saveFrontDoorProbe = () => writeFileSync(`${OUT}/front-door-structural.json`, JSON.stringify(frontDoorProbes, null, 2) + '\n')
+
   const click = async (text, within = null, { wait = 4000 } = {}) => {
     const find = () => cdp.json(
       `(() => {
@@ -627,9 +656,11 @@ try {
       hit = await find()
     }
     if (hit) {
+      if (text === 'Completion and dry run') await probeFrontDoor('before-pointer', hit)
       await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...hit })
       await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...hit, button: 'left', clickCount: 1 })
       await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...hit, button: 'left', clickCount: 1 })
+      if (text === 'Completion and dry run') await probeFrontDoor('after-pointer', hit)
     }
     await sleep(1400)
     return Boolean(hit)
@@ -1638,10 +1669,23 @@ rules:
         Boolean,
       )
       if (!(await fill('What should they do?', 'Add 502 to the retryable status set'))) throw new Error('no Task field in the front door')
-      if (!(await clickScrolled('Completion and dry run', picker))) throw new Error('no Completion and dry run disclosure in the front door')
+      await probeFrontDoor('before-scroll')
+      if (!(await clickScrolled('Completion and dry run', picker))) {
+        await probeFrontDoor('click-not-found'); saveFrontDoorProbe()
+        throw new Error('no Completion and dry run disclosure in the front door')
+      }
       if (!(await fill('Done when · optional', 'Ship it once every specialist approves'))) {
+        await probeFrontDoor('fill-failed'); saveFrontDoorProbe()
+        // A failure frame is retained only if the existing rig audit approves it.
+        try {
+          await audit('front-door-failure')
+          const shot = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+          await audit('front-door-failure')
+          writeFileSync(`${OUT}/front-door-failure.png`, Buffer.from(shot.data, 'base64'))
+        } catch { /* Keep the original failure and discard any unvouched frame. */ }
         throw new Error('no sentence field in the front door')
       }
+      await probeFrontDoor('fill-succeeded'); saveFrontDoorProbe()
       // Start Team is refused until the dry run this fill just changed comes back
       // held with no error — the same seating #927's own regression proves.
       await waitForSnapshot(
