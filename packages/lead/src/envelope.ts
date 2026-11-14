@@ -142,7 +142,9 @@ const jsonEnd = (text: string, start: number, multiline: boolean): number => {
       const citation = /^\[\d+\](?::|[ \t]+[^\s,}\]])/.test(next)
       const primitive = /^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=[ \t]*(?:[,}\]]|\r|\n|$))/.test(next)
       const valueToken = !citation && (/^[{[]/.test(next) || primitive || /^"(?:[^"\\\r\n]|\\.)*(?:"(?=[ \t]*(?:[,}\]]|\r|\n|$))|(?=\r|\n|$))/.test(next))
-      if (quoted || !multiline || !(key || wrappedKey || clippedKey || close || next[0] === ',' || keyAwaitColon && next[0] === ':' || value && valueToken) || !continuationLine(next, containers, previous, keyAwaitColon)) return index
+      // Even malformed JSON can end at its matching closer. Leave any prose
+      // after it to the scanner instead of requiring a valid whole line.
+      if (quoted || !multiline || !(key || wrappedKey || clippedKey || close || next[0] === ',' || keyAwaitColon && next[0] === ':' || value && valueToken) || !close && !continuationLine(next, containers, previous, keyAwaitColon)) return index
       continue
     }
     if (quoted) {
@@ -153,7 +155,10 @@ const jsonEnd = (text: string, start: number, multiline: boolean): number => {
     }
     if (char === '"') { keyString = containers.at(-1) === '{' && (previous === '{' || previous === ','); quoted = true }
     else if (char === '{' || char === '[') containers.push(char)
-    else if (char === '}' || char === ']') { containers.pop(); if (containers.length === 0) return index + 1 }
+    else if (char === '}' || char === ']') {
+      if (containers.at(-1) !== (char === '}' ? '{' : '[')) return index
+      containers.pop(); if (containers.length === 0) return index + 1
+    }
     else if (/^(?:true|false|null)(?![\p{L}\p{N}_])/u.test(text.slice(index, index + 6))) index += text[index] === 'f' ? 4 : 3
     else if (!/[ \t:,0-9.eE+-]/.test(char)) return index
     if (char === ':') keyAwaitColon = false

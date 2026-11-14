@@ -827,6 +827,45 @@ test('#2081 R6: prose survives across clipped JSON prefix contexts', () => {
   }
 })
 
+test('#2081 R7: a malformed envelope still withholds matching closers', () => {
+  for (const fragment of ['{"type":"lead-output",\n}', '{"type":"lead-output","text":\n}', '{"type":"lead-output","refs":[1,\n]']) {
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n${fragment}\nAfter.`),
+      { text: 'Before.\nAfter.', dropped: true }, fragment)
+  }
+})
+
+test('#2081 R7: matching closer recovery preserves nearby prose and mismatched closers', () => {
+  for (const [opening, closers] of [
+    ['{"type":"lead-output",', '}'],
+    ['{"type":"lead-output","text":', '}'],
+    ['{"type":"lead-output","refs":[1,', ']'],
+    ['{"type":"lead-output","refs":[', ']'],
+    ['{"type":"lead-output","ask":{"question":', '}}'],
+    ['{"type":"lead-output","refs":[{"id":', '}]'],
+  ] as const) {
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n${opening}\n${closers}\nAfter.`),
+      { text: 'Before.\nAfter.', dropped: true }, opening)
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n${opening}\n${closers} After.`),
+      { text: 'Before.\n After.', dropped: true }, `${opening} same line`)
+  }
+  for (const [opening, prose] of [
+    ['{"type":"lead-output",', '] After.'],
+    ['{"type":"lead-output","text":', '] After.'],
+    ['{"type":"lead-output","refs":[1,', '} After.'],
+    ['{"type":"lead-output","refs":[', '} After.'],
+  ] as const) {
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n${opening}\n${prose}`),
+      { text: `Before.\n${prose}`, dropped: true }, opening)
+  }
+})
+
+test('#2081 R7: a second mismatched closer is left as prose', () => {
+  assert.deepEqual(lead.stripLeadOutput('Before.\n{"type":"lead-output","refs":[1,\n] ] After.'),
+    { text: 'Before.\n ] After.', dropped: true })
+  assert.deepEqual(lead.stripLeadOutput('Before.\n{"type":"lead-output","ask":{"question":\n} ] After.'),
+    { text: 'Before.\n ] After.', dropped: true })
+})
+
 test('#2081: wrapped JSON continuations stay with a clipped envelope', () => {
   for (const fragment of [
     '{"version":1,"type":"lead-output",\n  "text": "hidden",',
