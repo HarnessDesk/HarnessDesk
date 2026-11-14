@@ -4116,11 +4116,13 @@ export class Host {
       },
       replies: () => journal.state.messages.reduce((mark, message) => message.role === 'assistant' ? Math.max(mark, message.revision) : mark, 0),
       asked: () => journal.state.messages.reduce((mark, message) => message.role === 'user' && (message.source === undefined || message.source === 'person') ? Math.max(mark, message.revision) : mark, 0),
+      approvedRetry: (item, attempt, question) => this.#leadPresence?.approvedRetry(item, attempt, question) ?? null,
       noted: text => this.#logger.warn(text),
       revision: () => journal.state.seq,
       publish: board => { this.#push({ method: 'lead/work/changed', params: board }); void reminderTimer?.arm() },
     })
     this.#leadWork = work
+    this.onDispose(journal.validateRetryAsks((ask, id) => work.validateRetryAsk(ask, id)))
     this.onDispose(() => { if (this.#leadWork === work) this.#leadWork = null })
     // #2144: each reply the Lead writes says the reminders its turn's cards called owed, so they are marked said once,
     // on the board both surfaces read and in the cards of every later turn. The turn is the newest user message before

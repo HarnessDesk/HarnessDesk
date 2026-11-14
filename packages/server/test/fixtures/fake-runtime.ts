@@ -250,6 +250,8 @@ export class FakeRuntime implements AgentRuntime {
   #healthListeners = new Set<(health: RuntimeHealth) => void>()
   #health: RuntimeHealth = { state: 'unavailable', reason: 'unknown', message: 'not started' }
   #counter = 0
+  /** Reserve ids persisted by an earlier fake runtime when a test restarts the Host. */
+  reserveSessionIds(count: number): void { this.#counter = Math.max(this.#counter, count) }
   readonly sessions = new Map<string, FakeSession>()
   /**
    * Refuses a second message while a turn is still running, in the words a

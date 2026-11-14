@@ -1,37 +1,9 @@
 import assert from 'node:assert/strict'
-import { realpath } from 'node:fs/promises'
-import test, { type TestContext } from 'node:test'
-import { createLeadJournal, leadWorkCards, type LeadJournalRecord, type LeadPermissionCall, type LeadPermissionContext } from '@harnessdesk/lead'
-import { evidenceDesk } from './fixtures/evidence-desk.js'
+import { readFileSync } from 'node:fs'
+import test from 'node:test'
+import { leadChatHandleOf, leadWorkCards } from '@harnessdesk/lead'
+import { rig, type Rig } from './fixtures/lead-attempts-rig.js'
 
-/** The real host and its context, an ordinary fake runtime and a journaled Lead; no child, model or vendor traffic. */
-const rig = async (t: TestContext) => {
-  const { StateStore } = await import('../src/index.js')
-  const { tempDir } = await import('./scratch.js')
-  const state = new StateStore(`${tempDir('hd-lead-attempts-state-')}/state.json`)
-  const desk = await evidenceDesk(t, { leadEnabled: true, state })
-  const project = { id: 'project-demo', path: await realpath(desk.repo.dir) }
-  const records: LeadJournalRecord[] = []
-  const journal = await createLeadJournal({ read: async () => [], append: async record => { records.push(record) } })
-  await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
-  await journal.updateBudget({ version: 1, type: 'initialize', logicalGoalId: 'ordinary-delegation', now: Date.now(), caps: { usdMicros: 100000, rounds: 3 }, freshnessMs: 60000 })
-  const context = (): LeadPermissionContext => ({ desk: journal.state.policy!, projectPolicy: null, project, approved: null,
-    budget: null, now: Date.now(), policyInterpretation: 'idle' })
-  const service = desk.host.createLeadService({ journal, project, prices: {},
-    resolveTool: async () => ({ project, runId: null, start: null, stepId: null, context: context() }),
-    freezePlan: async proposal => proposal, readEvidence: async () => { throw new Error('unused') },
-    createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }),
-  })
-  await service.setEnabled(true)
-  let attempt = 0
-  const execute = (call: LeadPermissionCall) => journal.execute({ id: `attempt-${++attempt}`, request: { ...call, project, runId: null, start: null }, context: context() },
-    async parsed => ({ value: await desk.host.call(parsed.method, parsed.params as never), identity: null }))
-  /** The person writes to the Lead: the journal's own record of a person message, as the window's send appends it. */
-  let said = 0
-  const personWrites = async (text: string) => { await journal.appendMessage(`person-${++said}`, text, 'person') }
-  return { ...desk, project, journal, records, execute, personWrites }
-}
-type Rig = Awaited<ReturnType<typeof rig>>
 type Card = { id: string, stage: string, fact?: string, stoppedBy?: string }
 const card = async (r: Rig, id: string, done: (card: Card) => boolean): Promise<Card> => {
   for (let tries = 0; tries < 100; tries++) {
@@ -45,6 +17,198 @@ const stopped = (found: Card) => found.stage === 'stopped'
 const session = (r: Rig, id: string) => r.runtime.sessions.get(id.slice(id.indexOf(':') + 1))!
 /** The window's door: the rail's Work menu Stop sends the same interrupt as the chat's own composer. */
 const windowStop = (r: Rig, id: string) => r.host.call('turn/interrupt', { runtime: id.slice(0, id.indexOf(':')) as never, sessionId: id.slice(id.indexOf(':') + 1) as never })
+const approveRetry = async (r: Rig, item: string, attempt: string) => {
+  const handle = leadChatHandleOf(r.journal.state.chatHandles, attempt) ?? 'the existing chat'
+  const question = `Start another chat for "Fix the stalled build a game task" instead of continuing ${handle}?`
+  await r.journal.appendReply(question, undefined, { question, retryOf: { item, attempt }, startsMarked: true,
+    options: [{ id: 'start', label: 'Start another chat', starts: true }, { id: 'later', label: 'Not now' }], recommended: 'later' })
+  await r.answer('Start another chat')
+}
+
+test('#2145: an explicit second attempt at open work waits for the person to answer', async t => {
+  const r = await rig(t)
+  await r.personWrites('Fix the stalled build a game task')
+  const first = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task' } })
+  const { id, ledgerItem } = first.value as { id: string; ledgerItem: string }
+  assert.ok(session(r, id))
+  const before = r.runtime.sessions.size
+  const duplicate = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)' } })
+  assert.match((duplicate.value as { problem?: string }).problem ?? '', /open work/)
+  assert.equal(r.runtime.sessions.size, before)
+  const retry = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem } })
+  assert.match((retry.value as { problem?: string }).problem ?? '', /ask/i, JSON.stringify(retry.value))
+  assert.equal(r.runtime.sessions.size, before, 'no second chat before a question and answer')
+})
+
+for (const state of ['open', 'person-stopped'] as const) {
+  test(`#2145 R2: a duplicate without an item prescribes an actionable bound question for ${state} work`, async t => {
+    const r = await rig(t)
+    await r.personWrites('Fix the stalled build a game task')
+    const first = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task' } })
+    const { id, ledgerItem } = first.value as { id: string; ledgerItem: string }
+    if (state === 'person-stopped') { await windowStop(r, id); await card(r, ledgerItem, stopped) }
+    const duplicate = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', cause: 'person' } })
+    const problem = (duplicate.value as { problem?: string }).problem ?? ''
+    const match = problem.match(/Ask the person ("(?:[^"\\]|\\.)*") with options/)
+    assert.ok(match, `refusal must prescribe the canonical question: ${JSON.stringify(duplicate)}`)
+    assert.ok(problem.includes(`retryOf { item: ${JSON.stringify(ledgerItem)}, attempt: ${JSON.stringify(id)} }`), problem)
+    assert.match(problem, /id: start, starts: true/)
+    assert.match(problem, /id: later.*recommended: later/)
+    if (state === 'person-stopped') assert.match(problem, /stopped once/)
+    const question = JSON.parse(match[1]!) as string
+    await r.journal.appendReply(question, undefined, { question, retryOf: { item: ledgerItem, attempt: id }, startsMarked: true,
+      options: [{ id: 'start', label: 'Start another chat', starts: true }, { id: 'later', label: 'Not now' }], recommended: 'later' })
+    await r.answer('Start another chat')
+    const second = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem } })
+    assert.ok((second.value as { id?: string }).id, JSON.stringify(second.value))
+    assert.equal((second.value as { ledgerItem?: string }).ledgerItem, ledgerItem)
+    assert.equal(r.runtime.sessions.size, 2)
+    const third = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (third attempt)', ledgerItem } })
+    assert.ok((third.value as { problem?: string }).problem, 'the answer admits only one retry')
+  })
+}
+
+test('#2145: an explicit item cannot avoid asking by changing the title or project', async t => {
+  const r = await rig(t)
+  const first = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task' } })
+  const item = (first.value as { ledgerItem: string }).ledgerItem
+  const retitled = await r.execute({ method: 'lead/chat/start', params: { text: 'Proceed with this task', ledgerItem: item } })
+  assert.ok((retitled.value as { problem?: string }).problem, JSON.stringify(retitled.value))
+  assert.equal(r.runtime.sessions.size, 1, 'a changed title does not create a second chat')
+  const distinct = await r.execute({ method: 'lead/chat/start', params: { text: 'Update the release notes' } })
+  assert.ok((distinct.value as { id?: string }).id, 'distinct work without an item remains a fresh start')
+  await r.stop()
+  const { makeRepo } = await import('./fixtures/evidence-desk.js')
+  const other = await rig(t, { stateDir: r.stateDir, records: r.records, repo: await makeRepo('hd-lead-other-project-') })
+  const elsewhere = await other.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem: item } })
+  assert.ok((elsewhere.value as { problem?: string }).problem, JSON.stringify(elsewhere.value))
+  assert.equal(other.runtime.sessions.size, 0, 'changing projects does not grant a repeat')
+})
+
+test('#2145: an answered retry question permits only one new attempt', async t => {
+  const r = await rig(t)
+  await r.personWrites('Fix the stalled build a game task')
+  const first = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task' } })
+  const { id, handle, ledgerItem } = first.value as { id: string; handle: string; ledgerItem: string }
+  const question = `Start another chat for "Fix the stalled build a game task" instead of continuing ${handle}?`
+  const ask = { question, retryOf: { item: ledgerItem, attempt: id }, startsMarked: true as const,
+    options: [{ id: 'start', label: 'Start another chat', starts: true as const }, { id: 'later', label: 'Not now' }], recommended: 'later' }
+  await r.journal.appendReply(question, undefined, ask)
+  await r.answer('I pick Start another chat')
+  const second = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem } })
+  assert.ok((second.value as { id?: string }).id, JSON.stringify(second.value))
+  const count = r.runtime.sessions.size
+  const third = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (third attempt)', ledgerItem } })
+  assert.ok((third.value as { problem?: string }).problem, JSON.stringify(third.value))
+  assert.equal(r.runtime.sessions.size, count)
+})
+
+test('#2145: an unrelated or negative answer cannot authorize a retry', async t => {
+  const r = await rig(t)
+  await r.personWrites('Fix the stalled build a game task')
+  const first = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task' } })
+  const { id, handle, ledgerItem } = first.value as { id: string; handle: string; ledgerItem: string }
+  const options = [{ id: 'start', label: 'Start another chat', starts: true as const }, { id: 'later', label: 'Not now' }]
+  const question = `Start another chat for "Fix the stalled build a game task" instead of continuing ${handle}?`
+  await assert.rejects(r.journal.appendReply('Start unrelated work?', undefined, { question: 'Start unrelated work?', options, recommended: 'later', startsMarked: true,
+    retryOf: { item: ledgerItem, attempt: id } }), /retry question/i)
+  await assert.rejects(r.journal.appendReply(question, undefined, { question, options, recommended: 'start', startsMarked: true,
+    retryOf: { item: ledgerItem, attempt: id } }), /retry question/i, 'the start option must not be recommended')
+  await r.journal.appendReply('Start unrelated work?', undefined, { question: 'Start unrelated work?', options, recommended: 'later', startsMarked: true })
+  await r.answer('Start another chat')
+  const retry = () => r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem } })
+  assert.ok(((await retry()).value as { problem?: string }).problem)
+  await r.journal.appendReply(question, undefined, { question, options, recommended: 'later', startsMarked: true, retryOf: { item: ledgerItem, attempt: id } })
+  await r.answer('Not now')
+  assert.ok(((await retry()).value as { problem?: string }).problem)
+  assert.equal(r.runtime.sessions.size, 1)
+})
+
+test('#2145: concurrent retries cannot spend one answer twice', async t => {
+  const r = await rig(t)
+  await r.personWrites('Fix the stalled build a game task')
+  const first = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task' } })
+  const { id, handle, ledgerItem } = first.value as { id: string; handle: string; ledgerItem: string }
+  const question = `Start another chat for "Fix the stalled build a game task" instead of continuing ${handle}?`
+  await r.journal.appendReply(question, undefined, { question, retryOf: { item: ledgerItem, attempt: id }, startsMarked: true,
+    options: [{ id: 'start', label: 'Start another chat', starts: true }, { id: 'later', label: 'Not now' }], recommended: 'later' })
+  await r.answer('Start another chat')
+  const start = () => r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem } })
+  const results = await Promise.all([start(), start()])
+  assert.equal(results.filter(one => !!(one.value as { id?: string } | undefined)?.id).length, 1, JSON.stringify(results))
+  assert.equal(r.runtime.sessions.size, 2)
+})
+
+test('#2145: a retry answer has to commit and name the current attempt', async t => {
+  const r = await rig(t)
+  await r.personWrites('Fix the stalled build a game task')
+  const first = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task' } })
+  const { id, handle, ledgerItem } = first.value as { id: string; handle: string; ledgerItem: string }
+  const question = `Start another chat for "Fix the stalled build a game task" instead of continuing ${handle}?`
+  const options = [{ id: 'start', label: 'Start another chat', starts: true as const }, { id: 'later', label: 'Not now' }]
+  const retry = () => r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem } })
+  await assert.rejects(r.journal.appendReply(question, undefined, { question, options, recommended: 'later', startsMarked: true, retryOf: { item: ledgerItem, attempt: 'fake:wrong' } }), /retry question/i)
+  assert.ok(((await retry()).value as { problem?: string }).problem, 'a question for another attempt is not accepted')
+  await r.journal.appendReply(question, undefined, { question, options, recommended: 'later', startsMarked: true, retryOf: { item: ledgerItem, attempt: id } })
+  await r.host.leadPresence.observe()
+  const finish = await r.host.leadPresence.beforeSend(undefined, 'Start another chat')
+  await r.personWrites('Start another chat')
+  assert.ok(((await retry()).value as { problem?: string }).problem, 'the answer is not committed while send is pending')
+  await finish?.(false)
+  assert.ok(((await retry()).value as { problem?: string }).problem, 'a failed answer never grants consent')
+  assert.equal(r.runtime.sessions.size, 1)
+})
+
+test('#2145: a retry spent before an uncertain create stays spent after Host restart', async t => {
+  const r = await rig(t)
+  await r.personWrites('Fix the stalled build a game task')
+  const first = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task' } })
+  const { id, handle, ledgerItem } = first.value as { id: string; handle: string; ledgerItem: string }
+  const question = `Start another chat for "Fix the stalled build a game task" instead of continuing ${handle}?`
+  await r.journal.appendReply(question, undefined, { question, retryOf: { item: ledgerItem, attempt: id }, startsMarked: true,
+    options: [{ id: 'start', label: 'Start another chat', starts: true }, { id: 'later', label: 'Not now' }], recommended: 'later' })
+  await r.answer('Start another chat')
+  r.runtime.createSession = async () => { throw new Error('controlled uncertain create') }
+  await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem } })
+  await r.stop()
+  const restarted = await rig(t, r)
+  const disk = JSON.parse(readFileSync(`${restarted.stateDir}/lead/work.json`, 'utf8')) as { items: { id: string; retryConsumed?: string }[] }
+  assert.ok(disk.items.find(item => item.id === ledgerItem)?.retryConsumed, 'the consumed receipt survives Host restart')
+  const again = await restarted.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem } })
+  assert.equal(again.outcome, 'denied', 'the journal also holds an uncertain dispatch for recovery')
+  assert.equal(restarted.runtime.sessions.size, 0)
+})
+
+test('#2145: a committed retry answer remains bound after Host restart', async t => {
+  const r = await rig(t)
+  await r.personWrites('Fix the stalled build a game task')
+  const first = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task' } })
+  const { id, handle, ledgerItem } = first.value as { id: string; handle: string; ledgerItem: string }
+  const question = `Start another chat for "Fix the stalled build a game task" instead of continuing ${handle}?`
+  await r.journal.appendReply(question, undefined, { question, retryOf: { item: ledgerItem, attempt: id }, startsMarked: true,
+    options: [{ id: 'start', label: 'Start another chat', starts: true }, { id: 'later', label: 'Not now' }], recommended: 'later' })
+  await r.answer('Start another chat')
+  await r.stop()
+  const restarted = await rig(t, r)
+  await restarted.host.leadPresence.observe()
+  restarted.runtime.reserveSessionIds(1)
+  const result = await restarted.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem } })
+  assert.ok((result.value as { id?: string } | undefined)?.id, JSON.stringify(result))
+  assert.equal(restarted.runtime.sessions.size, 1)
+})
+
+test('#2145: a stop invalidates an earlier unspent retry answer for the same chat', async t => {
+  const r = await rig(t)
+  await r.personWrites('Fix the stalled build a game task')
+  const first = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task' } })
+  const { id, ledgerItem } = first.value as { id: string; ledgerItem: string }
+  await approveRetry(r, ledgerItem, id)
+  await windowStop(r, id)
+  await card(r, ledgerItem, stopped)
+  const second = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem } })
+  assert.ok((second.value as { problem?: string }).problem, JSON.stringify(second.value))
+  assert.equal(r.runtime.sessions.size, 1)
+})
 
 test('#2108: a stop from the window or the phone on a later attempt under the same item is the person\'s, and the Lead\'s cards say so', async t => {
   const r = await rig(t)
@@ -60,7 +224,7 @@ test('#2108: a stop from the window or the phone on a later attempt under the sa
   // Another attempt under the same item, once the host asked and the person said to start it (#2145), which they stop
   // from the phone's work list.
   assert.ok(((await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem: item } })).value as { problem?: string }).problem)
-  await r.personWrites('Start it fresh')
+  await approveRetry(r, item, one)
   const second = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem: item } })
   assert.equal(second.outcome, 'succeeded', JSON.stringify(second.value))
   const two = (second.value as { id: string }).id
@@ -83,7 +247,7 @@ const twiceStopped = async (r: Rig): Promise<{ item: string, last: string }> => 
   await card(r, item, stopped)
   // One stop already asks first (#2145): the host refuses once, then the person says to start again.
   assert.ok(((await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem: item } })).value as { problem?: string }).problem)
-  await r.personWrites('Start it fresh')
+  await approveRetry(r, item, one)
   const second = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem: item } })
   const last = (second.value as { id: string }).id
   await card(r, item, found => found.stage !== 'stopped')
@@ -112,7 +276,7 @@ test('#2108: a third attempt at an item stopped twice is refused until the perso
   const renamed = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task again', cause: 'person' } })
   assert.ok((renamed.value as { problem?: string }).problem, JSON.stringify(renamed))
   // The person answers: start fresh. The next attempt goes ahead under the same item.
-  await r.personWrites('Start it fresh')
+  await approveRetry(r, item, last)
   const third = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (third attempt)', ledgerItem: item } })
   assert.equal(typeof (third.value as { id?: string }).id, 'string', JSON.stringify(third.value))
   assert.equal((third.value as { ledgerItem?: string }).ledgerItem, item)
@@ -163,7 +327,7 @@ test('#2117 review 4: a stop after the person answered asks again; their earlier
   const fresh = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (fresh)', ledgerItem: item } })
   assert.match((fresh.value as { problem?: string }).problem ?? '', /stopped 3 times/, JSON.stringify(fresh.value))
   assert.equal(r.runtime.sessions.size, chats, 'no chat was started')
-  await r.personWrites('Start it fresh')
+  await approveRetry(r, item, last)
   const after = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (fresh)', ledgerItem: item } })
   assert.equal(typeof (after.value as { id?: string }).id, 'string', JSON.stringify(after.value))
 })
@@ -183,10 +347,14 @@ test('#2145: a second attempt at work the person stopped once is refused until t
   assert.match(problem, /stopped once/)
   assert.match(problem, new RegExp(one.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), 'it names the last chat, to continue')
   assert.equal(r.runtime.sessions.size, chats, 'no chat was started')
+  await r.personWrites('What time is it?')
+  const aside = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem: item } })
+  assert.ok((aside.value as { problem?: string }).problem, 'an unrelated person message is not an answer')
+  assert.equal(r.runtime.sessions.size, chats)
   // The same request under a fresh title is the same work, and refused the same way.
   const renamed = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task', cause: 'person' } })
   assert.match((renamed.value as { problem?: string }).problem ?? '', /stopped once/, JSON.stringify(renamed.value))
-  await r.personWrites('Start it fresh')
+  await approveRetry(r, item, one)
   const second = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem: item } })
   assert.equal(typeof (second.value as { id?: string }).id, 'string', JSON.stringify(second.value))
 })
