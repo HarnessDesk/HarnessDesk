@@ -138,9 +138,9 @@ it.each(['storage', 'disk', 'space', 'clean up', 'cache'])('finds Storage by %s'
   expect(openSettings).toHaveBeenCalledWith('storage')
 })
 
-it.each([false, true])('Settings › Lead is available in the palette only with capability=%s', async leadAvailable => {
+it.each([false, true])('Settings › Lead remains available in the palette with capability=%s', async leadAvailable => {
   await mount({ leadAvailable }); type('lead')
   await act(async () => {})
   const options = [...document.body.querySelectorAll('[role="option"]')].filter(node => node.textContent?.includes('Settings › Lead'))
-  expect(options).toHaveLength(leadAvailable ? 1 : 0)
+  expect(options).toHaveLength(1)
 })

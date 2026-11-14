@@ -201,6 +201,8 @@ export interface LeadMemoryStoreOptions {
 }
 export class LeadMemoryStore {
   #state: StoreState = EMPTY
+  /** Called after admissions and background producers have stopped, before releasing the owner. */
+  async idle(): Promise<void> { await this.#tail }
   #tail: Promise<unknown> = Promise.resolve()
   #listeners = new Set<(revision: number) => void>()
   readonly #now: () => number

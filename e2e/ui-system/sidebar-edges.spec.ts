@@ -606,7 +606,7 @@ test('real section headers start at the shared icon edge', async ({ page }) => {
   }
   await page.goto('/preview.html?frame-wall=settings')
   const nav = page.getByRole('navigation', { name: 'Settings navigation' })
-  const navFrame = nav.locator('[data-left-group]').first().locator('xpath=ancestor::div[@data-region="sidebar-content"][1]')
+  const navFrame = nav
   for (const width of [200, 220, 260, 320, 520]) {
     await navFrame.evaluate((node, next) => { (node as HTMLElement).style.width = `${next}px` }, width)
     for (const group of await nav.locator('[data-left-group]').all()) {

@@ -12,10 +12,10 @@ move is real work and is not news to a person weighing an upgrade.
 - **Keep steered replies readable after reopening.** Matching prose replayed in separate turns no longer repeats messages from the saved conversation. If the histories cannot be matched safely, the saved copy stays protected with its history warning.
 
 - **Keep reading while the Lead replies.** Holding a long scroll gesture no longer lets an arriving reply pull the conversation back to the bottom. A pending upward scroll is noticed before the new reply follows it.
-
 - **Continue after withheld earlier content.** Rejected text and tool content in the Lead's saved context are replaced with a durable placeholder, and the conversation shows one notice. Later requests stop re-sending that content.
-
 - **Keep saved pins during an upgrade.** Changing how the conversation list is sorted while its history is still loading no longer loses pins saved by an older desk. Unpinning a conversation or pinning another during that load keeps the change you made.
+- **Turn Lead and Mobile on from Settings.** Both pages stay available while off, and their switches apply immediately and remember your choice. Turning Lead off stops its work and keeps history; turning Mobile off disconnects phones and keeps pairings. Account sign-in stays separate. Interrupted settings offer an explicit repair. Backups carry acknowledged choices, including Off, and a failed activation reports an error on restore.
+- **Settings follows the work.** Preferences, Agents, Conversations and Access group the pages in that order, with Lead under Agents and Mobile first in Access. Existing links still arrive, and every navigation glyph shares the app's hover motion, respecting reduced motion.
 
 - **The Lead names the task it is doing.** Setting or canceling a reminder no longer leaves the previous task on its activity line. An action without its own label shows Working.
 

@@ -114,6 +114,8 @@ const keep = (list: StoredProposal[]): StoredProposal[] => {
  * the file after a crash between the two. Nothing here is reachable by the Lead: its tools have no such method.
  */
 export class LeadAutonomyStore {
+  /** Called after admissions and background producers have stopped, before releasing the owner. */
+  async idle(): Promise<void> { await this.#tail }
   #tail: Promise<unknown> = Promise.resolve()
   #stored: Stored = fresh()
   #loaded = false
@@ -481,12 +483,13 @@ export class LeadAutonomyStore {
     await this.#write(() => { this.#stored.automatic = [...(this.#stored.automatic ?? []), id].slice(-MAX_AUTOMATIC_IDS) })
   }
   /** Called on a timer and whenever the goal changes: says once at 80% of the time how much is left, and once when it has run out. */
-  async checkDeadline(): Promise<void> {
+  async checkDeadline(available: () => boolean = () => true): Promise<void> {
     await this.#ready()
+    if (!available()) return
     const deadline = this.#stored.deadline, goal = this.ports.goal?.()
     if (!deadline) return
     if (!goal || !goal.open || goal.id !== deadline.logicalGoalId) {
-      await this.#write(async () => { delete this.#stored.deadline; await this.ports.journal.setAutonomy(this.#record(this.#modes())) })
+      await this.#write(async () => { if (!available()) return; delete this.#stored.deadline; await this.ports.journal.setAutonomy(this.#record(this.#modes())) })
       return
     }
     const now = this.ports.now(), over = now >= deadline.deadlineAt
@@ -494,6 +497,7 @@ export class LeadAutonomyStore {
     if (deadline.reported && (!over || deadline.passed)) return
     const minutes = Math.max(0, Math.ceil((deadline.deadlineAt - now) / 60_000))
     await this.#write(async () => {
+      if (!available()) return
       await this.ports.report?.(over ? 'The deadline for this goal has passed. No new round or run will start for it, and I will not wake myself for it; your messages are still answered.'
         : `Most of the time for this goal is used: about ${minutes} minute${minutes === 1 ? '' : 's'} left. No new round starts once it runs out.`)
       this.#stored.deadline = { ...deadline, reported: true, ...(over ? { passed: true } : {}) }
