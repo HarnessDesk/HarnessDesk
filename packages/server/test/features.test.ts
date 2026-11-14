@@ -520,3 +520,27 @@ test('failed saved Lead restore drains partial owners before exposing repair on 
   assert.ok((await desk.host.call('session/create', { runtime: desk.runtime.info.id, options: { cwd: home } })).id)
   assert.deepEqual(await desk.host.call('app/features/repair', {}), { lead: false, mobile: false })
 })
+
+
+test('quit announces runtime shutdown and fences Mobile while an admitted feature save drains', async t => {
+  const home = tempDir('hd-feature-quit-drain-')
+  const desk = await start({ catalogRefreshMs: 0, mobileEnabled: true }, home)
+  t.after(() => desk.server.close())
+  const hold = holdRename(t, join(home, 'features.json'))
+  const saving = desk.host.call(set, { feature: 'lead', enabled: false })
+  await hold.inside
+  const dispose = desk.runtime.dispose.bind(desk.runtime)
+  let announced = false
+  t.mock.method(desk.runtime, 'dispose', () => { announced = true; return dispose() })
+  let finished = false
+  const quitting = desk.host.dispose().then(() => { finished = true })
+  const announcedBeforeYield = announced
+  const pairingRefused = await desk.host.call('phone/pairing', {}).then(() => false, () => true)
+  const finishedBeforeSave = finished
+  hold.release()
+  await saving; await quitting
+  assert.equal(announcedBeforeYield, true, 'runtime teardown is announced before the first quit yield')
+  assert.equal(pairingRefused, true, 'Mobile controls are fenced while the feature queue drains')
+  assert.equal(finishedBeforeSave, false, 'the admitted feature write remains part of quit')
+  assert.equal((await desk.host.call('phone/state', {})).enabled, false)
+})

@@ -3935,15 +3935,14 @@ export class Host {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
     const featuresClosed = this.#features.close()
+    this.#leadLifetime?.seal()
+    this.#mobileService?.service.seal()
     this.#retiredPersonTurns.clear()
     this.#seenTurnIds = new WeakMap()
     this.#unsubscribeChatRoots()
     this.#leadBudgets.stopMetering()
     // close() latches Lead dispatch synchronously, before ordinary teardown yields.
     const leadClosed = this.#leadService?.close().catch(() => { this.#logger.warn('Lead shutdown cleanup remains pending') })
-    await featuresClosed
-    await this.#mobileService?.close().catch(() => { this.#logger.warn('Mobile shutdown cleanup remains pending') })
-    this.#mobileService = null
     this.#discoveryOnlyRuntimes.clear()
     this.#sessionIndexAbort.abort()
     clearTimeout(this.#removalSweep)
@@ -4021,6 +4020,11 @@ export class Host {
         this.#logger.warn('a removed runtime still did not shut down cleanly', { runtime: runtime.info.id, error: String(error) })
       })))
     })
+    // Every runtime is now fenced. Drain a pending feature transition before reading
+    // its final Mobile owner: an already-admitted enable may still publish that owner.
+    await featuresClosed
+    await this.#mobileService?.close().catch(() => { this.#logger.warn('Mobile shutdown cleanup remains pending') })
+    this.#mobileService = null
     await leadClosed
     for (const disposer of this.#disposers.splice(0)) {
       await Promise.resolve()
@@ -4138,7 +4142,7 @@ export class Host {
     if (this.#disposed) throw new Error('The desk is closing.')
     if (feature === 'mobile') {
       if (enabled) this.#mobileService ??= await startPhoneLink(this, this.#logger,
-        { ...this.options.phoneLink, home: this.#state.directory, account: this.phoneRelayAccount(), available: () => !this.#features.read().problem })
+        { ...this.options.phoneLink, home: this.#state.directory, account: this.phoneRelayAccount(), available: () => !this.#disposed && !this.#features.read().problem })
       else { await this.#mobileService?.close(); this.#mobileService = null }
       return
     }
