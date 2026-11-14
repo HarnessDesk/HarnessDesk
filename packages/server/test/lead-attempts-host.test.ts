@@ -3,7 +3,11 @@ import { readFileSync } from 'node:fs'
 import { realpath } from 'node:fs/promises'
 import test, { type TestContext } from 'node:test'
 import { createLeadJournal, leadChatHandleOf, leadWorkCards, type LeadJournalRecord, type LeadPermissionCall, type LeadPermissionContext } from '@harnessdesk/lead'
+import { PhoneSim } from '@harnessdesk/phone-link/sim'
+import { serve } from '../src/index.js'
+import { startPhoneLink } from '../src/phone-link.js'
 import { evidenceDesk } from './fixtures/evidence-desk.js'
+import { Client, silent } from './fixtures/harness.js'
 
 /** The real host and its context, an ordinary fake runtime and a journaled Lead; no child, model or vendor traffic. */
 const rig = async (t: TestContext, prior?: { readonly stateDir: string; readonly repo: Awaited<ReturnType<typeof evidenceDesk>>['repo']; readonly records: LeadJournalRecord[] }) => {
@@ -105,6 +109,8 @@ test('#2145: an unrelated or negative answer cannot authorize a retry', async t 
   const question = `Start another chat for "Fix the stalled build a game task" instead of continuing ${handle}?`
   await assert.rejects(r.journal.appendReply('Start unrelated work?', undefined, { question: 'Start unrelated work?', options, recommended: 'later', startsMarked: true,
     retryOf: { item: ledgerItem, attempt: id } }), /retry question/i)
+  await assert.rejects(r.journal.appendReply(question, undefined, { question, options, recommended: 'start', startsMarked: true,
+    retryOf: { item: ledgerItem, attempt: id } }), /retry question/i, 'the start option must not be recommended')
   await r.journal.appendReply('Start unrelated work?', undefined, { question: 'Start unrelated work?', options, recommended: 'later', startsMarked: true })
   await r.answer('Start another chat')
   const retry = () => r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem } })
@@ -199,6 +205,52 @@ test('#2145: a stop invalidates an earlier unspent retry answer for the same cha
   const second = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem } })
   assert.ok((second.value as { problem?: string }).problem, JSON.stringify(second.value))
   assert.equal(r.runtime.sessions.size, 1)
+})
+
+for (const surface of ['desktop', 'phone'] as const) test(`#2145: ${surface} answers the bound retry over its wire`, async t => {
+  const r = await rig(t)
+  await r.personWrites('Fix the stalled build a game task')
+  const first = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task' } })
+  const { id, handle, ledgerItem } = first.value as { id: string; handle: string; ledgerItem: string }
+  const question = `Start another chat for "Fix the stalled build a game task" instead of continuing ${handle}?`
+  await r.journal.appendReply(question, undefined, { question, retryOf: { item: ledgerItem, attempt: id }, startsMarked: true,
+    options: [{ id: 'start', label: 'Start another chat', starts: true }, { id: 'later', label: 'Not now' }], recommended: 'later' })
+  const ask = r.journal.state.messages.at(-1)!.id
+  t.mock.method(r.host.credentials, 'leadStatus', async () => ({ configured: true, protection: 'synthetic cipher' }))
+  t.mock.method(r.host.credentials, 'resolveLead', async () => 'fixture-key')
+  if (surface === 'desktop') {
+    const server = await serve({ host: r.host, logger: silent, port: 0 })
+    const client = await Client.connect(server)
+    try {
+      const read = await client.call('lead/thread/read', {}) as { thread: { messages: { id: string; ask?: { question: string } }[] } }
+      assert.equal(read.thread.messages.find(message => message.id === ask)?.ask?.question, question)
+      await client.call('lead/thread/send', { idempotencyKey: 'desktop-retry-answer', text: 'Start another chat', ask, device: { id: 'window:main', label: 'Desktop' } })
+    } finally { await client.close(); await server.close() }
+  } else {
+    const { tempDir } = await import('./scratch.js')
+    const running = await startPhoneLink(r.host, silent, { home: tempDir('hd-retry-phone-'), host: '127.0.0.1', includeLoopback: true, name: 'Test desk' })
+    let phone: PhoneSim | undefined
+    try {
+      const code = await running.control.pairing()
+      phone = await PhoneSim.fromCode(code.url)
+      await phone.open(running.service.port, phone.offer!.deskPub)
+      await phone.enroll(phone.offer!.enroll, 'Jane phone')
+      for (let i = 0; i < 200 && running.control.state().pending.length === 0; i++) await new Promise(resolve => setTimeout(resolve, 10))
+      assert.ok(running.control.state().pending.length, 'the phone enrollment reached the desk')
+      running.control.allow(running.control.state().pending[0]!.id)
+      await phone.next(message => message.t === 'enroll.ok')
+      const read = await phone.request('lead/thread/read', {})
+      assert.equal(read.ok, true, JSON.stringify(read))
+      assert.equal(read.result.thread.messages.find((message: { id: string }) => message.id === ask)?.ask?.question, question)
+      const sent = await phone.request('lead/thread/send', { idempotencyKey: 'phone-retry-answer', text: 'Start another chat', ask })
+      assert.equal(sent.ok, true, JSON.stringify(sent))
+    } finally { phone?.close(); await running.close() }
+  }
+  const receipt = await r.host.call('lead/presence/read', { device: { id: 'window:main', label: 'Desktop' } })
+  assert.equal(receipt.asks.find(one => one.id === ask)?.answer?.by, surface === 'desktop' ? 'Desktop' : 'Jane phone')
+  const retried = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem } })
+  assert.ok((retried.value as { id?: string } | undefined)?.id, JSON.stringify(retried))
+  assert.equal(r.runtime.sessions.size, 2)
 })
 
 test('#2108: a stop from the window or the phone on a later attempt under the same item is the person\'s, and the Lead\'s cards say so', async t => {

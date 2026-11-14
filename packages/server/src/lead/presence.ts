@@ -742,7 +742,7 @@ export class LeadPresenceStore {
     const messages = this.ports.messages()
     const message = messages.findLast(one => one.role === 'assistant' && askOf(one) !== undefined)
     const ask = message?.ask
-    if (!message || !ask?.startsMarked || ask.question !== question || ask.retryOf?.item !== item || ask.retryOf.attempt !== attempt ||
+    if (!message || !ask?.startsMarked || ask.question !== question || ask.recommended !== 'later' || ask.retryOf?.item !== item || ask.retryOf.attempt !== attempt ||
       ask.options.length !== 2 || !ask.options.some(one => one.id === 'start' && one.label === 'Start another chat' && one.starts === true) ||
       !ask.options.some(one => one.id === 'later' && one.label === 'Not now' && !one.starts)) return null
     const answer = this.#stored.asks[message.id]?.answer

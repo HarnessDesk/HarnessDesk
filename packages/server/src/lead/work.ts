@@ -408,7 +408,7 @@ export class LeadWorkLedger {
     const retryOf = ask.retryOf
     await this.#write(() => {
       const item = this.stored.items.find(one => one.id === retryOf.item)
-      if (!item || !this.#needsRetryAnswer(item) || item.links.chats.at(-1) !== retryOf.attempt || ask.question !== this.#retryQuestion(item, retryOf.attempt) ||
+      if (!item || !this.#needsRetryAnswer(item) || item.links.chats.at(-1) !== retryOf.attempt || ask.question !== this.#retryQuestion(item, retryOf.attempt) || ask.recommended !== 'later' ||
         ask.options.length !== 2 || !ask.options.some(one => one.id === 'start' && one.label === 'Start another chat' && one.starts === true) ||
         !ask.options.some(one => one.id === 'later' && one.label === 'Not now' && !one.starts))
         throw new Error('The retry question no longer matches the current work and chat. Read the work item and ask again.')
