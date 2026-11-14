@@ -103,7 +103,7 @@ const start = async (r: Awaited<ReturnType<typeof rig>>, title: string, quotes: 
 }
 const card = (board: LeadWorkBoard, id: string) => board.items.find(item => item.id === id)!
 
-test('a duplicate start is refused with the open item named, and ledgerItem attaches instead', async t => {
+test('a duplicate start is refused with the open item named, and an answered retry attaches to it', async t => {
   const r = await rig(t)
   const first = await start(r, 'Fix the login redirect', ['m-1'], 'fixture:a')
   assert.deepEqual(first, { item: 'work-1' })
@@ -122,6 +122,9 @@ test('a duplicate start is refused with the open item named, and ledgerItem atta
   const another = await r.ledger.claim({ title: 'Fix issue 42 in the sync suite', quotes: ['m-7'] })
   assert.ok(!('problem' in another), 'a different number is different work')
   r.ledger.release(another)
+  const unapproved = await r.ledger.claim({ title: 'Add a test for the redirect', quotes: ['m-1'], ledgerItem: 'work-1' })
+  assert.ok('problem' in unapproved, 'a different title does not bypass the explicit item')
+  await r.approveRetry('message-approval')
   const attached = await start(r, 'Add a test for the redirect', ['m-1'], 'fixture:b', 'work-1')
   assert.deepEqual(attached, { item: 'work-1' })
   assert.deepEqual(card(await r.ledger.board(), 'work-1').links.chats, ['fixture:a', 'fixture:b'])
@@ -639,6 +642,7 @@ test('an unreadable ledger is moved aside, and one that cannot be read right now
 test('a start whose item was closed meanwhile still lands, on a new item, and never fails the chat it made', async t => {
   const r = await rig(t)
   await start(r, 'Fix the login redirect', ['m-1'], 'fixture:a')
+  await r.approveRetry('message-approval')
   const claim = await r.ledger.claim({ title: 'Add a redirect test', quotes: ['m-2'], ledgerItem: 'work-1' })
   assert.ok(!('problem' in claim))
   await r.ledger.close({ id: 'work-1', outcome: 'done' })

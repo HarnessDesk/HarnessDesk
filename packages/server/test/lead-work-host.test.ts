@@ -42,11 +42,11 @@ const workRig = async (t: TestContext) => {
   return { ...desk, project, journal, records, execute, controls, state }
 }
 
-test('a duplicate chat start is refused naming the open item; ledgerItem adds the chat to it instead', async t => {
+test('a duplicate chat start names the item, and an answered question permits one more chat', async t => {
   const r = await workRig(t)
   const first = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the retry status list' } })
   assert.equal(first.outcome, 'succeeded')
-  const created = first.value as { id: string; ledgerItem?: string }
+  const created = first.value as { id: string; handle: string; ledgerItem?: string }
   assert.equal(created.ledgerItem, 'work-1')
   const sessions = r.runtime.sessions.size
   const again = await r.execute({ method: 'lead/chat/start', params: { text: 'fix the retry status list' } })
@@ -57,9 +57,22 @@ test('a duplicate chat start is refused naming the open item; ledgerItem adds th
   assert.equal((again.value as { ledgerItem?: string }).ledgerItem, 'work-1', 'the refusal returns the existing item')
   assert.equal(r.runtime.sessions.size, sessions, 'a refused duplicate starts no chat')
   assert.equal(r.journal.state.chatEffectsSinceReply.started, 1)
-  const added = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the retry status list', ledgerItem: 'work-1' } })
+  const refused = await r.execute({ method: 'lead/chat/start', params: { text: 'Proceed with this task', ledgerItem: 'work-1' } })
+  assert.ok((refused.value as { problem?: string }).problem, 'an explicit item requires an answer regardless of title')
+  assert.equal(r.runtime.sessions.size, sessions)
+  const question = `Start another chat for "Fix the retry status list" instead of continuing ${created.handle}?`
+  await r.journal.appendReply(question, undefined, { question, retryOf: { item: 'work-1', attempt: created.id }, startsMarked: true,
+    options: [{ id: 'start', label: 'Start another chat', starts: true }, { id: 'later', label: 'Not now' }], recommended: 'later' })
+  const ask = r.journal.state.messages.at(-1)!.id
+  t.mock.method(r.host.credentials, 'leadStatus', async () => ({ configured: true, protection: 'synthetic cipher' }))
+  t.mock.method(r.host.credentials, 'resolveLead', async () => 'fixture-key')
+  await r.host.call('lead/thread/send', { idempotencyKey: 'retry-answer', text: 'Start another chat', ask, device: { id: 'window:main', label: 'Desktop' } })
+  const added = await r.execute({ method: 'lead/chat/start', params: { text: 'Proceed with this task', ledgerItem: 'work-1' } })
   assert.equal(added.outcome, 'succeeded')
   assert.equal((added.value as { ledgerItem?: string }).ledgerItem, 'work-1')
+  const replay = await r.execute({ method: 'lead/chat/start', params: { text: 'Proceed again', ledgerItem: 'work-1' } })
+  assert.ok((replay.value as { problem?: string }).problem, 'one answer authorizes only one join')
+  assert.equal(r.runtime.sessions.size, sessions + 1)
   const board = await r.host.call('lead/work/list', {})
   assert.equal(board.items.length, 1)
   assert.deepEqual(board.items[0]!.links.chats, [created.id, (added.value as { id: string }).id])

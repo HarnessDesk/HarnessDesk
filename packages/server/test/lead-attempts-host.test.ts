@@ -83,6 +83,23 @@ test('#2145: an explicit second attempt at open work waits for the person to ans
   assert.equal(r.runtime.sessions.size, before, 'no second chat before a question and answer')
 })
 
+test('#2145: an explicit item cannot avoid asking by changing the title or project', async t => {
+  const r = await rig(t)
+  const first = await r.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task' } })
+  const item = (first.value as { ledgerItem: string }).ledgerItem
+  const retitled = await r.execute({ method: 'lead/chat/start', params: { text: 'Proceed with this task', ledgerItem: item } })
+  assert.ok((retitled.value as { problem?: string }).problem, JSON.stringify(retitled.value))
+  assert.equal(r.runtime.sessions.size, 1, 'a changed title does not create a second chat')
+  const distinct = await r.execute({ method: 'lead/chat/start', params: { text: 'Update the release notes' } })
+  assert.ok((distinct.value as { id?: string }).id, 'distinct work without an item remains a fresh start')
+  await r.stop()
+  const { makeRepo } = await import('./fixtures/evidence-desk.js')
+  const other = await rig(t, { stateDir: r.stateDir, records: r.records, repo: await makeRepo('hd-lead-other-project-') })
+  const elsewhere = await other.execute({ method: 'lead/chat/start', params: { text: 'Fix the stalled build a game task (second attempt)', ledgerItem: item } })
+  assert.ok((elsewhere.value as { problem?: string }).problem, JSON.stringify(elsewhere.value))
+  assert.equal(other.runtime.sessions.size, 0, 'changing projects does not grant a repeat')
+})
+
 test('#2145: an answered retry question permits only one new attempt', async t => {
   const r = await rig(t)
   await r.personWrites('Fix the stalled build a game task')

@@ -520,8 +520,9 @@ export class LeadWorkLedger {
         if ([...this.#pending.values()].some(claim => claim.item === found.id))
           return { item: found.id, problem: 'A chat for this work is already starting. Wait for its result.' }
         const last = found.links.chats.at(-1)
-        const repeat = this.#needsRetryAnswer(found) && last !== undefined && found.project === project &&
-          similar(sameWork(title), sameWork(found.title), input.quotes.some(quote => found.origin.quotes.includes(quote)) ? 0.5 : 0.8)
+        // An explicit item already identifies the work: the caller cannot
+        // avoid its retry admission by renaming the brief or changing project.
+        const repeat = this.#needsRetryAnswer(found) && last !== undefined
         if (repeat && last) {
           if (this.#stops.has(last)) return { item: found.id, problem: 'The chat is being stopped. Wait for that stop to settle before asking about another attempt.' }
           const question = this.#retryQuestion(found, last)
