@@ -474,6 +474,13 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       ensure(state.context.pending?.id === event.id)
       state = { ...state, context: { ...state.context, epoch: state.context.epoch + 1, pending: null } }
       break
+    case 'context-withheld': {
+      const all = [...state.messages, { version: 1, id: `context-withheld-${event.seq}`, revision: event.seq, role: 'system', text: 'An earlier message was withheld because part looked like a password, key or token.' } satisfies LeadMessage]
+      const thread = windowLeadThread({ version: 1, id: 'lead', revision: state.seq, state: state.phase, project: null,
+        messages: all.slice(-256), olderMessages: state.olderMessages + Math.max(0, all.length - 256), cards: [] }, 131072)
+      state = { ...state, messages: thread.messages, olderMessages: thread.olderMessages, context: { ...state.context, epoch: state.context.epoch + 1 } }
+      break
+    }
     case 'memory-core': ensure(event.memory.revision > state.memory.revision); state = { ...state, memory: event.memory }; break
     case 'receipt': {
       // A host line, drawn as a notice on the desktop and as a grey line on the phone, which shows `system` lines and not
