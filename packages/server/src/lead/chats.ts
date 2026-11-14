@@ -1,10 +1,10 @@
-import { leadStage, type LeadStage } from '@harnessdesk/protocol'
+import { leadStage, quoteLeadWorkText, type LeadStage, type LeadStartCause } from '@harnessdesk/protocol'
 import type { DispatchAdmission } from '../dispatch-admission.js'
-import { LEAD_LIMITS, deskContextContent, leadDisplayName, leadMessageEnvelope, leadMessageKey } from '@harnessdesk/protocol'
+import { LEAD_LIMITS, deskContextContent, leadDisplayName, leadMessageAsk, leadMessageEnvelope, leadMessageKey } from '@harnessdesk/protocol'
 import { LeadChatHeldError, type LeadChatControlStore } from './chat-control.js'
 import { randomUUID } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
-import { decideLeadPermission, leadBudgetProjection, summarizeLeadArguments, type LeadPermissionCall, type LeadPermissionContext, type LeadState } from '@harnessdesk/lead'
+import { decideLeadPermission, leadBudgetProjection, leadRequestFenced, summarizeLeadArguments, type LeadPermissionCall, type LeadPermissionContext, type LeadState } from '@harnessdesk/lead'
 import { runtimeId, sessionId, sessionIndexCursorOf, type HostParams, type HostResult, type LeadProject, type RuntimeId, type SessionId } from '@harnessdesk/protocol'
 import type { SessionIndex } from '../session-index.js'
 import type { PhoneWork } from '../phone-work.js'
@@ -12,12 +12,15 @@ import { scrub } from '../phone-redact.js'
 import { LeadChatIncidents } from './incidents.js'
 import type { AgentError, LeadChatCandidate, LeadChatIncidentObservation, RateLimits, Turn } from '@harnessdesk/protocol'
 import { boundLeadChatRead } from './chat-read.js'
+import { leadAskOption } from './presence.js'
+import type { LeadWorkLedger, LeadWorkLinkState } from './work.js'
+import type { LeadChatHandlesPort } from './chat-handles.js'
 
 export class LeadChatBusyError extends Error { constructor() { super('That chat is busy; defer the recovery retry.') } }
 
 export const LEAD_CHAT_HELD = 'The person has taken this chat over. Wait until they hand it back.'
 
-export interface LeadChatActivity { readonly id: string; readonly project: string; readonly state: 'running' | 'waiting' | 'idle'; readonly stage: LeadStage; readonly incident?: LeadChatIncidentObservation }
+export interface LeadChatActivity { readonly id: string; readonly handle?: string; readonly project: string; readonly state: 'running' | 'waiting' | 'idle'; readonly stage: LeadStage; readonly incident?: LeadChatIncidentObservation }
 
 export interface LeadChatsPorts {
   readonly control?: Pick<LeadChatControlStore, 'holder' | 'noteSent'> & Partial<Pick<LeadChatControlStore, 'assertDispatch' | 'assertCanStart' | 'current'>>
@@ -31,7 +34,7 @@ export interface LeadChatsPorts {
   readonly index: Pick<SessionIndex, 'list' | 'get' | 'isOwn'>
   /** Actual live/transcript cwd, without restoring archived or removed sessions. */
   readonly cwd: (runtime: RuntimeId, id: SessionId) => Promise<string | null>
-  readonly live: (runtime: RuntimeId, id: SessionId) => { readonly running: boolean; readonly waiting: boolean; readonly approvalWaiting?: boolean; readonly queued?: boolean; readonly failed?: boolean; readonly queuePaused?: boolean }
+  readonly live: (runtime: RuntimeId, id: SessionId) => { readonly running: boolean; readonly waiting: boolean; readonly approvalWaiting?: boolean; readonly queued?: boolean; readonly failed?: boolean; readonly queuePaused?: boolean; readonly stopped?: boolean; readonly turn?: string }
   /** Only the host holds this receipt; it is never exposed to the child. */
   readonly noteDispatchNotStarted: (id: string) => void
   readonly work: Pick<PhoneWork, 'threadRead' | 'startInProject' | 'sessionSend' | 'stop'>
@@ -47,10 +50,32 @@ export interface LeadChatsPorts {
     readonly schedule?: (run: () => void, delay: number) => () => void
   }
   readonly publish?: (event: LeadChatActivity) => void
+  /** The chats' handles for the Lead (`chat-handles.ts`): what it is shown names a chat by its handle as well as its id. */
+  readonly handles?: LeadChatHandlesPort
+  /** The reserved run: a start the Lead makes for automatic work is refused while only the person's slot is left. */
+  readonly slots?: { admit(cause: LeadStartCause): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }>; hold(cause: LeadStartCause): { release(): void } | null; mark(id: string, cause: LeadStartCause): Promise<void>; readonly reasons: { readonly cap: string } }
+  /**
+   * The goal's time: true once the open goal's deadline has passed (read after the file has loaded). A start or a send
+   * the Lead makes on its own for that goal is refused then; the person's own are not.
+   */
+  readonly deadlinePassed?: () => Promise<boolean>
+  /** The Lead's question that holds a chat start, if any (`LeadPresenceStore.askHoldingChatStart`). While it holds, no
+   * chat starts: the Lead never picks an option for the person, and a repeat of the request points to the question. */
+  readonly askHoldingChatStart?: () => { readonly question: string; readonly options: readonly string[] } | null
+  /**
+   * Account pacing. Asked only for a start the Lead made without naming an agent, and answered only when the person
+   * turned on "Prefer the account that resets soonest" for the agent the desk would start on. The agent is one the
+   * desk can start on now; the label is the presentation name the Lead may say, never an address.
+   */
+  readonly pacing?: { readonly choose: () => Promise<{ readonly agent: string; readonly label: string } | null> }
+  /** The work ledger's duplicate guard: a start joins an open item or makes one, and a duplicate is refused. It also
+   * hears that the Lead is stopping a chat, so the stop is said to be the Lead's and not the person's. */
+  readonly ledger?: Pick<LeadWorkLedger, 'claim' | 'started' | 'release'> & Partial<Pick<LeadWorkLedger, 'stopping'>>
 }
 const refuse = (message: string): never => { throw new Error(message) }
 const MUTATIONS = new Set(['lead/chat/start', 'lead/chat/send', 'lead/chat/stop'])
-const MOVE_TEXT_CHARS = 48 * 1024
+/** The longest move text, in characters; carry-on caps its handoff packet at the same size. */
+export const MOVE_TEXT_CHARS = 48 * 1024
 const MAX_SCAN = 200
 const CURSOR_TTL = 15 * 60 * 1000
 
@@ -86,6 +111,12 @@ export class LeadChats {
     void this.#ready.catch(() => {})
   }
   restore(): Promise<void> { return this.#ready }
+  /** Chats the Lead holds that are working right now. */
+  liveHeld(include: (id: string) => boolean = () => true): number {
+    const chats = this.ports.control?.current?.(this.ports.project.path).chats ?? []
+    return chats.filter(chat => { if (chat.holder !== 'lead' || !include(chat.id)) return false
+      const at = chat.id.indexOf(':'); return at > 0 && this.ports.live(runtimeId(chat.id.slice(0, at)), sessionId(chat.id.slice(at + 1))).running }).length
+  }
   async idle(retries = true): Promise<void> {
     await this.#ready
     for (;;) { const changes = this.#changes; await changes; if (retries) await this.incidents?.idle(); if (changes === this.#changes) return }
@@ -105,7 +136,7 @@ export class LeadChats {
         this.ports.control?.assertDispatch?.(ports.project.path, incident.chatId)
         // Timers and transcript content stay host-owned; this bounded observation is the only wake.
         this.#states.set(incident.chatId, 'you-blocked')
-        ports.publish?.({ id: incident.chatId, project: ports.project.path, state: 'waiting', stage: 'you-blocked', incident: { chatId: incident.chatId, turnId: incident.turnId, kind: incident.kind, attempts: incident.attempts, firstAt: incident.firstAt, lastAt: incident.lastAt, resetsAt: incident.resetsAt, lastError: incident.lastError, state: incident.state, ...(incident.movedTo ? { movedTo: incident.movedTo } : {}), candidates } })
+        await this.#publish({ id: incident.chatId, project: ports.project.path, state: 'waiting', stage: 'you-blocked', incident: { chatId: incident.chatId, turnId: incident.turnId, kind: incident.kind, attempts: incident.attempts, firstAt: incident.firstAt, lastAt: incident.lastAt, resetsAt: incident.resetsAt, lastError: incident.lastError, state: incident.state, ...(incident.movedTo ? { movedTo: incident.movedTo } : {}), candidates } })
       },
     })
   }
@@ -125,6 +156,14 @@ export class LeadChats {
       return await this.ports.control?.holder(this.ports.project.path, id) === 'lead'
     } catch { return false }
   }
+  /** The handles of these chats, naming any not yet named. Never a gate: a chat without one goes by its id. */
+  async #handles(ids: readonly string[]): Promise<ReadonlyMap<string, string>> {
+    try { return await this.ports.handles?.name(ids) ?? new Map() } catch { return new Map() }
+  }
+  async #publish(event: LeadChatActivity): Promise<void> {
+    const handle = (await this.#handles([event.id])).get(event.id)
+    this.ports.publish?.(handle ? { ...event, handle } : event)
+  }
   async #activity(id: string): Promise<LeadChatActivity> {
     const incident = this.incidents?.get(id)
     if (this.#stateOf(id) === 'waiting') return { id, project: this.ports.project.path, state: 'waiting', stage: this.#stageOf(id) }
@@ -141,7 +180,7 @@ export class LeadChats {
   }
   #stageOf(id: string, recovering = true): LeadStage {
     const at = id.indexOf(':'), live = this.ports.live(runtimeId(id.slice(0, at)), sessionId(id.slice(at + 1)))
-    return leadStage({ kind: 'session', archived: false, waiting: live.approvalWaiting ?? live.waiting, running: recovering && this.incidents?.waiting(id) || live.running, failed: recovering && this.incidents?.waiting(id) ? false : live.failed ?? false, queuePaused: live.queuePaused ?? false, queued: live.queued ?? false }).stage
+    return leadStage({ kind: 'session', archived: false, waiting: live.approvalWaiting ?? live.waiting, running: recovering && this.incidents?.waiting(id) || live.running, failed: recovering && this.incidents?.waiting(id) ? false : live.failed ?? false, queuePaused: live.queuePaused ?? false, queued: live.queued ?? false, stopped: live.stopped ?? false }).stage
   }
   async #watch(id: string): Promise<void> {
     await this.ports.watches?.watch(this.ports.project.path, id)
@@ -157,6 +196,20 @@ export class LeadChats {
       return false
     }
     return await control?.holder(root, id) === 'person'
+  }
+  /**
+   * Whether this chat's recovery at a usage limit is the Lead's: it follows the chat and the person has not taken it
+   * over. Carry-on leaves such a chat alone, so the composer never shows a card for it.
+   */
+  async recovers(id: string): Promise<boolean> {
+    let tracked: readonly string[]
+    try {
+      await this.#ready
+      tracked = this.ports.watches ? await this.ports.watches.read(this.ports.project.path) : [...this.#watched]
+    } catch { return false }
+    if (!tracked.includes(id)) return false
+    // A chat the Lead follows stays the Lead's unless the person visibly holds it; a check that fails is not proof.
+    try { return !await this.#personHolds(id) } catch { return true }
   }
   /** Metadata-only authority for private chat notifications; no transcript is loaded. */
   async canRead(id: string): Promise<boolean> {
@@ -177,7 +230,8 @@ export class LeadChats {
         activities.push(await this.#activity(id))
       } catch { /* Withdrawn, archived and removed watches disclose no identity. */ }
     }
-    return activities
+    const handles = await this.#handles(activities.map(activity => activity.id))
+    return activities.map(activity => handles.has(activity.id) ? { ...activity, handle: handles.get(activity.id)! } : activity)
   }
   /** Only followed chats emit, and only on state transitions. No token output or
    * transcript bytes cross this notification path. Persisted watches survive restarts. */
@@ -214,7 +268,7 @@ export class LeadChats {
         if (this.#states.get(id) === stage) return
         this.#states.set(id, stage)
         while (this.#states.size > 64) this.#states.delete(this.#states.keys().next().value!)
-        this.ports.publish?.({ id, project: this.ports.project.path, state, stage })
+        await this.#publish({ id, project: this.ports.project.path, state, stage })
       } catch { this.#states.delete(id) }
       finally {
         // Capturing a terminal turn revoked its timer/claim before any await.
@@ -262,6 +316,9 @@ export class LeadChats {
           (attempt.outcome === 'uncertain' || attempt.resolutionPending || attempt.contested ||
             !finalAdmission && attempt.id !== attemptId && attempt.phase === 'started' && attempt.dispatched && !this.#queuedMutations.has(attempt.id))))
         refuse('Lead management is stopped pending recovery or user action.')
+      // Checked again here, at dispatch: a request from an issue or pull request starts and sends nothing unapproved,
+      // nor once that approval has run out. Stops are not in this branch, so they still go through.
+      if (leadRequestFenced(state, now)) refuse('This request waits for the person to approve its plan.')
     }
     const approved = state.contract && state.consent ? { contract: state.contract, consent: state.consent,
       runIds: state.runs.map(run => run.runId), teamIds: state.teams } : null
@@ -340,13 +397,15 @@ export class LeadChats {
       const item: typeof items[number] = { id, title: scrub(summary.title ?? summary.preview ?? '', 160) || 'Conversation',
         state: live.waiting ? 'waiting' : this.incidents?.waiting(id) || live.running ? 'running' : 'idle', stage: this.#stageOf(id), updatedAt: summary.updatedAt }
       // Counts alone do not bound UTF-8 or escaped JSON. Leave room for the
-      // opaque continuation token and stop before consuming the omitted row.
-      if (Buffer.byteLength(JSON.stringify({ items: [...items, item], nextCursor: '0'.repeat(36) })) > 12_000) {
+      // opaque continuation token and each row's handle, and stop before consuming the omitted row.
+      if (Buffer.byteLength(JSON.stringify({ items: [...items, item].map(one => ({ ...one, handle: 'x'.repeat(32) })), nextCursor: '0'.repeat(36) })) > 12_000) {
         position = previousPosition; more = true; break
       }
       items.push(item)
       if (items.length >= limit) { more = i < page.data.length - 1 || page.nextCursor !== null; break }
     }
+    // Each chat shown is named once, here, before the Lead can refer to it.
+    const handles = await this.#handles(items.map(item => item.id))
     await this.#gate({ method: 'lead/chat/list', params })
     if (this.ports.project.path !== root) refuse('Lead project scope changed.')
     let nextCursor: string | null = null
@@ -355,7 +414,7 @@ export class LeadChats {
       this.#cursors.set(nextCursor, { root, cursor: position, expires: now + CURSOR_TTL })
       while (this.#cursors.size > 256) this.#cursors.delete(this.#cursors.keys().next().value!)
     }
-    return { items, nextCursor }
+    return { items: items.map(item => handles.has(item.id) ? { ...item, handle: handles.get(item.id)! } : item), nextCursor }
   }
 
   async read(params: HostParams<'lead/chat/read'>): Promise<HostResult<'lead/chat/read'>> {
@@ -370,25 +429,46 @@ export class LeadChats {
     await this.#watch(params.id)
     await this.#target(params.id, true)
     if (this.ports.project.path !== root) refuse('Lead project scope changed.')
-    return boundLeadChatRead(result)
+    const handle = (await this.#handles([params.id])).get(params.id)
+    return handle ? { handle, ...boundLeadChatRead(result) } : boundLeadChatRead(result)
+  }
+  /**
+   * The person's newest message, when it picked an option of the Lead's question just before it and that option is
+   * not marked `starts`: the question and the label. Null for anything else, including a message that is not an option
+   * and an answer to a question stored before the `starts` rule, which carries no `startsMarked` and keeps the old way.
+   */
+  #answerWithoutStart(): { readonly question: string; readonly label: string } | null {
+    const messages = this.ports.state().messages
+    const person = (one: (typeof messages)[number]) => one.role === 'user' && !one.wake && (one.source === undefined || one.source === 'person')
+    const at = messages.findLastIndex(person)
+    if (at < 0) return null
+    const since = messages.slice(0, at).findLastIndex(person)
+    const asked = messages.slice(since + 1, at).findLast(one => one.role === 'assistant' && leadMessageAsk(one) !== undefined)
+    const ask = asked ? leadMessageAsk(asked) : undefined
+    const option = ask ? leadAskOption(ask.options, messages[at]!.text) : undefined
+    return ask?.startsMarked && option && !option.starts ? { question: ask.question, label: option.label } : null
   }
   #envelope(text: string): string { return leadMessageEnvelope(leadDisplayName(this.ports.state().name), text) }
+  /** The person messages a start comes from: the ones it quotes, or the latest that was not an option's answer. */
+  #quoteIds(params: HostParams<'lead/chat/start'>): readonly string[] {
+    if (params.quote !== undefined) return params.quote
+    const messages = this.ports.state().messages
+    for (let index = messages.length - 1; index >= 0; index--) {
+      const person = messages[index]!
+      // A desk wake (a reminder) is a user turn the person never wrote: it is never quoted as theirs.
+      if (person.role !== 'user' || person.wake || person.source === 'automatic') continue
+      const previous = messages[index - 1]
+      const options = previous?.role === 'assistant' ? previous.ask?.options ?? previous.proactive?.options : undefined
+      if (options?.some(option => option.label === person.text)) continue
+      return [person.id]
+    }
+    return []
+  }
   #startText(params: HostParams<'lead/chat/start'>): string | { readonly problem: string } {
     const messages = this.ports.state().messages
-    const people = messages.filter(message => message.role === 'user')
-    let ids = params.quote
-    if (ids === undefined) {
-      ids = []
-      for (let index = messages.length - 1; index >= 0; index--) {
-        const person = messages[index]!
-        if (person.role !== 'user') continue
-        const previous = messages[index - 1]
-        const options = previous?.role === 'assistant' ? previous.ask?.options ?? previous.proactive?.options : undefined
-        if (options?.some(option => option.label === person.text)) continue
-        ids = [person.id]
-        break
-      }
-    }
+    // A trigger's request is a user turn the person never wrote: only their own messages are quoted as theirs.
+    const people = messages.filter(message => message.role === 'user' && !message.wake && message.source !== 'automatic')
+    const ids = this.#quoteIds(params)
     if (ids.some(id => !people.some(message => message.id === id)))
       return { problem: 'Quote only a person message in the current conversation window.' }
     const quoted = people.filter(message => ids.includes(message.id))
@@ -426,24 +506,78 @@ export class LeadChats {
     return text
   }
   start(input: HostParams<'lead/chat/start'>): Promise<HostResult<'lead/chat/start'>> {
-    const { effectId, ...params } = input
+    const { effectId, cause = 'automatic', ...params } = input
     const call = { method: 'lead/chat/start', params } as const
     return this.#mutate(call, effectId, async (admit, effectStarted, attemptId) => {
       const candidates = params.agent === undefined ? [] : await this.ports.recovery?.candidates(params.moveFrom) ?? []
       const matches = candidates.filter(one => one.key === params.agent || one.name === params.agent)
       if (params.agent !== undefined && matches.length !== 1) refuse('That agent is not in the available candidate list.')
-      const agent = matches[0]?.agent ?? matches[0]?.key
+      // Whatever woke the turn: the presence store frees the question once the person says anything new, so an open one
+      // here means the person only repeated the request it is about (or nobody spoke). Letting a person-caused start
+      // through would start exactly the work the question was asked to decide.
+      const open = params.moveFrom === undefined ? this.ports.askHoldingChatStart?.() ?? null : null
+      if (open) {
+        this.ports.noteDispatchNotStarted(attemptId)
+        return { id: '', problem: `Your question ${quoteLeadWorkText(open.question, 200)} is still open and the person has not picked an option. Do not start the work it decides, and do not pick for them: point the person to the question and its options (${open.options.map(option => quoteLeadWorkText(option, 60)).join(', ')}).` }
+      }
+      // An answer is what it says: an option the Lead did not mark as starting a chat starts none, whichever words the
+      // turn after it would have used. The r4 sitting started a chat on "only read the full reason" (#2145).
+      const chose = params.moveFrom === undefined ? this.#answerWithoutStart() : null
+      if (chose) {
+        this.ports.noteDispatchNotStarted(attemptId)
+        return { id: '', problem: `Nothing was started: the person answered your question ${quoteLeadWorkText(chose.question, 200)} with ${quoteLeadWorkText(chose.label, 60)}, an option that starts no chat. Do what that option says without a new chat, and tell the person what you did. If it cannot be done without one, say so and ask again, with the option that starts a chat marked "starts".` }
+      }
+      // The person's own start is never refused here. Anything else is automatic work: it stops when the goal's time has
+      // run out, and it waits at the cap, for a reason the Lead is handed back as the tool result.
+      if (cause === 'automatic') {
+        const refusal = await this.ports.deadlinePassed?.() ? 'The time for this goal has run out, so no new work starts for it. Tell the person, and ask whether to extend it.'
+          : await this.ports.slots?.admit('automatic').then(verdict => verdict.ok ? null : verdict.reason)
+        if (refusal) { this.ports.noteDispatchNotStarted(attemptId); return { id: '', problem: refusal } }
+      }
       const text = params.moveFrom ? await this.#moveText(params) : this.#startText(params)
       if (typeof text !== 'string') {
         this.ports.noteDispatchNotStarted(attemptId)
         return { id: '', problem: text.problem }
       }
+      // The duplicate guard reads the ledger before anything is created, so a refusal starts nothing.
+      const claim = this.ports.ledger ? await this.ports.ledger.claim({ title: params.text, quotes: this.#quoteIds(params), cause,
+        ...(params.ledgerItem !== undefined ? { ledgerItem: params.ledgerItem } : {}), ...(params.moveFrom !== undefined ? { moveFrom: params.moveFrom } : {}) }) : undefined
+      if (claim && 'problem' in claim) {
+        this.ports.noteDispatchNotStarted(attemptId)
+        // The existing item rides the refusal, so the Lead can name it and offer to continue it.
+        return { id: '', problem: claim.problem, ...(claim.item ? { ledgerItem: claim.item } : {}) }
+      }
+      try {
+        // Claim first, then pace, then create: a refused duplicate never reads usage, and the fallback retry inside
+        // #create runs under this one claim.
+        const paced = params.agent === undefined && !params.moveFrom ? await this.ports.pacing?.choose().catch(() => null) ?? null : null
+        const agent = matches[0]?.agent ?? matches[0]?.key ?? paced?.agent
+        // The slot is taken at once before the chat is made, so two starts at the same moment cannot both pass the cap.
+        const hold = this.ports.slots ? this.ports.slots.hold(cause) : { release: () => {} }
+        if (hold === null) { this.ports.noteDispatchNotStarted(attemptId); return { id: '', problem: this.ports.slots!.reasons.cap } }
+        let result: Awaited<ReturnType<LeadChats['start']>>
+        try {
+          result = await this.#create(params, call, text, agent, paced, admit, effectStarted, attemptId)
+          if (result.id && !result.problem) await this.ports.slots?.mark(result.id, cause).catch(() => {})
+        } finally { hold.release() }
+        // A started chat is named at once, so the Lead's receipt already carries the name it will use.
+        const handle = result.id && !result.problem ? (await this.#handles([result.id])).get(result.id) : undefined
+        if (handle) result = { ...result, handle }
+        if (claim && result.id) return { ...result, ledgerItem: await this.ports.ledger!.started(claim, result.id) }
+        return result
+      } finally { if (claim) this.ports.ledger!.release(claim) }
+    })
+  }
+  async #create(params: Omit<HostParams<'lead/chat/start'>, 'effectId'>, call: { readonly method: 'lead/chat/start'; readonly params: Omit<HostParams<'lead/chat/start'>, 'effectId'> },
+    text: string, agent: string | undefined, paced: { readonly agent: string; readonly label: string } | null, admit: (id?: string) => Promise<void>, effectStarted: () => void, attemptId: string): Promise<HostResult<'lead/chat/start'>> {
+    {
       const envelope = this.#envelope(text)
       await this.ports.control?.assertCanStart?.(this.ports.project.path)
       let createdId: string | undefined, moveClaimed = false, creationStarted = false, firstMessageStarted = false
       const scope = this.#liveScope(call, attemptId, () => createdId)
       try {
-        const result = await this.ports.work.startInProject({ text, ...(agent ? { agent } : {}) }, this.ports.project.path, async id => {
+        // A chat the Lead starts never inherits a permission the person picked for their own chats (Bypass and the like).
+        const begin = (chosen: string | undefined) => this.ports.work.startInProject({ text, cautious: true, ...(chosen ? { agent: chosen } : {}) }, this.ports.project.path, async id => {
           createdId = id
           await admit(id)
           if (params.moveFrom) {
@@ -451,11 +585,15 @@ export class LeadChats {
             if (!this.incidents?.hasPersonAnswer(params.moveFrom)) refuse('Wait for the person’s answer before moving this chat.')
             if (this.incidents?.get(params.moveFrom)?.state !== (moveClaimed ? 'moved' : 'asked')) refuse('That incident was already moved or stopped.')
           }
-          if (!id && agent && !(await this.ports.recovery!.candidates(params.moveFrom)).some(one => (one.agent ?? one.key) === agent)) refuse('That agent is no longer available.')
+          if (!id && agent && params.agent !== undefined && !(await this.ports.recovery!.candidates(params.moveFrom)).some(one => (one.agent ?? one.key) === agent)) refuse('That agent is no longer available.')
           if (params.moveFrom && !moveClaimed) { await this.incidents!.claimMove(params.moveFrom); moveClaimed = true }
           // Recorded before the first message leaves, so the transcript can vouch for it on first render.
           if (id) { await this.#watch(id); await this.#record(id, envelope); await admit(id); await this.#notHeld(id) }
         }, () => { creationStarted = true; effectStarted() }, scope, [deskContextContent(envelope)], () => { firstMessageStarted = true })
+        let result = await begin(agent)
+        // A paced pick is only a preference: one that vanished before anything was created gives way to the desk default.
+        let usedPaced = paced !== null
+        if (paced && !result.id && result.problem && !createdId && !creationStarted) { result = await begin(undefined); usedPaced = false }
         if (params.moveFrom && result.problem && !firstMessageStarted) {
           if (moveClaimed) await this.incidents!.releaseMove(params.moveFrom)
           return { id: '', problem: `The move did not start.${result.id ? ' An empty chat was kept on the desk.' : ''} The original chat is unchanged; ask the person before trying again.` }
@@ -468,18 +606,43 @@ export class LeadChats {
             try { await this.incidents!.moved(params.moveFrom, result.id) } catch { /* The durable move claim still prevents another creation. */ }
           }
         } else if (params.moveFrom && moveClaimed && !createdId) await this.incidents!.releaseMove(params.moveFrom)
-        return result
+        return paced && usedPaced && result.id && !result.problem ? { ...result, account: paced.label } : result
       } catch (error) {
         if (params.moveFrom && moveClaimed && !createdId && !creationStarted) await this.incidents!.releaseMove(params.moveFrom)
         throw error
       }
-    })
+    }
+  }
+  /** The host stage the work ledger reads for a linked chat; null once the desk no longer holds it. */
+  workState(id: string): LeadWorkLinkState | null {
+    const at = id.indexOf(':')
+    if (at <= 0) return null
+    const runtime = runtimeId(id.slice(0, at)), session = sessionId(id.slice(at + 1))
+    const summary = this.ports.index.get(runtime, session)
+    if (!summary) return null
+    if (this.incidents?.get(id)?.state === 'asked') return { stage: 'you-blocked', reason: 'failed' }
+    const live = this.ports.live(runtime, session), recovering = this.incidents?.waiting(id) ?? false
+    const state = leadStage({ kind: 'session', archived: summary.archived === true, waiting: live.approvalWaiting ?? live.waiting, running: recovering || live.running,
+      failed: recovering ? false : live.failed ?? false, queuePaused: live.queuePaused ?? false, queued: live.queued ?? false, stopped: live.stopped ?? false })
+    return live.turn ? { ...state, turn: live.turn } : state
   }
   send(input: HostParams<'lead/chat/send'>, currentRetry?: () => boolean, retryStarted?: () => void, retryBusy?: () => void): Promise<HostResult<'lead/chat/send'>> {
-    const { effectId, ...params } = input
+    const { effectId, cause = 'automatic', ...params } = input
     const call = { method: 'lead/chat/send', params } as const
     const envelope = this.#envelope(params.text)
     return this.#mutate(call, effectId, async (admit, effectStarted, attemptId) => {
+      // Work the Lead sends on its own stops with the goal's time; a message the person caused is always delivered.
+      if (cause === 'automatic' && await this.ports.deadlinePassed?.()) {
+        this.ports.noteDispatchNotStarted(attemptId)
+        throw Object.assign(new Error('The time for this goal has run out.'), { wireCode: 'leadDeadline' })
+      }
+      // A message into a chat is work too: while the Lead's question is open, nothing it decides is sent, whatever woke the
+      // turn. The presence store has already freed the question if the person said anything new since.
+      const open = params.retryAt === undefined ? this.ports.askHoldingChatStart?.() ?? null : null
+      if (open) {
+        this.ports.noteDispatchNotStarted(attemptId)
+        throw Object.assign(new Error(`Your question ${quoteLeadWorkText(open.question, 200)} is still open. Send nothing it decides; point the person to it.`), { wireCode: 'leadAskOpen' })
+      }
       if (params.retryAt === 'reset') {
         await admit(); await this.#notHeld(params.id)
         if (!this.incidents) refuse('Chat recovery is unavailable.')
@@ -527,7 +690,14 @@ export class LeadChats {
       // Stop may return early for an idle chat, before PhoneWork calls admission.
       await this.#notHeld(params.id)
       await this.incidents?.stop(params.id)
-      return this.ports.work.stop(params, async () => { await admit(); await this.#notHeld(params.id) }, effectStarted, this.#liveScope(call, attemptId, () => params.id))
+      // The ledger hears the stop is the Lead's as the effect starts, right before the interrupt is sent; never on the path
+      // that only cancels a recovery, and it never holds the stop up.
+      // A failed interrupt takes the record back, so a later stop the desk did not send is not put on the Lead.
+      let undo: (() => void) | undefined
+      const started = () => { effectStarted(); try { undo = this.ports.ledger?.stopping?.(params.id, 'lead') } catch { /* As above. */ } }
+      try {
+        return await this.ports.work.stop(params, async () => { await admit(); await this.#notHeld(params.id) }, started, this.#liveScope(call, attemptId, () => params.id))
+      } catch (error) { try { undo?.() } catch { /* Never in the way of the error. */ } throw error }
     })
   }
 

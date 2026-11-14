@@ -51,6 +51,16 @@ host gateway described below. A flow's check command may read
 checkout and lane ports a round's own subjects are — never an arbitrary
 environment map, and never anything that was not already visible in the
 checkout the command runs in.
+When a conversation reaches its usage limit and carries on with another agent,
+the desk copies its recent text into a new conversation with that agent, which
+then goes to that agent's vendor (see [Vendor clouds](#vendor-clouds--already-happening-and-not-ours-to-promise-about));
+this is on by default and is turned off with **Use other agents too** in
+Settings › Permissions.
+
+`harnessdesk mcp` speaks only to the MCP client that started it, over standard
+input and output, and to the desk's local socket. It makes no network request.
+The number of starts MCP clients have made today is kept in
+`client-starts.json` in the desk's state folder.
 
 **Retention:** yours. Deleting the folder deletes it.
 
@@ -91,6 +101,8 @@ sent with these reads. The observation is point-in-time and is not an atomic
 lease on the destination branch.
 
 When a detached conversation omits the PR number in view, checks, review or comment, the host reads that conversation's intact successful creation records locally and asks the pinned GitHub repository for each recorded PR's number, state and head branch. The outbound request names the repository and PR number and uses the host's existing forge login; the local journal and conversation identity are not sent. Follow-on plugin view and checks reads explicitly name the pinned repository on github.com through the existing shell grant; the review-link API read also names github.com as its hostname. This is on demand, with no background polling. Only a unique open matching creation is selected; the capability returns minimal selection metadata, and the existing tool reads and write checks still apply.
+
+Settling review threads adds three GraphQL requests to the pinned GitHub repository, all on the host's existing forge login and all on demand. Before a settle, and when a plugin lists them, the host reads the pull request's review threads: one fixed query naming the repository and PR number as variables, returning the signed-in login, up to 100 threads with their id, path, line, resolved state, and each comment's author login, author type and body, and whether more threads or comments exist. A fixed thread is resolved with `resolveReviewThread`, which sends only the thread id. A declined thread is answered with `addPullRequestReviewThreadReply`, which sends the thread id and the one-sentence answer with the desk's marker line before it. Review text read back stays in memory for the call; only the first comment, bounded, goes to the plugin. `review-threads.json` in the host state folder keeps, per repository and PR, the repair rounds in which each bot reviewer's threads were settled and the ids of threads the desk answered. It holds no review text and stays until removed with the host state. A copy that cannot be read is renamed `review-threads.json.corrupt-<time>` beside it and kept for the person to inspect or remove.
 
 ### Optional local phone access
 
@@ -134,7 +146,9 @@ surface. Lead worker cards can carry complete bounded request details, including
 extra permissions. Saved approvals expose target descriptions and counts; each
 automatically allowed file change adds its exact bounded diff to that rule’s
 retained entries in `savedApprovals`. The paired phone receives this bounded
-history, including read-only revoked rows and an uncertainty flag for unacknowledged dispatches; it is excluded from the Lead provider conversation. The desk identity, paired-device keys, grants, revocations and port
+history, including read-only revoked rows and an uncertainty flag for unacknowledged dispatches; it is excluded from the Lead provider conversation. Each paired phone also gets a push key of its own when it pairs, inside the
+encrypted session, and again on every later sign-in, so a phone that did not keep it has it again; the desk seals
+that phone's pushes with it (see the account section) and no service ever holds it. The desk identity, paired-device keys and push keys, grants, revocations and port
 live under `phone-link/` in the local state folder. Removing a phone closes its
 connection and requires pairing again; starting without the opt-in closes the
 LAN lane. Account sign-out and deletion do not remove this separate registry.
@@ -153,17 +167,75 @@ Chat reads are bounded to 12,000 serialized bytes, with separate counts for
 omitted raw source turns (`omittedSourceTurns`) and projected phone entries
 (`omittedPhoneEntries`); partial text still sets `truncated`. The phone wire
 does not serialize this projection metadata.
-Only ordinary sessions in the selected canonical project are available; Team
+Desk-wide read-only tools can also send summary counts, titles, project display
+names and states across every project, plus cached account allowance windows,
+balances, reset/run-out timestamps and their basis, freshness/errors, running
+session totals and cached spend. Allowance is projected field by field from the
+Dashboard cache without requesting a vendor refresh; account addresses,
+identifiers and credentials are omitted. Accounts share a presentation name and
+are distinguished by plan and ordinal. Each account also says how many minutes old its
+reading is and whether the last refresh failed, and the summary names the account
+to use first with its window, what is left and its reset (`pacing`); all of it
+comes from the same cache. A paired phone's usage rows carry the same
+`refreshFailed` flag and, when an allowance is about to be lost, a `pacing` entry
+(the row's id and name, the window, what is left, the reset and the read time);
+no account address travels in either. The phone's agent, allowance and session
+rows (`PhoneWorkAllowance`, `PhoneSeatUsage`, `PhoneSessionRow`, `PhoneAgentLabel`,
+`PhoneAgentChoice`) also carry an optional `brand`: the key of the mark the desktop
+draws for that agent (`brandForRuntime`), lower-case letters and digits only, never
+a label or an account. Skill-use counts are a separate read.
+For transcript reads and chat actions, only ordinary sessions in the selected canonical project are available; Team
 seats and other projects are refused. Chat state notifications contain ids and
 state, not transcript bytes. Ordinary delegated chats use the desk's saved session
 permissions and their agent's existing connection and spend. Provider credentials stay in the
 host; the child asks through a bounded provider-send port. Workers retain their
 own agent connections. Lead's journal, plan decisions, allowances and worker
-observations stay in the desk's state folder. Stop ends the active request and
+observations stay in the desk's state folder, as does its work ledger,
+`lead/work.json`: work titles, project display names, chat, Team and pull
+request references, host-written stage facts (including whether the person or the Lead stopped a chat, with the turn it stopped, recorded as the stop is sent and kept at most a minute), and the Lead's own notes, at most
+256 items and closed items for 30 days. It also holds the reminders the Lead set: each one's text (at most 200 characters), whom it is for, the item it belongs to, its due time and whether it is set, fired or cancelled, and for a fired one whether the Lead's message about it was written (`delivery`: said or missed, with `deliveredAt`), plus the key of its last wake and whether it was retried (`wakeKey`, `retried`, kept in the file and never sent); at most 20 are set at once, and an ended one is kept for 7 days. Reminders ride the same Lead request block and the same phone board, scrubbed, and nothing else. A ledger file that cannot be parsed is renamed beside it as `work.json.corrupt-<time>`, never sent anywhere. Up to 3 KB of the open items rides each
+Lead model request; a paired phone reads the same board, scrubbed.
+Presence is kept in `lead/presence.json` in the same folder: for each window or paired phone an opaque device id, its short label, when it last looked and which digest it dismissed; the spans of the last few digests dismissed on any device, each with the journal revision and spend where its digest was built (no device name), the revision and spend where each pending digest ends, and which brief was dismissed; the clock and answer receipts (option label, device label, time) for asks that set one; the morning brief setting; and the day's observer spend. Nothing in it leaves the desk except the digest itself, which a paired phone reads and the optional summary call sends to the provider the Lead already uses: the digest's item titles, facts and counts (at most eight items), under the Lead's key, nothing else from the thread. Those titles now also come from the desk itself and from what the person or the Lead kept and set: the titles of desk Teams and chats that came to need the person or finished, the text of notes kept in memory, the text of the person's reminders that fired, and the names of settings applied, each clipped to the digest's title length. The morning brief's push still carries counts only (needs you, reminders, done, stopped), never a title, a note or a reminder's text, and a brief with nothing those counts cover pushes nothing. A host of another version reads the record leniently: unknown digest fields are left out and only a digest it cannot read is dropped; a host older than this change does not know the new digest fields and sets the file aside, starting presence empty (seen marks, asks' clocks and the brief setting), which loses no work or thread. Phones read the digest through the same view and ignore fields they do not know. The morning brief rides the phone link's `notices` topic as a title and body capped at 80 and 240 characters. Stop ends the active request and
 owned work without deleting files; disabling the startup opt-in leaves the
 journal on disk. The desktop probes its embedded runtime first, then its bundled or locally
 fetched Node. If no candidate passes, Lead reports unavailable before sending
 a request.
+
+Autonomy is kept in `lead/autonomy.json` in the same folder: the full version history of each of the three rule sections the person edited (their own words, up to 3000 characters a section and 20 versions), what the person has acknowledged of a changed default, the deadline of the goal in hand (the goal's id and two times), the history of the person's changes (the last 64: the time and, for each, a mode moved from and to, a rules section and the version saved, or the deadline set or cleared; no words of the rules), and the ids of the live runs the Lead started on its own, which the host counts against its cap. The modes, the sections in force and the deadline are also in the Lead's journal. Nothing in the file leaves the desk except through the Lead's own request: the sections in force are part of the standing instructions of a new conversation epoch, so the provider the Lead already uses receives them under its key, nothing else from the file. The file also keeps the Lead's last 16 proposals to change a mode or a rule section, each with its words (a line to add, or a section's new words, up to 3000 characters), its state, the place in the conversation it was made (the Lead's journal position and the person's latest message), the shipped default's version when it was made over unedited words, and its last 8 events with their times; and the person's last 32 Noes, each the proposal's id, a key for the change (the kind and mode, the section and the added line, or a hash of a section's whole words), the time and the person's message position. A proposal's words leave the desk only as the person's own section once they apply it, and the Lead's own requests carry each proposal's state, times and up to 200 characters of its words. A paired phone reads the modes, the sections in force, the newest five saved versions of each edited section with their words and the shipped words, the deadline and the 32 newest changes, and the proposals, with the Lead's words scrubbed like the work board, and can change a mode and apply or decline a proposal, except that a section's whole new words, and a line the scrub changed, are applied at the desk; it cannot edit the words.
+
+The host keeps the Lead's provider conversation in the Lead state folder:
+`context.jsonl` (the turns and tool results as sent, bounded at 2 MB, desk
+context of each moment replaced by a one-line stub and model reasoning never
+stored) and `context-checkpoints.json` (the latest eight summaries, oldest
+first; a summary that fails the reply screen keeps its place without its text).
+The summary's section of the person's words is built on the desk from the
+person's messages in the Lead's journal, never from what the model wrote or
+from an earlier summary's text, and is stored and served as data (each
+message's reference and text); the model's own text before its first section
+is dropped. The approved plan is stored once, as the host sent it, and sent
+again after a summary replaced the part that held it. When the
+conversation fills, or the person chooses Summarise now, the host sends the same
+conversation to the same provider with one more instruction and stores the
+summary it writes; if that fails, the host builds one from the conversation
+itself without a request. Each request marks up to four places the provider may
+cache; the provider's cache read and write counts are kept in the wake ledger,
+and the spend of a summary request is filed marked as compaction.
+`lead/context/read` gives the window and a paired phone (read tier) the
+context-use and cache facts and the kept summaries' text; it changes nothing.
+`lead/context/use` gives the Lead about itself and a paired phone (read tier)
+four numbers: the window's size, the latest request's prompt size, that as a
+percent, and when the conversation was last summarised, with how long ago in
+the desk's words ("2h ago"). No conversation text.
+
+`lead/inbox/read` gives the window and a paired phone (read tier) the one list
+of what waits on the person: the Lead's own row with a count, an open question,
+waiting Teams and chats, and the kept notices. It is built on the desk from what
+the desk already holds and sends nothing anywhere. Every title and body passes
+the phone scrub first (titles cut to 160 characters, bodies to 300, and paths on
+this machine, addresses and key-shaped strings replaced), on the window as on the phone; ids,
+kinds, times, counts and project display names go as they are.
+
+The Lead's memory is kept in the same folder. `lead/memory-store.json` holds the notes (each at most 400 characters, at most 400 in all), the proposals waiting for the person (at most 24), a normalised copy of the proposals the person declined (at most 200, each with the place in the conversation where it was declined, so the same one is not offered again until the person says it again), the Lead's last 40 proposals with what became of each (waiting, kept, kept in the person's words, declined or forgotten, the entry it became, the date, up to 8 dated events such as proposed or asked again, and its words, which Forget and Forget all take out), the date of the last Forget all, the last 40 versions for Undo, whether the Lead may keep its notes without asking, and the day's tidy spend. `lead/memory-conversation.jsonl` is the search copy of the Lead's conversation: the person's messages and the Lead's replies, each cut to 4,000 characters and dated when the desk first saw it, the latest 4,000 kept, and the ids of passages Forget took out (no text). Both are written with owner-only permissions. A store that cannot be read is renamed `memory-store.unreadable-<time>.json` beside it and never sent anywhere. `lead/memory.json`, where earlier versions kept the Lead's memory lines, stays in place and is read once to carry its lines across. Core, at most 6 KB, rides the Lead's model requests in its standing instructions; search results, at most 2 KB, ride the request that asked for them. Search runs on the desk. Once a day the tidy sends the observer model the Lead's own notes (at most 80, each quoted with its id, kind and date) under the Lead's key, and nothing else: the person's notes never leave the desk for it, and a tidy that would cost more than what is left of its daily cap is not sent. Forget removes a note from the store and from every saved version of it, including the notes a tidy merged into it, and drops the passages of the search copy that quote it (its words, however spaced, cased or styled, or nearly the same words); a passage that says it in other words stays searchable. Forget all removes every note, proposal and version and empties the search copy. Neither touches the Lead's journal, `lead/<thread>.ndjson` and its sealed segments, which are kept: its `memory-core` records hold each Core the Lead was given and its `memory-epoch` records the Core an epoch began with, note text included, its checkpoints carry the same, and the conversation a note came from stays in its message records. A paired phone reads the inbox and the counts (read tier) and can keep or decline a proposal and forget one note (answer tier); it cannot propose, search, add, edit, move, undo, forget all or change automatic keeping. Memory never goes into a worker's prompt.
 
 ### An armed trigger polls the same forge, on its own schedule
 
@@ -179,6 +251,74 @@ locally in this machine's own trigger consent, cursors and admission journal
 free text from a PR or an issue treated as anything but information. Pausing
 or disarming stops the polling immediately; deleting the state folder deletes
 the consent and everything it recorded, the same as any other local file.
+
+A mention trigger also reads the repository's issue comments, the issue or
+pull request a comment is on, the account behind a named person or bot, and
+the comment author's permission, all as the same signed-in person. Its
+decisions, the comment's first 280 characters as an excerpt (left blank when
+the comment looks like it holds a credential, on the desk and on the phone),
+a digest of the comment's text (so Re-evaluate can tell it was edited), its
+observe/act mode and its work threads (with the asking comment's URL and the
+Lead work item the thread is on) are kept in `triggers-mentions.json` in
+the state folder, at most 500 decisions and 256 threads. With the Lead on, an
+accepted thread is also an item in `lead/work.json`, linking that comment's
+URL, the issue or pull request reference and the thread's Teams; nothing
+about it leaves the machine beyond the Lead's work cards described above. A
+comment that stops the Lead's goal is recorded in the Lead's journal by its
+URL, on the stop it caused. Who may ask is read
+from the forge at most once in five minutes per account. While a work thread
+has no pull request, the issue it follows is read on each sweep to see
+whether it closed. With the Lead
+enabled and a key configured, each comment that passes the trigger's rules is
+sent once, as data, to the Lead's provider for a one-sentence assessment: the
+trigger id, its handle and what it opens, the repository, the thread's kind,
+number and title, and the comment's author and text. A comment that looks
+like it contains a credential is never sent, and at most 200 are sent a day.
+Each such request is held against the Lead's spend limit before it is sent:
+a reserve, then a settle at the usage the provider reports (or the whole hold
+when that cannot be known), are written to the Lead's journal like the Lead's
+own requests. With no Lead goal open, or the limit reached, nothing is sent.
+The paired phone reads the decisions list (`phone/triage/list`) read-only, with
+the armed mention triggers beside it: each one's id, project folder name,
+repository, mode on this machine, `from`, and its named people and bots (forge
+logins the triggers file already names).
+
+A trigger armed for `@harnessdesk` requests on pull requests also reads, as
+the same signed-in person, one repository-wide list of conversation comments
+updated since the comment window opened, and never since before the earliest
+trigger that asks was armed
+(`issues/comments?sort=updated&direction=asc&since=…`, paged), whatever number
+of pull requests moved; the reviews (`pulls/{n}/reviews`) of those pull
+requests the source's existing list read shows as updated, every page, and
+once more, five minutes later, of one read within five minutes of its update
+— from the page that held the last review it listed, and the whole list again
+only when that review has moved off its place or the list showed a draft, at
+most 20 pull requests a poll and the rest on the next;
+the inline comments of each review newly submitted there
+(`pulls/{n}/reviews/{id}/comments`); and, for a comment on a pull request that
+list did not show, or one whose reviews are read again after it left the list,
+that one pull request (`pulls/{n}`). An issue's comment in the list is dropped
+unread. Every comment that asks — and only those, on issues and pull requests
+alike — has its edit history read in one GitHub GraphQL query per poll (per
+issue, for an issue trigger) of at most 100 comments: a fixed query that sends
+only the comments' node ids, as their REST answers named them, and reads back
+for each its kind, `lastEditedAt` and `includesCreatedEdit`; it changes
+nothing, and it counts against the same signed-in person's GraphQL rate limit,
+about one point a read. With
+`from: collaborators` the author's permission is read once per author in a
+read, only for a request the forge says was never edited — after its edit
+history is read, so an edited request never costs that read. What it keeps beside
+the trigger's cursor is only what it handled inside its windows — comment,
+review and pull request ids with a time, and for a pull request awaiting its
+second read the count and last id of the reviews it listed, at most 2,000,
+dropped as the windows move — and the time of the newest comment a complete read covered, and each
+request as an admission fact: its comment or review URL, the author's account
+digest, whether the forge says it was never edited, and the words after
+`@harnessdesk`, clipped like every other body. Those words, the thread's title and its links
+are sent to the Lead's model provider when the request is handed to the Lead,
+inside the untrusted-context fence, on the same terms as every other Lead
+request; words that look like they hold a credential are replaced before they
+are sent. Nothing is posted back to the thread.
 
 **Retention:** yours. Deleting the folder, or disarming the trigger, stops it.
 
@@ -263,6 +403,28 @@ last good copy, or nothing, in its place.
   address fetches that one repository over HTTPS with `git`, anonymously —
   your credential helpers and `.netrc` are cut off — within 64 MB and 60
   seconds. Only when you ask. (`packages/server/src/library-sources.ts`)
+- **Test connection on an MCP server.** Only when you click it on one copy of
+  a server, the host starts that server from the declaration on disk — never
+  from anything the window sends — asks it to initialize and list its tools,
+  and stops it, within 15 seconds. A local command runs in its own process
+  group with the variables it declares on top of a minimal environment (no
+  HarnessDesk variables, a proxy without its user name and password, in the
+  project folder for a project's server). The same environment, and the same
+  group, serve a tool call or listing an approved attachment server makes. The
+  environment is `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, the locale names
+  and every `LC_*`, every `XDG_*`, `TZ`, `TMPDIR`, `TEMP`, `TMP`, the proxy
+  names (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` and their lower-case forms),
+  the certificate names (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`,
+  `SSL_CERT_DIR`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`), and on Windows
+  `SystemRoot`, `windir`, `ComSpec`, `PATHEXT`, `USERPROFILE`, `APPDATA`,
+  `LOCALAPPDATA` and `ProgramData`; no credential, token or agent socket is
+  among them; a remote server is asked at the
+  address it declares, with the headers it declares, no redirect followed,
+  and its session ended afterwards. A server the project's own file declares
+  shows its exact command or address first, with the variables that decide
+  what starts. What comes back is a tool count and the server's name;
+  variable and header values never appear in the answer, and a server that
+  asks for sign-in is not signed in to. (`packages/server/src/mcp-test.ts`)
 - **Plugins, on request.** The built-in **web** plugin fetches a page only
   from hosts you have added to its allowlist, which starts empty; a plugin you
   install from npm is downloaded when you install it.
@@ -289,6 +451,15 @@ What HarnessDesk owes you here is honesty about *which* agent is about to
 receive something — which is why the composer names the agent and the model
 before you send, and why the audit log records which one ran.
 
+**Asking another agent.** When a Flow lets a seat use `ask_agent`, the
+question, the optional context, and whatever files the asked agent reads in
+the caller's checkout go to that agent's vendor, the same as any conversation
+on that agent. The desk adds no endpoint of its own. The conversation is
+deleted from the agent's history after it answers, where the agent allows
+deletion (`deleteSession`). The answer is kept only in the caller's
+transcript; the audit log records which agent was asked, how the ask ended
+and its sizes in bytes, never the words.
+
 **Retention:** the vendor's, under the vendor's policy. Not ours to state.
 
 ---
@@ -303,7 +474,8 @@ and reads account name, email, picture URL and linked-phone metadata. The
 host fetches the picture over HTTPS without browser cookies or a referrer,
 accepting only a bounded raster image at a public address. It passes image
 data to the renderer; the renderer keeps its local-only image policy. No prompt, file, transcript,
-agent credential or project path is sent through this lane.
+agent credential or project path is sent through this lane; a push to a linked phone travels sealed, as described
+below, and the service cannot read it.
 
 The desktop host's complete account request inventory is below. Paths are
 relative to `https://app.harnessdesk.app` by default. JSON requests carry
@@ -327,6 +499,20 @@ never become the desktop's desk token.
 | `POST /v1/account/delete` | Desk bearer token and an empty JSON object | After confirming Delete account; session renewal may first obtain a challenge and session |
 | `POST /v1/invites` | Desk bearer token and an empty JSON object | When Show code or New code is chosen in Settings › Phone while signed in, Reachable from your phone is on and the phone link runs; the one-time invite goes into the pairing code only |
 | `POST /v1/links/revoke` (queued) | As above | After a phone the account linked is removed in Settings › Phone; while the account cannot be reached, the device id waits in `relay-unlinks.json`, in the phone link's folder under the HarnessDesk home, and is sent once it can |
+| `POST /v1/push/send` | Desk bearer token; the phone's device id, its push key's number (`kid`), a 12-byte nonce, the sealed push, priority `high`, and a collapse tag (22 characters of a SHA-256 hash of the item's Inbox id) | When something newly appears in the Inbox as needing you, while signed in with Reachable from your phone on and the phone link running: one request per phone the account linked to this desk that is also paired here with Read. An item is pushed once, and not again if it returns within ten minutes; what already waited when pushing began is not pushed. The desk sends at most 30 a minute, 12 a minute per phone, holds off for a minute after the service says too many, and leaves a phone alone for ten minutes after the service has no push token for it. A failure is logged and dropped |
+
+The sealed push is AES-GCM under that phone's own push key, bound to its device id and key number, and at most
+2,048 bytes before sealing. Inside it is the contract's `PushPlaintext` (`packages/contract/src/api.ts`):
+`{"v":1,"id","ts","kind":"needs-you","title","body","deep"}`, where `id` names the push and `ts` is when it was made in
+seconds. The title is the
+conversation's or Team's name, or the Lead's name for the Lead and its questions (at most 80 characters); the body is
+one line (at most 120 characters) saying what it waits on: the Lead's question, how many things the Lead waits on, or
+for a conversation the request of its newest open approval (the command, scrubbed as the phone's transcript is; a
+single file's name or a count of files; a permission's summary; the question asked), otherwise "Waiting on you"; and
+`deep` is the Inbox's own id for the item (`ask:<id>`, `lead`, `chat:<agent>:<session>` or `team:<id>`). The account
+service checks that the phone is linked to this desk, passes the sealed push to the phone's push service with a fixed
+visible alert ("HarnessDesk", "New activity"), and sees which phone, when and how large, never the content. Source:
+`packages/server/src/phone-push.ts`.
 
 While signed in with Reachable from your phone on, and the phone link running,
 the host also keeps one connection to the relay the desk session names

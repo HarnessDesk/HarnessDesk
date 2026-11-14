@@ -1,6 +1,6 @@
 import type { FlowEvidenceGuard, FlowPolicy, FlowPolicyRule } from '@harnessdesk/protocol'
 
-import { Button, Card, Field, FormStack, Input, NativeSelect, Row, Rows, SectionHead, Textarea } from '../design'
+import { Button, Card, Field, FormStack, Input, NativeSelect, Row, Rows, SectionBody, SectionHead, Textarea } from '../design'
 import { CrossIcon, PlusIcon } from './Icons'
 import { parseWordLines, wordLines } from '../lib/shapes'
 
@@ -24,6 +24,8 @@ export interface ShapeRuleProps {
   readonly rule: FlowPolicyRule
   readonly policy: FlowPolicy
   readonly onChange: (rule: FlowPolicyRule) => void
+  /** Inside a rail card, which already draws the box: the form stands on the card's row edge, as `ShapeStep`'s does. */
+  readonly embedded?: boolean
 }
 
 const GUARD_KINDS: readonly ('check' | 'ci' | 'review' | 'pr' | 'diff')[] = ['check', 'ci', 'review', 'pr', 'diff']
@@ -39,7 +41,7 @@ const defaultGuard = (kind: (typeof GUARD_KINDS)[number]): FlowEvidenceGuard => 
   kind === 'check' ? { check: '' } : kind === 'ci' ? { ci: 'green' } : kind === 'review' ? { review: '' } : kind === 'pr' ? { pr: 'open' } : { diff: true }
 )
 
-export const ShapeRule = ({ rule, policy, onChange }: ShapeRuleProps) => {
+export const ShapeRule = ({ rule, policy, onChange, embedded = false }: ShapeRuleProps) => {
   const roleIds = policy.roles.map((role) => role.id)
   const every = rule.when?.every ?? []
   const any = rule.when?.any ?? []
@@ -63,8 +65,7 @@ export const ShapeRule = ({ rule, policy, onChange }: ShapeRuleProps) => {
   const removeGuard = (index: number): void => setWhen({ evidence: evidence.filter((_, one) => one !== index) })
   const addGuard = (): void => setWhen({ evidence: [...evidence, defaultGuard('check')] })
 
-  return (
-    <Card spacing="compact">
+  const form = (
         <FormStack>
           <Field label="Rule name">
             {(control) => <Input {...control} value={rule.id} onChange={(event) => onChange({ ...rule, id: event.target.value })} />}
@@ -158,6 +159,6 @@ export const ShapeRule = ({ rule, policy, onChange }: ShapeRuleProps) => {
             )}
           </Field>
         </FormStack>
-    </Card>
   )
+  return embedded ? <SectionBody spacing="compact">{form}</SectionBody> : <Card spacing="compact">{form}</Card>
 }

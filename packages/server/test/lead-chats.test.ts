@@ -1,10 +1,11 @@
+import { LeadSlots } from '../src/lead/slots.js'
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 import { initialLeadState, reduceLeadBudget, summarizeLeadArguments, type LeadState, type LeadPermissionContext } from '@harnessdesk/lead'
-import { leadMessageEnvelope, leadMessageKey, type UserContent, runtimeId, sessionId, type SessionSummary } from '@harnessdesk/protocol'
+import { leadMessageEnvelope, leadMessageKey, parseLeadAcceptanceContract, type UserContent, runtimeId, sessionId, type SessionSummary } from '@harnessdesk/protocol'
 import { LEAD_CHAT_HELD, type LeadChatsPorts } from '../src/lead/chats.js'
 import { SessionIndex } from '../src/session-index.js'
 
@@ -61,7 +62,7 @@ const rig = async (t: TestContext, recovery = false) => {
       threadRead: async (params: any) => { calls.push({ method: 'read', params }); return { id: params.id, title: 'Project chat', agent: { name: 'Agent' }, status: 'done', turns: transcript } },
       startInProject: async (params: any, root: string, admit: (id?: string) => Promise<void>, _effect: unknown, _scope: unknown, input?: readonly UserContent[]) => { await admit(); if (startProblem === 'throw') throw new Error('Creation failed before dispatch'); if (startProblem) return { id: '', problem: 'Creation refused' }; row('created'); if (firstRefused) return { id: 'fixture:created', problem: 'The first message did not start.' }; await admit('fixture:created'); sentInput.push(input); calls.push({ method: 'start', params: { ...params, root } }); return { id: 'fixture:created' } },
       sessionSend: async (params: any, admit: () => Promise<void>, _effect: unknown, scope: (cwd: string) => Promise<void>, input?: readonly UserContent[]) => { await admit(); sentInput.push(input); queuedScope = scope; calls.push({ method: 'send', params }); await onSend?.(_effect as () => void); return { queued: true } },
-      stop: async (params: any, admit: () => Promise<void>) => { await admit(); calls.push({ method: 'stop', params }); return {} },
+      stop: async (params: any, admit: () => Promise<void>, effectStarted?: () => void) => { await admit(); effectStarted?.(); calls.push({ method: 'stop', params }); return {} },
     },
   }
   const service = new LeadChats(ports)
@@ -71,6 +72,50 @@ const rig = async (t: TestContext, recovery = false) => {
     advance: async (ms: number) => { now += ms; for (const [run, at] of [...scheduled]) if (at <= now) { scheduled.delete(run); run() }; await service.incidents?.idle() }, scheduled, onContext: (callback: () => void) => { onContext = callback }, onRecord: (callback: () => void) => { onRecord = callback }, sentInput, holders, sentKeys, index, root, foreign, row, calls, authorize, published, queuedScope: () => queuedScope!, setLive: (next: typeof live) => { live = next }, setState: (next: Partial<LeadState>) => { state = { ...state, ...next } }, state: () => state,
     withdraw: () => { member = false }, onCwd: (callback: () => Promise<void>) => { cwdRead = callback } }
 }
+
+test('while the Lead’s question is unanswered no chat starts, and the Lead is told to point the person to it', async t => {
+  const r = await rig(t)
+  let open: { question: string; options: readonly string[] } | null = { question: 'Which one should the chat fix?', options: ['The Team', 'The game'] }
+  ;(r.ports as any).askHoldingChatStart = () => open
+  const params = { text: 'Fix the stalled Team\n\nRead its blocker first.' }
+  r.authorize('lead/chat/start', params)
+  const refused = await r.service.start(params)
+  assert.equal(refused.id, '')
+  assert.match(refused.problem!, /still open.*not picked.*point the person to the question/s)
+  assert.match(refused.problem!, /The Team.*The game/)
+  assert.equal(r.calls.filter(call => call.method === 'start').length, 0, 'nothing was created')
+  open = null
+  r.authorize('lead/chat/start', params)
+  assert.equal((await r.service.start(params)).id, 'fixture:created', 'once answered, the work starts')
+})
+
+test('the person saying the request again while the question is open still starts nothing; the host, not the cause, decides', async t => {
+  // The presence store frees a question as soon as the person says anything new, so an open question here means the
+  // person's turn only repeated the request the question is about: the case the evaluation caught.
+  const r = await rig(t)
+  ;(r.ports as any).askHoldingChatStart = () => ({ question: 'Which one should the chat fix?', options: ['The Team', 'The game'] })
+  const params = { text: 'Fix the stalled Team' }
+  r.authorize('lead/chat/start', params)
+  const refused = await r.service.start({ ...params, cause: 'person' })
+  assert.match(refused.problem!, /still open/)
+  assert.equal(r.calls.filter(call => call.method === 'start').length, 0)
+})
+
+test('while the question is open the Lead sends nothing into a chat either, and once it is answered the message goes', async t => {
+  const r = await rig(t); r.row('own')
+  let open: { question: string; options: readonly string[] } | null = { question: 'Which one should the chat fix?', options: ['The Team', 'The game'] }
+  ;(r.ports as any).askHoldingChatStart = () => open
+  r.setState({ policy: { version: 1, revision: 3, mode: 'manage', rules: [] } })
+  const params = { id: 'fixture:own', text: 'Fix the game now' }
+  for (const cause of ['automatic', 'person'] as const) {
+    r.authorize('lead/chat/send', params)
+    await assert.rejects(r.service.send({ ...params, cause }), (error: any) => error.wireCode === 'leadAskOpen' && /still open/.test(error.message))
+  }
+  assert.equal(r.calls.filter(call => call.method === 'send').length, 0, 'nothing reached the chat')
+  open = null
+  r.authorize('lead/chat/send', params)
+  assert.deepEqual(await r.service.send(params), { queued: true })
+})
 
 test('Lead lists only canonical project ordinary sessions and reads no foreign, Team or removed session', async t => {
   const r = await rig(t)
@@ -242,6 +287,45 @@ test('Lead sends and starts use the verified envelope and record its exact key',
   assert.equal(r.sentKeys.at(-1)!.id, id)
 })
 
+test('an automatic start the cap refuses creates nothing and is handed back as a reason; the person\'s own goes ahead', async t => {
+  const r = await rig(t)
+  let live = 3
+  ;(r.ports as any).slots = new LeadSlots({ automaticLive: () => live, mark: async () => {} })
+  const params = { text: 'Update the dependencies.' }
+  r.authorize('lead/chat/start', params)
+  const refused = await r.service.start({ ...params, cause: 'automatic' })
+  assert.equal(refused.id, ''); assert.match(refused.problem ?? '', /on its own/)
+  assert.equal(r.sentInput.length, 0, 'no worker was created or sent to')
+  r.authorize('lead/chat/start', params)
+  assert.ok((await r.service.start({ ...params, cause: 'person' })).id, 'the person starts at the cap')
+  live = 2
+  r.authorize('lead/chat/start', { text: 'Then lint.' })
+  assert.ok((await r.service.start({ text: 'Then lint.', cause: 'automatic' })).id, 'and automatic work goes ahead when a run ends')
+})
+
+test('a Lead stop tells the ledger it is the Lead’s right as it is sent; a refused stop tells it nothing, and the ledger never holds it up', async t => {
+  const r = await rig(t); r.row('own')
+  const told: { chat: string; by: string; calls: number }[] = []
+  ;(r.ports as any).ledger = { claim: async () => null, started: async () => '', release: () => {}, stopping: (chat: string, by: string) => { told.push({ chat, by, calls: r.calls.length }); return () => {} } }
+  const service = r.restart()
+  t.after(() => service.close())
+  r.authorize('lead/chat/stop', { id: 'fixture:own' })
+  await service.stop({ id: 'fixture:own' })
+  assert.deepEqual(told, [{ chat: 'fixture:own', by: 'lead', calls: 0 }], 'recorded before the stop was sent')
+  r.holders.set('fixture:own', 'person')
+  r.authorize('lead/chat/stop', { id: 'fixture:own' })
+  await assert.rejects(service.stop({ id: 'fixture:own' }), { message: LEAD_CHAT_HELD })
+  assert.equal(told.length, 1, 'a refused stop is not recorded')
+  r.holders.set('fixture:own', 'lead')
+  ;(r.ports as any).ledger.stopping = () => { throw new Error('ledger unreadable') }
+  r.authorize('lead/chat/stop', { id: 'fixture:own' })
+  await service.stop({ id: 'fixture:own' })
+  ;(r.ports as any).ledger.stopping = () => new Promise(() => {})
+  r.authorize('lead/chat/stop', { id: 'fixture:own' })
+  await service.stop({ id: 'fixture:own' })
+  assert.equal(r.calls.filter(call => call.method === 'stop').length, 3)
+})
+
 test('a person-held chat refuses Lead send and stop before dispatch, and hand back restores send', async t => {
   const r = await rig(t); r.row('own'); r.holders.set('fixture:own', 'person')
   const params = { id: 'fixture:own', text: 'Run the tests.' }
@@ -403,7 +487,7 @@ test('start quotes only current person messages verbatim in conversation order, 
   const person = (id: string, text: string, revision: number) => ({ version: 1 as const, id, revision, role: 'user' as const, text })
   r.setState({ messages: [person('one', 'Keep  spacing.\n\nAnd **Markdown**.\r\nLast line.', 1),
     { ...person('assistant', 'My interpretation.', 2), role: 'assistant' }, person('two', 'Also preserve the API.', 3),
-    { ...person('decision', '', 4), role: 'assistant', ask: { question: 'Start this work?', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' } },
+    { ...person('decision', '', 4), role: 'assistant', ask: { question: 'Start this work?', options: [{ id: 'start', label: 'Start it', starts: true }, { id: 'later', label: 'Not now' }], recommended: 'start' } },
     person('tap', 'Start it', 5)] })
   for (const quote of [undefined, ['two', 'one']]) {
     const params = { text: 'Repair the test\n\nA narrow brief.', ...(quote ? { quote } : {}) }
@@ -413,6 +497,7 @@ test('start quotes only current person messages verbatim in conversation order, 
       ? '> Keep  spacing.\n> \n> And **Markdown**.\r\n> Last line.\n\n> Also preserve the API.' : '> Also preserve the API.')
     const start = r.calls.filter(call => call.method === 'start').at(-1)!
     assert.equal(start.params.text, expected)
+    assert.equal(start.params.cautious, true, 'a chat the Lead starts never takes the person’s high-risk permission picks')
     assert.equal(JSON.stringify(r.sentInput.at(-1)).includes('verbatim'), true)
   }
   for (const quote of [['assistant'], ['missing']]) {
@@ -458,7 +543,7 @@ test('start refuses a forged verbatim marker in the brief only when appending a 
 test('default quotes skip tapped ordinary and proactive options, while explicit quotes keep the tap', async t => {
   const r = await rig(t)
   const person = (id: string, text: string, revision: number) => ({ version: 1 as const, id, revision, role: 'user' as const, text })
-  const ask = { question: 'Start this work?', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
+  const ask = { question: 'Start this work?', options: [{ id: 'start', label: 'Start it', starts: true as const }, { id: 'later', label: 'Not now' }], recommended: 'start' }
   for (const decision of [{ ask }, { proactive: { finding: 'A check is missing.', caveat: 'No work has started.', ask: ask.question, options: ask.options, recommended: ask.recommended } }]) {
     for (const hasRequest of [true, false]) {
       r.setState({ messages: [...(hasRequest ? [person('request', 'Fix focus only.', 1)] : []),
@@ -476,7 +561,8 @@ test('default quotes skip tapped ordinary and proactive options, while explicit 
 
 test('default quotes skip successive taps but retain a new request that is not an exact option answer', async t => {
   const r = await rig(t)
-  const ask = { question: 'Start this work?', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
+  // Both options start work here, so these starts are about which words are quoted, not whether an answer starts one.
+  const ask = { question: 'Start this work?', options: [{ id: 'start', label: 'Start it', starts: true as const }, { id: 'later', label: 'Not now', starts: true as const }], recommended: 'start' }
   const messages = [
     { version: 1 as const, id: 'request', revision: 1, role: 'user' as const, text: 'Fix focus only.' },
     { version: 1 as const, id: 'ask-1', revision: 2, role: 'assistant' as const, text: '', ask },
@@ -868,4 +954,175 @@ test('a withdrawn terminal observation cannot stop a replacement project inciden
     assert.equal(r.service.incidents.get('fixture:own')?.state, 'waiting-reset')
     assert.equal(r.scheduled.size, 1)
   } finally { release(); await changing }
+})
+
+test('a start with no agent goes to the account pacing chose, and the result names it', async t => {
+  const r = await rig(t)
+  ;(r.ports as any).pacing = { choose: async () => ({ agent: 'fixture-2', label: 'Agent · account 2' }) }
+  const params = { text: 'Add the helper' }
+  r.authorize('lead/chat/start', params)
+  const result = await r.service.start(params)
+  assert.equal(result.id, 'fixture:created')
+  assert.equal((result as any).account, 'Agent · account 2')
+  assert.equal(r.calls.find(call => call.method === 'start')!.params.agent, 'fixture-2')
+})
+
+test('a start that names its agent, or moves a chat, never asks pacing and names no account', async t => {
+  const r = await rig(t, true); r.row('own'); r.holders.set('fixture:own', 'lead')
+  let asked = 0
+  ;(r.ports as any).pacing = { choose: async () => { asked++; return { agent: 'fixture-2', label: 'Agent · account 2' } } }
+  const named = { text: 'Add the helper', agent: 'Agent Two' }
+  r.authorize('lead/chat/start', named)
+  const first = await r.service.start(named)
+  assert.equal(first.id, 'fixture:created')
+  assert.equal((first as any).account, undefined)
+  assert.equal(r.calls.at(-1)?.params.agent, 'agent-two')
+  await r.service.read({ id: 'fixture:own' })
+  await r.service.changed(runtimeId('fixture'), sessionId('own'), { id: 'failed-turn', status: 'failed', items: [], error: { code: 'credits', message: 'Out of credit' } } as any)
+  r.answer()
+  const move = { text: 'Finish the helper', quote: [r.state().messages.at(-1)!.id], agent: 'Agent Two', moveFrom: 'fixture:own' }
+  r.authorize('lead/chat/start', move)
+  const moved = await r.service.start(move)
+  assert.equal(moved.id, 'fixture:created')
+  assert.equal((moved as any).account, undefined)
+  assert.equal(asked, 0, 'pacing is asked only when the Lead named no agent and moved nothing')
+})
+
+test('a desk that does not pace starts on its default and names no account', async t => {
+  const r = await rig(t)
+  ;(r.ports as any).pacing = { choose: async () => null }
+  const params = { text: 'Add the helper' }
+  r.authorize('lead/chat/start', params)
+  const result = await r.service.start(params)
+  assert.equal((result as any).account, undefined)
+  assert.equal(r.calls.find(call => call.method === 'start')!.params.agent, undefined)
+})
+
+test('a paced account that is gone by creation time gives way to the desk default instead of failing the start', async t => {
+  const r = await rig(t)
+  ;(r.ports as any).pacing = { choose: async () => ({ agent: 'fixture-2', label: 'Agent · account 2' }) }
+  const real = r.ports.work.startInProject
+  const tried: unknown[] = []
+  ;(r.ports.work as any).startInProject = async (params: any, ...rest: any[]) => {
+    tried.push(params.agent)
+    if (params.agent === 'fixture-2') return { id: '', problem: 'That agent is not available on this desk. Refresh and try again.' }
+    return (real as any)(params, ...rest)
+  }
+  const params = { text: 'Add the helper' }
+  r.authorize('lead/chat/start', params)
+  const result = await r.service.start(params)
+  assert.equal(result.id, 'fixture:created')
+  assert.equal((result as any).account, undefined, 'the desk default ran, so no paced account is named')
+  assert.deepEqual(tried, ['fixture-2', undefined])
+})
+
+test('pacing that fails does not stop the chat from starting on the desk default', async t => {
+  const r = await rig(t)
+  ;(r.ports as any).pacing = { choose: async () => { throw new Error('read failed') } }
+  const params = { text: 'Add the helper' }
+  r.authorize('lead/chat/start', params)
+  assert.equal((await r.service.start(params)).id, 'fixture:created')
+})
+
+test('the ledger claim comes first: a refused duplicate never asks pacing, and the paced fallback retry claims once', async t => {
+  const r = await rig(t)
+  const events: string[] = []
+  let refuse = true
+  ;(r.ports as any).ledger = {
+    claim: async () => { events.push('claim'); return refuse ? { problem: 'Already open as work-1.' } : { token: 1 } },
+    started: async () => { events.push('started'); return 'work-2' },
+    release: () => { events.push('release') },
+  }
+  ;(r.ports as any).pacing = { choose: async () => { events.push('pace'); return { agent: 'fixture-2', label: 'Agent · account 2' } } }
+  const real = r.ports.work.startInProject
+  ;(r.ports.work as any).startInProject = async (params: any, ...rest: any[]) => {
+    events.push(`create:${params.agent ?? 'default'}`)
+    return params.agent === 'fixture-2' ? { id: '', problem: 'That agent is not available on this desk. Refresh and try again.' } : (real as any)(params, ...rest)
+  }
+  const first = { text: 'Add the helper' }
+  r.authorize('lead/chat/start', first)
+  assert.equal((await r.service.start(first)).problem, 'Already open as work-1.')
+  assert.deepEqual(events, ['claim'], 'a refused duplicate reads no usage and creates nothing')
+  events.length = 0; refuse = false
+  const second = { text: 'Add the other helper' }
+  r.authorize('lead/chat/start', second)
+  const result = await r.service.start(second)
+  assert.equal(result.id, 'fixture:created')
+  assert.equal((result as any).ledgerItem, 'work-2')
+  assert.deepEqual(events, ['claim', 'pace', 'create:fixture-2', 'create:default', 'started', 'release'])
+})
+
+test('a start passes what woke the turn to the ledger', async t => {
+  const r = await rig(t)
+  const causes: unknown[] = []
+  ;(r.ports as any).ledger = {
+    claim: async (input: any) => { causes.push(input.cause); return { problem: 'Already open as work-1.', item: 'work-1' } },
+    started: async () => 'work-1', release: () => {},
+  }
+  r.authorize('lead/chat/start', { text: 'Add the helper' })
+  await r.service.start({ text: 'Add the helper', cause: 'person' })
+  r.authorize('lead/chat/start', { text: 'Add the helper' })
+  await r.service.start({ text: 'Add the helper' })
+  assert.deepEqual(causes, ['person', 'automatic'])
+})
+
+test('the host gate holds every chat start and send for a request until its plan is approved, but never a stop', async t => {
+  const r = await rig(t); r.row('own')
+  // A journal-admitted call still meets the host's own check: manage mode, no contract, a request's origin.
+  r.setState({ origin: { source: 'pull-request', event: 'mentioned', subject: 'acme/widgets#7', url: 'https://github.com/acme/widgets/pull/7#issuecomment-1' } })
+  r.authorize('lead/chat/start', { text: 'Do work' })
+  await assert.rejects(r.service.start({ text: 'Do work' }), /approve its plan/i)
+  const params = { id: 'fixture:own', text: 'Continue' }
+  r.authorize('lead/chat/send', params)
+  await assert.rejects(r.service.send(params), /approve its plan/i)
+  r.authorize('lead/chat/stop', { id: 'fixture:own' })
+  await r.service.stop({ id: 'fixture:own' })
+  assert.deepEqual(r.calls.map(call => call.method), ['stop'])
+  // Any other event's goal follows the policy mode as before.
+  r.setState({ origin: { source: 'pull-request', event: 'commented', subject: 'acme/widgets#7', url: null } })
+  r.authorize('lead/chat/start', { text: 'Do work' })
+  await r.service.start({ text: 'Do work' })
+  assert.deepEqual(r.calls.map(call => call.method), ['stop', 'start'])
+})
+
+test('an approved request\'s chats are fenced again once its consent runs out, until it is renewed, but never a stop', async t => {
+  const r = await rig(t); r.row('own')
+  // Approved: a contract, a consent that runs to 1000 and no plan card waiting on the person.
+  r.setState({ origin: { source: 'pull-request', event: 'mentioned', subject: 'acme/widgets#7', url: 'https://github.com/acme/widgets/pull/7#issuecomment-1' },
+    contract: parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Repair check', project: r.project, policyRevision: 1,
+      steps: [{ id: 'implement', title: 'Implement', flow: 'lead-reviewed-result', sourceRevision: 'source-1', variables: {}, attendance: 'attended',
+        assignments: [{ role: 'implement', agent: 'builder', seat: { runtime: 'fixture' }, ceiling: 'edit' }] }],
+      assertions: [{ id: 'check', kind: 'check', description: 'Checks pass' }], caps: { usdMicros: 500, rounds: 3 } }),
+    consent: { contractDigest: 'a'.repeat(64), contractRevision: 1, policyRevision: 1, expiresAt: 1000 } })
+  r.authorize('lead/chat/start', { text: 'Do work' })
+  await r.service.start({ text: 'Do work' })
+  assert.deepEqual(r.calls.map(call => call.method), ['start'], 'inside its approval the request starts work')
+  // Past expiry, with no renewal offered yet: the plan no longer reads as waiting, but nothing starts or sends.
+  await r.advance(1000)
+  r.authorize('lead/chat/start', { text: 'Do more work' })
+  await assert.rejects(r.service.start({ text: 'Do more work' }), /approve its plan/i)
+  const params = { id: 'fixture:own', text: 'Continue' }
+  r.authorize('lead/chat/send', params)
+  await assert.rejects(r.service.send(params), /approve its plan/i)
+  r.authorize('lead/chat/stop', { id: 'fixture:own' })
+  await r.service.stop({ id: 'fixture:own' })
+  assert.deepEqual(r.calls.map(call => call.method), ['start', 'stop'])
+})
+
+test('a request from an issue or pull request is never quoted as the person\'s words', async t => {
+  const r = await rig(t)
+  const user = (id: string, text: string, revision: number, source: 'person' | 'automatic') => ({ version: 1 as const, id, revision, role: 'user' as const, source, text })
+  r.setState({ messages: [user('mine', 'Keep the API stable.', 1, 'person'), user('request', 'Request on pull request #7 from you', 2, 'automatic')] })
+  const params = { text: 'Repair the test' }
+  r.authorize('lead/chat/start', params)
+  await r.service.start(params)
+  assert.equal(r.calls.at(-1)!.params.text, "Repair the test\n\n---\nThe person's words, verbatim:\n\n> Keep the API stable.")
+  // Named outright, the automatic request is refused as a quote rather than presented as theirs.
+  const named = { text: 'Repair the test', quote: ['request'] }
+  r.authorize('lead/chat/start', named)
+  assert.match((await r.service.start(named)).problem!, /person.*message/i)
+  r.setState({ messages: [user('request', 'Request on pull request #7 from you', 1, 'automatic')] })
+  r.authorize('lead/chat/start', params)
+  await r.service.start(params)
+  assert.equal(r.calls.at(-1)!.params.text, 'Repair the test')
 })

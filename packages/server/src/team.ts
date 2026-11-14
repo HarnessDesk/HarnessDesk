@@ -1504,6 +1504,8 @@ export class Team {
     origin?: Extract<TeamActor, { kind: 'flow' | 'trigger' }>,
     /** Window Lead decisions recheck their live gate after pending answer saves. */
     verifyPersonDecision?: () => void,
+    /** Where a client said it was answering from, for the channel line: an MCP client, or the command line. */
+    clientSurface?: 'mcp',
   ): Promise<void> {
     /* An answer is first only once it is saved. While one is still being
        saved the board already reads as answered — the next change is built on
@@ -1604,7 +1606,7 @@ export class Team {
            finished card done by hand does not erase the package it left. */
         ...(context?.trim() ? { handoff: context.trim() } : {}),
       })
-      this.#signal(board, by, 'completed', intent, origin ? `check answered ${said}` : client !== undefined ? `answered from the command line (${client}): ${said}` : said ? `you answered ${said}` : 'marked done by you')
+      this.#signal(board, by, 'completed', intent, origin ? `check answered ${said}` : client !== undefined ? `answered from ${clientSurface === 'mcp' ? 'an MCP client' : 'the command line'} (${client}): ${said}` : said ? `you answered ${said}` : 'marked done by you')
       this.#unblock(board, by)
       undo.mark()
       const saved = this.#commit(board, true, undo)

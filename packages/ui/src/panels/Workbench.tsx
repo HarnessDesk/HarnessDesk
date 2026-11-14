@@ -1,6 +1,6 @@
 import { effectiveWindowMode } from '../editor'
 import { tileBrowserWorkbench } from '../lib/browser-tiles'
-import { PageRailHost, WorkDetailsOutlet, useRegisteredDetails, useRegisteredOwner } from './top-bar'
+import { PageRailHost, RailLeaveProvider, WorkDetailsOutlet, useRegisteredDetails, useRegisteredOwner } from './top-bar'
 import { useShellHosts } from './shell-hosts'
 import { RunDockProvider, RunDetailsView } from './run-dock'
 import {
@@ -17,10 +17,12 @@ import {
 
 import { MainDestination, FRAME, FixedShell, ShellNoticeHost, FixedPanelFrame, FixedPanelBody, FixedToolLayer, TerminalShellTabs, Button, ToolBody, ToolBodySections, ToolFooterProvider, ToolFooterScope, ToolFooterOutlet, WorkbenchRail, WorkbenchScrim, useEscapeSurface } from '../design'
 import { CrossIcon, ExpandIcon, SwapIcon } from '../components/Icons'
-import { DockPanel, DockPanelBody, PanelSeam } from '../design'
+import { Chip, DockPanel, DockPanelBody, PanelSeam } from '../design'
 import { dismissOverlays } from '../design'
 import { ComposerMountsProvider, NoticeStripFallback, NoticeStripOutlet } from '../components/Notices'
 import { Panes } from '../components/Panes'
+import { AdjacentTranscript } from '../components/AdjacentTranscript'
+import { splitSessionKey } from '@harnessdesk/protocol'
 import { terminalCwdForSnapshot } from '../lib/terminal-scope'
 import { terminalName, terminalPathTitle } from '../lib/terminal-labels'
 import { KeyboardHereContext, PaneProvider, useSnapshot, useStore, type PaneScope } from '../state/context'
@@ -121,11 +123,20 @@ const LIVE: Record<DockId, string> = {
 const WorkActive = createContext(true)
 const RightWorkActive = createContext(true)
 
+/** Project the transient reader into the panel without persisting tool intent. */
+const displayWorkbench = (snapshot: ReturnType<typeof useSnapshot>) => {
+  const workbench = tileBrowserWorkbench(snapshot)
+  const subject = fixedSubject(workbench.main)
+  if (!snapshot.adjacentSession || !subject) return workbench
+  const intent = workbench.frameTools[subject] ?? { tool: 'details' as const, mode: 'details', open: false }
+  return { ...workbench, zoom: null, frameTools: { ...workbench.frameTools, [subject]: { ...intent, open: true, expanded: false } } }
+}
+
 export const Workbench = ({ sidebar, suspended = false, pages, pageActive = false }: { sidebar: ReactNode; suspended?: boolean; pages?: ReactNode; pageActive?: boolean }) => {
   const { topRef, mainRef } = useShellHosts('work')
   const store = useStore()
   const snapshot = useSnapshot()
-  const workbench = tileBrowserWorkbench(snapshot)
+  const workbench = displayWorkbench(snapshot)
 
   const shell = useRef<HTMLDivElement>(null)
   const main = useRef<HTMLDivElement>(null)
@@ -231,9 +242,23 @@ export const Workbench = ({ sidebar, suspended = false, pages, pageActive = fals
   // A page draws the rail only when it registered one, under the owner MainPages scopes it to.
   const pageOwner = `destination:${pageKind}`, pageRail = useRegisteredDetails(pageOwner)
   const railOpen = !suspended && (pageActive ? pageRail && pageRailOpen(workbench, pageKind) : workRailOpen(workbench))
-  // A page that keeps its terminal pane gives the rail only the column beside that pane, as a session does.
-  const railFloating = pageActive ? railOpen && railFloatsBeside(snapshot.windowWidth - standingSidebar - (paneActive && rightPanelDrawn(workbench) && !rightPanelOverlay ? rightWidth : 0))
-    : workRailFloats(workbench, snapshot.windowWidth, standingSidebar)
+  /*
+   * The rail docks only where the thread keeps its minimum beside it, counting the sidebar actually drawn: a sidebar
+   * floating over a narrow window takes no column, but it covers as much of the thread as one would (#2179). A page
+   * that keeps its terminal pane gives the rail only the column beside that pane, as a session does. The pane's width
+   * is the one it is drawn at, beside the standing sidebar; only the thread's minimum counts the floating one.
+   */
+  const drawnSidebar = column || floating ? workbench.sidebar.size : 0
+  const railFloating = pageActive ? railOpen && railFloatsBeside(snapshot.windowWidth - drawnSidebar - (paneActive && rightPanelDrawn(workbench) && !rightPanelOverlay ? rightWidth : 0))
+    : workRailFloats(workbench, snapshot.windowWidth, standingSidebar, drawnSidebar)
+  /*
+   * A rail floating over the thread goes the way the floating sidebar does: on Escape, and on a press outside it.
+   * While the floating sidebar lies over both, it is the surface on top and takes the key and the press itself.
+   */
+  const closeRail = () => { if (pageActive) store.togglePageRail(pageKind); else store.toggleWorkRail() }
+  useFloatingRail(railOpen && railFloating && !floating, shell, closeRail)
+  // A row in a floating rail that opens a Team or chat puts the rail away too, so it does not lie over where it went.
+  const leaveRail = railOpen && railFloating ? closeRail : noLeave
   const retainedRight = Math.min(workbench.right.size, Math.max(0, snapshot.windowWidth - FRAME.page.canvasGutter))
   const frameStyle = {
     '--frame-left-size': `${standingSidebar}px`, '--frame-left': 'var(--frame-left-drag, var(--frame-left-size))',
@@ -265,7 +290,7 @@ export const Workbench = ({ sidebar, suspended = false, pages, pageActive = fals
           <Button variant="ghost" size="icon-sm" aria-label="Swap back" title="Swap back" onClick={() => store.swapWorkPane()}><SwapIcon size={16} /></Button>
           <Button variant="ghost" size="icon-sm" aria-label="Close pane" title="Close pane" onClick={() => store.toggleWorkPanel()}><CrossIcon size={16} /></Button>
         </> : undefined}><ShellNoticeHost ref={mainRef} /><NoticeStripFallback area="main" /><MainDestination page={pageActive} work={<KeyboardHereContext.Provider value={pageActive ? false : null}><Panes /></KeyboardHereContext.Provider>} pages={<PageRailHost value>{pages}</PageRailHost>} /></FixedPanelBody></div>}
-      rail={pageActive ? <PageRail owner={pageOwner} drawn={railOpen} /> : <WorkRail drawn={railOpen} />}
+      rail={<RailLeaveProvider value={leaveRail}>{pageActive ? <PageRail owner={pageOwner} drawn={railOpen} /> : <WorkRail drawn={railOpen} />}</RailLeaveProvider>}
       right={<RightWorkActive.Provider value={paneActive}><RightPanel /></RightWorkActive.Provider>} bottom={null}>
       {narrow && <WorkbenchScrim className={styles.scrim} {...(floating ? { 'data-open': '' } : {})} aria-hidden
         onMouseDown={event => event.preventDefault()} onClick={() => store.closeFloatingSidebar()} />}
@@ -378,7 +403,7 @@ const WorkToolBodies = ({ drawn }: { drawn: boolean }) => {
 const RightPanel = () => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const workbench = tileBrowserWorkbench(snapshot)
+  const workbench = displayWorkbench(snapshot)
   const workActive = useContext(WorkActive)
   const rightActive = useContext(RightWorkActive)
   const drawn = workActive && rightActive && rightPanelDrawn(workbench)
@@ -390,13 +415,15 @@ const RightPanel = () => {
   const intent = subject ? workbench.frameTools[subject] : undefined
   const terminal = intent?.tool === 'terminal'
   const files = intent?.tool === 'files'
+  const adjacent = snapshot.adjacentSession
   const title = intent?.tool === 'changes' ? 'Changes' : terminal ? 'Terminal' : files ? 'Files' : intent?.tool === 'browser' ? 'Browser' : intent?.tool === 'conversation' ? 'Conversation' : intent?.tool === 'activity' ? 'Trajectory' : 'Details'
   const max = Math.max(min, Math.min(dockLimits('right').max, snapshot.windowWidth -
     (sidebarPlacement(snapshot) === 'column' ? workbench.sidebar.size + SEAM : 0) - SEAM - MIN_READING))
   return <>
     {drawn && sized && <AreaSeam area="right" orientation="vertical" label="Resize the right panel" direction={-1} max={max} />}
     <FixedPanelFrame edge="right" open={drawn} className={styles.right} data-fixed-tool-frame="" style={{ width: '100%', height: '100%' }}
-      heading={title} actions={<>
+      onKeyDown={event => { if (adjacent && event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); event.stopPropagation(); store.closeAdjacentSession() } }}
+      heading={adjacent ? 'Adjacent conversation' : title} actions={adjacent ? <Button variant="ghost" size="icon-sm" aria-label="Close adjacent conversation" title="Close adjacent conversation" onClick={() => store.closeAdjacentSession()}><CrossIcon size={16} /></Button> : <>
         <Button variant="ghost" size="icon-sm" aria-label={overlay ? 'Return to main' : 'Swap pane into main'} title={overlay ? 'Return to main' : 'Swap pane into main'}
           onClick={() => overlay ? store.toggleWorkPanel() : store.swapWorkPane()}>{overlay ? <SwapIcon size={16} /> : <ExpandIcon size={16} />}</Button>
         <Button variant="ghost" size="icon-sm" aria-label="Close pane" title="Close pane" onClick={() => store.toggleWorkPanel()}><CrossIcon size={16} /></Button>
@@ -405,15 +432,29 @@ const RightPanel = () => {
       {noticeHost && <NoticeStripOutlet host area="right" hostId="workbench:right" />}
       {noticeHost && <NoticeStripFallback area="right" />}
 
-      <div data-shell-tool-bodies>
+      {adjacent ? <AdjacentPanel /> : <div data-shell-tool-bodies>
         <div className={styles.layer} {...(terminal ? { 'data-hidden': '', inert: true } : {})}>
           {files && <DockPanel edge="bottom" data-shell-files-tree data-file-open={intent?.mode !== 'files'}><FilesPane /></DockPanel>}
           <div data-shell-file-body {...(files && intent?.mode === 'files' ? { 'data-hidden': '', inert: true } : {})}><WorkToolBodies drawn={drawn && !terminal} /></div>
         </div>
         <div className={styles.layer} {...(terminal && drawn ? {} : { 'data-hidden': '', inert: true })}><BottomPanel drawn={drawn && terminal} /></div>
-      </div>
+      </div>}
     </FixedPanelFrame>
   </>
+}
+
+const AdjacentPanel = () => {
+  const store = useStore(), snapshot = useSnapshot(), target = snapshot.adjacentSession
+  if (!target) return null
+  const session = snapshot.sessions.get(target.key)
+  const { runtime, id } = splitSessionKey(target.key)
+  const name = snapshot.runtimes.find(one => one.id === runtime)?.presentation.name ?? 'Agent unavailable'
+  return <FixedPanelBody role="region" aria-label={`Adjacent conversation: ${session?.title || id} — ${name}`}>
+      <div>{session?.title || String(id)} · {name} <Chip tone="neutral" size="sm">Read only</Chip></div>
+      {target.loading && <p role="status">Loading conversation…</p>}
+      {target.error && <div role="alert">{target.error} <Button variant="quiet" size="sm" onClick={() => void store.openAdjacentSession(id, runtime)}>Retry</Button></div>}
+      {session && (session.itemsLoaded || session.turns.length > 0) && <KeyboardHereContext.Provider value={false}><PaneProvider scope={{ paneId: 'adjacent-reader', view: { kind: 'conversation', session: target.key }, sessionKey: target.key }}><AdjacentTranscript session={session} /></PaneProvider></KeyboardHereContext.Provider>}
+  </FixedPanelBody>
 }
 
 /** Only process documents share the bottom frame; closing the region retains every xterm. */
@@ -474,6 +515,38 @@ const BottomPanel = ({ drawn }: { drawn: boolean }) => {
       </DockPanelBody>
     </FixedPanelFrame>
   </>
+}
+
+/** What a rail row calls after it opens something, when the rail stands beside the page: nothing to put away. */
+const noLeave = (): void => undefined
+
+/** Where a press belongs to the floating rail: the rail, its toggle, and a folded bar's More that holds the toggle. */
+const RAIL_OWN_PRESS = '[data-frame-region="rail"], [data-work-rail-toggle], [data-slot="top-bar"][data-fold="1"] [data-topbar="more"]'
+
+/**
+ * A rail floating over the page is on top of what it covers, as the floating sidebar is, so it goes the same ways:
+ * Escape puts it away (one surface on the shared stack, so a menu above it takes the key first), and so does a press
+ * anywhere in the shell outside it, so the card or button it lay over answers the next press (#2175). A press inside the
+ * rail is the rail's own, and its toggle closes it by its own click. A bar folded too narrow for its tools carries the
+ * toggle in More, so a press on that More is a press on the way to the toggle, not outside: put away there, the rail
+ * would be opened again by the very Toggle rail the person went to More to choose. A menu drawn from the rail is
+ * portalled out of the shell, so a press in it is not outside. A rail standing beside the page covers nothing and never
+ * takes either.
+ */
+const useFloatingRail = (floating: boolean, shell: RefObject<HTMLDivElement | null>, close: () => void): void => {
+  useEscapeSurface(floating, close)
+  const held = useRef(close)
+  held.current = close
+  useEffect(() => {
+    const element = shell.current
+    if (!floating || !element) return
+    const press = (event: PointerEvent) => {
+      if (!(event.target instanceof Element) || event.target.closest(RAIL_OWN_PRESS)) return
+      held.current()
+    }
+    element.addEventListener('pointerdown', press)
+    return () => element.removeEventListener('pointerdown', press)
+  }, [floating, shell])
 }
 
 /**

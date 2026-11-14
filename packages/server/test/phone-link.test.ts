@@ -12,12 +12,17 @@ import { PHONE_POLICY, phoneLinkOff, startPhoneLink, type PhoneLinkControl } fro
 
 test('repeat history, repeat controls and direct limit raises require their own phone tiers', () => {
   assert.equal(PHONE_POLICY.methods['lead/schedule/read'], 'read')
+  assert.equal(PHONE_POLICY.methods['lead/context/read'], 'read')
   assert.equal(PHONE_POLICY.methods['lead/repeat/control'], 'run')
   assert.equal(PHONE_POLICY.methods['lead/budget/raise'], 'answer')
   assert.equal(PHONE_POLICY.methods['lead/thread/read'], 'read')
   assert.equal(PHONE_POLICY.methods['lead/card/decide'], 'answer')
   assert.equal(PHONE_POLICY.methods['lead/settings/update'], undefined)
   assert.equal(PHONE_POLICY.methods['lead/spendLimit/set'], 'answer')
+  // The phone reads the autonomy table and flips a switch; it never edits the rules or a deadline.
+  assert.equal(PHONE_POLICY.methods['lead/autonomy/read'], 'read')
+  assert.equal(PHONE_POLICY.methods['lead/autonomy/set'], 'answer')
+  for (const method of ['lead/rules/read', 'lead/rules/update', 'lead/deadline/set']) assert.equal(PHONE_POLICY.methods[method], undefined, method)
 })
 
 const project = { id: 'demo', path: '/workspace/demo' }
@@ -31,6 +36,8 @@ const planClick = { version: 1 as const, cardId: 'plan', cardType: 'plan' as con
 /** The desk's Lead, over real controls and a fake model, reachable the way the host reaches it. */
 const desk = async () => {
   const performed: unknown[] = []
+  const presenceCalls: { method: string; device: unknown }[] = []
+  const sends: Record<string, unknown>[] = []
   let personActions: any[] = [{ kind: 'worker-approval', id: 'worker', runId: 'run', role: 'code reviewer', request: 'read the git log', choices: ['yes-once', 'yes-goal', 'no'] }, { kind: 'check', id: 'check', runId: 'run', name: 'verify', command: 'node --test' }]
   const records: LeadJournalRecord[] = []
   const journal = await createLeadJournal({ async read() { return records }, async append(record: LeadJournalRecord) { records.push(record) } })
@@ -51,7 +58,9 @@ const desk = async () => {
   const ctx = {
     phone: { state: () => attached?.state() ?? phoneLinkOff, pairing: () => attached!.pairing(), allow: (...a: never[]) => (attached!.allow as any)(...a),
       deny: (id: string) => attached!.deny(id), revoke: (d: string) => attached!.revoke(d) },
-    leadApprovalRevoke: (p: any) => controls.revokeApproval(p), leadActionPerform: (p: unknown) => (controls as any).perform(p), leadThreadRead: () => controls.readThread(), leadThreadSend: (p: unknown) => controls.send(p as never), leadCardDecide: (p: unknown) => controls.decide(p as never),
+    leadPresence: { read: async (device: unknown) => { presenceCalls.push({ method: 'read', device }); return { version: 1, digest: null, asks: [], brief: { enabled: false, at: '07:30' } } },
+      dismiss: async (device: unknown) => { presenceCalls.push({ method: 'dismiss', device }); return { version: 1, digest: null, asks: [], brief: { enabled: false, at: '07:30' } } } },
+    leadApprovalRevoke: (p: any) => controls.revokeApproval(p), leadActionPerform: (p: unknown) => (controls as any).perform(p), leadThreadRead: () => controls.readThread(), leadThreadSend: (p: unknown) => { sends.push(p as Record<string, unknown>); return controls.send(p as never) }, leadCardDecide: (p: unknown) => controls.decide(p as never),
     leadSettingsRead: () => controls.readSettings(), leadSettingsUpdate: (p: unknown) => controls.updateSettings(p as never), leadSpendLimitSet: (p: unknown) => controls.setSpendLimit(p as never),
     leadStop: (p: unknown) => controls.stop(p as never), leadResume: (p: unknown) => controls.resume(p as never),
   } as unknown as HostContext
@@ -60,7 +69,7 @@ const desk = async () => {
     addBroadcaster: (f: (n: WireNotification) => void) => { broadcasters.add(f); return () => { broadcasters.delete(f) } },
     attachPhoneLink: (control: PhoneLinkControl) => { attached = control },
   }
-  return { host, journal, controls, ctx, performed }
+  return { host, journal, controls, ctx, performed, presenceCalls, sends, broadcast: (n: WireNotification) => broadcasters.forEach(f => f(n)) }
 }
 
 const rig = async () => {
@@ -247,6 +256,50 @@ test('phone projects uncertain dispatches and keeps revoked history after Answer
     assert.deepEqual(revoked.result.revokedApprovals, [{ id: 'uncertain', target: 'get_team_status', count: 0 }])
     const again = await phone.request('lead/approval/revoke', { id: 'uncertain', contractDigest: contract.digest })
     assert.equal(again.error.code, 'lead-approval-not-live')
+    phone.close()
+  } finally { await s.done() }
+})
+
+test('a phone is named by its pairing: a device in the request body is ignored end to end', async () => {
+  const s = await rig()
+  try {
+    const phone = await s.pair()
+    const forged = { id: 'window:forged', label: 'Forged desktop' }
+    assert.equal((await phone.request('lead/presence/read', { device: forged, active: true })).ok, true)
+    assert.equal((await phone.request('lead/presence/dismiss', { device: forged, digest: 'away-1-2' })).ok, true)
+    assert.equal(s.presenceCalls.length, 2)
+    for (const call of s.presenceCalls) {
+      const device = call.device as { id: string; label: string }
+      assert.match(device.id, /^phone:/, call.method)
+      assert.equal(device.label, 'Jane’s phone')
+    }
+    phone.close()
+  } finally { await s.done() }
+})
+
+test('a tap carries the ask it answers from the phone to the host, under the phone’s own name', async () => {
+  const s = await rig()
+  try {
+    const phone = await s.pair()
+    const forged = { id: 'window:forged', label: 'Forged desktop' }
+    const tapped = await phone.request('lead/thread/send', { idempotencyKey: 'tap-1', text: 'Start it', ask: 'message-3', device: forged })
+    assert.equal(tapped.ok, true, JSON.stringify(tapped))
+    assert.equal(s.sends.length, 1)
+    assert.equal(s.sends[0]!.ask, 'message-3', 'the host hears which question the tap answers')
+    assert.equal(s.sends[0]!.text, 'Start it')
+    assert.match((s.sends[0]!.device as { id: string }).id, /^phone:/)
+    assert.equal((await phone.request('lead/thread/send', { idempotencyKey: 'tap-2', text: 'Start it', ask: 7 })).ok, false, 'an ask that is not an id is refused')
+    phone.close()
+  } finally { await s.done() }
+})
+
+test('a presence change reaches an open phone on its own topic, with no text', async () => {
+  const s = await rig()
+  try {
+    const phone = await s.pair()
+    s.broadcast({ method: 'lead/presence/changed', params: {} } as never)
+    const event = await phone.next(m => m.t === 'evt' && m.topic === 'presence')
+    assert.deepEqual(event.data, { v: 1 })
     phone.close()
   } finally { await s.done() }
 })

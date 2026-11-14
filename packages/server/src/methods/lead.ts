@@ -1,4 +1,7 @@
+import type { LeadSettingsProposeResult } from '@harnessdesk/protocol'
 import type { MethodsUnder } from './context.js'
+
+const withoutProposalId = ({ id: _id, ...result }: LeadSettingsProposeResult): LeadSettingsProposeResult => result
 
 /** Person controls stay on the window wire; narrow project-pinned chat tools also serve the private Lead client. */
 export const leadMethods = {
@@ -6,6 +9,8 @@ export const leadMethods = {
   'lead/chats/control': ctx => ctx.leadChatControl.list(),
   'lead/chat/takeOver': (ctx, params) => ctx.leadChatControl.takeOver(params.id),
   'lead/chat/handBack': (ctx, params) => ctx.leadChatControl.handBack(params.id),
+  'lead/usage/summary': ctx => ctx.leadUsageSummary(),
+  'lead/desk/summary': (ctx, params) => ctx.leadDeskSummary(params),
   'lead/chat/list': (ctx, params) => ctx.leadChats.list(params),
   'lead/chat/read': (ctx, params) => ctx.leadChats.read(params),
   // The host validates agent candidates and composes moveFrom handoffs.
@@ -31,4 +36,36 @@ export const leadMethods = {
   'lead/schedule/update': (ctx, params) => ctx.leadScheduleUpdate(params),
   'lead/memory/read': ctx => ctx.leadMemoryRead(),
   'lead/memory/update': (ctx, params) => ctx.leadMemoryUpdate(params),
+  'lead/memory/view': ctx => ctx.leadMemoryView(),
+  'lead/memory/change': (ctx, params) => ctx.leadMemoryChange(params),
+  'lead/memory/propose': (ctx, params) => ctx.leadMemoryPropose(params),
+  'lead/memory/search': (ctx, params) => ctx.leadMemorySearch(params),
+  // One board for the window, the phone and the Lead; the Lead's own write is a note, never a stage or a close.
+  'lead/work/list': (ctx, params) => ctx.leadWork.board(params.state),
+  'lead/work/read': (ctx, params) => ctx.leadWork.read(params),
+  'lead/work/note': (ctx, params) => ctx.leadWork.note(params),
+  'lead/work/close': (ctx, params) => ctx.leadWork.close(params),
+  'lead/context/read': ctx => ctx.leadContextRead(),
+  'lead/context/use': ctx => ctx.leadContextUse(),
+  'lead/inbox/read': ctx => ctx.leadInbox(),
+  'lead/context/compact': ctx => ctx.leadContextCompact(),
+  // What changed while a device was away, and what became of each question: one answer for the window and every phone.
+  'lead/presence/read': (ctx, params) => ctx.leadPresence.read(params.device, params),
+  'lead/presence/dismiss': (ctx, params) => ctx.leadPresence.dismiss(params.device, params.digest),
+  'lead/brief/read': ctx => ctx.leadPresence.brief(),
+  'lead/brief/update': (ctx, params) => ctx.leadPresence.updateBrief(params),
+  'lead/autonomy/read': ctx => ctx.leadAutonomy.view(),
+  'lead/autonomy/set': (ctx, params) => ctx.leadAutonomy.set(params),
+  'lead/rules/read': ctx => ctx.leadAutonomy.rules(),
+  'lead/rules/update': (ctx, params) => ctx.leadAutonomy.updateRules(params),
+  'lead/deadline/set': (ctx, params) => ctx.leadAutonomy.setDeadline(params),
+  // A reminder is a scheduled entry on the same board: listed, cancellable from every surface, fired by the minute timer.
+  'lead/reminder/set': (ctx, params) => ctx.leadWork.setReminder(params),
+  'lead/reminder/cancel': (ctx, params) => ctx.leadWork.cancelReminder(params),
+  'lead/reminder/clear': (ctx, params) => ctx.leadWork.clearReminder(params),
+  // The Lead's proposals to its own settings are cards; only the person's decision, on any surface, applies one.
+  // The Lead reads the outcome and the note, never the proposal's id: an id is no word for it to say to the person (#2167).
+  'lead/autonomy/propose': async (ctx, params) => withoutProposalId(await ctx.leadAutonomy.proposeMode(params)),
+  'lead/rules/propose': async (ctx, params) => withoutProposalId(await ctx.leadAutonomy.proposeRules(params)),
+  'lead/settings/decide': (ctx, params) => ctx.leadAutonomy.decide(params),
 } satisfies MethodsUnder<'lead/'>

@@ -1155,3 +1155,78 @@ test('an import cannot overwrite a durable row changed after its version check',
   const db = new TranscriptDatabase(join(home, 'sessions.sqlite'))
   try { assert.equal(db.read(original.runtime, original.id)?.title, 'external newer') } finally { db.close() }
 })
+
+
+test('replay conflict detection does not read SQLite without owned pending bodies', async t => {
+  const { store } = await fixture(t)
+  const body = session([turn('one', [message('a', 'saved')])])
+  const read = t.mock.method(TranscriptDatabase.prototype, 'read', () => { throw new Error('unexpected SQLite read') })
+  assert.equal(store.pendingReplayConflict(body, 'g', 1), false)
+  assert.equal(read.mock.callCount(), 0)
+})
+
+
+test('resuming replay also covers captured bodies after the owned queue is replaced', async t => {
+  const { store } = await fixture(t)
+  const captured = session([turn('one', [message('answer', 'original unsaved')])])
+  const later = session([turn('one', [message('answer', 'replacement')])])
+  const owner = {}, capture = new PendingTranscript({ runtime: captured.runtime, sessionId: captured.id, owner })
+  capture.retainLocal(captured, owner)
+  const base = store.observeBase(captured, true)!
+  store.bindBase(captured, 'g', base)
+  store.record(captured, { generation: 'g', authorityEpoch: 1 })
+  assert.equal(store.protectPending(captured.runtime, captured.id, 'g', 1), true)
+  store.record(later, { generation: 'g', authorityEpoch: 1 })
+  assert.equal(store.resumeAfterReplay(later, 'g', 1, capture), false, 'a matching current queue cannot retire missing captured content')
+  await assert.rejects(store.flush(), /protected/)
+  await store.forget(captured.runtime, captured.id)
+})
+
+test('replay enrichment emits a duplicate saved id once without merging ambiguous saved values', async t => {
+  const { store } = await fixture(t)
+  const original = session([turn('one', [message('answer', 'first saved'), message('answer', 'second saved')])])
+  const replay = message('answer', 'runtime answer')
+  const read = session([turn('one', [replay])])
+  assert.deepEqual(store.enrichReplay(read, original).turns[0]!.items, [replay])
+})
+
+const thinReplayItems: readonly { name: string; saved: AgentItem; replay: AgentItem }[] = [
+  { name: 'tool error', saved: { ...tool('saved result'), error: 'saved error' } as AgentItem,
+    replay: tool('saved result') },
+  { name: 'file change content',
+    saved: { id: itemId('file'), type: 'fileChange', status: 'completed', changes: [{ path: 'example.txt', kind: { type: 'add' }, diff: 'saved content' }] },
+    replay: { id: itemId('file'), type: 'fileChange', status: 'completed', changes: [{ path: 'example.txt', kind: { type: 'add' }, diff: 'saved' }] } },
+  { name: 'search results',
+    saved: { id: itemId('search'), type: 'webSearch', status: 'completed', query: 'example', results: [{ title: 'Saved result', url: 'https://example.com' }] },
+    replay: { id: itemId('search'), type: 'webSearch', status: 'completed', query: 'example' } },
+  { name: 'subagent fields',
+    saved: { id: itemId('child'), type: 'subagent', status: 'completed', action: 'spawn', prompt: 'saved prompt', members: [{ sessionId: 'child', nickname: 'Helper' }] },
+    replay: { id: itemId('child'), type: 'subagent', status: 'completed', action: 'spawn', members: [] } },
+  { name: 'nested argument fields', saved: { ...tool('saved result'), args: { nested: { text: 'saved argument', count: 2 } } } as AgentItem,
+    replay: { ...tool('saved result'), args: { nested: { text: 'saved', count: 2 } } } as AgentItem },
+  { name: 'a growing field beside a missing field', saved: { ...tool('saved result'), error: 'saved error' } as AgentItem,
+    replay: tool('saved result continued') },
+]
+for (const { name, saved, replay } of thinReplayItems) test(`replay enrichment keeps the whole saved item for thin ${name}`, async t => {
+  const { store } = await fixture(t)
+  const original = session([turn('one', [saved])])
+  const read = session([turn('one', [replay])])
+  assert.deepEqual(store.enrichReplay(read, original).turns[0]!.items, [saved])
+})
+
+test('a conversation whose latest turn was stopped still reads stopped from a new store, as after a desk restart', async t => {
+  const { home, store } = await fixture(t)
+  const stopped = session([turn('t1', [message('a', 'first')]), { ...turn('t2', [message('b', 'half')]), status: 'interrupted' }])
+  store.record(stopped)
+  store.record(session([turn('t1', [message('a', 'done')])], 's2'))
+  await store.flush()
+  const restarted = new TranscriptStore(join(home, 'transcripts'))
+  try {
+    assert.equal(restarted.lastTurnStopped(stopped.runtime, stopped.id), true)
+    assert.equal(restarted.lastTurnStopped(stopped.runtime, sessionId('s2')), false, 'a finished conversation is not stopped')
+    assert.equal(restarted.lastTurnStopped(stopped.runtime, sessionId('unknown')), false)
+  } finally { await restarted.close() }
+  store.record(session([...stopped.turns, turn('t3', [message('c', 'continued')])]))
+  await store.flush()
+  assert.equal(store.lastTurnStopped(stopped.runtime, stopped.id), false, 'a turn after the stop clears it')
+})

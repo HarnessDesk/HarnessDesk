@@ -1,3 +1,4 @@
+import { McpTestFrames, McpTestPreview } from './frames-mcp-test'
 import { GitGatewayFrames } from './frames-git-gateway'
 import { LeadFrames } from './harness'
 import './update-bridge'
@@ -113,7 +114,7 @@ import {
 import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_UNSEEN } from './evidence-fixture'
 import { captureHealth, commitProvenance, provenanceDetail, provenanceSeat, PROVENANCE_ROOT, PROVENANCE_SHA } from './provenance-fixture'
 import { PREVIEW_FLOW_GOAL, PREVIEW_GOAL, PREVIEW_TRIGGER_GOAL } from './goal-fixture'
-import { GOAL_INTAKE_SCENES, sceneArmPreview, sceneGoalStatus, triggerFiring, triggerHistoryPage, triggerProjectView, TRIGGER_ARM_SCENES, type GoalIntakeScene, type TriggerArmScene } from './intake-fixture'
+import { GOAL_INTAKE_SCENES, mentionDefinition, requestDefinition, requestHistoryPage, sceneArmPreview, sceneGoalStatus, triggerDecisionsPage, triggerFiring, triggerHistoryPage, triggerProjectView, triggerView, TRIGGER_ARM_SCENES, type GoalIntakeScene, type TriggerArmScene } from './intake-fixture'
 import { FLOW_EXECUTION_SCENES, sceneFlowExecution, type FlowExecutionScene } from './flow-fixture'
 import { COMPOSER_SESSION_KEY, composerStore } from './composer-fixture'
 import { BOARD_TOOL_FRAMES, boardToolFrame } from './approval-fixture'
@@ -147,6 +148,10 @@ import { AgentBriefFrames } from './frames-agent-brief'
 import { HeaderStatusFrames } from './frames-header-status'
 import { LeadChatFrames } from './frames-lead-chat'
 import { ReadCeilingFrames } from './frames-read-ceiling'
+import { CarryOnFrames } from './frames-carry-on'
+import { IdleStopFrames } from './frames-idle-stop'
+import { SubagentFlowFrames } from './frames-subagent-flow'
+import { TurnErrorFrames } from './frames-turn-errors'
 import { ComposerSlotsFrames } from './frames-composer-slots'
 import { CjkSpecimen } from './cjk-specimen'
 import { BRIEF_SCENES, FlowBriefDialog, type BriefScene } from './flow-brief-content'
@@ -371,9 +376,24 @@ const setPreviewGoalIntakeScene = (scene: GoalIntakeScene): void => {
   })
 }
 
-let previewTriggers = triggerProjectView()
+const baseTriggers = triggerProjectView()
+// The last row is an armed mention trigger still observing: its History lists triage decisions with Re-evaluate.
+let previewTriggers = { ...baseTriggers, triggers: [...baseTriggers.triggers, triggerView({ id: 'ask-dex', definition: mentionDefinition(), armed: true, state: 'armed' }),
+  // A request trigger, armed: a comment that starts with @harnessdesk on a pull request is handed to the Lead.
+  triggerView({ id: 'ask-desk', definition: requestDefinition(), armed: true, state: 'armed', last: requestHistoryPage().items[0]! })] }
+let previewDecisions = triggerDecisionsPage()
 Object.assign(store as unknown as Record<string, unknown>, {
   projectTriggers: async () => previewTriggers,
+  triggerDecisions: async () => previewDecisions,
+  setTriggerMode: async (_root: string, _id: string, mode: 'observe' | 'act') => {
+    previewDecisions = { ...previewDecisions, mode }
+    return previewDecisions
+  },
+  reevaluateTriggerDecision: async (_root: string, _id: string, decision: string) => {
+    const found = previewDecisions.decisions.find((one) => one.id === decision)
+    if (!found) throw new Error(`[preview] no decision named ${decision}`)
+    return { ...found, evaluations: found.evaluations + 1 }
+  },
   previewTrigger: async (_root: string, id: string) => sceneArmPreview((TRIGGER_ARM_SCENES as readonly string[]).includes(id) ? (id as TriggerArmScene) : 'ready'),
   armTrigger: async (_root: string, id: string) => {
     const armed = previewTriggers.triggers.find((one) => one.id === id)
@@ -393,7 +413,7 @@ Object.assign(store as unknown as Record<string, unknown>, {
   // names the Goal it is showing, and the fixture's own id is a different one.
   triggerGoal: async (goal: string) => (goal === PREVIEW_TRIGGER_GOAL.goal.id ? { ...sceneGoalStatus(goalIntakeScene), goal } : null),
   respondToApproval: async () => { previewMutable.patch({ approvals: [] }) },
-  triggerHistory: async () => triggerHistoryPage({
+  triggerHistory: async (_root: string, id: string) => id === 'ask-desk' ? requestHistoryPage() : triggerHistoryPage({
     items: [
       triggerFiring(),
       triggerFiring({ id: 'firing-2', subject: '11', outcome: 'skipped', reason: 'A stranger’s head; forks are never run.', goal: null, run: null, round: null, head: 'b'.repeat(40) }),
@@ -1201,6 +1221,7 @@ const Preview = () => {
 
       <Frame id="tables-family" title="Tables: the family"><div className="p-4"><TablesFamily /></div></Frame>
       <SettingsFrames />
+      <McpTestFrames />
       {new URLSearchParams(window.location.search).has('runtime-start') && <RuntimeStartFrames />}
       <Frame id="typography-cjk" title="CJK — reading text and controls">
         <CjkSpecimen />
@@ -1344,6 +1365,8 @@ createRoot(container).render(
           ? <ConversationDefaultsPreview />
           : new URLSearchParams(window.location.search).has('git-gateway')
           ? <GitGatewayFrames selected={new URLSearchParams(window.location.search).get('git-gateway')} />
+          : new URLSearchParams(window.location.search).has('mcp-test')
+          ? <McpTestPreview />
           : new URLSearchParams(window.location.search).has('library-updates')
           ? <LibraryUpdateFrames />
           : new URLSearchParams(window.location.search).has('library-github')
@@ -1382,6 +1405,14 @@ createRoot(container).render(
           ? <ComparisonVerdictPreview />
           : new URLSearchParams(window.location.search).has('read-ceiling')
           ? <ReadCeilingFrames />
+          : new URLSearchParams(window.location.search).has('carry-on')
+          ? <CarryOnFrames />
+          : new URLSearchParams(window.location.search).has('turn-errors')
+          ? <TurnErrorFrames />
+          : new URLSearchParams(window.location.search).has('idle-stop')
+          ? <IdleStopFrames />
+          : new URLSearchParams(window.location.search).has('subagent-flow')
+          ? <SubagentFlowFrames />
           : new URLSearchParams(window.location.search).has('cli-install')
           ? <CliInstallFrame />
           : new URLSearchParams(window.location.search).has('runtime-start-only')

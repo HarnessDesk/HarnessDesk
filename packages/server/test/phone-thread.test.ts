@@ -40,6 +40,19 @@ test('verified Lead words drop unrelated injections and retain attribution', () 
   assert.ok(!JSON.stringify(result).includes('<context'))
 })
 
+test('a Lead message reads as the Lead\'s on every transcript path, never as envelope text (#2090)', () => {
+  const envelope = leadMessageEnvelope('Dex', 'Fix the stalled task.')
+  const control: LeadChatControl = { id, holder: 'lead', sent: [leadMessageKey(id, envelope)] }
+  const expected = { type: 'you', id: 'you', text: 'Fix the stalled task.', attachments: [], lead: { name: 'Dex' } }
+  // A replay with no desk record that merged the agent's stop marker in front of it.
+  const merged = thread([{ id: itemId('you'), type: 'userMessage', content: [{ type: 'text', text: '[Request interrupted by user]' }, { type: 'text', text: envelope }] }], control)
+  assert.deepEqual(merged.turns[0], expected)
+  // A runtime whose history the adapter already peeled into the item's context.
+  const peeled = thread([{ id: itemId('you'), type: 'userMessage', content: [], context: [{ label: 'Lead message from Dex', text: envelope.slice(envelope.indexOf('\n') + 1, envelope.lastIndexOf('\n')) }] }], control)
+  assert.deepEqual(peeled.turns[0], expected)
+  assert.ok(!JSON.stringify([merged, peeled]).includes('<context'))
+})
+
 test('command output sends a scrubbed forty-line tail and keeps failure and exit code', () => {
   const result = thread([run(Array.from({ length: 45 }, (_, i) => `${i}: ${cwd}/src/a.ts sk-abcdefghijklmnop`).join('\n'))])
   const step = work(result).steps[0]!
@@ -215,4 +228,21 @@ test('a run of reasoning with nothing to read shows as one Thinking step, as the
   const think = (name: string, summary: string[] = []): AgentItem => ({ id: itemId(name), type: 'reasoning', summary, content: [] })
   const result = thread([think('a'), think('b', ['', 'a later line']), run('ok'), think('c'), think('d', ['  ']), think('e', ['Checking the lockfile']), think('f')])
   assert.deepEqual(work(result).steps.map(step => step.title), ['Thinking', 'pnpm test', 'Thinking', 'Checking the lockfile', 'Thinking'])
+})
+
+test('a carry-on marker reaches the phone as its own plain line, never folded into the work or naming an email', () => {
+  const marker = (phase: 'switched' | 'left', account: string): AgentItem => ({
+    id: itemId(`carry-${phase}`), type: 'carryOn', phase, cause: 'credits', mode: phase === 'left' ? 'handoff' : 'sameThread',
+    from: { name: 'Codex', account, model: 'Sol' }, to: phase === 'left' ? { name: 'Claude Code', model: 'Opus' } : { name: 'Codex', account: 'personal', model: 'Sol' },
+    ...(phase === 'left' ? { link: { runtime: runtimeId('claude'), sessionId: sessionId('next') } } : {}),
+  })
+  const result = thread([run('ok'), marker('switched', 'work'), run('ok'), marker('left', 'dev@example.com')])
+  const lines = result.turns.filter(one => one.type === 'agent').map(one => (one as { markdown: string }).markdown)
+  assert.deepEqual(lines, [
+    'Switched from Codex · work to Codex · personal · Sol. Codex · work reached its usage limit.',
+    'Continued in a new conversation with Claude Code · Opus. Codex reached its usage limit.',
+  ])
+  // The marker splits the work into two folds rather than hiding inside one.
+  assert.deepEqual(result.turns.map(one => one.type), ['work', 'agent', 'work', 'agent'])
+  assert.ok(!JSON.stringify(result).includes('example.com'))
 })

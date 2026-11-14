@@ -128,6 +128,14 @@ export type SessionOptions = Partial<SessionSettings> & {
    * refuse. `cwd` on a resume is never read in its place.
    */
   readonly knownCwd?: string
+  /**
+   * Plugin tools, by bare name, this conversation is not shown — `ask_agent`
+   * for anything but a Flow seat whose role may ask. Host-only, like
+   * `knownCwd`: refused on the wire. A runtime that lists tools per
+   * conversation drops them; the tool's own call-time refusal is the lock
+   * that holds either way.
+   */
+  readonly withheldTools?: readonly string[]
 }
 
 /**
@@ -198,7 +206,16 @@ export const sessionModel = (session: {
 export type SessionStatus =
   /** Known to exist but not loaded into memory — the usual state for history rows. */
   | { readonly type: 'notLoaded' }
-  | { readonly type: 'idle' }
+  | {
+      readonly type: 'idle'
+      /**
+       * Sub-agents this conversation started are still working although its
+       * own turn has ended, so Stop still has something to stop. Said by the
+       * adapter from what it observes of the children (Codex's child threads,
+       * an ACP agent's delegation list); absent means none is known to run.
+       */
+      readonly subagentsRunning?: boolean
+    }
   | { readonly type: 'active' }
   | { readonly type: 'error'; readonly message?: string }
 
@@ -466,6 +483,8 @@ export interface Session {
   readonly worktreeWarning?: string
   /** Served from the desk because the agent’s own record is unavailable. */
   readonly deskCopy?: boolean
+  /** A faithful retained view while recent activity has not been safely saved. */
+  readonly historyPending?: boolean
   readonly itemsLoaded: boolean
   /**
    * The turns begin at a reopen that brought no history back — an agent that
@@ -488,6 +507,10 @@ export interface SessionWorktree {
 
 /** The lightweight row shown in the sidebar; never carries a transcript. */
 export interface SessionSummary {
+  readonly lastOpenedAt?: number
+  readonly lastCompletedAt?: number
+  /** Host-owned pin shared with paired devices. */
+  readonly pinned?: boolean
   readonly worktree?: SessionWorktree
   readonly id: SessionId
   readonly runtime: RuntimeId

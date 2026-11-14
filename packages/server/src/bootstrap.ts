@@ -128,6 +128,10 @@ export const writeToolLauncher = (directory: string, execPath: string, entry: st
 export const bridgeCallerFor = (host: Pick<Host, 'registry'>, runtime: string, id: string): BridgeCaller => ({
   runtime, sessionId: id,
   get workspaceRoot() { return host.registry.get(runtimeId(runtime), sessionId(id))?.shellCheckout?.cwd },
+  get turnId() {
+    const running = host.registry.get(runtimeId(runtime), sessionId(id))?.running
+    return running ? [...running].at(-1) : undefined
+  },
 })
 
 export interface ToolServerOptions {
@@ -517,7 +521,12 @@ export const createDefaultHost = (
       if (!scope) return { action: 'done', ok: false, output: 'HarnessDesk: this git write has no conversation caller.' }
       return host.gitSteering.handle(scope.runtime, scope.sessionId, params, signal)
     },
-    listTools: () => extensions.list('tool', {}),
+    // Per caller: a tool the host withholds from that conversation
+    // (`ask_agent` off a Flow seat whose role may not ask) is not listed.
+    listTools: (caller) => {
+      const withheld = host.withheldTools(caller ? callers.get(caller) : undefined)
+      return extensions.list('tool', {}).filter((tool) => !withheld.includes(tool.name))
+    },
     // Read at each bridge's handshake rather than fixed at start: whether
     // the sentence applies depends on which plugins are enabled right now.
     // Nothing for a bridge whose agent's runtime carries the sentence in an
@@ -701,12 +710,27 @@ export const createDefaultHost = (
   // And the forge plane: the seat a publication is signed as, the record of
   // it in the transcript, and the one sentence that tells an agent so.
   extensions.setForgeEngine(host.forgePlane)
+  // And the consult plane: `ctx.agents.ask`, one read-only question from a
+  // Flow seat to another agent, answered in a hidden conversation.
+  extensions.setAgentsEngine(host.consultPlane)
 
   // Codex writes its rollouts where the ledger can read them, and meters
   // itself over its own API — so it needs a corpus and no meter.
   // Closed when the desk quits, like everything else it owns: no bridge
   // reaches a Seat's server through a socket the desk has left behind.
   host.onDispose(() => gateway.stop())
+  // A plugin enabled, disabled, reloaded or updated while a conversation is
+  // open: tell its bridge, which tells the agent (MCP `tools/list_changed`).
+  // `extension/log` is chatter, not a change to the tool set. The Seat
+  // external-MCP backend has no change signal of its own to hook, so a Seat's
+  // approval change still reaches an open conversation only at its next list.
+  const unsubscribeToolsChanged = extensions.subscribe((event) => {
+    if (
+      event.type === 'plugin/added' || event.type === 'plugin/updated' ||
+      event.type === 'plugin/removed' || event.type === 'contributions/changed'
+    ) gateway.toolsChanged()
+  })
+  host.onDispose(() => unsubscribeToolsChanged())
   host.bindUsage(runtimeId('codex'), { corpus: 'codex' })
 
   host.register(

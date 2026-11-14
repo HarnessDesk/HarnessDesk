@@ -1,4 +1,7 @@
-import { basename, isAbsolute, relative } from 'node:path'
+import { homedir } from 'node:os'
+import type { LeadSettingsChange } from '@harnessdesk/protocol'
+import { LEAD_SETTINGS_PROPOSAL_LIMITS } from '@harnessdesk/protocol'
+import { basename, isAbsolute, relative, resolve } from 'node:path'
 
 /**
  * What may leave the desk for a paired phone, one rule per kind of text. A phone is the person's own device but a
@@ -90,6 +93,21 @@ const shorten = (text: string, limit: number): string =>
 export const scrub = (text: string, limit = TITLE_LIMIT): string => shorten(redact(text).replace(/\s+/g, ' ').trim(), limit)
 
 /**
+ * The one line of a settings proposal as a phone shows it, or nothing when the scrub leaves nothing. The phone may
+ * apply a proposal only when this is the line itself: Apply writes the original words, so a line the scrub redacted,
+ * collapsed or cut would be agreed to without being read.
+ */
+export const phoneProposalLine = (add: string): string => scrub(add, LEAD_SETTINGS_PROPOSAL_LIMITS.addChars)
+
+/**
+ * Whether a phone answers this proposal with No only, leaving Apply to the desk: a section's whole new words, or an
+ * added line the phone cannot show exactly as Apply would write it. The desk's `decide` and the phone's projection both
+ * ask this, so what the phone offers and what the desk accepts cannot drift apart.
+ */
+export const phoneAppliesAtDesk = (change: LeadSettingsChange): boolean =>
+  change.kind === 'rules' && (change.add === undefined || phoneProposalLine(change.add) !== change.add)
+
+/**
  * The same rules for a message with lines in it: what a person or an agent said, kept as they laid it out. Trailing
  * space and runs of blank lines are the only things tidied.
  */
@@ -102,7 +120,7 @@ export const scrubProjectText = (text: string, cwd: string, limit = 300): string
 
 /** A folder's own name. Never the path above it, and never a name that is only a home or a root. */
 export const folderName = (path: string | null | undefined): string | null => {
-  if (!path) return null
+  if (!path || resolve(path) === resolve(homedir())) return null
   const name = basename(path.replace(/[\\/]+$/, ''))
   return name === '' || name === '.' || name === '..' ? null : scrub(name, 60)
 }

@@ -116,7 +116,7 @@ import { terminalAttach } from './terminal-fixture'
 import { PREVIEW_GOAL, PREVIEW_GOALS, PREVIEW_TRIGGER_GOAL } from './goal-fixture'
 import { FIX_PREVIEW, PREVIEW_FLOW_CUSTOMIZE, PREVIEW_FLOW_SOURCE, PREVIEW_FLOW_UPDATE, PREVIEW_FLOWS, previewFlowPreviewFor } from './flow-fixture'
 import { frontDoorPreviewFor } from './front-door-fixture'
-import { triggerArmPreview, triggerGoalStatus, triggerHistoryPage, triggerPreferences as triggerPreferencesFixture, triggerProjectView, triggerView } from './intake-fixture'
+import { triggerArmPreview, triggerDecision, triggerDecisionsPage, triggerGoalStatus, triggerHistoryPage, triggerPreferences as triggerPreferencesFixture, triggerProjectView, triggerView } from './intake-fixture'
 /* The editor surface opens this file, and is given this file — its real
    source, read at build time. Edit `brands.ts` and the editor shows the edit;
    nothing here restates what the file says. Not a `design/ui` module on
@@ -1640,6 +1640,12 @@ class PreviewStore {
   armTrigger = async (): Promise<import('@harnessdesk/protocol').TriggerView> => triggerView({ armed: true, state: 'armed' })
   disarmTrigger = async (): Promise<import('@harnessdesk/protocol').TriggerView> => triggerView({ armed: false, state: 'off' })
   triggerHistory = async (): Promise<import('@harnessdesk/protocol').TriggerHistoryPage> => triggerHistoryPage()
+  triggerDecisions = async (): Promise<import('@harnessdesk/protocol').TriggerDecisionsPage> => triggerDecisionsPage()
+  setTriggerMode = async (
+    _root: string, _id: string, mode: import('@harnessdesk/protocol').TriggerMode,
+  ): Promise<import('@harnessdesk/protocol').TriggerDecisionsPage> => triggerDecisionsPage({ mode })
+  reevaluateTriggerDecision = async (_root: string, _id: string, decision: string): Promise<import('@harnessdesk/protocol').TriggerDecision> =>
+    triggerDecision({ id: decision, evaluations: 1 })
   triggerPreferences = async (): Promise<import('@harnessdesk/protocol').TriggerPreferences> => triggerPreferencesFixture()
   setTriggerPreferences = async (
     _revision: number, paused: boolean, dailyUsd: number,
@@ -1649,6 +1655,17 @@ class PreviewStore {
   private clientsMayAnswer = false
   loadClientsMayAnswer = async (): Promise<boolean> => this.clientsMayAnswer
   setClientsMayAnswer = async (value: boolean): Promise<boolean> => { this.clientsMayAnswer = value; return true }
+  private mcpStarts: import('@harnessdesk/protocol').McpStartsView = {
+    version: 1, revision: 0, mayStart: false, dailyStarts: 5, day: '2026-11-11', started: 0, remaining: 5, source: 'stored',
+  }
+  loadMcpStarts = async (): Promise<import('@harnessdesk/protocol').McpStartsView> => this.mcpStarts
+  setMcpStarts = async (
+    _revision: number, patch: { readonly mayStart?: boolean; readonly dailyStarts?: number },
+  ): Promise<import('@harnessdesk/protocol').McpStartsView> => {
+    const dailyStarts = patch.dailyStarts ?? this.mcpStarts.dailyStarts
+    this.mcpStarts = { ...this.mcpStarts, ...patch, revision: this.mcpStarts.revision + 1, remaining: Math.max(0, dailyStarts - this.mcpStarts.started) }
+    return this.mcpStarts
+  }
   loadQuestionWait = async (): Promise<'5m'> => '5m'
   setQuestionWait = async (): Promise<boolean> => true
   loadUnattendedCeilings = async (): Promise<'seat' | 'refuse'> => 'refuse'
@@ -2259,6 +2276,13 @@ class PreviewStore {
         return { data: [{ id: `archived-${runtime}`, runtime, title: 'Review the workspace settings', preview: null, cwd: PREVIEW_ROOT, status: { type: 'notLoaded' }, createdAt: now - 86_400_000, updatedAt: now - 3_600_000, archived: true }], nextCursor: null }
       }
       if (method === 'library/read') return LIBRARY
+      // Test connection, scripted: the reading sheet's server answers; any other is waiting on sign-in.
+      if (method === 'library/mcp/test') {
+        const name = (params as { name?: string } | undefined)?.name
+        return name === 'workspace-tools'
+          ? { ok: true, tools: 12, serverName: 'workspace-tools', serverVersion: '1.4.0', ms: 840 }
+          : { ok: false, reason: 'needsSignIn', detail: 'It asks for sign-in. A test never signs in; sign in through the agent first.', ms: 120 }
+      }
       if (method === 'library/definition') {
         const name = (params as { name?: string } | undefined)?.name ?? ''
         const text = DEFINITIONS[name]

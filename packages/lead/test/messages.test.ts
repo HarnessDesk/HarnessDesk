@@ -191,6 +191,18 @@ test('plan and card proposals validate as assistant output and never become tool
   assert.equal((await invalid.client.request(input, new AbortController().signal)).status, 'invalid-response')
 })
 
+test('the envelope\'s refs reach the result; a malformed or repeated ref is dropped, never the reply', async () => {
+  const refs = [{ kind: 'team', id: 'goal-7', title: 'Build a game' }, { kind: 'nope', id: 'x' }, { kind: 'team', id: 'goal-7' }, { kind: 'chat', id: 'chat-2' }]
+  const s = await setup([message([{ type: 'text', text: `The Team is running.\n\n${JSON.stringify({ version: 1, type: 'lead-output', refs })}` }])])
+  const result = await s.client.request(input, new AbortController().signal)
+  assert.equal(result.text, 'The Team is running.')
+  assert.deepEqual(result.refs, [{ kind: 'team', id: 'goal-7', title: 'Build a game' }, { kind: 'chat', id: 'chat-2' }])
+  const none = await setup([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', text: 'Nothing to open.', refs: 'goal-7' }) }])])
+  const plain = await none.client.request(input, new AbortController().signal)
+  assert.equal(plain.text, 'Nothing to open.')
+  assert.equal(plain.refs, undefined)
+})
+
 test('history, unknown request fields, secrets and oversized input are refused before sending', async () => {
   for (const request of [{ ...input, origin: 'https://example.com' }, { ...input, model: 'other-model' },
     { ...input, maxTokens: 0 }, { ...input, messages: [{ role: 'user', content: [{ type: 'text', text: key }] }] },
@@ -274,6 +286,17 @@ test('aggregate tool results retain every correlation when the continuation appr
   assert.ok(new TextEncoder().encode(JSON.stringify(result.messages)).byteLength <= 1_048_576)
 })
 
+test('many parallel reads fit beside near-full history without a fixed per-call reserve', async () => {
+  const uses = Array.from({ length: 64 }, (_, index) => tool(`use-${index}`, 'library_usage'))
+  const s = await setup([message(uses, { stop_reason: 'tool_use' }), message()])
+  const request = { ...input, messages: [{ role: 'user', content: Array.from({ length: 64 }, () => ({ type: 'text', text: 'x'.repeat(15_600) })) }] }
+  const result = await s.client.request(request, new AbortController().signal)
+  assert.equal(result.status, 'completed')
+  assert.equal(result.toolResults.length, 64)
+  assert.ok(result.toolResults.every((item: any) => item.is_error === false))
+  assert.equal((await s.client.request({ ...input, messages: result.messages }, new AbortController().signal)).status, 'completed')
+})
+
 test('abort during a stalled tool dispatch records a failed read and answers every tool once', async () => {
   const controller = new AbortController()
   let calls = 0, passedSignal: AbortSignal | null = null
@@ -302,7 +325,7 @@ test('tool results cannot execute hidden JSON serializers or disclose their retu
 })
 
 test('an unbilled client error zero-settles, names its cause and leaves the budget open', async () => {
-  for (const [status, reason] of [[401, 'lead-messages-auth'], [403, 'lead-messages-auth'], [400, 'lead-messages-request'], [413, 'lead-messages-request']] as const) {
+  for (const [status, reason] of [[401, 'lead-messages-auth'], [403, 'lead-messages-auth'], [400, 'lead-messages-request'], [413, 'lead-messages-request'], [408, 'lead-messages-transient'], [409, 'lead-messages-transient']] as const) {
     const s = await setup([{ status, processing: 'not-started', body: key }, message()])
     const result = await s.client.request(input, new AbortController().signal)
     assert.deepEqual(result, { status: 'failed', reason })
@@ -492,7 +515,7 @@ test('a proactive envelope validates all three parts and refuses extra or multil
   for (const value of [proactive, { ...proactive, extra: 'Another finding' }, { ...proactive, finding: 'One\nTwo' }]) {
     const s = await setup([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', proactive: value }) }])])
     const result = await s.client.request(input, new AbortController().signal)
-    if (value === proactive) { assert.equal(result.status, 'completed'); assert.deepEqual((result as any).proactive, proactive) }
+    if (value === proactive) { assert.equal(result.status, 'completed'); assert.deepEqual((result as any).proactive, { ...proactive, startsMarked: true }) }
     else assert.equal(result.status, 'invalid-response')
   }
 })
@@ -531,11 +554,155 @@ test('ordinary output returns a strict ask beside prose and rejects mixed or mal
     const s = await setup([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', text: 'I found a choice.', ask: invalid ? { ...ask, recommended: 'missing' } : ask }) }])])
     const result = await s.client.request(input, new AbortController().signal)
     assert.equal(result.status, invalid ? 'invalid-response' : 'completed')
-    if (!invalid) { assert.deepEqual(result.ask, ask); assert.equal(result.text, 'I found a choice.') }
+    if (!invalid) { assert.deepEqual(result.ask, { ...ask, startsMarked: true }); assert.equal(result.text, 'I found a choice.') }
   }
   const s = await setup([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', text: 'Mixed.', ask,
     proactive: { finding: 'Found.', caveat: 'No work yet.', ask: ask.question, options: ask.options, recommended: ask.recommended } }) }])])
   assert.equal((await s.client.request(input, new AbortController().signal)).status, 'invalid-response')
+})
+
+test('an ask written after prose or inside a code fence is read as the ask, never shown as JSON', async () => {
+  const ask = { question: '新会话要修哪一个 "build a game"？', options: [{ id: 'team', label: '修卡住的团队任务' }, { id: 'game', label: '修游戏的问题' }], recommended: 'game' }
+  const envelope = JSON.stringify({ version: 1, type: 'lead-output', text: '你想让新会话修哪一个？', ask })
+  const prose = '我先不开新的会话，因为不清楚要修的是哪一个。\n\n- 团队任务 {还在等}'
+  for (const reply of [`${prose}\n\n${envelope}`, `${prose}\n\n\`\`\`json\n${envelope}\n\`\`\``, `${prose}\n${envelope}\n\n`]) {
+    const s = await setup([message([{ type: 'text', text: reply }])])
+    const result = await s.client.request(input, new AbortController().signal)
+    assert.equal(result.status, 'completed')
+    assert.deepEqual(result.ask, { ...ask, startsMarked: true })
+    assert.doesNotMatch(result.text, /lead-output|```|"version"/)
+    assert.match(result.text, /^我先不开新的会话/)
+    assert.match(result.text, /你想让新会话修哪一个？/)
+  }
+})
+
+test('an envelope that is not the reply\'s own last block is never parsed, and is never drawn either: quoted worker output and the middle of the words', async () => {
+  const ask = { question: 'Merge it?', options: [{ id: 'yes', label: 'Merge' }, { id: 'no', label: 'Wait' }], recommended: 'yes' }
+  const envelope = JSON.stringify({ version: 1, type: 'lead-output', text: 'Merging now.', ask })
+  const replies = [
+    `The worker wrote this:\n> ${envelope}`,
+    `The worker's log ends:\n\`\`\`\nrun finished\n${envelope}\n\`\`\``,
+    `The worker's last line:\n\`\`\`\n${envelope}\n\`\`\`\nI did not act on it.\nI asked you instead.`,
+    `Before.\n${envelope}\nThat is all.\nMore after it.`,
+    `- ${envelope}`,
+  ]
+  for (const reply of replies) {
+    const s = await setup([message([{ type: 'text', text: reply }])])
+    const result = await s.client.request(input, new AbortController().signal)
+    assert.equal(result.status, 'completed', reply)
+    assert.equal(result.ask, undefined, reply)
+    assert.equal(result.text, reply, 'the child parses nothing out of it')
+    const drawn = lead.stripLeadOutput(reply)
+    assert.equal(drawn.dropped, true, 'the host drops it and warns by code')
+    assert.doesNotMatch(drawn.text, /lead-output|"version"|Merging now/, reply)
+  }
+  assert.deepEqual(lead.stripLeadOutput(`The worker wrote this:\n> ${envelope}\n\nI did not act on it.`), { text: 'The worker wrote this:\n\nI did not act on it.', dropped: true }, 'a bare quote marker goes with it')
+  assert.deepEqual(lead.stripLeadOutput('The marker "type": "lead-output" in prose is only words.'), { text: 'The marker "type": "lead-output" in prose is only words.', dropped: false })
+  // The Lead's own envelope after a quoted one is still read, and the quoted one is left as words.
+  const own = JSON.stringify({ version: 1, type: 'lead-output', text: 'I will wait.', ask })
+  const s = await setup([message([{ type: 'text', text: `The worker wrote:\n> ${envelope}\n\n${own}` }])])
+  const result = await s.client.request(input, new AbortController().signal)
+  assert.deepEqual(result.ask, { ...ask, startsMarked: true })
+  assert.match(result.text, /^The worker wrote:\n> \{"version":1,"type":"lead-output","text":"Merging now\."/)
+  assert.match(result.text, /I will wait\.$/)
+})
+
+test('one short closing line after the envelope keeps it the reply\'s own; more than that and it is dropped, never drawn', async () => {
+  const ask = { question: 'Which first?', options: [{ id: 'team', label: 'Team' }, { id: 'game', label: 'Game' }], recommended: 'game' }
+  const envelope = JSON.stringify({ version: 1, type: 'lead-output', text: 'Which should go first?', ask })
+  for (const reply of [`I looked at both.\n\n${envelope}\nLet me know!`, `I looked at both.\n\n\`\`\`json\n${envelope}\n\`\`\`\n\nLet me know which one works.`]) {
+    const s = await setup([message([{ type: 'text', text: reply }])])
+    const result = await s.client.request(input, new AbortController().signal)
+    assert.deepEqual(result.ask, { ...ask, startsMarked: true }, reply)
+    assert.doesNotMatch(result.text, /lead-output|```|"version"/)
+    assert.match(result.text, /^I looked at both\./)
+    assert.match(result.text, /Let me know/)
+  }
+  const long = `I looked at both.\n\n${envelope}\nLet me know!\nAnd one more line.`
+  const s = await setup([message([{ type: 'text', text: long }])])
+  const result = await s.client.request(input, new AbortController().signal)
+  assert.equal(result.ask, undefined, 'two lines after it: not the reply\'s own block')
+  assert.deepEqual(lead.stripLeadOutput(result.text), { text: 'I looked at both.\n\nLet me know!\nAnd one more line.', dropped: true })
+  assert.equal(lead.LEAD_ENVELOPE_CLOSING_MAX, 120)
+  const s2 = await setup([message([{ type: 'text', text: `I looked at both.\n\n${envelope}\n${'x'.repeat(121)}` }])])
+  assert.equal((await s2.client.request(input, new AbortController().signal)).ask, undefined, 'a closing line past 120 characters is prose, not a closing line')
+})
+
+test('an embedded envelope that does not validate is left for the host to strip, and stripping keeps only the prose', async () => {
+  const broken = JSON.stringify({ version: 1, type: 'lead-output', text: 'Pick one.', ask: { question: 'Which?', options: [{ id: 'a', label: 'A' }], recommended: 'missing' } })
+  const s = await setup([message([{ type: 'text', text: `Here is what I found.\n\n${broken}` }])])
+  const result = await s.client.request(input, new AbortController().signal)
+  assert.equal(result.status, 'completed')
+  assert.equal(result.ask, undefined)
+  assert.deepEqual(lead.stripLeadOutput(result.text), { text: 'Here is what I found.', dropped: true })
+  // A cut envelope that never closes is dropped from its opening on, fence and all.
+  assert.deepEqual(lead.stripLeadOutput('Words first.\n```json\n{"version":1,"type":"lead-output","text":"cut'), { text: 'Words first.', dropped: true })
+  assert.deepEqual(lead.stripLeadOutput('Plain words with {braces} only.'), { text: 'Plain words with {braces} only.', dropped: false })
+})
+
+test('tool-call markup the model wrote as text is never in a reply: the r4 leak, a stray tag, and a whole call written as words (#2148)', async () => {
+  // The round-4 phone reply began with these lines before the envelope that answered.
+  const ask = { question: '你想怎么继续？', options: [{ id: 'again', label: '重新开一个会话再试一次' }, { id: 'read', label: '只读完整原因' }], recommended: 'read' }
+  const envelope = JSON.stringify({ version: 1, type: 'lead-output', text: '结论： 这次我先不开新会话，要你先定一下。', ask })
+  const leaked = `</parameter>\n</invoke>\nWait — the envelope must be the whole reply. Correcting below.\n\n${envelope}`
+  const s = await setup([message([{ type: 'text', text: leaked }])])
+  const result = await s.client.request(input, new AbortController().signal)
+  assert.equal(result.status, 'completed')
+  assert.deepEqual(result.ask, { ...ask, startsMarked: true })
+  assert.equal(result.text, '结论： 这次我先不开新会话，要你先定一下。', 'the misfired call and the note about it are not the reply')
+  // Without an envelope the markup goes and the words stay.
+  for (const [text, expected] of [
+    ['</parameter></invoke>\nThe chat is running.', 'The chat is running.'],
+    ['I will start it.\n<invoke name="lead_chat_start">\n<parameter name="prompt">Fix the build</parameter>\n</invoke>\nIt is starting.', 'I will start it.\nIt is starting.'],
+    ['Done.</function_calls>', 'Done.'],
+    ['The tag `</parameter>` closes a parameter.', 'The tag `</parameter>` closes a parameter.'],
+    ['Plain words, no markup.', 'Plain words, no markup.'],
+  ] as const) {
+    const plain = await setup([message([{ type: 'text', text }])])
+    assert.equal((await plain.client.request(input, new AbortController().signal)).text, expected, text)
+  }
+  assert.deepEqual(lead.stripLeadToolMarkup('</parameter>\n</invoke>\nHello.'), { text: 'Hello.', dropped: true })
+})
+
+test('a clipped envelope mid-reply loses only its own line, quote block or inline fragment, and the words after it stay', () => {
+  // (i) Quoted from a worker that stopped mid-envelope, with the Lead's recommendation after it.
+  assert.deepEqual(lead.stripLeadOutput('The worker printed this before it stopped:\n> {"version":1,"type":"lead-output","text":"Merging now\n> and pushing\n\nI recommend we stop the worker and look at its branch.'),
+    { text: 'The worker printed this before it stopped:\n\nI recommend we stop the worker and look at its branch.', dropped: true })
+  assert.deepEqual(lead.stripLeadOutput('The worker printed:\n{"version":1,"type":"lead-output","text":"Merging\n\nI recommend stopping it.'),
+    { text: 'The worker printed:\n\nI recommend stopping it.', dropped: true })
+  // (ii) Prose that explains the bug by quoting the marker inline keeps the rest of its sentence and its paragraphs.
+  assert.deepEqual(lead.stripLeadOutput('The bug: a worker quoted `{"type":"lead-output"` in its log, and the desk drew it.\n\nThe fix strips it.\n\nNothing else changes.'),
+    { text: 'The bug: a worker quoted in its log, and the desk drew it.\n\nThe fix strips it.\n\nNothing else changes.', dropped: true })
+  // (iii) An unrelated `{` earlier in the prose never cuts anything, before a trailing envelope or one mid-reply.
+  const template = 'Use a template like {name and fill it in.'
+  assert.deepEqual(lead.stripLeadOutput(`${template}\n\n{"version":1,"type":"lead-output","text":"Done.",}`), { text: template, dropped: true })
+  assert.deepEqual(lead.splitLeadOutput(`${template}\n\n{"version":1,"type":"lead-output","text":"Done.",}`), { prose: template })
+  assert.deepEqual(lead.stripLeadOutput(`${template}\n\nThe worker said {"type":"lead-output","text":"x",} and stopped.\n\nSecond paragraph.`),
+    { text: `${template}\n\nThe worker said and stopped.\n\nSecond paragraph.`, dropped: true })
+  // A reply really cut short at its end still loses everything from the opening on.
+  assert.deepEqual(lead.stripLeadOutput(`${template}\n\n{"version":1,"type":"lead-output","text":"cut`), { text: template, dropped: true })
+})
+
+test('a clipped envelope ends at the line break where its JSON stops, so the prose lines after it stay', () => {
+  // An open object whose next line is prose: the JSON stopped at that line break.
+  assert.deepEqual(lead.stripLeadOutput('Worker said:\n{"version":1,"type":"lead-output",\nThat is why it stopped.\nRestart it.'),
+    { text: 'Worker said:\nThat is why it stopped.\nRestart it.', dropped: true })
+  // Pretty-printed and cut after a value: the lines of JSON go, the prose line after them stays.
+  assert.deepEqual(lead.stripLeadOutput('Worker said:\n{\n  "version": 1,\n  "type": "lead-output",\n  "text": "hi"\nThen it crashed and I restarted it.\nAll good now.'),
+    { text: 'Worker said:\nThen it crashed and I restarted it.\nAll good now.', dropped: true })
+  // A list item that holds a clipped envelope goes alone; the next item is not taken with it.
+  assert.deepEqual(lead.stripLeadOutput('Steps:\n- {"version":1,"type":"lead-output","text":"x"\n- second step stays\n- third'),
+    { text: 'Steps:\n- second step stays\n- third', dropped: true })
+  // true, false and null are whole words: "nullable" and "trueish" are prose, not split.
+  assert.deepEqual(lead.stripLeadOutput('See {"type":"lead-output","ask":nullable fields} here. Rest stays.'), { text: 'See nullable fields} here. Rest stays.', dropped: true })
+  assert.deepEqual(lead.stripLeadOutput('Log: {"type":"lead-output","ok":trueish and more text after. Rest stays.'), { text: 'Log: trueish and more text after. Rest stays.', dropped: true })
+})
+
+test('stripping an envelope tidies only where it was: other quote separators, list markers and blank lines stay', () => {
+  const envelope = JSON.stringify({ version: 1, type: 'lead-output', text: 'Merging now.' })
+  const kept = 'A quote:\n> first\n>\n> second\n\nSteps:\n1.\n   Do the thing.\n\n\n\nLater.'
+  assert.deepEqual(lead.stripLeadOutput(`${kept}\n\nThe worker wrote:\n> ${envelope}\n\nDone.`), { text: `${kept}\n\nThe worker wrote:\n\nDone.`, dropped: true })
+  assert.deepEqual(lead.stripLeadOutput(`${kept}\n\n- ${envelope}\n\n\nDone.`), { text: `${kept}\n\nDone.`, dropped: true })
 })
 
 test('fresh proactive output without options is refused', async () => {
@@ -559,6 +726,17 @@ test('a host-attested chat-start preflight refusal reaches the model with its pl
   assert.match(result.toolResults![0]!.content, /Quote only a person message/)
   assert.equal([...s.journal.state.attempts.values()][0]!.outcome, 'failed')
   assert.equal(s.journal.state.chatEffectsSinceReply.started, 0)
+  assert.ok(!(result.transientTools ?? []).includes('delegate'), 'only the existing-work refusal is answered in the same turn; others keep their handling')
+})
+
+test('a start refused because the work exists returns the existing item, and the Lead carries on to tell the person', async () => {
+  const s = await setup([message([tool('delegate', 'chat_start', { text: 'Fix the login redirect (second attempt)' })], { stop_reason: 'tool_use' })])
+  const refusal = { id: '', ledgerItem: 'work-1', problem: 'Nothing was started: work work-1 "Fix the login redirect" was tried 10 minutes ago and ended as stopped (Stopped: its chat was stopped). Name it to the person and ask whether to start another attempt, with options.' }
+  ;(s.options as any).dispatch = async (_call: unknown, id: string) => { s.journal.noteDispatchNotStarted(id); return { value: refusal, identity: null } }
+  const result = await lead.createLeadMessages(s.options as any).request(input as any, new AbortController().signal)
+  assert.deepEqual(JSON.parse(result.toolResults![0]!.content), refusal)
+  assert.deepEqual(result.transientTools, ['delegate'])
+  assert.equal(s.journal.state.chatEffectsSinceReply.started, 0, 'nothing started')
 })
 
 test('rebuilt conversation history retains ordinary and proactive decision context for exact-label answers', () => {
@@ -571,4 +749,121 @@ test('rebuilt conversation history retains ordinary and proactive decision conte
     assert.match(prior, /Use the first one/)
     assert.match(prior, /recommended/)
   }
+})
+
+test('model results distinguish a permission refusal from an admitted dispatch failure', async () => {
+  const denied = await setup([message([tool('usage', 'library_usage')], { stop_reason: 'tool_use' })])
+  await denied.journal.setPolicy({ ...policy, revision: 2, rules: [{ id: 'deny', method: 'library/usage', action: null, project: null, effect: 'deny' }] })
+  const refusal = await denied.client.request(input, new AbortController().signal)
+  assert.match(refusal.toolResults[0].content, /^Tool was not permitted: /)
+  assert.match(refusal.toolResults[0].content, /rule/i)
+  assert.deepEqual(denied.dispatched, [])
+  const failed = await setup([message([tool('usage', 'library_usage')], { stop_reason: 'tool_use' })],
+    { dispatch: async () => { throw new Error(key) } })
+  const failure = await failed.client.request(input, new AbortController().signal)
+  assert.match(failure.toolResults[0].content, /^Tool failed: /)
+  assert.match(failure.toolResults[0].content, /desk request could not complete/i)
+  assert.deepEqual(failure.permissionDeniedTools, [])
+  assert.equal(failure.toolResults[0].is_error, true)
+  assert.ok(!JSON.stringify(failure).includes(key))
+})
+
+test('many parallel tools with near-full history reserve only their actual diagnostic text', async () => {
+  const probe = await setup([message()])
+  await probe.client.request(input, new AbortController().signal)
+  const body = JSON.parse(probe.fake.requests[0].body)
+  const history = [{ role: 'user', content: Array.from({ length: 64 }, () => ({ type: 'text', text: '' })) }]
+  const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength
+  const chars = 1_048_576 - 18_000 - bytes({ ...body, messages: history })
+  history[0]!.content.forEach((block, index) => { block.text = 'x'.repeat(Math.floor(chars / 64) + (index < chars % 64 ? 1 : 0)) })
+  const uses = Array.from({ length: 40 }, (_, index) => tool(`use-${index}`, 'library_usage'))
+  const s = await setup([message(uses, { stop_reason: 'tool_use' })])
+  const result = await s.client.request({ ...input, messages: history }, new AbortController().signal)
+  assert.equal(result.status, 'completed')
+  assert.equal(result.toolResults.length, 40)
+  assert.equal(result.toolResults.every((item: any) => item.is_error === false), true)
+  assert.ok(bytes(result.messages) <= 1_048_576)
+})
+
+test('a checkpoint request files its spend marked as compaction; an ordinary request carries no purpose', async () => {
+  const s = await setup([message(), message([{ type: 'text', text: '## Decisions made and why\nNone.' }])])
+  await s.client.request(input, new AbortController().signal)
+  const ordinary = s.journal.state.budget!.leadUsdMicros
+  assert.ok(ordinary > 0)
+  await s.client.request({ ...input, compaction: true }, new AbortController().signal)
+  // The checkpoint request is the Lead's spend too: the same cost an ordinary request of the same counts has.
+  assert.ok(s.journal.state.budget!.leadUsdMicros > ordinary, 'the checkpoint request is counted in the Lead\'s spend')
+  const settles = s.records.flatMap(record => record.type === 'budget' && record.event.type === 'settle' ? [record.event as any] : [])
+  assert.equal(settles.length, 2)
+  const reserves = s.records.flatMap(record => record.type === 'budget' && record.event.type === 'reserve' ? [record.event as any] : [])
+  assert.equal(reserves.length, 2)
+  assert.equal(reserves[0].purpose, undefined)
+  assert.equal(reserves[1].purpose, 'compaction')
+  assert.equal(s.journal.state.budget!.reservedUsdMicros, 0, 'both settled')
+})
+
+test('a credential-shaped piece of the history is withheld from the body and the stored continuation, and the rest is sent', async () => {
+  const github = 'ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8'
+  const s = await setup([message()])
+  const messages = [{ role: 'user', content: [{ type: 'text', text: 'Read the loader chat' }] },
+    { role: 'assistant', content: [tool('read-1', 'chat_read', { id: 'chat-1' })] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'read-1', content: JSON.stringify({ output: [`  token: ${github}`] }), is_error: false }] }]
+  const result = await s.client.request({ ...input, messages }, new AbortController().signal)
+  assert.equal(result.status, 'completed')
+  const sent = JSON.parse(s.fake.requests[0].body)
+  assert.equal(sent.messages[2].content[0].content, lead.LEAD_WITHHELD_TEXT)
+  assert.ok(!s.fake.requests[0].body.includes(github))
+  assert.equal(result.messages[2].content[0].content, lead.LEAD_WITHHELD_TEXT)
+  assert.equal(sent.messages[0].content[0].text, 'Read the loader chat')
+})
+
+test('what was withheld goes to the host as counts, with the first send only', async () => {
+  const github = 'ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8'
+  const s = await setup([{ status: 429, processing: 'not-started', retryAfter: '0', body: '' }, message()])
+  const messages = [{ role: 'user', content: [{ type: 'text', text: `Use ${github}` }, { type: 'text', text: 'and password=hunter2' }] },
+    { role: 'assistant', content: [tool('read-1', 'chat_read', { id: 'chat-1' })] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'read-1', content: JSON.stringify({ output: [`  token: ${github}`] }), is_error: false }] }]
+  assert.equal((await s.client.request({ ...input, messages }, new AbortController().signal)).status, 'completed')
+  assert.equal(s.fake.requests.length, 2)
+  assert.deepEqual(s.fake.requests[0].withheld, [{ turn: 0, kind: 'text', count: 2 }, { turn: 2, kind: 'tool_result', count: 1 }])
+  assert.equal(s.fake.requests[1].withheld, undefined, 'a retry of the same request does not report it again')
+  assert.ok(!JSON.stringify(s.fake.requests[0].withheld).includes('hunter2'))
+  // Nothing withheld, nothing reported.
+  const clean = await setup([message()])
+  await clean.client.request(input, new AbortController().signal)
+  assert.equal(clean.fake.requests[0].withheld, undefined)
+})
+
+test('instructions that look like they hold a credential are not sent, reserve nothing, and say so', async () => {
+  const s = await setup([])
+  const result = await s.client.request({ ...input, system: 'Deploy with password=hunter2 when asked.' }, new AbortController().signal)
+  assert.deepEqual(result, { status: 'failed', reason: 'lead-messages-withheld' })
+  assert.equal(s.fake.requests.length, 0)
+  assert.equal(s.records.filter(r => r.type === 'budget' && r.event.type === 'reserve').length, 0)
+})
+
+test('a request the host refuses before sending settles at zero instead of being written off as uncertain', async () => {
+  // The host's credential check refused the conversation, not the instructions: that has its own reason.
+  for (const [wireCode, reason] of [['lead-provider-refused', 'lead-messages-unsent'], ['lead-provider-withheld', 'lead-messages-held']] as const) {
+    const s = await setup([async () => { throw Object.assign(new Error(wireCode), { wireCode }) }])
+    const result = await s.client.request(input, new AbortController().signal)
+    assert.deepEqual(result, { status: 'failed', reason })
+    const events = s.records.flatMap(r => r.type === 'budget' ? [r.event.type] : [])
+    assert.deepEqual(events.slice(-2), ['reserve', 'settle'])
+    const budget = s.journal.state.budget!
+    assert.equal(budget.requests.length, 0); assert.equal(budget.reservedUsdMicros, 0); assert.equal(budget.leadUsdMicros, 0)
+  }
+  // A send that failed for any other reason may have reached the provider: that stays uncertain.
+  const s = await setup([async () => { throw new Error('synthetic ETIMEDOUT') }])
+  assert.equal((await s.client.request(input, new AbortController().signal)).status, 'uncertain')
+  assert.equal(s.journal.state.budget!.requests[0]?.uncertain, true)
+})
+
+test('#2145: the host\'s stamp on a question stays the host\'s: the Lead reads back its question as it wrote it', () => {
+  const ask = { question: 'Start it?', options: [{ id: 'start', label: 'Start it', starts: true as const }, { id: 'later', label: 'Not now' }], recommended: 'start', startsMarked: true as const }
+  const turns = lead.leadHistory([{ id: 'm1', role: 'assistant', text: 'Shall I?', ask }])
+  const offered = JSON.stringify(turns)
+  assert.match(offered, /Decision offered in this reply/)
+  assert.match(offered, /\\"starts\\":true/)
+  assert.doesNotMatch(offered, /startsMarked/)
 })

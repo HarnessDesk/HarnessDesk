@@ -4,7 +4,7 @@ import { RuntimeMark } from './BrandIcons'
 
 import type { RuntimeId, Session } from '@harnessdesk/protocol'
 
-import { allItems, isNoticeTurn, sessionKey, type SessionId } from '@harnessdesk/protocol'
+import { allItems, carryOnFor, isNoticeTurn, sessionKey, type CarryOnState, type SessionId } from '@harnessdesk/protocol'
 
 import {
   useIsFocusedPane,
@@ -32,7 +32,7 @@ import { describeLimits } from '../lib/limits'
 import { composerPaceVisible } from '../lib/composer-usage'
 import { teamInboxAction } from '../lib/team-inbox'
 import { conditionFor } from '../lib/usage-alerts'
-import { canTakeTurn, inPoolOrder, whenOutOf } from '../lib/account-pool'
+import { canTakeTurn, inPoolOrder } from '../lib/account-pool'
 import { accountKey, accountName, agentKey } from '../lib/accounts'
 import { isSilenced, offersMute, surfaceFor, wasKept, type NoticeIdentity, type NoticePolicy, type NoticeSurface } from '../lib/notice-policy'
 import { useShell, type ShellActions } from '../panels/views'
@@ -173,6 +173,9 @@ const bodyShowsSignIn = (standing: Standing | null, conversation: boolean, key: 
       !session.turns.some(turn => !isNoticeTurn(turn)) &&
       !(session.itemsLoaded && session.updatedAt > session.createdAt)))
 
+/** The incident states in which carry-on, not the banner, answers for the conversation. */
+const CARRY_ON_LIVE: ReadonlySet<CarryOnState> = new Set<CarryOnState>(['deciding', 'asked', 'waiting-reset', 'sending'])
+
 const useStanding = (): Standing | null => {
   const store = useStore()
   const shell = useShell()
@@ -180,6 +183,8 @@ const useStanding = (): Standing | null => {
   const runtime = useRuntime()
   const health = useRuntimeHealth()
   const account = useRuntimeAccount()
+  // The conversation this banner sits over: its pane's, not whichever one has focus.
+  const conversation = useSessionKey()
   const agent = agentKey(runtime)
   const siblings = snapshot.runtimes.filter((entry) => agentKey(entry) === agent)
   const pool = snapshot.accountPools[agent]
@@ -229,13 +234,21 @@ const useStanding = (): Standing | null => {
       }
     }
     // What the agent this conversation talks to is up against, and somewhere
-    // else to take the work.
+    // else to take the work — by the rule that applies to this agent (its
+    // own, or the desk's), never past it: a Stop rule offers nothing, and a
+    // desk that keeps switches inside the agent offers no other agent.
+    // While a carry-on incident owns this conversation's answer (its card is
+    // asking, or a wait or a send is under way), the banner states the
+    // condition and offers no way out of its own beside the card's.
+    const rule = carryOnFor(snapshot.carryOnPolicy, pool)
+    const incident = conversation ? snapshot.carryOnIncidents.get(conversation) : undefined
+    const deciding = incident !== undefined && CARRY_ON_LIVE.has(incident.state)
     const condition = conditionFor(runtime.id, snapshot.usage, nameFor, Date.now(), {
-      prefer: inPoolOrder(siblings.filter((entry) => canTakeTurn(entry, snapshot)), pool).map((entry) => entry.id),
-      offer: whenOutOf(pool) !== 'stop',
+      prefer: inPoolOrder(siblings.filter((entry) => canTakeTurn(entry, snapshot)), pool, { reports: snapshot.usage, now: Date.now() }).map((entry) => entry.id),
+      offer: rule.choice !== 'stop' && !deciding,
       canTake: (id) => {
         const entry = snapshot.runtimes.find((one) => one.id === id)
-        return entry !== undefined && canTakeTurn(entry, snapshot)
+        return entry !== undefined && canTakeTurn(entry, snapshot) && (snapshot.carryOnPolicy.otherAgents || agentKey(entry) === agent)
       },
     })
     if (condition) {

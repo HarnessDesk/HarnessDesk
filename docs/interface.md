@@ -52,6 +52,18 @@ then carries a badge for the number of views waiting there. A split that would
 leave either half below its minimum size stays disabled and tells you the size
 it needs and the size this panel has.
 
+### Reading another conversation
+
+**Open on the right** in a conversation's sidebar menu opens one transient,
+read-only transcript beside the current work. Its title and agent identify the
+conversation; Close or Escape returns to the previously selected tool. Selecting
+another tool or changing the main subject dismisses it. The main composer,
+workspace and keyboard commands still belong to the main subject. The reader
+has no composer or session actions. It reads the saved body and then resumes the
+conversation for live updates; resuming can reopen a runtime or restore a
+missing worktree. Read and resume failures are shown with Retry, retaining any
+body already available. The reader is not restored after a window restart.
+
 ### Reading changes
 
 Before a draft has its first message, Changes stays disabled with
@@ -524,8 +536,12 @@ Open Folder, Usage, Settings and Quit. Native rows use standard brand glyphs
 with one narrow icon column; usage readings stay in the labels, rather than
 a wide raster that reserves empty meter space. Its Usage submenu retains reporting
 accounts and sign-in or unavailable states; neutral runtimes without a reading
-share one note. **View › Show Menu Bar Icon** restores a hidden item and remembers
-that choice for this desk. Other worker desks keep their own visibility defaults.
+share one note. The item's figure is the current agent's, the one the next Send
+goes to: what it has left, or when it is back once it is out. The tooltip names
+that agent and Usage checks its row; with no current agent, or no reading for
+it, the item shows the mark alone. **View › Show Menu Bar Icon** restores a
+hidden item and remembers that choice for this desk. Other worker desks keep
+their own visibility defaults.
 
 Dashboard's Overview names the ledger total **Usage cost**; its title explains
 whether that cost was metered or priced at public rates. The pressed chart
@@ -727,10 +743,13 @@ is closed. Workspace-scoped Agents, Plugins and New Team follow that folder.
 
 Hidden, closed conversations may release their cached transcript after the
 host verifies its saved copy. Opening one restores that copy; active work,
-mounted views, drafts and unconfirmed activity remain protected. If the copy
-cannot be restored, the existing error notice reports the failure and the
-conversation's row and any retained activity are kept. An unavailable body is
-never treated as an empty, complete history.
+mounted views, drafts and unconfirmed activity remain protected. While recent
+activity cannot be safely saved, the conversation shows its retained history
+with **Recent activity is still being saved.** If saved history is unavailable,
+complete activity still held in memory remains readable as partial history.
+Only a conversation with nothing readable shows an unavailable-history error;
+its row and retained activity are kept. An unavailable body is never treated
+as an empty, complete history.
 
 **The header earns each button**: title · status group · browser button ·
 terminal toggle · ⋮. The status group puts the ceiling, status, background work,
@@ -875,6 +894,11 @@ the opening of the description as GitHub holds it, which is where the signature
 the desk wrote is read. Pressing it opens the page. Customize › Plugins › Git
 has Description, Review and Comment signature templates. Their placeholders
 are listed once above the settings rows; a blank value turns that kind off.
+An untouched field shows its default as its own text, so emptying it is a
+change Apply saves.
+Its Commit co-author row is the line the desk adds to each commit it makes for
+an agent; blank adds none, and a value that is not one
+`Co-authored-by: Name <email>` line is refused when saved.
 The default signature names the Team role and the agent's own model and effort
 labels. The first review round in a Run is 1; later reviews count only earlier
 review rounds in that Run, and the signature omits round 1. Outside a Team the
@@ -1114,7 +1138,10 @@ they were typed. ⌘↵ steers the running turn for runtimes that support mid-tu
 steering — the others state that they cannot, so the shortcut is offered by
 capability rather than tried and apologised for. Stop and the queue button sit
 side by side while a turn runs, so the primary position never changes meaning
-under a pointer already moving toward it.
+under a pointer already moving toward it. Stop stays after the turn ends while
+sub-agents it started are still working (the host marks the idle status with
+`subagentsRunning`): it then stops those sub-agents and starts no turn, and a
+message typed meanwhile is sent at once, with Send beside Stop.
 
 If adding a message to the running turn fails — the turn ended, the connection
 was lost, or the runtime timed out — its words and chips stay in that
@@ -1132,6 +1159,20 @@ the rest of a queue into a rate limit, a crashed runtime, or a turn the user jus
 stopped would spend money on a guess. The queue lives in the host, so it
 survives a reload and a second window; it does not survive the host, because a
 session that is no longer live could not deliver it anyway.
+
+### Prompt links
+
+`harnessdesk://new?repo=<owner/name, host/owner/name or absolute path>&prompt=<text>`,
+with optional `pr=<number>` and `flow=<flow id>`, brings HarnessDesk forward
+and opens a new chat in that project with the prompt in the composer. It
+never sends. The repository must already be a project on the desk, matched
+by its `origin` remote or by its folder; otherwise a notice says **Open this
+repository first:** and the repository, as text, and nothing opens. A matched
+draft shows **From a link — review before sending.** above the composer,
+with the pull request and Flow as plain words when the link named them; it
+goes at the first edit or on Send. Words already typed in the new-chat
+composer move to its Restore list. The browser build does not read prompt
+links.
 
 ### Cursor model controls
 
@@ -1313,6 +1354,27 @@ Empty-directory cleanup and runtime catalogue banners appear only under Needs at
 
 MCP servers retain List and Matrix, their PageOptions and their existing
 filters. An empty MCP region says No MCP servers yet with no description.
+Each usable copy of a server on disk has Test connection. The List also offers
+Test for the first nonempty copy (its path is on hover), with the result as a
+chip on the same line. A failure chip opens a dialog with the full reason and
+server output, available by touch and keyboard. Missing variables say Variable
+not set. Empty copies have no test action. Detail and reading sheets keep the full reason, folded server output,
+and Needs sign-in action through an agent that reads the copy; without that
+agent's sign-in support they explain that its agent signs in to it.
+A copy the project's own file declares asks before running. The host expands references in
+the fields the inventory carries: command, args, env, URL and headers. JSON
+braced references and defaults use the desk's environment; the Cursor format
+uses its env:NAME syntax and home/project/path placeholders, and Gemini also
+supports bare variable names (and percent syntax on Windows). Codex strings
+stay literal; env_vars forwards only set names. Nested defaults remain literal,
+and no replacement is recursively expanded. A missing JSON reference without a
+default refuses the test by variable name, even where an agent would keep the
+placeholder. Claude's empty-but-set variables suppress defaults.
+Before running a project's server, Reads from this desk lists every environment
+name inspected, including names inside headers and unset names with defaults.
+Values stay private. A process-keyed confirmation digest binds both the resolved
+declaration and those names; changed values or names ask again. Nothing tests on
+open; each copy permits one test at a time, with at most four across the desk.
 The List compares Server, State and Loaded by in three labelled columns.
 Skills omit repeated generic marks. Built-in plugins keep their own glyphs;
 the generic plugin glyph is omitted only when the list has no mapped glyphs.
@@ -1383,6 +1445,16 @@ For a scripted desk, `HARNESSDESK_CLIENTS_MAY_ANSWER=1` also grants that tier,
 regardless of the stored switch. The switch shows and changes the stored
 preference; disabling it does not remove that environment override.
 
+Beneath it, **MCP clients** has **Let MCP clients start work**, off by default,
+and **Starts a day** (1, 3, 5, 10, 20 or 50; 5 unless changed). While the switch
+is on, its row says how many of the day's starts are used, counted from local
+midnight; a start that fails is not counted. Both are host state
+(`app/mcpStarts/get` and `app/mcpStarts/set`, saved against a revision), so a
+second window or a client already connected sees the change on its next call.
+`HARNESSDESK_MCP_MAY_START=1` grants starts for a scripted desk and locks the
+switch, whose hover title names it. A run started this way carries an **MCP**
+chip before its title in a Team's Runs, whose hover title names the client.
+
 **Runtimes** lists every registered runtime with its accounts beneath it.
 Its Process cost section lists runtimes holding processes, with process count and
 resident memory, including descendants, refreshed every five seconds while the
@@ -1403,12 +1475,43 @@ that agent on request and reads its account without changing the default.
 An agent with several accounts lists them under its row in the order they are
 used, each with its plan, **Default** on the one new sessions run as, and what
 is left or **Limit reached**. On the agent's page each account's menu offers
-**Move up** and **Move down**, and **When an account runs out** chooses **Use
-the next account**, **Ask me** (the default: the usage notice offers the next
-one) or **Stop** (it offers nothing). Use the next account moves new sessions to
-the next account in that order with room, once, and says so in a notice that
-can be muted as *Account switches*. A conversation already open stays on its
-account, because its thread lives in that account's history.
+**Move up** and **Move down**, and **When an account runs out** chooses
+**Follow the desk setting** (the default), **Use the next account**, **Ask me**,
+**Wait until it resets** or **Stop** for that agent alone — shown on every
+agent's page, with one account too, since a rule set earlier still applies.
+Use the next account also moves new sessions to the next account in that order with room, once, and
+says so in a notice that can be muted as *Account switches*.
+
+A running conversation that reaches its usage limit carries on by that rule, or
+by **Settings › Permissions › When a usage limit is reached** where the agent
+sets none: **Ask me** (the default), **Switch to another account**, **Wait until
+it resets** or **Stop**, with **Use other agents too** (on by default) letting a
+switch continue in a new conversation with another agent when no account of the
+same agent has room. Ask me puts a card over the conversation's composer: the
+account that ran out, when it resets, and **Switch to …** or **Continue in …**
+naming where it would go, **Wait until reset** and **Stop**, with a link that
+lists the rest by what they are — **Other account…**, **Other agent…**, or
+**Choose another…** with the two under their own headings — offering only the
+ones that can take the work now (an account nearly spent or on an API key wears
+a chip; one signed out or with no room is left out), and **Always do this** to keep the answer as
+the rule, for the desk or for that agent as the card says. Without the box the
+next limit asks again. An unanswered card spends nothing new: at a known reset it
+waits and retries once on the same account, and with no reset known the
+conversation stays stopped. Wait until reset is not offered when no reset time
+is known. A same-agent switch keeps the thread where the accounts share their
+history; otherwise the work continues in a new conversation that takes the
+place of the old one in the list. Every switch, wait and stop is marked in the
+conversation, with a link between the two conversations of a handoff, and a
+kept copy goes to the inbox (*Usage limits in a conversation*, which can be
+muted; the card and the mark cannot). A Team seat's limit is its Team's notice,
+and a Lead chat's the Lead's, never this card. **Order** chooses
+**My order** or **Prefer the account that resets soonest**: with the second, the
+accounts with room are used in the order their windows refill, the one that
+refills first leading, and the Move up and Move down menus are not offered
+because the usage readings set the order (your own order is kept for when it is
+turned off). An account with more than half of a window unused and that window
+about to refill, close meaning inside a quarter of the window's length, carries
+a **Use it first** chip whose hover gives the figure and the reset.
 
 It has a page per runtime (health, update, the runtime's own options) or per account;
 an agent's page leads with who it signs in as — its accounts, then the defaults
@@ -1517,6 +1620,28 @@ started in, its board, and when it opened and closed. A Seat restored from a
 backup says so. It is read-only, because the record is: written once when the
 seat was kept, and closed once. A conversation never seated shows none of it.
 
+**Sub-agents a conversation started.** One child reads the same on four
+surfaces. In the transcript, a run of calls to sub-agents folds into one card
+where the first of them happened, and a reply from the agent between calls
+starts the next card, so a second batch is not hidden in the first: a head with how many it started and
+only the states that are news (2 working, 1 failed), the span and the tokens,
+then a row per child with its light, name, role, its phase once it is no longer
+working, and its model, time and tokens. Pressing a name shows what the child
+was asked; Open opens a child that has a conversation of its own. While the
+agent waits on its children, a last line says so. Over the composer, a strip
+names the children still working, for when the card has scrolled away or the
+turn is over and they are not; Show opens the Agents panel. In the sidebar, the
+conversation carries a nested row for each child still working, up to three
+and then a count; the rows go when the children stop. The Agents panel groups
+its children into Working, Failed and Finished and, with two or more timed,
+draws a lane each on one clock from the first start, so who ran when, and
+alongside whom, is one look. A child still called working once its conversation
+has settled — the turn is over and the agent has not said one outlived it —
+reads as Ended, since nothing will say more about it; so does a child last
+named in an earlier turn while a later one runs. A child whose own record the
+agent still holds open — one running in the background — stays Working past
+its turn until that record says it ended.
+
 **A project's checks.** Workspaces › a project lists the checks the project
 names, as committed, each command verbatim with whether this Mac has approved
 it for this version of the file, says when your working copy of the file is
@@ -1531,7 +1656,9 @@ existing composer, strip or sidebar card, with their action and Inbox option.
 Toasts appear at the bottom right of the window, just above the composer when
 one is showing, so neither a page’s own controls nor Send and the model picker
 are covered. Without a composer, they sit a small gap above the window’s bottom
-edge. The shared notice card centres its tile on the complete copy block, with title above optional earned detail. Actions sit
+edge. There, the page keeps a lane under its scroll owner while a toast shows, so
+the toast covers none of its rows; a page with a composer showing keeps none,
+since the toast already sits above the composer. The shared notice card centres its tile on the complete copy block, with title above optional earned detail. Actions sit
 beside the copy, dropping below at three or more actions or below about 400px;
 a wrapped card keeps its dismiss at the top-right. Its plate matches the
 composer, and danger adds a left bar and tinted tile. A requested action that
@@ -1961,6 +2088,23 @@ whole of what a save does — the existing Triggers section's own preview and
 explicit **Arm**, bound to the committed bytes, are still what consents to
 anything running unattended.
 
+For an issue or a pull request the composer also offers **When someone asks
+@harnessdesk**. Turning it on makes the Lead the only target: the other event
+switches and *Continue an open Goal* step aside, the disabled ones saying why
+in their `title`, and a **Who may ask** select sets `from`. With no Lead on
+this desk the switch is disabled and says so. The row and the arming review
+read "When you write @harnessdesk … on a pull request, hand it to Dex as a
+request" — the Lead's name from Settings › Lead, "the Lead" before it is read —
+with "you or a collaborator write" or "anyone writes" for the wider `from`, and
+the review's **Who may ask** row says that only a first line starting with
+@harnessdesk asks, and that an edit, a bot or the desk's own post never does.
+A request reaches the Lead as its plan card, with *From: a request on …* on
+the item. In the thread, the turn that opened the goal is a desk line rather
+than a message of yours: *Request on pull request #12 from you*, linked to the
+comment, with the asker's words quoted beneath it as plain text, never the
+prompt the Lead was given. A goal any other trigger opened reads the same way
+(*Checks failed on pull request #12*, the title quoted).
+
 ### The Teams page
 
 **Teams**, in the left menu beside Agents, groups the desk's work into three
@@ -2273,6 +2417,8 @@ Lead is one ongoing conversation. Questions, explanations and clarifications rec
 
 While an ordinary reply is in flight the composer offers Stop reply. A completed reply leaves no planning banner or invented goal. Formal reviewed work retains its plan and approval cards. A setup failure keeps the composer available and explains the needed change without Resume; a new message carries that failure back to Lead so it can adjust. Transient interruptions retain Resume. A delegated chat waiting for a provider reset remains working while the host tries at most two continues. Exhausted retries or a credit failure bring the existing structured ask: retry, move to an available agent, or stop. A chosen move retains the old chat and carries the original request and a bounded progress digest into the new one. Person-held chats stay untouched. Tracked ordinary chat state changes coalesce into a background check; results and decisions can return to the same Lead conversation, while unchanged work stays quiet.
 
+After half an hour in which no window or phone was looked at, the next look shows a **While you were away** card when something finished, stopped or came to need the person in that span, a reminder fired, a note was kept in memory, a setting was applied, or money was spent; when nothing did, there is no card, and the Lead, asked, says the same and names the span. A window counts as looked at only while the person touches it (for two minutes after) or brings it forward. **What happened?** is a top-bar tool on the Lead's page, shown once the thread has a message, and brings the last day's card into the thread in one click; it sits in the bar rather than in the rail, which a narrow window draws over the thread. While the desk reads, its icon turns to a spinner and its name to **Reading…**. The card and the recap list, each under its own heading, Needs you (the Lead's work and any Team or chat on the desk that came to need the person), Reminders, Stopped or stuck, Done (work and chats that finished), Kept in memory and Settings applied; each row opens what it names, a reminder the Lead's Work list at that reminder and a note or a setting its row in Settings › Lead.
+
 If a chat start or send loses its response after the effect may have begun, Lead waits with `lead-chat-effect-uncertain`. The notice says to inspect that chat on the desk and offers **Start new request**, using the existing person Stop action. Resume is unavailable. Sending before that acknowledgement returns specific feedback and leaves the draft intact. After successful Stop, the next separately typed person message starts a fresh logical goal; the original operation remains uncertain in the journal and is never replayed. Flow recovery, cleanup and allowance fences still apply.
 
 Lead is off by default; `HARNESSDESK_LEAD=1` enables it at startup. Its child
@@ -2315,7 +2461,15 @@ the limits popover: tightening applies at once, raising asks on a card in the
 conversation. The plan's decision stays in the conversation; the rail only reads
 it back, and before approval it reads the latest plan card, the one the
 conversation is asking about. Where it floats it is open by default too, like
-the session rail; its toggle puts it away.
+the session rail; its toggle puts it away, and so do Escape and a press anywhere
+outside it, as for the floating sidebar, so what it lay over answers the next
+press. A press inside it, or a menu it opened, keeps it. Each Work row opens
+what it stands for from its own body: a Team that needs the person, an item's
+Team when it has one, else the item's latest chat; its actions menu answers for
+itself. A question the Lead asked keeps its options live while the desk holds it
+open and it is the newest, past anything the person says about something else;
+Keep and Apply on a proposal each leave one line in the thread saying what was
+kept or applied.
 
 Decision details are assistant Markdown in journal order, without card borders,
 inset rows, revision labels or internal identifiers. Plans show LeadPlanFlow, an ordered flow diagram of steps and responsible roles
@@ -2323,6 +2477,20 @@ ending in Approve to start, acceptance checks, the allowance and folder,
 and the separate-approval boundary for publishing, merging and deleting. Results
 show qualified check, review, findings and changes status, reasons and separately
 attributed Lead and reported worker spend. Unknown values remain unknown.
+
+A Lead reply links the Teams and chats it acted on, from the references the host
+attached to it. A reply that carries none links, at most three, the Teams and
+chats its words name, by the whole-word rule the phone uses
+(`leadWorkNamedIn`), so the two surfaces link the same work. The wake ledger,
+what woke the Lead and whether it spoke, sits at the end of the thread after the
+latest reply, so the conversation reads in time order. Collapsed, it shows the
+wake behind the latest reply, not a later check that found nothing; expanded, it
+lists every wake. A wake is recorded only when the check found something: a
+tool continuation, a desk change the look woke for, a chat change, or evidence
+that arrived on its own. The minute tick, a prose notice and a Team change
+that wakes nothing leave no row. The thread follows its
+end while the reader is there, including when the browser moves the content down
+itself; only scrolling up stops it.
 
 A plan for recurring work carries a Repeats chip and a How it repeats block: its local timetable, that a slot is skipped while the previous run waits, and that an asleep desk makes one run when it wakes. The allowance is per run. Approve covers the stored contract for future runs; publishing, merging and deleting still ask on each run. A changed project, policy, seat, review independence or Flow source returns a plan card with the reason. Each run has its own result and acceptance. Plan and result Runs links open Settings › Lead, where each task's Runs view shows its next slot and last 12 runs, state, reason and known spend and rounds. Pause silently skips slots until Resume. Stop retains the history. Run once now requires an idle Lead. Settings tasks without an approved contract still ask for a plan approval each time.
 
@@ -2395,7 +2563,7 @@ turn is retained for approval before the Lead parks.
 Reads back off to 30 seconds, read once more, then wait for changes.
 
 Settings › Lead exists only with the host capability. Its groups are Name,
-Provider key, Allowances, Permissions and Triggers. The chosen name saves immediately and changes
+Provider key, Allowances, Permissions, Triggers and Memory. The chosen name saves immediately and changes
 no authority. The uncontrolled key input is emptied before its exclusive request,
 including refusal; removing a key asks for confirmation. Changed authority groups
 have a trailing Save. Tightening applies immediately; widening creates a decision
@@ -2421,6 +2589,22 @@ and Review comment; each defaults on and saves independently to settings.follow.
 Open a goal when is a read-only list of project declarations with opens.lead
 true, using the arm preview's lead.summary. Each opens the project's returned
 trigger-file path. This page neither edits nor arms declarations.
+
+Settings › Lead › Rules holds three sections of the person's own words, each
+versioned. A section's dialog lists its versions, newest first, each with
+Restore but the one in force; while the person's words are in force, a last
+**Shipped words** row restores the default, so even a first change can be
+rolled back. A restore saves a new version. Settings › Lead › Autonomy lists
+**Recent changes**, newest first: every mode change, every saved rule version
+(a restore and a reset included) and every deadline, read again whenever the
+desk says autonomy changed. A proposal card for a rule section shows the words
+the section will hold against the words in force, as a diff, whether the Lead
+added a line or wrote the whole section. These pages and the cards call the Lead
+by its chosen name (Dex or Lex), as the phone does. A paired phone receives each
+saved section's newest five versions with their words and the shipped words, so
+it can show earlier wording and a diff; restoring stays at the desk.
+
+Settings › Lead › Memory says the Lead reads Core at the start of each conversation and searches Archive when it needs to. Its header holds Export (the notes as JSON) and Forget all, whose confirmation says it also empties the conversation copy the Lead searches and that the Lead's journal keeps its record. A switch, Keep the Lead's notes without asking, lets facts and lessons skip To review; an Add a note field adds the person's own note. To review lists waiting proposals with Keep, Edit and No; Core shows how much of its 6 KB is used, with a warning tone past 90%; Archive follows; each note offers Edit, Archive or Move to Core, and Forget, whose confirmation says what goes (the note, every saved version, passages that quote it) and what stays (the conversation it came from, the Lead's journal), since it cannot be undone, with a chip when the Lead wrote it or when the current plan cites it. History lists the last eight changes, and Undo on any change that can be undone. A Forget is its own row (You · 1 forgotten); a change whose words it took out keeps its counts under a Forgotten chip and can no longer be undone, so the list never reads only no change. When the desk could not hand the latest change to the Lead, an error banner at the top says the Lead still reads the version before it. In the Lead's thread, the same proposals sit under the reply they came with.
 
 A phone start uses the selected runtime’s saved new-session choices after validating them against the current adapter. Replies use the ordinary turn queue while an agent is busy. If creation succeeds but the first message cannot be confirmed, the response retains the session id and a warning; the phone opens that conversation with the draft instead of starting another session on retry.
 

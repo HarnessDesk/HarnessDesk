@@ -10,4 +10,6 @@ export const phoneMethods = {
   'phone/sessions/list': (ctx, params) => ctx.phoneWorkspace.sessionsList(params),
   'phone/teams/list': (ctx, params) => ctx.phoneWorkspace.teamsList(params),
   'phone/dashboard/read': (ctx, params) => ctx.phoneWorkspace.dashboardRead(params),
+  // Read only: what mention triage decided, as the phone lists it; every change to a trigger is the desk's.
+  'phone/triage/list': async (ctx, params) => ({ rows: await ctx.intake.triage(params.limit ?? 50), triggers: await ctx.intake.triageTriggers() }),
 } satisfies MethodsUnder<'phone/'>

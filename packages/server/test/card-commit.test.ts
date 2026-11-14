@@ -777,3 +777,36 @@ test('card commits carry the adapter credit once alongside the desk credit', asy
     assert.equal(await parsedTrailers(root), [trailer, coauthor].filter(Boolean).join('\n') + '\n')
   }
 })
+
+test('a blank Commit co-author adds no desk line, and the agent’s own credit is still added', async (t) => {
+  const credit = { name: 'Example Agent', email: 'agent@example.com' }
+  const trailer = `Co-authored-by: ${credit.name} <${credit.email}>`
+  const root = await repo(t)
+  const before = await snapshot(root)
+  await writeFile(join(root, 'a.txt'), 'new\n')
+  assert.ok('commit' in await commitCardWork(root, before, 'Change', credit, null))
+  assert.equal(await parsedTrailers(root), `${trailer}\n`, 'only the runtime credit')
+  assert.ok(!(await git(root, 'log', '-1', '--format=%B')).includes('agent@harnessdesk.app'))
+
+  // Neither: the agent's message is committed as written, with no trailer at all.
+  await writeFile(join(root, 'a.txt'), 'next\n')
+  assert.ok('commit' in await commitCardWork(root, [], 'Change again', null, null))
+  assert.equal(await parsedTrailers(root), '')
+  assert.equal((await git(root, 'log', '-1', '--format=%B')).trim(), 'Change again')
+})
+
+test('a custom Commit co-author is the desk line, beside the agent’s own credit', async (t) => {
+  const credit = { name: 'Example Agent', email: 'agent@example.com' }
+  const custom = 'Co-authored-by: Jane Doe <dev@example.com>'
+  const root = await repo(t)
+  const before = await snapshot(root)
+  await writeFile(join(root, 'a.txt'), 'new\n')
+  assert.ok('commit' in await commitCardWork(root, before, 'Change', credit, custom))
+  assert.equal(await parsedTrailers(root), `Co-authored-by: ${credit.name} <${credit.email}>\n${custom}\n`)
+  assert.ok(!(await git(root, 'log', '-1', '--format=%B')).includes('agent@harnessdesk.app'), 'the shipped line is replaced, not added to')
+
+  // Already in the message: git keeps it once.
+  await writeFile(join(root, 'a.txt'), 'next\n')
+  assert.ok('commit' in await commitCardWork(root, [], `Change again\n\n${custom}`, null, custom))
+  assert.equal(await parsedTrailers(root), `${custom}\n`)
+})

@@ -139,6 +139,27 @@ it('the inbox bell says how many are unread and tints itself only then', async (
   expect(host.querySelector('[data-slot="inbox-button"]')?.hasAttribute('data-unread')).toBe(false)
 })
 
+it('lists what the desk says needs the person above the kept messages, counts it on the bell, and opens it', async () => {
+  const opened = vi.fn()
+  await act(async () => root.render(<InboxPanel messages={[{ ...offer, read: true }]} waiting={[{ id: 'team:game', title: 'build a game', place: 'Widgets', onOpen: opened }, { id: 'lead', title: 'Dex is waiting for you' }]} />))
+  const bell = host.querySelector('[data-slot="inbox-button"]')
+  expect(bell?.hasAttribute('data-unread')).toBe(true)
+  expect(bell?.textContent).toBe('Inbox, 2 need you')
+  await act(async () => { host.querySelector<HTMLButtonElement>('button')!.click() })
+  const menu = document.querySelector('[data-popup-kind="wide-menu"]')!
+  expect(menu.textContent).toContain('Needs you · 2')
+  expect(menu.textContent!.indexOf('build a game')).toBeLessThan(menu.textContent!.indexOf('Skills to share'))
+  const row = [...menu.querySelectorAll<HTMLElement>('[role^="menuitem"]')].find(node => node.textContent?.startsWith('build a game'))!
+  await act(async () => { row.click() })
+  expect(opened).toHaveBeenCalledTimes(1)
+})
+
+it('says kept messages stay until cleared only when there are kept messages or nothing at all', async () => {
+  await act(async () => root.render(<InboxPanel messages={[]} waiting={[{ id: 'lead', title: 'Dex is waiting for you' }]} />))
+  await act(async () => { host.querySelector<HTMLButtonElement>('button')!.click() })
+  expect(document.querySelector('[data-popup-kind="wide-menu"] [data-menu-footer]')).toBeNull()
+})
+
 it('lets the header use the rail target while the default Inbox keeps its target', async () => {
   await act(() => root.render(<InboxPanel messages={[]} size="icon-xs" side="bottom" />))
   expect(host.querySelector('button')?.className).toContain('size-(--hd-icon-target)')

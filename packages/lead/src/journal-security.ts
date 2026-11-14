@@ -47,8 +47,13 @@ const snapshotLeadData = (input: unknown): unknown => {
 const prose = new Set(['goal', 'title', 'description', 'summary', 'reason', 'text'])
 const tokenShape = /\b(?:gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{60,}|sk-ant-[A-Za-z0-9_-]{20,}|sk_live_[A-Za-z0-9]{24,}|xox[abpr]-\d{10,13}-\d{10,13}-(?:\d{10,13}-)?[A-Za-z0-9]{20,}|AKIA[A-Z0-9]{16}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{16,})\b/
 const tokens = new RegExp(tokenShape.source, 'g')
-const headers = /\b(Cookie|Authorization|x-api-key):[ \t]*(?:(?:Bearer|Basic|Token)[ \t]+)?[^\s,;]+/gi
-const assignments = /\b(api[_-]?key|access[_-]?token|token|secret|password)\s*=\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]+)/gi
+// A value that is only a placeholder is not a credential: `authorization: …` is a line the desk clipped, and
+// `password=***` one already masked. Read as credentials, either refused every request whose history held it. The
+// placeholder must be the whole value: it ends at a delimiter, the end, an encoded line break, or a quote that really
+// closes an encoded string (followed by a delimiter or the end). Anything glued on, in any script, is a value.
+const placeholder = String.raw`(?:…+|\.{3,}|\*+|•+|\[redacted\]|<redacted>)(?=[\s,;]|\\[nrt](?![A-Za-z0-9])|\\?"(?=[\s,;:\]}]|\\|$)|$)`
+const headers = new RegExp(String.raw`\b(Cookie|Authorization|x-api-key):[ \t]*(?!(?:(?:Bearer|Basic|Token)[ \t]+)?${placeholder})(?:(?:Bearer|Basic|Token)[ \t]+)?[^\s,;]+`, 'gi')
+const assignments = new RegExp(String.raw`\b(api[_-]?key|access[_-]?token|token|secret|password)\s*=\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|(?!${placeholder})[^\s,;]+)`, 'gi')
 const secretName = /^(?:[a-z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|token|secret|password|cookie|authorization|bearer)$/i
 const paginationName = /^(?:page|next|continuation)_(?:token|cursor)$/i
 const reference = /^broker:[A-Za-z0-9._:/-]{1,200}$/

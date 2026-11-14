@@ -1,10 +1,19 @@
 import { parseLeadWorkerApprovalRule, leadWorkerRuleInProject, boundLeadApprovalEntries, boundLeadApprovalHistory, leadWorkerApprovalEntries, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
+import type { LeadAutonomyRecord } from '@harnessdesk/protocol'
 import { LEAD_LIMITS, clientTierFor, parseLeadCardDecisionFor, type LeadWakeRecord, type LeadOrigin, type LeadHandback, type LeadName, type LeadFollowPreferences, type LeadPullRequest, type LeadDecisionMessage, type LeadAcceptanceContract, type LeadCard, type LeadPermissionPolicy, type LeadCaps, type LeadMessage, type LeadSendReceipt, windowLeadThread } from '@harnessdesk/protocol'
 import { applyLeadPolicyDecision, compareLeadPolicyAuthority, sameLeadPolicyValues } from './permissions.js'
 import { parseLeadJournalRecord, parseLeadRunEvidence, type LeadArgumentSummary, type LeadAttemptOutcome, type LeadJournalRecord, type LeadRunIdentity, type LeadPublicationOperation, type LeadOwnedPush } from './journal.js'
 import { reopenLeadBudgetRound, reduceLeadBudget, releaseLeadStart, applyLeadBudgetCard, applyLeadBudgetCaps, type LeadBudgetLedger } from './budget.js'
+import { initialLeadMemoryCore, type LeadMemoryCore } from './memory.js'
+import { initialLeadChatHandles, leadChatHandlesAfter, type LeadChatHandles } from './chat-handles.js'
 
 /** A finite migration warning, separate from the per-request audit store. */
+/** Compaction failures that end the run without counting toward the breaker. */
+export const LEAD_CONTEXT_UNCOUNTED: readonly string[] = Object.freeze(['interrupted', 'blocked', 'unreachable',
+  // Refusals about the desk's own key, configuration or spend, not the model's writing: the run ends uncounted. A refused
+  // request is not here: ordinary requests may still pass while the checkpoint request never does, so it counts and
+  // the desk writes that checkpoint itself.
+  'lead-messages-auth', 'lead-messages-config', 'lead-messages-admission', 'lead-messages-capacity', 'lead-messages-billing-unknown'])
 export const removedWorkerApprovalNotice = (messages: readonly LeadMessage[], seq: number): readonly LeadMessage[] => messages.some(message => message.id === 'worker-rules-removed') ? messages : [...messages.slice(-255), { version: 1, id: 'worker-rules-removed', revision: seq, role: 'notice', text: 'Some saved approvals were removed because their targets no longer qualify. Review new requests on the desk.' }]
 
 export const LEAD_SEND_RECEIPTS = 4096
@@ -55,6 +64,8 @@ export interface LeadState {
   /** The person's standing money limit per goal; `usdMicros: null` is Off. Null until a choice or its migration is
    * journaled, and until then a goal's money cap comes from the ledger and the plans as it always did. */
   readonly spendLimit: { readonly usdMicros: number | null } | null
+  /** What the Lead may do unasked, and the rule sections the person edited. Null until the person first saves either. */
+  readonly autonomy: LeadAutonomyRecord | null
   /** Journal sequence of the latched stop whose idempotent cancellation effects need acknowledgement. */
   readonly stopEffectsPending: number | null
   /** Only the host-owned person Stop event acknowledges possible ordinary-chat effects. */
@@ -84,9 +95,32 @@ export interface LeadState {
    * `runs`; these stay so the person can still wrap them. Wrapping is the desk's; this is only who owns what.
    */
   readonly acceptedTeams: readonly LeadAcceptedTeam[]
+  /** The stored conversation's epoch and its compaction state. The conversation itself lives in the host's context
+   * store; this is the fence that says which version of it is current. Carried across goals. */
+  readonly context: LeadContextState
+  /** Core of the person's and the Lead's kept notes, as the host last journaled it. The standing instructions render
+   * it at each new epoch, so a change reaches the model at the next goal or summary. Carried across goals. */
+  readonly memory: LeadMemoryCore
+  /** The Core and the person's rule sections the current epoch's standing instructions were built with, and the goal
+   * and epoch they belong to. A restart in that epoch builds them from this, not from what was kept or edited since;
+   * the settings note compares against `rules` (#2165), absent in a record older than them. Carried across goals. */
+  readonly memoryEpoch: { readonly goal: string; readonly epoch: number; readonly memory: LeadMemoryCore; readonly rules?: LeadAutonomyRecord['rules'] } | null
+  /** The short handle of each chat the Lead has seen, and the last number each base gave (`chat-handles.ts`). Carried
+   * across goals: a handle never moves to another chat and is never given again. */
+  readonly chatHandles: LeadChatHandles
 }
-export const initialLeadState = (): LeadState => ({ workerApprovals: [], workerAuditWait: false, orphanedWorkerDispatch: null, decisionRevision: 0, wakes: [], secondLooks: [], origin: null, originKey: null, goalStartedSeq: 0, chatEffectsSinceReply: { started: 0, sent: 0, stopped: 0 }, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', nameChosen: false, decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, raisedFrom: null, spendLimit: null, stopEffectsPending: null, chatEffectsAcknowledged: false,
-  cards: [], retryResult: null, decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardPositions: {}, cardRevisions: {}, runs: [], teams: [], acceptedTeams: [] })
+export interface LeadContextState {
+  /** Bumped by every applied compaction or prune: the child reads the stored conversation again at a new epoch. */
+  readonly epoch: number
+  /** Model attempts that failed since the last applied checkpoint; at `LEAD_CONTEXT.breaker` the desk writes it itself. */
+  readonly failures: number
+  readonly pending: { readonly id: string; readonly at: number; readonly trigger: import('./journal.js').LeadCompactionTrigger } | null
+  readonly last: Omit<Extract<import('./journal.js').LeadJournalEvent, { type: 'context-compaction-applied' }>, 'type'> | null
+}
+export const initialLeadContext = (): LeadContextState => ({ epoch: 0, failures: 0, pending: null, last: null })
+export const LEAD_CHECKPOINT_NOTICE = 'Earlier conversation summarised'
+export const initialLeadState = (): LeadState => ({ workerApprovals: [], workerAuditWait: false, orphanedWorkerDispatch: null, decisionRevision: 0, wakes: [], secondLooks: [], origin: null, originKey: null, goalStartedSeq: 0, chatEffectsSinceReply: { started: 0, sent: 0, stopped: 0 }, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', nameChosen: false, decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, raisedFrom: null, spendLimit: null, autonomy: null, stopEffectsPending: null, chatEffectsAcknowledged: false,
+  cards: [], retryResult: null, decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardPositions: {}, cardRevisions: {}, runs: [], teams: [], acceptedTeams: [], context: initialLeadContext(), memory: initialLeadMemoryCore(), memoryEpoch: null, chatHandles: initialLeadChatHandles() })
 /** A figure the Lead drafted, before the person sees it: Off drafts at the portable ceiling (which still trips the
  * overflow stop) so the card never shows a cap the person turned off; a set limit caps it. Rounds are untouched. */
 export const leadDraftCaps = (limit: LeadState['spendLimit'], caps: LeadCaps): LeadCaps => limit === null ? caps
@@ -112,6 +146,16 @@ const cardKey = (card: { id: string; revision: number }) => `${card.id}:${card.r
 
 /** Card decisions, not phase changes or recovery, release the plan fence. */
 export const hasPendingLeadPlan = (state: LeadState): boolean => state.cards.some(card => card.type === 'plan' && !state.decidedCards.includes(cardKey(card)))
+/** A goal an issue or pull request asked for (`@harnessdesk`) starts, sends and dispatches nothing until the person
+ * approves its plan: the request's words grant nothing, whatever the policy mode allows an ordinary goal. Admission
+ * and every host dispatch check it, so a prompt the model ignores cannot open the gate. */
+export const leadRequestAwaitsPlan = (state: LeadState): boolean =>
+  state.origin?.event === 'mentioned' && (state.contract === null || state.consent === null || hasPendingLeadPlan(state))
+/** The one fence every layer asks — tool admission, the chat gate, Team start and Flow dispatch — so they cannot
+ * drift: a request's goal is fenced while its plan waits, and again once its approval has run out, until the person
+ * renews it. A stop narrows, so callers let cancellations through. */
+export const leadRequestFenced = (state: LeadState, now: number): boolean => leadRequestAwaitsPlan(state) ||
+  state.origin?.event === 'mentioned' && state.consent !== null && !(state.consent.expiresAt > now)
 
 /** Ordinary worker dispatch stays fenced for the lifetime of an owned open PR.
  * Only the exact host-journaled running repair may dispatch on its owned run. */
@@ -401,11 +445,47 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       while (new TextEncoder().encode(JSON.stringify(decisionMessages)).byteLength > 131072) decisionMessages.shift()
       const acceptedTeams = state.phase === 'accepted' ? [...state.acceptedTeams, ...leadGoalTeams(state)] : state.acceptedTeams
       state = { ...initialLeadState(), acceptedTeams: acceptedTeams.filter((one, index) => acceptedTeams.findLastIndex(other => other.team === one.team) === index).slice(-LEAD_ACCEPTED_TEAMS),
-        seq: event.seq, goalStartedSeq: event.seq, name: state.name, nameChosen: state.nameChosen, wakes: state.wakes, follow: state.follow, policy: state.policy, spendLimit: state.spendLimit, budget,
-        completedBudgets: [...state.completedBudgets, state.budget!], messages: state.messages, olderMessages: state.olderMessages, sends: state.sends,
+        seq: event.seq, goalStartedSeq: event.seq, name: state.name, nameChosen: state.nameChosen, wakes: state.wakes, follow: state.follow, policy: state.policy, spendLimit: state.spendLimit, autonomy: state.autonomy, budget,
+        completedBudgets: [...state.completedBudgets, state.budget!], messages: state.messages, olderMessages: state.olderMessages, sends: state.sends, context: state.context, memory: state.memory, memoryEpoch: state.memoryEpoch, chatHandles: state.chatHandles,
         decisionMessages }
       break
     }
+    case 'context-compaction-started': state = { ...state, context: { ...state.context, pending: { id: event.id, at: event.at, trigger: event.trigger } } }; break
+    case 'context-compaction-failed':
+      ensure(state.context.pending?.id === event.id)
+      // A run the desk stopped (interrupted), the budget or a stop refused (blocked), the host could not be reached
+      // (unreachable), or the provider refused the desk's own key or request, ends without counting: only a checkpoint
+      // the model could not write counts toward the breaker.
+      state = { ...state, context: LEAD_CONTEXT_UNCOUNTED.includes(event.reason) ? { ...state.context, pending: null } : { ...state.context, failures: state.context.failures + 1 } }
+      break
+    case 'context-compaction-applied': {
+      ensure(state.context.pending?.id === event.id)
+      const { type: _type, version: _version, seq: _seq, ...last } = event
+      const notice: LeadMessage = { version: 1, id: `context-checkpoint-${event.id}`, revision: event.seq, role: 'notice', text: LEAD_CHECKPOINT_NOTICE,
+        checkpoint: { id: event.id, ...(event.fallback ? { fallback: true as const } : {}) } }
+      const all = [...state.messages, notice], excess = Math.max(0, all.length - 256)
+      state = { ...state, messages: all.slice(excess), olderMessages: state.olderMessages + excess,
+        // A checkpoint the desk wrote itself leaves the failure count standing: the next compaction tries the model
+        // once, not three times, until one it writes is accepted (a half-open breaker).
+        context: { epoch: state.context.epoch + 1, failures: event.fallback ? state.context.failures : 0, pending: null, last } }
+      break
+    }
+    case 'context-pruned':
+      ensure(state.context.pending?.id === event.id)
+      state = { ...state, context: { ...state.context, epoch: state.context.epoch + 1, pending: null } }
+      break
+    case 'memory-core': ensure(event.memory.revision > state.memory.revision); state = { ...state, memory: event.memory }; break
+    case 'receipt': {
+      // A host line, drawn as a notice on the desktop and as a grey line on the phone, which shows `system` lines and not
+      // every `notice`. It is neither the person's message nor the Lead's, so it never answers or closes a question.
+      const all = [...state.messages, { version: 1, id: `receipt-${event.seq}`, revision: event.seq, role: 'system', text: event.text } satisfies LeadMessage]
+      const thread = windowLeadThread({ version: 1, id: 'lead', revision: state.seq, state: state.phase, project: null,
+        messages: all.slice(Math.max(0, all.length - 256)), olderMessages: state.olderMessages + Math.max(0, all.length - 256), cards: [] }, 131072)
+      state = { ...state, messages: thread.messages, olderMessages: thread.olderMessages }
+      break
+    }
+    case 'memory-epoch': state = { ...state, memoryEpoch: { goal: event.goal, epoch: event.epoch, memory: event.memory, ...(event.rules ? { rules: event.rules } : {}) } }; break
+    case 'chat-handles': { let chatHandles = state.chatHandles; try { chatHandles = leadChatHandlesAfter(chatHandles, event.namings) } catch { ensure(false) }; state = { ...state, chatHandles }; break }
     case 'wake': state = { ...state, wakes: [...state.wakes.filter(wake => wake.id !== event.wake.id), event.wake].sort((a, b) => a.at - b.at).slice(-128) }; break
     case 'settings-changed': state = { ...state, ...(event.name === undefined ? {} : { name: event.name, nameChosen: true }), ...(event.follow === undefined ? {} : { follow: event.follow }) }; break
     case 'publication': {
@@ -494,7 +574,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       const all = [...state.messages, event.message], excess = Math.max(0, all.length - 256)
       const thread = windowLeadThread({ version: 1, id: 'lead', revision: state.seq, state: state.phase, project: null,
         messages: all.slice(excess), olderMessages: state.olderMessages + excess, cards: [] }, 131072)
-      state = { ...state, messages: thread.messages, olderMessages: thread.olderMessages, ...(event.message.role === 'assistant' ? { chatEffectsSinceReply: { started: 0, sent: 0, stopped: 0 } } : {}),
+      state = { ...state, messages: thread.messages, olderMessages: thread.olderMessages, ...(event.message.role === 'assistant' && event.message.reminded === undefined ? { chatEffectsSinceReply: { started: 0, sent: 0, stopped: 0 } } : {}),
         sends: event.idempotencyKey === null ? state.sends : [...state.sends, { key: event.idempotencyKey, messageId: event.message.id, revision: event.seq }].slice(-LEAD_SEND_RECEIPTS) }
       break
     }
@@ -559,6 +639,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       }
       state = { ...state, spendLimit: { usdMicros: event.usdMicros }, budget, raisedFrom, phase: budget !== state.budget && budget?.stop ? 'stopped' : state.phase }; break
     }
+    case 'autonomy': state = { ...state, autonomy: event.autonomy }; break
     case 'budget': {
       if (['reserve', 'start'].includes(event.event.type)) ensure(!['stopped', 'accepted', 'declined'].includes(state.phase))
       if (event.event.type === 'round' && ['stopped', 'accepted', 'declined'].includes(state.phase)) {
@@ -863,7 +944,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
   // recovery reader and checkpoint uses this one fence. A marked new-writer
   // revoke keeps the wait after removing the intent; legacy renewal may lift it.
   if (event.type !== 'worker-rule-dispatch') state = fenceLeadWorkerDispatch(state)
-  return { ...state, decisionRevision: event.type === 'wake' ? previous.decisionRevision : event.seq }
+  return { ...state, decisionRevision: event.type === 'wake' || event.type === 'chat-handles' || event.type === 'memory-core' || event.type === 'memory-epoch' || event.type.startsWith('context-') ? previous.decisionRevision : event.seq }
 }
 /** Retire authority without discarding evidence, shared with checkpoint migration. */
 export const retireLeadWorkerApprovals = (state: LeadState): LeadState => ({ ...state,

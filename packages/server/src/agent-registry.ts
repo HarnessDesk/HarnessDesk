@@ -68,6 +68,9 @@ interface AgentTemplate {
   readonly brand?: string
   readonly tagline?: string
   readonly perToolMcpApproval?: AcpAgentConfig['perToolMcpApproval']
+  readonly delegationTools?: AcpAgentConfig['delegationTools']
+  /** See `AcpAgentConfig.cancelLeavesSubagents`. */
+  readonly cancelLeavesSubagents?: boolean
   readonly bridge?: string
   /** Its bridge proves which MCP server asked for a permission; see `AcpAgentConfig.trustsBridgeProvenance`. */
   readonly provesToolProvenance?: boolean
@@ -134,11 +137,15 @@ const TEMPLATES: readonly AgentTemplate[] = [
     // DeepSeek Harness's own ACP server. It reads the key from its own store
     // and takes a tool server per session, so a seat on it is attributed.
     key: 'dsh',
+    delegationTools: { spawn: ['subagent', 'subagent_fork'], send: ['send_message'], wait: ['wait_agent'], cancel: ['interrupt_agent'] },
     name: 'DeepSeek',
     brand: 'deepseek',
     tagline: "DeepSeek's agent harness, speaking ACP directly.",
     command: 'dsh',
     args: ['--profile', 'acp'],
+    // Its cancel ends the prompt and leaves a `subagent` child running; only
+    // closing the session ends the child (measured on 0.2.2-rc.2).
+    cancelLeavesSubagents: true,
     secrets: [
       {
         env: 'DEEPSEEK_API_KEY',
@@ -257,6 +264,8 @@ const expandTemplate = (
     ...(template.brand ? { brand: template.brand } : {}),
     ...(template.tagline ? { tagline: template.tagline } : {}),
     ...(template.perToolMcpApproval ? { perToolMcpApproval: template.perToolMcpApproval } : {}),
+    ...(template.delegationTools ? { delegationTools: template.delegationTools } : {}),
+    ...(template.cancelLeavesSubagents ? { cancelLeavesSubagents: true } : {}),
     ...(template.account ? { account: template.account } : {}),
     ...(template.secrets ? { secrets: template.secrets } : {}),
     ...(template.executable ? { executable: template.executable } : {}),

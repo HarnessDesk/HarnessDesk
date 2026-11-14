@@ -1,9 +1,20 @@
+import { WireCallError } from '@harnessdesk/client'
 import { leadToolDefinitions, parseLeadToolCall, LeadToolFencedError, LeadToolRefusedError } from './tools.js'
+import { LeadChatUnknownError, leadChatUnknownText } from './chat-handles.js'
 import { LEAD_LIMITS, clientTierFor, parseLeadAcceptanceContract, parseLeadCard,
-  type LeadAsk, type LeadProactive, parseLeadAsk, parseLeadProactiveOutput, type LeadBudgetEvent, type LeadAcceptanceContract, type LeadCard } from '@harnessdesk/protocol'
+  type LeadAsk, type LeadProactive, type LeadMessageRef, LEAD_MESSAGE_REFS_MAX, parseLeadMessageRef, parseLeadAsk, parseLeadProactiveOutput, type LeadBudgetEvent, type LeadAcceptanceContract, type LeadCard } from '@harnessdesk/protocol'
+import type { LeadMessageSurface } from '@harnessdesk/protocol'
 import type { LeadPermissionCall } from './permissions.js'
+import { LEAD_CONTEXT } from './context.js'
+import { LEAD_CHECKPOINT_OPEN } from './compaction.js'
+import { splitLeadOutput, stripLeadToolMarkup } from './envelope.js'
+import { leadContainsSecret, leadWithholdCredentialsReport, type LeadWithheldPiece } from './credential-screen.js'
 import type { LeadMessagesClient, LeadMessagesOptions, LeadMessagesResult, MessagesHttpResponse, MessagesPrice,
   MessagesRedactedThinking, MessagesText, MessagesThinking, MessagesToolUse, MessagesToolResult, MessagesTurn, MessagesUsage } from './messages-types.js'
+
+/** Lead methods that write to the desk though a read tier lets them through: their result changes what the work ledger,
+ * memory or settings say, so the step after them reads those again. */
+const LEAD_DESK_WRITES: ReadonlySet<string> = new Set(['lead/work/note', 'lead/memory/propose', 'lead/reminder/set', 'lead/reminder/cancel', 'lead/autonomy/propose', 'lead/rules/propose'])
 
 /** Configuration defaults only; model choice never changes permissions or behavior. */
 export const LEAD_MESSAGES_DEFAULTS = Object.freeze({ model: 'claude-sonnet-5-5', observerModel: 'claude-haiku-5-5', hardPlanModel: 'claude-opus-5-5' })
@@ -12,6 +23,19 @@ const LIMIT = Object.freeze({ bytes: 1_048_576, text: 16_384, blocks: 64, turns:
   /** One reasoning field (the thinking text, its signature, or redacted data): a reply of the largest
    * allowed `max_tokens` at four characters a token. The whole body is still held to `bytes`. */
   reasoning: 262_144 })
+const TOOL_ERROR = Object.freeze({
+  refused: 'Tool was not permitted: tool or arguments are outside the allowed API.',
+  policy: 'Tool was not permitted: policy refused this operation.',
+  uncertain: 'Tool failed: completion could not be confirmed; inspect before retrying.',
+  changed: 'Tool failed: desk activity changed; read fresh state.',
+  scope: 'Tool failed: the selected project access check failed.',
+  deadline: 'Tool refused: the time the person set for this goal has run out, so no new work starts for it. Tell the person, and ask whether to extend it.',
+  cap: 'Tool refused: runs started without the person asking are limited, the account may be near its limit, or the Lead is still loading after a restart, so the person\'s next follow-up keeps its room. Wait for a run to finish, then try again.',
+  ask: 'Tool refused: your question to the person is still open and they have not picked an option. Do not act on what it decides; point the person to the question.',
+  failed: 'Tool failed: the desk request could not complete.',
+  overflow: 'Tool failed: its result exceeded the conversation limit.',
+})
+const policyRefusal = (layer: 'desk' | 'project') => `Tool was not permitted: ${layer} policy rule refused this operation.`
 const fail = (): never => { throw new Error('lead-messages-invalid') }
 const object = (value: unknown, allowed?: readonly string[]): Record<string, unknown> => {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return fail()
@@ -102,10 +126,11 @@ const blocks = (value: unknown, provider = false): Block[] => {
   if (new Set(ids).size !== ids.length) return fail()
   return result
 }
-/** A continuation may never contain orphan, reordered, duplicate or unanswered results. */
-const history = (value: unknown): MessagesTurn[] => {
-  if (!Array.isArray(value) || value.length === 0 || value.length > LIMIT.turns - 2) return fail()
-  let pending: string[] = []
+/** Turns as a fragment: a continuation of a conversation whose last assistant turn left `pending` tool uses open.
+ * No orphan, reordered, duplicate or unanswered result is admitted; what is still open at the end is returned. */
+const fragment = (value: unknown, open: readonly string[] = []): { turns: MessagesTurn[]; pending: string[] } => {
+  if (!Array.isArray(value) || value.length > LIMIT.turns) return fail()
+  let pending: string[] = [...open]
   const result: MessagesTurn[] = []
   for (const item of value) {
     const source = object(item, ['role', 'content'])
@@ -134,9 +159,61 @@ const history = (value: unknown): MessagesTurn[] => {
       result.push({ role: 'user', content })
     }
   }
+  return { turns: result, pending }
+}
+/** A continuation may never contain orphan, reordered, duplicate or unanswered results. */
+const history = (value: unknown): MessagesTurn[] => {
+  if (!Array.isArray(value) || value.length === 0 || value.length > LIMIT.turns - 2) return fail()
+  const { turns: result, pending } = fragment(value)
   if (pending.length || result[0]!.role !== 'user' || result.at(-1)!.role !== 'user') fail()
   return result
 }
+/** Stored context turns the child reports, checked as this client checks a continuation: a fragment that may follow
+ * a stored assistant turn whose tool uses are `open`. Throws on anything else. */
+export const parseLeadContextTurns = (value: unknown, open: readonly string[] = []): { readonly turns: MessagesTurn[]; readonly pending: string[] } => {
+  json(value)
+  const parsed = fragment(value, open)
+  // Two person or desk turns in a row never reach a provider: the desk joins them into one before it sends or stores.
+  if (parsed.turns.some((turn, index) => index > 0 && turn.role === 'user' && parsed.turns[index - 1]!.role === 'user')) throw new Error('lead-context-turns')
+  return parsed
+}
+/** The provider's cache mark, the one field a request block may carry beyond its type's own. */
+const CACHE_MARK = Object.freeze({ type: 'ephemeral' as const })
+/**
+ * Cache marks, at most `LEAD_CONTEXT.breakpoints` (a provider honours four): the end of the instructions, the end of a
+ * checkpoint turn that opens the conversation, and the last stable block of the history (rolling forward as it grows).
+ * Desk context of the moment always comes after the last mark, so it never enters the cached prefix. A mark never
+ * sits on reasoning, which a provider does not cache on its own.
+ */
+const withCacheMarks = (messages: readonly MessagesTurn[], stable: { readonly turns: number; readonly blocks: number } | undefined): unknown[] => {
+  const marks = new Set<string>()
+  const mark = (turn: number, upto: number) => {
+    const content = messages[turn]?.content
+    if (!content) return
+    for (let index = Math.min(upto, content.length - 1); index >= 0; index--) {
+      const type = content[index]!.type
+      if (type !== 'thinking' && type !== 'redacted_thinking') { marks.add(`${turn}:${index}`); return }
+    }
+  }
+  const first = messages[0]?.content[0]
+  if (messages[0]?.role === 'user' && first?.type === 'text' && first.text.startsWith(LEAD_CHECKPOINT_OPEN)) mark(0, messages[0].content.length - 1)
+  if (stable && stable.turns > 0 && stable.blocks > 0 && stable.turns <= messages.length) mark(stable.turns - 1, stable.blocks - 1)
+  return messages.map((turn, index) => ({ role: turn.role, content: turn.content.map((block, position) =>
+    marks.has(`${index}:${position}`) ? { ...block, cache_control: CACHE_MARK } : block) }))
+}
+const systemBlocks = (system: string) => [{ type: 'text' as const, text: system, cache_control: CACHE_MARK }]
+/** How a desk wake (a reminder that came due) opens in the model's history, and the reference line that follows it. */
+export const LEAD_WAKE_OPEN = 'Desk wake, not a message from the person: '
+export const LEAD_WAKE_REFERENCE = 'Desk reference for the preceding desk wake: '
+/**
+ * The line a person message carries for the surface that sent it (#2166). It is part of the person's turn, stored with
+ * it, so a tool continuation and every later request read the same thing; a card or ask works on either surface. It
+ * says what that surface opens, so the Lead never sends a phone user to the desktop for a Team the phone opens (#2182).
+ */
+export const LEAD_SURFACE_LINES: Readonly<Record<LeadMessageSurface, string>> = Object.freeze({
+  phone: 'Desk note: the person sent the message above from their phone, which opens any Team or chat from its Inbox or Work tab and answers questions and cards there.',
+  desktop: 'Desk note: the person sent the message above from the desktop window, which opens anything on the desk.',
+})
 /** The most turns of the person's readable conversation one request carries. The request admits LIMIT.turns - 2;
  * the rest is room for the host's own closing turns and for a tool loop's continuations within the request. */
 export const LEAD_HISTORY_TURNS = 128
@@ -148,16 +225,23 @@ export const LEAD_HISTORY_BYTES = LIMIT.bytes / 2
  * holds, in turns or in bytes, are both ordinary, and either one, sent as it stands, is refused before every request
  * that follows.
  */
-export const leadHistory = (messages: readonly { readonly id?: string; readonly role: string; readonly text: string; readonly ask?: LeadAsk; readonly proactive?: LeadProactive }[]): MessagesTurn[] => {
+export const leadHistory = (messages: readonly { readonly id?: string; readonly role: string; readonly text: string; readonly ask?: LeadAsk; readonly proactive?: LeadProactive; readonly wake?: { readonly kind: string }; readonly surface?: LeadMessageSurface }[]): MessagesTurn[] => {
   const spoken = messages.filter(message => message.role === 'user' || message.role === 'assistant')
   const turns: MessagesTurn[] = spoken.slice(-LEAD_HISTORY_TURNS).map(message => {
     const ask = message.ask ?? (message.proactive?.options && message.proactive.recommended ? {
       question: message.proactive.ask, options: message.proactive.options, recommended: message.proactive.recommended,
     } : undefined)
+    // A wake is the desk's turn, never the person's words: it says so, and its reference is not a person message's.
+    if (message.role === 'user' && message.wake) return { role: 'user' as const, content: [
+      { type: 'text' as const, text: `${LEAD_WAKE_OPEN}${message.text}` },
+      ...(message.id ? [{ type: 'text' as const, text: `${LEAD_WAKE_REFERENCE}${message.id}` }] : []),
+    ] }
     return { role: message.role as 'user' | 'assistant', content: [
       ...(ask && !message.text.trim() ? [] : [{ type: 'text' as const, text: message.text }]),
       ...(message.role === 'user' && message.id ? [{ type: 'text' as const, text: `Desk reference for the preceding person message: ${message.id}` }] : []),
-      ...(message.role === 'assistant' && ask ? [{ type: 'text' as const, text: `Decision offered in this reply: ${JSON.stringify(parseLeadAsk(ask))}` }] : []),
+      // Where the person wrote it stays with the message, so neither this turn nor a later one takes it for another device's.
+      ...(message.role === 'user' && message.surface ? [{ type: 'text' as const, text: LEAD_SURFACE_LINES[message.surface] }] : []),
+      ...(message.role === 'assistant' && ask ? [{ type: 'text' as const, text: `Decision offered in this reply: ${JSON.stringify((({ startsMarked: _host, ...offered }) => offered)(parseLeadAsk(ask)))}` }] : []),
     ] }
   })
   let bytes = new TextEncoder().encode(JSON.stringify(turns)).length
@@ -197,9 +281,41 @@ export const parseLeadMessagesBody = (body: string) => {
     source.stream !== false || !same(source.tools, leadToolDefinitions)) fail()
   const maxTokens = integer(source.max_tokens, Number.MAX_SAFE_INTEGER)
   if (maxTokens === 0) fail()
+  // A block may carry the provider's cache mark and nothing else beyond its own fields; at most four in all.
+  let marks = 0
+  const unmark = (value: unknown): unknown => {
+    const entry = object(value)
+    if (!Object.hasOwn(entry, 'cache_control')) return entry
+    if (!same(entry.cache_control, CACHE_MARK) || ++marks > LEAD_CONTEXT.breakpoints) return fail()
+    const { cache_control: _mark, ...rest } = entry
+    return rest
+  }
+  const marked = new Set<string>()
+  if (!Array.isArray(source.messages)) fail()
+  const plain = (source.messages as unknown[]).map((turn, index) => {
+    const entry = object(turn)
+    if (!Array.isArray(entry.content)) return entry
+    return { ...entry, content: entry.content.map((block: unknown, position: number) => {
+      const bare = unmark(block)
+      if (bare !== block) marked.add(`${index}:${position}`)
+      return bare
+    }) }
+  })
+  let system: string | undefined
+  if (Object.hasOwn(source, 'system')) {
+    if (typeof source.system === 'string') system = string(source.system)
+    else {
+      if (!Array.isArray(source.system) || source.system.length !== 1) fail()
+      const only = object(unmark((source.system as unknown[])[0]), ['type', 'text'])
+      if (only.type !== 'text') fail()
+      system = string(only.text, LIMIT.bytes)
+    }
+  }
+  const messages = history(plain).map((turn, index) => ({ role: turn.role, content: turn.content.map((block, position) =>
+    marked.has(`${index}:${position}`) ? { ...block, cache_control: CACHE_MARK } : block) }))
   return { model: string(source.model, 128), max_tokens: maxTokens, stream: false as const,
-    messages: history(source.messages), tools: leadToolDefinitions,
-    ...(Object.hasOwn(source, 'system') ? { system: string(source.system) } : {}) }
+    messages, tools: leadToolDefinitions,
+    ...(system === undefined ? {} : { system: Array.isArray(source.system) ? systemBlocks(system) : system }) }
 }
 const usage = (value: unknown): MessagesUsage => {
   const source = object(value)
@@ -212,19 +328,49 @@ const usage = (value: unknown): MessagesUsage => {
  * envelope must then be valid. Whatever the text decodes to is returned as `decoded`
  * so the caller's credential scan sees escaped strings too. Proposals are data only;
  * their validators confer no authority to execute them. */
-const proposals = (text: string): { text: string; plan: LeadAcceptanceContract | null; cards: readonly LeadCard[]; proactive?: LeadProactive; ask?: LeadAsk; decoded: unknown } => {
+/** The refs an envelope carries, leniently: a malformed one is dropped, never the reply with it. */
+const replyRefs = (value: unknown): readonly LeadMessageRef[] => {
+  if (!Array.isArray(value)) return []
+  const out: LeadMessageRef[] = [], seen = new Set<string>()
+  for (const one of value.slice(0, 32)) {
+    let ref: LeadMessageRef
+    try { ref = parseLeadMessageRef(one) } catch { continue }
+    const key = `${ref.kind}:${ref.id}`
+    if (seen.has(key)) continue
+    seen.add(key); out.push(ref)
+    if (out.length === LEAD_MESSAGE_REFS_MAX) break
+  }
+  return out
+}
+const proposals = (text: string, outer?: string): { text: string; plan: LeadAcceptanceContract | null; cards: readonly LeadCard[]; proactive?: LeadProactive; ask?: LeadAsk; refs?: readonly LeadMessageRef[]; decoded: unknown } => {
   let decoded: unknown = null
   try { decoded = JSON.parse(text) } catch { /* prose */ }
-  if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded) || (decoded as Record<string, unknown>).type !== 'lead-output')
-    return { text, plan: null, cards: [], decoded }
+  let prose = ''
+  if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded) || (decoded as Record<string, unknown>).type !== 'lead-output') {
+    // The envelope after the prose, or in a code fence, is still the envelope: protocol JSON is never the person's
+    // words. One that names itself but does not validate is left in the text; the host strips it and warns.
+    const split = splitLeadOutput(text)
+    // Tool-call markup in the words is a call the model printed instead of making (#2148). It never reaches a surface.
+    if (!split?.envelope) return { text: stripLeadToolMarkup(text).text, plan: null, cards: [], decoded }
+    // Before an envelope, the words around such markup are the misfire and the model's note about it ("the envelope must
+    // be the whole reply, correcting below"); the envelope is the reply the instructions asked for, so it stands alone.
+    const before = stripLeadToolMarkup(split.prose)
+    try { return { ...proposals(JSON.stringify(split.envelope), before.dropped ? '' : split.prose), decoded: { decoded, envelope: split.envelope } } } catch { return { text: stripLeadToolMarkup(text).text, plan: null, cards: [], decoded } }
+  }
+  if (outer !== undefined) prose = outer
   const candidate = decoded
-  const source = object(candidate, ['version', 'type', 'text', 'ask', 'proactive', 'plan', 'cards'])
+  const source = object(candidate, ['version', 'type', 'text', 'ask', 'proactive', 'plan', 'cards', 'refs'])
   if (source.version !== 1 || source.ask !== undefined && source.proactive !== undefined) return fail()
   if (source.cards !== undefined && (!Array.isArray(source.cards) || source.cards.length > LIMIT.blocks)) return fail()
   const cards = source.cards === undefined ? [] : (source.cards as unknown[]).map(value => parseLeadCard(value))
   if (new Set(cards.map(card => card.id)).size !== cards.length) fail()
-  return { text: source.text === undefined ? '' : string(source.text),
-    plan: source.plan === undefined ? null : parseLeadAcceptanceContract(source.plan), cards, ...(source.proactive === undefined ? {} : { proactive: parseLeadProactiveOutput(source.proactive) }), ...(source.ask === undefined ? {} : { ask: parseLeadAsk(source.ask) }), decoded }
+  const own = source.text === undefined ? '' : stripLeadToolMarkup(string(source.text)).text
+  return { text: prose && own && !prose.includes(own) ? `${prose}\n\n${own}` : prose || own,
+    plan: source.plan === undefined ? null : parseLeadAcceptanceContract(source.plan), cards,
+    // #2145: a question read now was written under the rule that marks an option `starts`; the host stamps it so, and
+    // a question stored before the rule (without the stamp) keeps the old answer behaviour.
+    ...(source.proactive === undefined ? {} : { proactive: { ...parseLeadProactiveOutput(source.proactive), startsMarked: true as const } }), ...(source.ask === undefined ? {} : { ask: { ...parseLeadAsk(source.ask), startsMarked: true as const } }),
+    ...(source.proactive === undefined && replyRefs(source.refs).length > 0 ? { refs: replyRefs(source.refs) } : {}), decoded }
 }
 /** Cancellation also wins when a broken injected operation ignores its signal. */
 const cancellable = async <T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> => {
@@ -273,22 +419,34 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
   }
   return { async request(input, signal): Promise<LeadMessagesResult> {
     if (signal.aborted) return { status: 'cancelled' }
-    let requestId: string, body: string, messages: MessagesTurn[], maxTokens: number
+    let requestId: string, body: string, messages: MessagesTurn[], maxTokens: number, compaction = false, withheld = false, pieces: LeadWithheldPiece[] = []
     try {
       const captured = JSON.parse(safeJson(input)) as unknown
-      const source = object(captured, ['messages', 'system', 'maxTokens', 'proactive', 'conversation', 'wakeSource'])
+      const source = object(captured, ['messages', 'system', 'maxTokens', 'proactive', 'conversation', 'wakeSource', 'stable', 'compaction'])
       if (source.conversation !== undefined && typeof source.conversation !== 'boolean') fail()
-      messages = history(source.messages)
+      if (source.compaction !== undefined && source.compaction !== true) fail()
+      compaction = source.compaction === true
+      // What the host would refuse to send is put aside here, before the body is built, sized and reserved: the body the
+      // host checks is then exactly the one counted, and one credential-shaped line never refuses every request after it.
+      ;({ messages, withheld: pieces } = leadWithholdCredentialsReport(history(source.messages)))
+      const stable = source.stable === undefined ? undefined : object(source.stable, ['turns', 'blocks'])
+      const mark = stable && { turns: integer(stable.turns, LIMIT.turns), blocks: integer(stable.blocks, LIMIT.blocks) }
       maxTokens = integer(source.maxTokens, LIMIT.maxTokens)
       if (maxTokens === 0) fail()
-      body = safeJson({ model, max_tokens: maxTokens, stream: false, messages, tools: leadToolDefinitions,
-        ...(source.system === undefined ? {} : { system: string(source.system) }) })
+      body = safeJson({ model, max_tokens: maxTokens, stream: false, messages: withCacheMarks(messages, mark), tools: leadToolDefinitions,
+        ...(source.system === undefined ? {} : { system: systemBlocks(string(source.system, LIMIT.bytes)) }) })
+      // The instructions cannot be withheld piecemeal. Ones the host would refuse are not sent, and nothing is reserved.
+      withheld = source.system !== undefined && leadContainsSecret(source.system)
+      if (withheld) fail()
       const inputTokens = integer(await cancellable(() => countInput(body, signal), signal))
       requestId = string(nextId(), 100)
       if (!/^[A-Za-z0-9._:/-]{1,100}$/.test(requestId) || requestId.includes(apiKey)) fail()
       if (signal.aborted) return { status: 'cancelled' }
-      await journal.updateBudget({ version: 1, type: 'reserve', now: now(), requestId, inputTokens, maxOutputTokens: maxTokens, ...price })
-    } catch (error) { return { status: signal.aborted ? 'cancelled' : 'refused', reason: (error as { wireCode?: unknown })?.wireCode === 'lead-budget-admission' ? 'lead-messages-capacity' : 'lead-messages-admission' } }
+      await journal.updateBudget({ version: 1, type: 'reserve', now: now(), requestId, inputTokens, maxOutputTokens: maxTokens, ...price, ...(input.compaction ? { purpose: 'compaction' as const } : {}) })
+    } catch (error) {
+      if (withheld && !signal.aborted) return { status: 'failed', reason: 'lead-messages-withheld' }
+      return { status: signal.aborted ? 'cancelled' : 'refused', reason: (error as { wireCode?: unknown })?.wireCode === 'lead-budget-admission' ? 'lead-messages-capacity' : 'lead-messages-admission' }
+    }
     const accounting = (event: Omit<Extract<LeadBudgetEvent, { type: 'settle' }>, 'version' | 'now' | 'requestId'> | { type: 'uncertain' }) =>
       journal.updateBudget({ version: 1, now: now(), requestId, ...event })
     const zero = () => accounting({ type: 'settle', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 })
@@ -296,7 +454,7 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       try { await accounting({ type: 'uncertain' }) } catch { /* The durable reservation remains held; journal failures latch the writer. */ }
       return { status: 'uncertain', reason: 'lead-messages-billing-unknown' }
     }
-    let response!: MessagesHttpResponse
+    let response!: MessagesHttpResponse, refusedBeforeSending: 'lead-provider-refused' | 'lead-provider-withheld' | null = null
     for (let retry = 0; ; retry++) {
       if (signal.aborted) {
         try { await zero() } catch { return uncertain() }
@@ -305,14 +463,25 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       try {
         const reply = object(await cancellable(() => transport.send({ requestId, origin: 'https://api.anthropic.com', path: '/v1/messages', method: 'POST',
           headers: Object.freeze({ 'content-type': 'application/json', 'anthropic-version': '2023-06-01', 'x-api-key': apiKey }),
-          body, maxResponseBytes: LIMIT.bytes, signal }), signal))
+          // What was withheld goes with the first send only, as counts, so the host reports it once per request.
+          body, maxResponseBytes: LIMIT.bytes, signal, ...(retry === 0 && pieces.length ? { withheld: pieces } : {}) }), signal).catch(async (error: unknown) => {
+          // The host refused this body before it reached the provider, by name: nothing was sent, so nothing was spent.
+          const code = (error as { wireCode?: unknown })?.wireCode
+          if (code !== 'lead-provider-refused' && code !== 'lead-provider-withheld') throw error
+          refusedBeforeSending = code
+          throw error
+        }))
         // A reply of the wrong shape proves nothing about billing either.
         if (!Number.isSafeInteger(reply.status) || reply.retryAfter !== undefined && typeof reply.retryAfter !== 'string' ||
           reply.processing !== undefined && reply.processing !== 'not-started' && reply.processing !== 'unknown') fail()
         // Read each field once: the checked values are the ones acted on.
         response = Object.freeze({ status: reply.status as number, body: reply.body as string,
           retryAfter: reply.retryAfter as string | undefined, processing: reply.processing as MessagesHttpResponse['processing'] })
-      } catch { return uncertain() }
+      } catch {
+        if (refusedBeforeSending === null || signal.aborted) return uncertain()
+        try { await zero() } catch { return uncertain() }
+        return { status: 'failed', reason: refusedBeforeSending === 'lead-provider-withheld' ? 'lead-messages-held' : 'lead-messages-unsent' }
+      }
       if ((response.status === 429 || response.status === 529) && response.processing === 'not-started') {
         const delay = retryDelay(response.retryAfter, now())
         if (retry === LIMIT.retries || delay === null) {
@@ -330,7 +499,10 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       // Naming its cause lets the owner fix a key instead of losing the goal's budget.
       if (response.status >= 400 && response.status < 500 && response.processing === 'not-started') {
         try { await zero() } catch { return uncertain() }
-        return { status: 'failed', reason: response.status === 401 || response.status === 403 ? 'lead-messages-auth' : 'lead-messages-request' }
+        return { status: 'failed', reason: response.status === 401 || response.status === 403 ? 'lead-messages-auth'
+          // A timeout or conflict the provider names is about that moment, not the request: the same one may pass next.
+          : response.status === 408 || response.status === 409 ? 'lead-messages-transient'
+          : response.status === 400 && typeof response.body === 'string' && /prompt is too long|too many tokens|context (?:length|window)/i.test(response.body.slice(0, 4096)) ? 'lead-messages-too-long' : 'lead-messages-request' }
       }
       // No other status or transport rejection proves a zero charge.
       if (response.status !== 200) return uncertain()
@@ -360,15 +532,21 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       // Scans the decoded text as well, so an escaped key cannot hide in JSON-shaped prose.
       safeJson(output)
     } catch { return { status: 'invalid-response', reason: 'lead-messages-output', usage: used } }
+    // A checkpoint is words only. A tool call there is never dispatched and the answer is refused.
+    if (compaction) return content.some(item => item.type === 'tool_use') || parsed.stop_reason === 'max_tokens'
+      ? { status: 'invalid-response', reason: 'lead-messages-checkpoint', usage: used }
+      : { status: 'completed', usage: used, text: content.filter(item => item.type === 'text').map(item => item.text).join('\n') }
     const uses = content.flatMap((use, index) => use.type === 'tool_use' ? [{ use, index }] : [])
-    const results: MessagesToolResult[] = uses.map(({ use }) => ({ type: 'tool_result', tool_use_id: use.id, is_error: true, content: 'Tool refused' }))
+    const results: MessagesToolResult[] = uses.map(({ use }) => ({ type: 'tool_result', tool_use_id: use.id, is_error: true, content: TOOL_ERROR.refused }))
     const continuation: MessagesTurn[] = [...messages, { role: 'assistant', content }, ...(results.length ? [{ role: 'user' as const, content: results }] : [])]
     const bytes = (text: string) => new TextEncoder().encode(text).byteLength
-    const predecessorRefusal = (index: number) => `Step ${index} is not yet awaiting acceptance; wait for desk activity.`
-    const terminalRefusal = (index: number, reason: string) => `Step ${index + 1} cannot start: step ${index}'s result ${reason === 'lead-predecessor-unavailable' ? 'was not accepted' : 'cannot be confirmed'}. Ask the person how to continue.`
-    // A preceding read cannot consume the space needed to explain a later start refusal.
-    const refusalSpace = Math.max(...[predecessorRefusal(LEAD_LIMITS.steps), terminalRefusal(LEAD_LIMITS.steps, 'lead-predecessor-unavailable'), terminalRefusal(LEAD_LIMITS.steps, 'lead-predecessor-unverifiable')].map(text => bytes(json(text)))) - bytes(json('Tool refused'))
-    const reserved = uses.map(({ use }) => use.name === 'flow_start_goal' ? refusalSpace : 0)
+    const predecessorRefusal = (index: number) => `Tool was not permitted: step ${index} is not yet awaiting acceptance; wait for desk activity.`
+    const terminalRefusal = (index: number, reason: string) => `Tool was not permitted: step ${index + 1} cannot start: step ${index}'s result ${reason === 'lead-predecessor-unavailable' ? 'was not accepted' : 'cannot be confirmed'}. Ask the person how to continue.`
+    // The placeholder already pays for most diagnostics. Reserve only the extra serialized bytes.
+    const extraSpace = (texts: readonly string[]) => Math.max(0, ...texts.map(text => bytes(json(text)) - bytes(json(TOOL_ERROR.refused))))
+    const errorSpace = extraSpace([...Object.values(TOOL_ERROR), policyRefusal('desk'), policyRefusal('project'), leadChatUnknownText('x'.repeat(32))])
+    const refusalSpace = extraSpace([predecessorRefusal(LEAD_LIMITS.steps), terminalRefusal(LEAD_LIMITS.steps, 'lead-predecessor-unavailable'), terminalRefusal(LEAD_LIMITS.steps, 'lead-predecessor-unverifiable')])
+    const reserved = uses.map(({ use }) => Math.max(errorSpace, use.name === 'flow_start_goal' ? refusalSpace : 0))
     let available: number
     try {
       // Leave room for the next request's fixed tools/model/system wrapper too.
@@ -377,14 +555,16 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
     } catch { return { status: 'invalid-response', reason: 'lead-messages-continuation-limit', usage: used, toolResults: results } }
     let predecessorReason: string | undefined
     const permissionDeniedTools: string[] = []
-    const transientTools: string[] = [], succeededTools: string[] = [], deskActivityTools: string[] = []
+    const transientTools: string[] = [], succeededTools: string[] = [], deskActivityTools: string[] = [], deskChangedTools: string[] = []
     for (const [position, { use, index }] of uses.entries()) {
       available += reserved[position]!
       if (!signal.aborted && parsed.stop_reason !== 'max_tokens') {
         try {
-          const call = parseLeadToolCall(use)
-          safeJson(call, LIMIT.text)
-          const scope = await cancellable(() => resolveTool(structuredClone(call)), signal)
+          const asked = parseLeadToolCall(use)
+          safeJson(asked, LIMIT.text)
+          const scope = await cancellable(() => resolveTool(structuredClone(asked)), signal)
+          // A chat named by its handle comes back as the same call with the chat's id: the only call decided and sent.
+          const call = scope.call ?? asked
           if (signal.aborted) fail()
           let dispatchError: unknown
           const executed = await journal.execute({ id: `${requestId}/tool/${index}`, request: { method: call.method, params: call.params,
@@ -394,6 +574,37 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
               catch (error) { dispatchError = error; throw error }
             })
           if (executed.decision.effect !== 'allow') permissionDeniedTools.push(use.id)
+          if (executed.outcome === 'succeeded' || executed.outcome === 'uncertain') {
+            if (clientTierFor(call.method, call.params) !== 'read' || LEAD_DESK_WRITES.has(call.method)) deskChangedTools.push(use.id)
+          }
+          // Gate reasons are policy facts. Dispatch exceptions are not refusals and raw exceptions may contain secrets.
+          const errorText = executed.decision.effect !== 'allow'
+            ? executed.decision.rule ? policyRefusal(executed.decision.rule.layer) : `Tool was not permitted: ${executed.decision.reason.slice(0, 240)}`
+            : executed.outcome === 'uncertain'
+              ? TOOL_ERROR.uncertain
+            : dispatchError instanceof LeadToolFencedError
+              ? TOOL_ERROR.changed
+              : dispatchError instanceof WireCallError && dispatchError.code === 'leadScope'
+                ? TOOL_ERROR.scope
+              : dispatchError instanceof WireCallError && dispatchError.code === 'leadDeadline'
+                ? TOOL_ERROR.deadline
+              : dispatchError instanceof WireCallError && dispatchError.code === 'leadAskOpen'
+                ? TOOL_ERROR.ask
+              : dispatchError instanceof WireCallError && dispatchError.code === 'leadRunCap'
+                ? TOOL_ERROR.cap
+                : TOOL_ERROR.failed
+          if (executed.outcome !== 'succeeded') {
+            const result = { ...results[position]!, content: errorText }
+            const extra = bytes(json(result)) - bytes(json(results[position]))
+            // A longer policy reason is useful when it fits; the correlated refusal is already present.
+            if (extra <= available) { available -= extra; results[position] = result }
+            else if (executed.decision.effect !== 'allow') {
+              const fallback = { ...results[position]!, content: TOOL_ERROR.policy }
+              available -= bytes(json(fallback)) - bytes(json(results[position]))
+              results[position] = fallback
+            }
+          }
+
           if (executed.outcome === 'denied' && ['lead-predecessor-unavailable', 'lead-predecessor-unverifiable'].includes(executed.decision.reason)) {
             predecessorReason = executed.decision.reason
             const index = journal.state.contract?.steps.findIndex(step => step.id === scope.stepId) ?? 0
@@ -416,21 +627,38 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
             const result = { ...results[position]!, content: safeJson(executed.value, LIMIT.text), is_error: true }
             const extra = bytes(json(result)) - bytes(json(results[position]))
             if (extra <= available) { results[position] = result; available -= extra }
+            // Work that already exists: the host names the item, and the model offers to continue it in the same turn.
+            // It is not a refusal that parks the Lead for Resume. Other refusals keep their own handling.
+            if (typeof (executed.value as { ledgerItem?: unknown } | null)?.ledgerItem === 'string') transientTools.push(use.id)
           }
           if (executed.outcome === 'succeeded') {
             const result = { ...results[position]!, content: safeJson(executed.value ?? null, LIMIT.text), is_error: false }
             const extra = bytes(json(result)) - bytes(json(results[position]))
             if (extra <= available) { results[position] = result; available -= extra; succeededTools.push(use.id) }
-            else transientTools.push(use.id)
+            else {
+              const overflow = { ...results[position]!, content: TOOL_ERROR.overflow }
+              available -= bytes(json(overflow)) - bytes(json(results[position]))
+              results[position] = overflow
+              transientTools.push(use.id)
+            }
           }
         } catch (error) {
-          if (error instanceof LeadToolFencedError) transientTools.push(use.id)
-          // Static correlated error: no raw exception, argument or credential is echoed.
+          // A handle the desk does not hold is the model's to correct with chat_list, never a reason to park the Lead.
+          if (error instanceof LeadToolFencedError || error instanceof LeadChatUnknownError) transientTools.push(use.id)
+          const input = use.input as Record<string, unknown> | null
+          const result = { ...results[position]!, content: error instanceof LeadToolRefusedError
+            ? TOOL_ERROR.refused
+            : error instanceof LeadChatUnknownError
+              ? leadChatUnknownText(input?.id ?? input?.moveFrom)
+              : TOOL_ERROR.failed }
+          available -= bytes(json(result)) - bytes(json(results[position]))
+          results[position] = result
+          // No raw exception, argument or credential is echoed.
         }
       }
     }
     return { status: parsed.stop_reason === 'max_tokens' ? 'max-tokens' : signal.aborted ? 'cancelled' : 'completed', usage: used,
       ...(predecessorReason ? { reason: predecessorReason } : {}),
-      text: output.text, ...(output.ask ? { ask: output.ask } : {}), ...(output.proactive ? { proactive: output.proactive } : {}), proposals: { plan: output.plan, cards: output.cards }, toolResults: results, permissionDeniedTools, transientTools, deskActivityTools, succeededTools, messages: continuation }
+      text: output.text, ...(output.ask ? { ask: output.ask } : {}), ...(output.refs ? { refs: output.refs } : {}), ...(output.proactive ? { proactive: output.proactive } : {}), proposals: { plan: output.plan, cards: output.cards }, toolResults: results, permissionDeniedTools, transientTools, deskActivityTools, succeededTools, deskChangedTools, messages: continuation }
   } }
 }

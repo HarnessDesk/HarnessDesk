@@ -65,6 +65,8 @@ export type PhoneSessionState = 'running' | 'needs-you' | 'done' | 'archived'
 export type PhoneStartedBy = 'you' | 'lead' | 'team'
 
 export interface PhoneSessionRow {
+  /** This agent moves deleted conversations to the Trash. */
+  readonly canDelete: boolean
   /** Opaque and stable: "<agent>:<session>". It carries no path. */
   readonly id: string
   readonly title: string
@@ -74,6 +76,12 @@ export interface PhoneSessionRow {
   readonly startedBy: PhoneStartedBy
   /** What the session runs on, in the desk's words ("Codex Sol High"). */
   readonly seat: string
+  /**
+   * Which mark to draw beside the agent: a lobe-icons key from `brandForRuntime` ("codex", "claudecode"), the same one
+   * the desktop draws, matching `RUNTIME_BRAND_KEY` (lower-case letters and digits, at most 32). A key, never a label.
+   * Left out when the agent has no mark, and by a desk older than this field: the phone draws its generic agent glyph.
+   */
+  readonly brand?: string
   /** Dollars so far; null when the agent does not price its sessions. */
   readonly cost: number | null
   /** Epoch milliseconds. */
@@ -81,7 +89,8 @@ export interface PhoneSessionRow {
   /** When the session began as its agent recorded it, epoch milliseconds; not a measure of work. Left out when the
    * agent records no start (`RuntimeCapabilities.startTimes`) or the time is impossible. */
   readonly startedAt?: number
-  /** Pins live on the phone; the desk never sets this. */
+  readonly archived?: boolean
+  /** Host-owned pin shared with the desktop. */
   readonly pinned: boolean
 }
 
@@ -126,6 +135,12 @@ export type PhoneRange = 'today' | '7d' | '30d'
 export interface PhoneSeatUsage {
   /** The agent's presentation name, with a number when one agent is signed in more than once. Never an account. */
   readonly label: string
+  /**
+   * Which mark to draw beside the agent: a lobe-icons key from `brandForRuntime` ("codex", "claudecode"), the same one
+   * the desktop draws, matching `RUNTIME_BRAND_KEY` (lower-case letters and digits, at most 32). A key, never a label.
+   * Left out when the agent has no mark, and by a desk older than this field: the phone draws its generic agent glyph.
+   */
+  readonly brand?: string
   /** The short window's used percent, 0–100 and not clamped; null when the agent has no such window. */
   readonly windowPercent: number | null
   readonly resetsAt: number | null
@@ -200,6 +215,12 @@ export interface PhoneMoney {
 export interface PhoneAgentLabel {
   readonly name: string
   readonly model?: string
+  /**
+   * Which mark to draw beside the agent: a lobe-icons key from `brandForRuntime` ("codex", "claudecode"), the same one
+   * the desktop draws, matching `RUNTIME_BRAND_KEY` (lower-case letters and digits, at most 32). A key, never a label.
+   * Left out when the agent has no mark, and by a desk older than this field: the phone draws its generic agent glyph.
+   */
+  readonly brand?: string
 }
 
 export type PhoneWorkPhase = 'running' | 'needsYou' | 'watching' | 'done'
@@ -220,6 +241,8 @@ export interface PhoneWorkTeam {
   readonly workers: readonly PhoneWorkWorker[]
   readonly reviewers: number
   readonly spent: PhoneMoney
+  /** The Team's room id, what a Lead `refs` entry of kind `team` names; the item's own `id` is the goal's. */
+  readonly roomId: string
   /** The plan step a Lead started this Team for, so two Teams of one goal can be told apart. Left out otherwise. */
   readonly step?: string
   /** The person accepted the Lead's result and this Team is ready to wrap: `workspace/team/wrap` will take it. */
@@ -229,12 +252,15 @@ export interface PhoneWorkTeam {
 }
 
 export interface PhoneWorkItem {
+  /** Present for sessions; Teams cannot be deleted here. */
+  readonly canDelete?: boolean
   /** A session is "<agent>:<session>", a Team its own id. */
   readonly id: string
   readonly kind: 'session' | 'team'
   readonly title: string
   readonly project?: string
-  /** Archived conversations remain readable; controls stay on the desk until restored. */
+  readonly pinned?: boolean
+  /** Archived conversations remain readable. */
   readonly archived?: boolean
   readonly stage: LeadStage
   readonly stageReason: string
@@ -271,6 +297,12 @@ export interface PhoneWorkAllowance {
   /** Unique per row: an agent signed in twice sends two ids. */
   readonly id: string
   readonly name: string
+  /**
+   * Which mark to draw beside the agent: a lobe-icons key from `brandForRuntime` ("codex", "claudecode"), the same one
+   * the desktop draws, matching `RUNTIME_BRAND_KEY` (lower-case letters and digits, at most 32). A key, never a label.
+   * Left out when the agent has no mark, and by a desk older than this field: the phone draws its generic agent glyph.
+   */
+  readonly brand?: string
   /** 0–1 of the short window used and not clamped; left out when the agent has no such window. */
   readonly used?: number
   /** Kept for phones that read only this; a newer phone counts down to `resetsAt`. */
@@ -305,10 +337,51 @@ export interface PhoneWorkAllowance {
   readonly stale?: boolean
   /** The source's own error, scrubbed, when the last reading failed; the figures are then the last good ones. */
   readonly problem?: string
+  /** Allowance that expires unspent: more than half is left and the window is about to refill. Computed by the desk (`useFirstNote`). */
+  readonly useFirst?: true
+  /**
+   * Another sign-in's figures for this agent, filed apart from its own (`UsageReport.unverified`): an Antigravity
+   * account read through the separate `agy` command line. The desk decides nothing on them and neither does the phone;
+   * they are drawn under `whose`. Left out when there are none, and by a desk older than this field.
+   */
+  readonly unverified?: { readonly whose: string; readonly lanes: readonly PhoneWorkLane[]; readonly readAt: number; readonly stale?: true }
   readonly models: readonly string[]
   /** Never an account: the phone shows none, so the desk sends none. */
   readonly running: readonly string[]
   readonly last7: readonly PhoneMoney[]
+  /**
+   * The latest refresh failed and the figures on this row are the last good ones, read at `readAt` (`stale` is set
+   * too). The standing, `left` and `lanes` are theirs, never Unknown; the phone says "couldn't refresh" beside them.
+   * Left out when the latest refresh worked, and by a desk older than this field.
+   */
+  readonly refreshFailed?: true
+  /**
+   * A tracked agent nothing has read, or an account that answered with nothing to show (no window, balance or billing
+   * shape, no other sign-in's figures, no failure): `isSilentUsage(report) || answeredWithNothing(report, now)`, the
+   * same test the desktop's Plans table uses for Not reporting. Listed so the phone shows the same accounts as the
+   * desk: `status` is "Not reporting", and there are no figures and no `readAt`. Left out otherwise, and by a desk
+   * older than this field.
+   */
+  readonly notReporting?: true
+}
+
+/**
+ * Which account to use first: one whose window refills soon with more than half of it unspent (`pacingAdvice`,
+ * reason `use-first`), the same note the desk's Dashboard and Settings › Runtimes show.
+ */
+export interface PhoneWorkPacing {
+  /** The `PhoneWorkAllowance.id` of that account's row. */
+  readonly id: string
+  /** The row's own name. */
+  readonly name: string
+  /** The window about to refill ("Weekly"). */
+  readonly window: string
+  /** 0–1 of that window still unspent. */
+  readonly left: number
+  /** When it refills, epoch milliseconds. */
+  readonly resetsAt: number
+  /** When the desk read these figures, epoch milliseconds. */
+  readonly readAt: number
 }
 
 export interface PhoneWorkPeriod {
@@ -336,6 +409,8 @@ export interface PhoneWorkUsage {
   readonly runtimes: readonly PhoneWorkAllowance[]
   readonly week: PhoneWorkPeriod
   readonly month: PhoneWorkPeriod
+  /** Left out when no account is about to lose allowance, and by a desk older than this field. */
+  readonly pacing?: PhoneWorkPacing
 }
 
 /** Which controls the desk honours. A control it cannot is left out of the phone's screens. */
@@ -344,6 +419,9 @@ export interface PhoneWorkCapabilities {
   readonly startTeam: boolean
   readonly reply: boolean
   readonly stop: boolean
+  readonly rename?: boolean
+  readonly archive?: boolean
+  readonly pin?: boolean
   readonly delete: boolean
   readonly chooseModel: boolean
   /** More than one agent is listed in `agents`, so a new session can start on another one. */
@@ -366,6 +444,12 @@ export interface PhoneModelChoice {
 export interface PhoneAgentChoice {
   readonly id: string
   readonly name: string
+  /**
+   * Which mark to draw beside the agent: a lobe-icons key from `brandForRuntime` ("codex", "claudecode"), the same one
+   * the desktop draws, matching `RUNTIME_BRAND_KEY` (lower-case letters and digits, at most 32). A key, never a label.
+   * Left out when the agent has no mark, and by a desk older than this field: the phone draws its generic agent glyph.
+   */
+  readonly brand?: string
   readonly models: readonly PhoneModelChoice[]
   /** The desk's selected agent, which a start without `agent` uses. */
   readonly default?: true
@@ -386,6 +470,58 @@ export interface PhoneWorkSnapshot {
   readonly commands: readonly never[]
   readonly capabilities: PhoneWorkCapabilities
   readonly threads: readonly never[]
+  /**
+   * The Lead's work ledger, the same board the desk's Lead rail draws: Needs you, Working, In review, Done. Left out
+   * while no Lead runs on the desk. Done and Drop go back through `lead/work/close`.
+   */
+  readonly work?: import('./lead-work.js').LeadWorkBoard
+  /**
+   * Off / Observe / Act per proactive kind, the words the person's rules add, and the goal's deadline. Left out while no
+   * Lead runs here. The phone changes a mode through `lead/autonomy/set`; the rules are read-only on a phone.
+   *
+   * The history the phone draws for autonomy and rules is `changes`, newest first, the list the desktop's Recent
+   * changes reads (#2152): every mode change (`from → to`), every saved rule version (`version` and `how`: `edit` reads
+   * "version N saved", `reset` "reset to default", `rollback` "version N restored"), and every deadline set or cleared.
+   * `proposal` is set when the person applied one of the Lead's proposals: the row reads "Applied from <the Lead's
+   * name>'s proposal", as the desktop draws it (#2167). The value is the desk's own reference, never a word to show;
+   * without it the person changed it in Settings. `by` is always the person. A rule row's current `version` and `changedAt` are on `rules`; a section ever
+   * saved also carries `versions` (its newest five, newest first: `version`, `text`, `at`, `how`, and `from` for a
+   * restore) and `shipped`, the default words. That is the earlier wording, a diff between any two rows, and what a
+   * Restore would bring back, all without `lead/rules/read`, which stays a desk method. Restoring is done at the desk:
+   * the phone never writes rule words. Refreshed with the rest of the view when
+   * the desk publishes `lead/autonomy/changed`.
+   *
+   * Memory's history is on `lead/memory/view` (`history`, newest first): a Forget is its own row with `forgotten` (and
+   * zero counts), and a change whose words Forget took out keeps its counts with `erased` set.
+   */
+  readonly autonomy?: import('./lead-autonomy.js').LeadAutonomyView
+  /** The Lead's memory as the thread needs it. Left out while no Lead runs on the desk. */
+  readonly memory?: PhoneLeadMemory
+  /**
+   * Teams and chats the Inbox counts as needing the person that no item of `work` holds, newest first. The phone lists
+   * them under the Work list's Needs you, before the items, with an Open that opens the Team (by its id) or the chat
+   * (`runtime:session`); the group's count adds them, so it agrees with the Inbox. Left out when there are none or no
+   * Lead runs here.
+   */
+  readonly workWaiting?: readonly import('./lead-work-waiting.js').LeadWorkWaiting[]
+}
+
+/**
+ * What the phone draws of the Lead's memory beside the thread: the proposals waiting for Keep, Edit or No (each under
+ * the first Lead reply after `afterSeq`, the message revision it was proposed at), and how much is kept. The lists
+ * themselves come from `lead/memory/view`; Keep, Edit, No and Forget go back through `lead/memory/change`.
+ *
+ * A proposal the Lead makes again while it still waits stays one proposal: the desk moves its `afterSeq` to the newer
+ * message, so the chip follows the conversation down to the reply that asked again, and sets `askedAgainAt`: the time
+ * it was proposed again, which the phone may show as an "Asked again" chip beside the kind, as the desktop does. The id
+ * does not change, so a Keep already in flight still lands.
+ */
+export interface PhoneLeadMemory {
+  readonly revision: number
+  readonly inbox: readonly import('./lead-memory.js').LeadMemoryCandidate[]
+  readonly core: number
+  readonly archive: number
+  readonly auto: boolean
 }
 
 export interface PhoneWorkStep {
@@ -429,7 +565,19 @@ export type PhoneApprovalState = 'pending' | 'allowed' | 'allowedForSession' | '
 export type PhoneWorkTurn =
   | { readonly type: 'you'; readonly id: string; readonly text: string; readonly attachments: readonly string[]; readonly lead?: { readonly name: string } }
   | { readonly type: 'agent'; readonly id: string; readonly markdown: string }
-  | { readonly type: 'work'; readonly id: string; readonly seconds: number; readonly summary: string; readonly steps: readonly PhoneWorkStep[] }
+  | {
+      readonly type: 'work'
+      readonly id: string
+      /**
+       * How long the fold took, in whole seconds. 0 when the desk never
+       * measured it — a conversation replayed from the agent's store carries
+       * no times — or it took under a second; a reader shows no time then, as
+       * the desktop does, rather than "0s".
+       */
+      readonly seconds: number
+      readonly summary: string
+      readonly steps: readonly PhoneWorkStep[]
+    }
   | { readonly type: 'changes'; readonly id: string; readonly files: readonly PhoneWorkFileChange[] }
   | {
       readonly type: 'approval'
@@ -445,6 +593,8 @@ export type PhoneWorkTurn =
     }
 
 export interface PhoneWorkThread {
+  /** Recent activity is retained by the host but is not yet safely saved. */
+  readonly historyPending?: boolean
   /** Present only for chats the host records as Lead-managed. */
   readonly leadChatHolder?: 'lead' | 'person'
   readonly id: string
@@ -454,3 +604,117 @@ export interface PhoneWorkThread {
   readonly status: 'done' | 'running' | 'asksYou'
   readonly turns: readonly PhoneWorkTurn[]
 }
+
+/**
+ * One triage decision as the phone lists it, read-only: which mention trigger
+ * on which project judged a comment on which thread, what it decided and why,
+ * and whether it acted. `excerpt` is the comment's own bounded prose, shown as
+ * untrusted text; every other field is a validated scalar or a host-made sentence.
+ */
+export interface PhoneTriageRow {
+  readonly id: string
+  readonly trigger: string
+  /** The project folder's name, never a path. */
+  readonly project: string
+  readonly repository: string
+  readonly thread: { readonly kind: 'issue' | 'pull-request'; readonly number: number }
+  readonly author: string | null
+  readonly excerpt: string
+  readonly decision: 'accept' | 'ignore' | 'stop' | 'ask'
+  readonly reason: string
+  readonly by: 'rules' | 'assessment' | 'person'
+  /** `observe`: an accept here is "would have accepted", and nothing was opened. */
+  readonly mode: 'observe' | 'act'
+  readonly acted: boolean
+  readonly decidedAt: number
+  /** The comment on the forge. */
+  readonly url: string
+}
+
+/**
+ * One armed mention trigger as the phone lists it, read-only: where it watches, its mode on this machine, and who may
+ * ask besides the person. Logins are forge names, plain text; `project` is the folder's name, never a path.
+ */
+export interface PhoneTriageTrigger {
+  /** The trigger's id in its project's triggers file; two projects may use the same one. */
+  readonly id: string
+  readonly project: string
+  /** `owner/name` the arm observes, when it has one. */
+  readonly repository?: string
+  readonly mode: 'observe' | 'act'
+  /** Whose comments it takes, in the file's word (`me`, `collaborators`). */
+  readonly from?: 'me' | 'collaborators' | 'anyone'
+  /** Named people and bots also allowed to ask, at most ten each. */
+  readonly people: readonly string[]
+  readonly bots: readonly string[]
+}
+
+/** At most this many triggers are listed. */
+export const PHONE_TRIAGE_TRIGGERS_MAX = 50
+
+export interface PhoneTriageList {
+  /** Newest first, across every project on this desk, at most `limit` (default 50, at most 100). */
+  readonly rows: readonly PhoneTriageRow[]
+  /** The armed mention triggers on this desk, by project then id; empty when none is armed. Absent from an older desk. */
+  readonly triggers?: readonly PhoneTriageTrigger[]
+}
+
+/**
+ * The reminders a paired phone shows, as `workspace/read` hands them over in `work.reminders`: each one the Lead set
+ * through the host, with its own id (`remind-N`), its text, whom it is for (`person` or the Lead's own `lead`
+ * check-back), the work item it belongs to, when it is due, and its state. `set` has not fired: show it with its due
+ * time and a Cancel that calls `lead/reminder/cancel` with its id (tier `run`); a `lead` one is the Lead's own check-back,
+ * which quiet hours and autonomy hold, so mark it as one. `fired` has reached its time: show it as fired with `firedAt`, and `delivery: 'said'` once the Lead's message about it
+ * is written. A `fired` or `cancelled` one (listed for a day, the cancelled with its reason) can be cleared: a Clear that
+ * calls `lead/reminder/clear` with its id (tier `run`) takes it off the board and out of the Lead's cards for good, and
+ * a `set` one answers that it must be cancelled instead. Left out when there are none.
+ */
+export type PhoneLeadReminder = import('./lead-work.js').LeadReminder
+
+/**
+ * The Lead's live step as the phone draws it. The phone reads it from the `lead` topic, which carries the Lead window
+ * projection as the desktop reads it: `activity.step` is the step in plain words (thinking, the desk call in flight or
+ * the last one, or writing the reply), the same words the desktop's live line shows. Absent on older desks, where the
+ * phone keeps naming the step from `activity.method`.
+ */
+export type PhoneLeadActivity = NonNullable<import('./lead.js').LeadWindowProjection['activity']>
+
+/**
+ * A change to the Lead's own settings that the Lead proposed and the person decides, as `workspace/read` hands it over in
+ * `work.autonomy.proposals` (newest first; refreshed when the desk publishes `lead/autonomy/changed`). The Lead has no
+ * method that applies one: only the person's Apply does, from the desktop or the phone, through `lead/settings/decide`
+ * (tier `answer`) with `{ id, decision: 'apply' | 'decline' }`, which answers with the whole autonomy view.
+ *
+ * What the phone must render for each `pending` one, under the first Lead reply whose revision is after `afterSeq` (else
+ * under the latest reply), as the desktop does:
+ * - what it changes: for `change.kind === 'autonomy'`, the kind's title and `from → to` in the words Settings uses
+ *   (Off, Observe, Act); for `rules`, the line in `change.add`, or, without one, the section's whole new words
+ *   (`change.text`), with the section's title as a chip;
+ * - when it takes effect: a mode at once, for what the Lead does without being asked; a rule section at the Lead's next
+ *   epoch, never in the middle of a turn;
+ * - an "Asked again" chip when `askedAgainAt` is set (the same card, moved under the newer reply; the id is unchanged);
+ * - Apply and No, nothing else. A refusal (`lead-rules-stale`: the person's words, or the shipped default under them,
+ *   changed since the proposal; `lead-proposal-decided`: answered on another surface) is shown as the desk's sentence,
+ *   and the card leaves.
+ * - When `deskOnly` is set, Apply is the desk's: a section's whole new words, or a line the phone's scrub changed (so
+ *   the phone could not show what Apply would write). Decide by `deskOnly`, never by whether `add` is present. The phone
+ *   link names the phone on `lead/settings/decide`, and the desk refuses a phone's Apply on such a card with
+ *   `lead-proposal-desk-only` and a sentence saying to apply it at the desk. Show No, and say the words are applied at
+ *   the desk instead of offering Apply; the card stays.
+ * - The words arrive scrubbed like the work board's (paths, addresses and key-shaped strings replaced), with `deskOnly`
+ *   set, in the snapshot and in every answer that carries the autonomy view (`lead/autonomy/read`, `lead/autonomy/set`,
+ *   `lead/settings/decide`); draw them as plain text, never as markup.
+ * `applied`, `declined` and `stale` ones need no card; `history` is what the Lead reads to say what happened, never shown
+ * as controls.
+ */
+export type PhoneLeadSettingsProposal = import('./lead-autonomy.js').LeadSettingsProposal
+
+/**
+ * Each stop of a work item's attempts, oldest first, as `work.items[].stops` carries them: `by: 'person'` when the person
+ * stopped the chat (the desktop's Stop, the rail's Work menu, or the phone's own `workspace/stop`), `lead` when the Lead
+ * did, left out when the desk did not see who. The phone says "You stopped it" on a stopped item whose `stoppedBy` is
+ * `person`, and may count the attempts ("Stopped 2 times, by you each time"). Once an item has stopped twice, the desk
+ * refuses the Lead's next attempt until the person has answered, so a phone needs no control of its own for that. Only
+ * the person's stops (and ones the desk did not see) count toward the two; the Lead's own stops do not.
+ */
+export type PhoneLeadWorkStop = import('./lead-work.js').LeadWorkStop

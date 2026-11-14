@@ -1,6 +1,6 @@
-import { LEAD_LIMITS, type LeadAcceptanceContract, type LeadPermissionPolicy, type LeadProject, type LeadControlRefusal, type LeadPresence } from '@harnessdesk/protocol'
-import type { LeadAcceptanceEvidence, LeadJournal, LeadMessagesRequest, LeadMessagesResult, LeadPermissionCall, LeadResolvedTool, LeadSeatChoices, MessagesPrice, MessagesUsage, MessagesTransport, MessagesHttpResponse } from '@harnessdesk/lead'
-import { LEAD_MESSAGES_DEFAULTS, leadRememberLines, parseLeadMessagesBody } from '@harnessdesk/lead'
+import { LEAD_LIMITS, LEAD_STEP_REPLYING, LEAD_STEP_THINKING, leadStepWords, type LeadAcceptanceContract, type LeadPermissionPolicy, type LeadProject, type LeadControlRefusal, type LeadPresence } from '@harnessdesk/protocol'
+import type { LeadAcceptanceEvidence, LeadJournal, LeadMessagesRequest, LeadMessagesResult, LeadPermissionCall, LeadResolvedTool, LeadSeatChoices, MessagesPrice, MessagesUsage, MessagesTransport, MessagesHttpResponse, LeadWithheldPiece } from '@harnessdesk/lead'
+import { LEAD_MESSAGES_DEFAULTS, leadRememberLines, parseLeadMessagesBody, resolveLeadChatCall } from '@harnessdesk/lead'
 import { LeadSupervisor, chooseLeadRuntime, hostLeadRuntime, type LeadRuntime, type LeadRuntimeProber, type LeadSupervisorOptions } from '@harnessdesk/lead/supervisor'
 import type { CredentialBroker } from '../credentials.js'
 import type { ClientDoor } from '../client-door.js'
@@ -11,6 +11,13 @@ import { admitLeadCard } from './projection.js'
 import { leadContainsSecret, leadMessagesContainSecret } from './secrets.js'
 
 const publicRefusal = (wireCode: LeadControlRefusal) => Object.assign(new Error(wireCode), { wireCode })
+/** The check that kept a request on this machine: its shape, its size against the body or the reservation, its model or
+ * reply allowance, or credential-shaped text. A code only — the host log never carries the body. */
+export type LeadRequestGuard = 'shape' | 'size' | 'model' | 'max-tokens' | 'credential'
+export interface LeadRequestRefusal { readonly requestId: string; readonly guard: LeadRequestGuard; readonly bodyBytes: number; readonly reservedTokens: number | null }
+/** A request the child built with parts withheld: where and how many, by kind. Like a refusal, it never carries content. */
+export interface LeadRequestWithheld { readonly requestId: string; readonly bodyBytes: number; readonly reservedTokens: number; readonly withheld: readonly LeadWithheldPiece[] }
+const refusedBy = (guard: LeadRequestGuard) => Object.assign(new Error('lead-provider-refused'), { leadRequestGuard: guard })
 
 export interface LeadProcess {
   readonly live: boolean
@@ -27,6 +34,9 @@ export interface LeadServiceOptions {
   readonly probeRuntime?: LeadRuntimeProber
   /** Told once, the first time no runtime passes the probe, so the host can log why. */
   readonly onRuntimeUnavailable?: (reason: string) => void
+  /** Told once for each request refused before it was sent: which check, the request id and the sizes, never content. */
+  readonly onRequestRefused?: (refusal: LeadRequestRefusal) => void
+  readonly onRequestWithheld?: (report: LeadRequestWithheld) => void
   readonly journal: LeadJournal
   readonly project: LeadProject
   readonly broker: Pick<CredentialBroker, 'leadStatus' | 'resolveLead' | 'storeLead' | 'deleteLead'>
@@ -49,10 +59,15 @@ export interface LeadServiceOptions {
   readonly onManagementStopped?: (reason: string) => void
   /** The Lead's checks between model turns, as the child reports them. */
   readonly onPresence?: (presence: LeadPresence) => void
-  /** The lines the person kept, read at each start: the Lead is told them, numbered for a plan to cite. */
-  readonly readMemory?: () => Promise<readonly string[]>
-  /** Lines a reply offered to keep; they wait for the person's Keep. */
+  /** Lines a reply offered to keep: each is a memory proposal, scanned before it reaches the person's inbox. */
   readonly onRemember?: (lines: readonly string[]) => void
+  /** The host's stored conversation: what each step adds, and the conversation again after a compaction. */
+  readonly recordContext?: LeadSupervisorOptions['recordContext']
+  readonly readContext?: LeadSupervisorOptions['readContext']
+  readonly readMemoryStatus?: LeadSupervisorOptions['readMemoryStatus']
+  readonly compactContext?: LeadSupervisorOptions['compactContext']
+  /** Where the child failed and its code, for the host log; never content. */
+  readonly onFailure?: LeadSupervisorOptions['onFailure']
 }
 /** The host owns this lifecycle and its only journal writer. This service never
  * stores a plaintext key: resolution is transient and host-only.
@@ -63,6 +78,13 @@ export class LeadService {
   #publicScans: Promise<void> = Promise.resolve()
   #enabled = false
   #requestInFlight = false
+  readonly #activeTools = new Map<symbol, LeadPermissionCall['method']>()
+  get activeTool(): LeadPermissionCall['method'] | null { return [...this.#activeTools.values()].at(-1) ?? null }
+  // The step the live line names: thinking until a desk call has words, then that call's words until the next one,
+  // then the reply. Calls take milliseconds; between them the model is reading what the last one returned.
+  #step: string | null = null
+  /** The current step in plain words while a request runs; null when none does. */
+  get step(): string | null { return this.#requestInFlight ? this.#step ?? LEAD_STEP_THINKING : null }
   get requestInFlight(): boolean { return this.#requestInFlight }
   /** Host dispatches, including accepted queued work, must observe lifecycle revocation immediately. */
   get managementAvailable(): boolean { return this.#enabled && !this.#closed && !this.#changingKeys && !this.#cleanupFailed }
@@ -70,6 +92,8 @@ export class LeadService {
     const next = busy && !this.#closed
     if (this.#requestInFlight === next) return
     this.#requestInFlight = next
+    this.#step = null
+    if (!next) this.#activeTools.clear()
     // Activity outlives an individual send response; give its projection a fresh
     // revision without deriving liveness from durable billing reservations.
     void this.options.journal.settingsChanged().catch(() => {})
@@ -93,6 +117,10 @@ export class LeadService {
   #endLive: (() => void) | null = null
   #policy: LeadPermissionPolicy | null = null
   #exiting: Promise<void> | null = null
+  /** The logged failure that stopped the current child, and the last unexpected exit it led to, until a request
+   * comes back, the Lead is switched off or on, or the key changes. */
+  #stoppedBy: { readonly stage: string; readonly code: string } | null = null
+  #lastExit: string | null = null
   constructor(private readonly options: LeadServiceOptions) {
     this.#supervisor = (options.createSupervisor ?? (settings => new LeadSupervisor(settings)))({
       ...(options.runtimes === undefined ? {} : { runtimes: options.runtimes }),
@@ -115,16 +143,29 @@ export class LeadService {
           this.#door = await options.openDoor(this.#registration.admission)
           if (!this.#door) throw new Error('lead-client-unavailable')
           const key = await options.broker.resolveLead('anthropic')
-          const memory = options.readMemory ? await options.readMemory().catch(() => []) : []
           checkStartup()
           this.#assertOpen()
           if (generation !== this.#generation) throw new Error('lead-lifecycle-changed')
           return { key, descriptor: this.#door.descriptor,
             project: options.project, prices: options.prices, ...(options.model === undefined ? {} : { model: options.model }), projectPolicy: this.#policy,
-            ...(options.seats ? { seats: options.seats } : {}), ...(memory.length ? { memory } : {}) }
+            ...(options.seats ? { seats: options.seats } : {}) }
         } catch (error) { await this.#release(); throw error }
       },
       onActivity: busy => this.#activity(busy),
+      onReplying: () => {
+        if (!this.#requestInFlight) return
+        this.#step = LEAD_STEP_REPLYING
+        void options.journal.settingsChanged().catch(() => {})
+      },
+      onToolActivity: method => {
+        const key = Symbol()
+        this.#activeTools.set(key, method)
+        this.#step = leadStepWords(method) ?? this.#step
+        void options.journal.settingsChanged().catch(() => {})
+        return () => {
+          if (this.#activeTools.delete(key)) void options.journal.settingsChanged().catch(() => {})
+        }
+      },
       ...(options.onPresence ? { onPresence: options.onPresence } : {}),
       admitCardOffer: card => admitLeadCard(options.journal.state, card, options.project, options.model ?? LEAD_MESSAGES_DEFAULTS.model),
       // What the model says is written for the person to read, so it gets the scan every other public text gets.
@@ -158,28 +199,35 @@ export class LeadService {
         if (event.type === 'reserve') this.#reservedHere.add(event.requestId)
         else if (event.type === 'settle' || event.type === 'write-off') this.#reservedHere.delete(event.requestId)
       },
-      providerSend: async (requestId, body, signal) => {
-        let admitted = false
+      providerSend: async (requestId, body, signal, withheld) => {
+        let admitted = false, reservedTokens: number | null = null
+        const bodyBytes = Buffer.byteLength(body)
         try {
           this.#assertOpen()
           if (this.#changingKeys) throw new Error('lead-lifecycle-changed')
           const generation = this.#generation
-          const payload = parseLeadMessagesBody(body)
+          let payload: ReturnType<typeof parseLeadMessagesBody>
+          try { payload = parseLeadMessagesBody(body) } catch { throw refusedBy('shape') }
           body = JSON.stringify(payload)
-          if (Buffer.byteLength(body) > 1_048_576) throw new Error('lead-provider-failed')
+          if (Buffer.byteLength(body) > 1_048_576) throw refusedBy('size')
           const budget = options.journal.state.budget
           const request = budget?.requests.find(item => item.reservation.requestId === requestId)
           if (!request || request.uncertain || this.#providerUsage.get(requestId) === null || this.#providerFinalized.has(requestId) || budget?.settled.some(item => item.id === requestId)) throw new Error('lead-provider-failed')
           const reservation = request.reservation
-          if (payload.model !== (options.model ?? LEAD_MESSAGES_DEFAULTS.model) ||
-            payload.max_tokens > reservation.maxOutputTokens || Buffer.byteLength(body) + 1024 > reservation.inputTokens ||
-            this.#providerSends.has(requestId) || this.#providerSends.size >= 2) throw new Error('lead-provider-failed')
+          reservedTokens = reservation.inputTokens
+          // Reported once, for a request this host reserved: the child sends its counts with the first send only.
+          if (withheld?.length && this.#reservedHere.has(requestId)) options.onRequestWithheld?.({ requestId, bodyBytes, reservedTokens, withheld: withheld.map(({ turn, kind, count }) => ({ turn, kind, count })) })
+          if (payload.model !== (options.model ?? LEAD_MESSAGES_DEFAULTS.model)) throw refusedBy('model')
+          if (payload.max_tokens > reservation.maxOutputTokens) throw refusedBy('max-tokens')
+          if (Buffer.byteLength(body) + 1024 > reservation.inputTokens) throw refusedBy('size')
+          if (this.#providerSends.has(requestId) || this.#providerSends.size >= 2) throw new Error('lead-provider-failed')
           // Hold the slot across key resolution and transport; retries may reuse it only after settlement of this send.
           this.#providerSends.add(requestId); admitted = true
           const key = await options.broker.resolveLead('anthropic')
           this.#assertOpen()
           if (generation !== this.#generation || this.#changingKeys) throw new Error('lead-lifecycle-changed')
-          if (signal.aborted || leadMessagesContainSecret(payload, key)) throw new Error('lead-provider-failed')
+          if (signal.aborted) throw new Error('lead-provider-failed')
+          if (leadMessagesContainSecret(payload, key)) throw refusedBy('credential')
           const previousUsage = this.#providerUsage.get(requestId)
           this.#providerUsage.set(requestId, null)
           const response = await (options.messagesTransport ?? leadProviderTransport).send({
@@ -202,6 +250,8 @@ export class LeadService {
           let decoded: unknown
           try { decoded = JSON.parse(response.body) } catch { /* Non-JSON errors still pass the literal scan. */ }
           scan(decoded)
+          // A provider answer, whatever its status, proves the child got past every step before the request: the count of repeated exits starts over.
+          this.#lastExit = null
           if (this.#providerFinalized.has(requestId)) return result
           if (response.status >= 200 && response.status < 300) {
             const rawUsage = decoded !== null && typeof decoded === 'object' && !Array.isArray(decoded)
@@ -223,7 +273,16 @@ export class LeadService {
             else this.#providerUsage.set(requestId, previousUsage)
           }
           return result
-        } catch { throw new Error('lead-provider-failed') }
+        } catch (error) {
+          // Refused by name and never handed to the transport: the child settles it at zero rather than writing it off.
+          const guard = (error as { leadRequestGuard?: LeadRequestGuard }).leadRequestGuard
+          const open = options.journal.state.budget?.requests.some(item => item.reservation.requestId === requestId && !item.uncertain)
+          if (guard && open && this.#reservedHere.has(requestId) && !this.#providerFinalized.has(requestId) && this.#providerUsage.get(requestId) !== null) {
+            options.onRequestRefused?.({ requestId: /^[A-Za-z0-9._:/-]{1,100}$/.test(requestId) ? requestId : 'invalid', guard, bodyBytes, reservedTokens })
+            throw Object.assign(new Error('lead-provider-refused'), { leadRequestRefused: guard })
+          }
+          throw new Error('lead-provider-failed')
+        }
         finally { if (admitted) this.#providerSends.delete(requestId) }
       },
       resolveTool: async call => {
@@ -235,15 +294,29 @@ export class LeadService {
         const desk = options.journal.state.policy
         if (!desk) throw new Error('lead-policy-unavailable')
         this.#policy = await loadLeadProjectPolicy(options.project.path, desk)
-        const resolved = await options.resolveTool(call)
+        // A chat the Lead named by its handle becomes its id here, before any scope or permission is derived, so
+        // everything that decides sees the id alone and a handle reaches nothing its id could not. A handle nobody
+        // holds is refused by name.
+        const named = resolveLeadChatCall(call, options.journal.state.chatHandles)
+        const resolved = await options.resolveTool(named)
         this.#assertOpen()
         if (generation !== this.#generation || this.#changingKeys) throw new Error('lead-lifecycle-changed')
         return { ...resolved, project: options.project,
-          context: { ...resolved.context, desk, project: options.project, projectPolicy: this.#policy } }
+          context: { ...resolved.context, desk, project: options.project, projectPolicy: this.#policy },
+          ...(named !== call ? { call: named } : {}) }
       },
       freezePlan: options.freezePlan, readEvidence: options.readEvidence,
+      ...(options.recordContext ? { recordContext: async record => { this.#assertOpen(); await options.recordContext!(record) } } : {}),
+      ...(options.readContext ? { readContext: async (epoch, room) => { this.#assertOpen(); return options.readContext!(epoch, room) } } : {}),
+      ...(options.compactContext ? { compactContext: async trigger => { this.#assertOpen(); return options.compactContext!(trigger) } } : {}),
+      ...(options.readMemoryStatus ? { readMemoryStatus: async () => { this.#assertOpen(); return options.readMemoryStatus!() } } : {}),
       onStarted: () => { this.#endLive = options.childStarted() },
       onExit: reason => this.#exited(reason),
+      onFailure: failure => {
+        // A failure the child caught and carried on from is only logged; one that stopped the child also keys its exit.
+        if (failure.stopped) this.#stoppedBy = { stage: failure.stage, code: failure.code }
+        try { options.onFailure?.(failure) } catch { /* A log never owns the lifecycle. */ }
+      },
     })
   }
   #queue<T>(task: () => Promise<T>): Promise<T> {
@@ -287,12 +360,14 @@ export class LeadService {
   }
   #exited(reason: string): Promise<void> {
     this.#activity(false)
+    // Taken on every exit, before the guard below, so a failure never attaches to a later exit it did not cause.
+    const stoppedBy = this.#stoppedBy; this.#stoppedBy = null
     if (this.#exiting) return this.#exiting
     // Called only after the child has fully exited and its pending dispatches
     // have rejected. Recovery never races a live dispatch from that child.
     const task = (async () => {
       try {
-        try { await this.#latch(['lead-disabled', 'lead-key-changed', 'lead-host-shutdown', 'lead-send-deadline'].includes(reason) ? reason : 'lead-child-exited') }
+        try { await this.#latch(['lead-disabled', 'lead-key-changed', 'lead-host-shutdown', 'lead-send-deadline'].includes(reason) ? this.#expectedExit(reason) : this.#unexpectedExit(reason, stoppedBy)) }
         finally { await this.options.stopOwned(reason) }
         this.#endLive?.(); this.#endLive = null
         await this.#recoverRequests()
@@ -303,6 +378,19 @@ export class LeadService {
     this.#exiting = task
     void task.finally(() => { if (this.#exiting === task) this.#exiting = null }).catch(() => {})
     return task
+  }
+  #expectedExit(reason: string): string { this.#lastExit = null; return reason }
+  /**
+   * An exit nobody asked for. The same exit after the same logged failure, with no request come back between, is
+   * `lead-child-exited-again`: Resume would only start a child that stops at the same step, so the person is told the
+   * desk log names it instead of being offered Resume once more (#2085). An exit with no logged failure (the process
+   * was killed, the desk went away, startup timed out) is never called a repeat: nothing in the log would name it.
+   */
+  #unexpectedExit(reason: string, failure: { readonly stage: string; readonly code: string } | null): 'lead-child-exited' | 'lead-child-exited-again' {
+    const key = failure ? [reason, failure.stage, failure.code].join('\u0000') : null
+    const again = key !== null && this.#lastExit === key
+    this.#lastExit = key
+    return again ? 'lead-child-exited-again' : 'lead-child-exited'
   }
   async #halt(reason: string, finishExitedRecovery = false): Promise<void> {
     this.options.onManagementStopped?.(reason)
@@ -362,7 +450,7 @@ export class LeadService {
   }
   setEnabled(enabled: boolean): Promise<void> {
     if (this.#closed) return Promise.reject(new Error('lead-closed'))
-    this.#enabled = enabled
+    this.#enabled = enabled; this.#lastExit = null
     if (!enabled) this.options.onManagementStopped?.('lead-disabled')
     const generation = ++this.#generation
     return this.#queue(async () => {
@@ -390,12 +478,16 @@ export class LeadService {
     })
     this.#assertOpen()
     if (generation !== this.#generation) throw new Error('lead-lifecycle-changed')
-    return this.#supervisor.send(input)
+    const result = await this.#supervisor.send(input)
+    // Any result that came back, failed or refused included, proves the child ran: the count of repeated exits starts over
+    // (a provider answer during the request already reset it).
+    this.#lastExit = null
+    return result
   }
   #changeKey(provider: 'anthropic', write: () => Promise<unknown>, deleting = false): Promise<void> {
     if (provider !== 'anthropic') return Promise.reject(new Error('lead-provider-unsupported'))
     if (this.#closed) return Promise.reject(new Error('lead-closed'))
-    this.#publicProjection = null
+    this.#publicProjection = null; this.#lastExit = null
     ++this.#generation; ++this.#changingKeys
     return this.#queue(async () => {
       try {

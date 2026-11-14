@@ -31,4 +31,5 @@ test('ACP recommends workspace editing and native default effort without widenin
   ], null)
   assert.deepEqual(options.map(option => option.recommendedValue), ['acceptEdits', 'enabled', 'default', undefined])
   assert.equal(options[0]?.currentValue, 'bypassPermissions', 'live values stay intact')
+  assert.deepEqual(options[0]?.type === 'select' && options[0].choices.map(choice => choice.risk), ['high', undefined], 'skipping every prompt is marked high risk')
 })

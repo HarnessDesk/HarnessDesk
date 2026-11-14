@@ -38,6 +38,7 @@ export interface LeftColumnRowProps {
   readonly label: string
   readonly icon?: ReactNode
   readonly title?: string
+  readonly multiSelected?: boolean
   readonly selected?: boolean
   readonly disabled?: boolean
   readonly expanded?: boolean
@@ -53,13 +54,14 @@ export interface LeftColumnRowProps {
   readonly buttonProps?: Pick<ComponentProps<'button'>, 'aria-label' | 'aria-describedby' | 'onKeyDown' | 'onDragOver' | 'onDrop'>
 }
 export const LeftColumnRow = forwardRef<HTMLButtonElement, LeftColumnRowProps>((props, ref) =>
-  <div data-left-row data-left-disclosable={props.disclosure ? '' : undefined} data-left-prefix={props.trailing?.kind === 'mark' && props.trailing.prefix ? '' : undefined} data-left-nested={props.nested ? '' : undefined} data-left-tree={props.tree ? '' : undefined} data-letter={props.tree?.letter ?? undefined} data-left-project={props.project ? '' : undefined} data-insert={props.insertion} data-current={props.current ? '' : undefined} data-dragging={props.dragging ? '' : undefined} className={styles.row} onContextMenu={props.onContextMenu}>
+  <div data-left-row data-multi-selected={props.multiSelected ? '' : undefined} data-left-disclosable={props.disclosure ? '' : undefined} data-left-prefix={props.trailing?.kind === 'mark' && props.trailing.prefix ? '' : undefined} data-left-nested={props.nested ? '' : undefined} data-left-tree={props.tree ? '' : undefined} data-letter={props.tree?.letter ?? undefined} data-left-project={props.project ? '' : undefined} data-insert={props.insertion} data-current={props.current ? '' : undefined} data-dragging={props.dragging ? '' : undefined} className={styles.row} onContextMenu={props.onContextMenu}>
     <SidebarMenuButton data-draggable={props.project ? '' : undefined} ref={ref} className={styles.button}
       style={props.tree ? { paddingInlineStart: `calc(var(--hd-space-2) + ${props.tree.depth} * var(--hd-space-4))` } : undefined}
       label={props.tree ? <span className={styles.treeLabel}><span className={styles.treeIcon}>{props.icon}</span><span className={styles.treeName}>{props.label}</span></span> : props.disclosure ? <span data-left-fold-name className={styles.foldName}>{props.label}</span> : props.expanded === undefined ? props.label : <><span data-left-fold-name className={styles.foldName}>{props.label}</span><DisclosureChevron open={props.expanded} size="xs" className={styles.disclosure} /></>}
       labelEnd={props.trailing?.kind === 'mark' && props.trailing.prefix ? <Text role="meta" numeric data-left-mark-prefix className={styles.markPrefix}>{props.trailing.prefix}</Text> : undefined}
       icon={props.tree ? props.tree.expanded === undefined ? <span aria-hidden="true" /> : <DisclosureChevron open={props.tree.expanded} size="xs" /> : props.expanded === undefined ? props.icon ?? <span aria-hidden="true" /> : undefined} isActive={props.selected}
       title={props.title ?? props.label} disabled={props.disabled}
+      aria-pressed={props.multiSelected === undefined ? undefined : props.multiSelected}
       aria-current={props.selected ? 'page' : undefined} aria-expanded={props.disclosure?.open ?? (props.tree ? props.tree.expanded : props.expanded)}
       aria-label={props.label} onClick={props.onClick} onDoubleClick={props.onDoubleClick} {...props.buttonProps} />
     {props.disclosure && <Button variant="ghost" size="pattern" className={styles.nameDisclosure} data-left-disclosure
@@ -243,3 +245,12 @@ export const LeftColumnExplorerFoot = ({ onClick }: { readonly onClick: () => vo
 /** Seat rows indent their leading column while retaining the parent's end rail. */
 export const LeftColumnSeats = ({ children }: { readonly children: ReactNode }) =>
   <SidebarMenu nested inset="rail" className={styles.seats}>{children}</SidebarMenu>
+
+
+/** A persistent bottom rail for a list's bulk selection, wrapping at narrow widths. */
+export const LeftColumnBulkBar = ({ count, children, onCancel }: {
+  readonly count: number; readonly children: ReactNode; readonly onCancel: () => void
+}) => <Bar role="toolbar" aria-label="Manage selected conversations" inset="rail" rule="top" grow surface="sidebar" className={styles.bulkBar}>
+  <Text role="meta">{count} selected</Text>{children}
+  <Button variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
+</Bar>

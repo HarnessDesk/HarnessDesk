@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { CapabilityContribution } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey, type Session, type CapabilityContribution } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { useSessionKey } from '../state/context'
@@ -38,7 +38,7 @@ import {
 import { toolOf } from '../state/frame-tools'
 import { Workbench as WorkbenchBody } from './Workbench'
 import * as terminalLabels from '../lib/terminal-labels'
-import { TopBarProvider, useWorkDetails } from './top-bar'
+import { TopBarProvider, useRailLeave, useWorkDetails } from './top-bar'
 import { PageRailToggle } from './WorkTools'
 import { ShellHostsProvider, ShellOutlets } from './shell-hosts'
 import type { ComponentProps } from 'react'
@@ -227,6 +227,55 @@ const render = (store: AppStore): void => {
     )
   })
 }
+
+it('draws a named secondary transcript without replacing the main work', () => {
+  const runtime = runtimeId('secondary'), id = sessionId('b'), key = sessionKey(runtime, id)
+  const session = { runtime, id, title: 'Second conversation', cwd: '/project', createdAt: 1, updatedAt: 2, status: { type: 'idle' }, itemsLoaded: true, turns: [{ id: 'turn', status: 'completed', items: [{ id: 'answer', type: 'assistantMessage', text: 'Unique adjacent answer' }] }] } as unknown as Session
+  const subject = fixedSubject(emptySnapshot().workbench.main)!
+  const { store } = rig(undefined, { adjacentSession: { key, subject, loading: false, error: null }, sessions: new Map([[key, session]]), runtimes: [{ id: runtime, presentation: { name: 'Other agent' }, capabilities: {} } as never] })
+  Object.assign(store, { closeAdjacentSession: vi.fn() })
+  render(store)
+  expect(container.textContent).toContain('Unique adjacent answer')
+  expect(container.textContent).toContain('Second conversation')
+  expect(container.textContent).toContain('Other agent')
+  expect(container.querySelector('[data-testid="panes"]')).not.toBeNull()
+  expect(container.querySelector('button[aria-label="Close adjacent conversation"]')).not.toBeNull()
+  const region = container.querySelector<HTMLElement>('[role="region"][aria-label^="Adjacent conversation:"]')!
+  act(() => region.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  expect(store.closeAdjacentSession).toHaveBeenCalledOnce()
+})
+
+it('closes the adjacent reader on Escape from its focused header button', () => {
+  const runtime = runtimeId('secondary'), id = sessionId('b'), key = sessionKey(runtime, id)
+  const subject = fixedSubject(emptySnapshot().workbench.main)!
+  const rigged = rig(undefined, { adjacentSession: { key, subject, loading: false, error: null } })
+  const close = vi.fn()
+  Object.assign(rigged.store, { closeAdjacentSession: close })
+  render(rigged.store)
+  const button = container.querySelector<HTMLButtonElement>('button[aria-label="Close adjacent conversation"]')!
+  const parentKeydown = vi.fn()
+  document.addEventListener('keydown', parentKeydown)
+  button.focus()
+  expect(document.activeElement).toBe(button)
+  const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+  act(() => button.dispatchEvent(escape))
+  expect(close).toHaveBeenCalledOnce()
+  expect(escape.defaultPrevented).toBe(true)
+  expect(parentKeydown).not.toHaveBeenCalled()
+  expect(container.querySelector('[data-testid="panes"]')).not.toBeNull()
+  document.removeEventListener('keydown', parentKeydown)
+})
+
+it('labels the reader as read only without exposing a missing runtime id', () => {
+  const runtime = runtimeId('private-backend-id'), id = sessionId('b'), key = sessionKey(runtime, id)
+  const subject = fixedSubject(emptySnapshot().workbench.main)!
+  const { store } = rig(undefined, { adjacentSession: { key, subject, loading: false, error: null }, runtimes: [] })
+  render(store)
+  const region = container.querySelector<HTMLElement>('[role="region"][aria-label^="Adjacent conversation:"]')!
+  expect(region.textContent).toContain('Read only')
+  expect(region.textContent).toContain('Agent unavailable')
+  expect(region.outerHTML).not.toContain('private-backend-id')
+})
 
 const panels = (): HTMLElement[] => [...container.querySelectorAll<HTMLElement>('[data-slot="dock-panel"]')]
 
@@ -1339,6 +1388,35 @@ it('a page rail floats over the page where the column cannot hold it, by the ses
   expect(railFloatsBeside(FRAME.main.min + FRAME.infoCard.width)).toBe(false)
 })
 
+it('a rail floats wherever docking it would leave the thread under its minimum beside the sidebar actually drawn (#2179)', () => {
+  // A narrow window draws the sidebar over the thread, not beside it; it still covers what the rail would leave.
+  const cases = [[740, true, true], [740, false, true], [800, true, true], [800, false, false],
+    [900, true, true], [900, false, false], [1200, true, false], [1200, false, false]] as const
+  for (const [windowWidth, shown, floats] of cases) {
+    const narrowWindow = windowWidth < FRAME.fold.sidebarFloats
+    const harness = rig(start => ({ ...start, navigation: { ...start.navigation, current: { kind: 'lead' } } }),
+      { windowWidth, narrowWindow, sidebarFloating: narrowWindow && shown, sidebarCollapsed: !narrowWindow && !shown })
+    const Page = () => { useWorkDetails('destination:lead', <div>Lead cards</div>); return null }
+    act(() => root.render(<StoreProvider store={harness.store}><Workbench sidebar={<nav>Sidebar</nav>} pageActive pages={<Page />} /></StoreProvider>))
+    const shell = container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
+    const label = `${windowWidth}px, sidebar ${shown ? 'shown' : 'hidden'}`
+    expect(shell.dataset.leftOpen, label).toBe(String(shown))
+    expect(shell.dataset.railFloats, label).toBe(String(floats))
+  }
+})
+
+it('a rail floating only because the sidebar lies over the thread leaves Escape and presses to the sidebar (#2179)', () => {
+  const harness = rig(start => ({ ...start, navigation: { ...start.navigation, current: { kind: 'lead' } } }), { windowWidth: 900, narrowWindow: true, sidebarFloating: true })
+  const Page = () => { useWorkDetails('destination:lead', <div>Lead cards</div>); return null }
+  const draw = () => act(() => root.render(<StoreProvider store={harness.store}><Workbench sidebar={<button type="button" data-testid="sidebar-row">Chat</button>} pageActive pages={<Page />} /></StoreProvider>))
+  draw()
+  const shell = () => container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
+  expect([shell().dataset.railFloats, shell().dataset.railOpen]).toEqual(['true', 'true'])
+  act(() => { container.querySelector('[data-testid="sidebar-row"]')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true })) })
+  draw()
+  expect(shell().dataset.railOpen, 'a press in the sidebar on top is the sidebar\'s').toBe('true')
+})
+
 it('a page rail floats when the terminal pane the page keeps leaves the column too narrow', () => {
   // 1100px holds the rail alone; beside a 400px terminal the column is 700px, under the line.
   for (const [terminal, floats] of [[false, false], [true, true]] as const) {
@@ -1350,4 +1428,76 @@ it('a page rail floats when the terminal pane the page keeps leaves the column t
     expect(shell.dataset.rightOpen, String(terminal)).toBe(String(terminal))
     expect(shell.dataset.railFloats, String(terminal)).toBe(String(floats))
   }
+})
+
+it('a floating rail goes on a press outside it and on Escape, as the floating sidebar does, and stays for a press inside (#2175)', () => {
+  const harness = rig(start => ({ ...start, navigation: { ...start.navigation, current: { kind: 'lead' } } }), { windowWidth: 900 })
+  // A proposal card's Apply in the thread the floating rail lies over, and a control inside the rail itself.
+  const Page = () => { useWorkDetails('destination:lead', <button type="button" data-testid="in-rail">Open</button>); return <><PageRailToggle page="lead" /><button type="button" data-testid="apply">Apply</button></> }
+  const draw = () => act(() => root.render(<StoreProvider store={harness.store}><Workbench sidebar={null} pageActive pages={<Page />} /></StoreProvider>))
+  draw()
+  const shell = () => container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
+  const press = (element: Element) => act(() => { element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true })) })
+  expect([shell().dataset.railFloats, shell().dataset.railOpen]).toEqual(['true', 'true'])
+  press(container.querySelector('[data-testid="in-rail"]')!)
+  draw()
+  expect(shell().dataset.railOpen, 'a press inside the rail is the rail\'s own').toBe('true')
+  // The rail's own toggle closes it by its click, never by a press that closes it only for the click to open it again.
+  press(container.querySelector('[data-work-rail-toggle]')!)
+  draw()
+  expect(shell().dataset.railOpen).toBe('true')
+  press(container.querySelector('[data-testid="apply"]')!)
+  draw()
+  expect(shell().dataset.railOpen, 'a press in the thread puts the rail away, so what it covered can be reached').toBe('false')
+  act(() => container.querySelector<HTMLButtonElement>('[data-work-rail-toggle]')!.click())
+  draw()
+  expect(shell().dataset.railOpen).toBe('true')
+  act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
+  draw()
+  expect(shell().dataset.railOpen, 'Escape puts it away').toBe('false')
+})
+
+it('a folded bar\'s More holds the rail toggle, so a press on it leaves a floating rail for Toggle rail to close (#2175)', () => {
+  // Folded, the bar carries Toggle rail in More: put away by the press on More, the rail would be opened again by the
+  // Toggle rail chosen there. Unfolded, the toggle stands in the bar and More is outside the rail like any other press.
+  for (const [fold, after] of [['1', 'true'], ['0', 'false']] as const) {
+    const harness = rig(start => ({ ...start, navigation: { ...start.navigation, current: { kind: 'lead' } } }), { windowWidth: 900 })
+    const Page = () => { useWorkDetails('destination:lead', <div>Lead cards</div>); return <div data-slot="top-bar" data-fold={fold}><div data-topbar="more"><button type="button" data-testid="more">More</button></div></div> }
+    const draw = () => act(() => root.render(<StoreProvider store={harness.store}><Workbench sidebar={null} pageActive pages={<Page />} /></StoreProvider>))
+    draw()
+    const shell = () => container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
+    expect([shell().dataset.railFloats, shell().dataset.railOpen]).toEqual(['true', 'true'])
+    act(() => { container.querySelector('[data-testid="more"]')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true })) })
+    draw()
+    expect(shell().dataset.railOpen, `More in a bar with data-fold=${fold}`).toBe(after)
+  }
+})
+
+it('a row in a floating rail that takes the person somewhere puts the rail away; a standing rail stays (#2175)', () => {
+  // The row stands in for a Work row: it opens what it stands for, then tells the shell it left.
+  const Row = () => { const leave = useRailLeave(); return <button type="button" data-testid="door" onClick={leave}>Build a small browser game</button> }
+  for (const [windowWidth, floats, after] of [[900, 'true', 'false'], [1440, 'false', 'true']] as const) {
+    const harness = rig(start => ({ ...start, navigation: { ...start.navigation, current: { kind: 'lead' } } }), { windowWidth })
+    const Page = () => { useWorkDetails('destination:lead', <Row />); return null }
+    const draw = () => act(() => root.render(<StoreProvider store={harness.store}><Workbench sidebar={null} pageActive pages={<Page />} /></StoreProvider>))
+    draw()
+    const shell = () => container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
+    expect([shell().dataset.railFloats, shell().dataset.railOpen]).toEqual([floats, 'true'])
+    act(() => container.querySelector<HTMLButtonElement>('[data-testid="door"]')!.click())
+    draw()
+    expect(shell().dataset.railOpen, floats === 'true' ? 'a floating rail goes with the person' : 'a rail beside the page stays').toBe(after)
+  }
+})
+
+it('a rail that stands beside the page keeps out of the way of presses and Escape alike (#2175)', () => {
+  const harness = rig(start => ({ ...start, navigation: { ...start.navigation, current: { kind: 'lead' } } }), { windowWidth: 1440 })
+  const Page = () => { useWorkDetails('destination:lead', <div>Lead cards</div>); return <button type="button" data-testid="apply">Apply</button> }
+  const draw = () => act(() => root.render(<StoreProvider store={harness.store}><Workbench sidebar={null} pageActive pages={<Page />} /></StoreProvider>))
+  draw()
+  const shell = () => container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
+  expect(shell().dataset.railFloats).toBe('false')
+  act(() => { container.querySelector('[data-testid="apply"]')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true })) })
+  act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
+  draw()
+  expect(shell().dataset.railOpen).toBe('true')
 })

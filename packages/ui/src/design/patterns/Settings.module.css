@@ -980,6 +980,14 @@
   display: none;
 }
 
+/* In a right-panel card (`ToolSection`) rows draw no rule between them, as a
+   panel list's rows do not: a rule from the card's border to its border read
+   as the edge reaching in, and the card's groups are told apart by their
+   labels and the air above them (docs/design.md, content insets). */
+[data-slot='tool-section-body'] .row::after {
+  display: none;
+}
+
 /* A row that is itself a button — a plugin, an account — keeps the anatomy and
    adds the affordance. Its ground is the row variant's. A hover rule here
    outranked the variant's chosen fill, so a checked answer lost its fill
@@ -1256,6 +1264,9 @@
 
 .monoBlock[data-wrap] {
   white-space: pre-wrap;
+  /* Folds a long unbroken token too (a URL, a path), so a command shown
+     for someone to approve never hides its tail past the plate's edge. */
+  overflow-wrap: anywhere;
 }
 
 pre.mono:not([data-block])[data-wrap] {

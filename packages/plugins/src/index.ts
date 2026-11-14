@@ -20,6 +20,7 @@ import { gitPlugin } from './git.js'
 import { guardrailsPlugin } from './guardrails.js'
 import { searchPlugin } from './search.js'
 import { teamPlugin } from './team.js'
+import { consultPlugin } from './consult.js'
 import { todoPlugin } from './todo.js'
 import { webPlugin } from './web.js'
 import { simulatorPlugin } from './simulator.js'
@@ -29,11 +30,12 @@ import { testsPlugin } from './tests.js'
 
 export { checkpointPlugin, recoveryHint, type Checkpoint } from './checkpoint.js'
 export { filesPlugin } from './files.js'
-export { createPullRequest, type PullRequestCreatePort, type PullRequestCreateArgs, type GhPullRequest, DEFAULT_COMMENT_SIGNATURE, signDescription, DEFAULT_REVIEW_SIGNATURE, DEFAULT_SIGNATURE, SIGNATURE_MARK, deskMarked, gitPlugin, previousSignature, renderSignature, signBody, unmarked } from './git.js'
+export { createPullRequest, type PullRequestCreatePort, type PullRequestCreateArgs, type GhPullRequest, COMMIT_COAUTHOR_PROBLEM, commitCoAuthorOf, DEFAULT_COMMENT_SIGNATURE, DEFAULT_COMMIT_COAUTHOR, signDescription, DEFAULT_REVIEW_SIGNATURE, DEFAULT_SIGNATURE, SIGNATURE_MARK, deskMarked, gitPlugin, previousSignature, renderSignature, signBody, unmarked } from './git.js'
 export { callSignature, guardrailsPlugin } from './guardrails.js'
 export { searchPlugin } from './search.js'
 export { renderTodos, todoPlugin, type TodoItem, type TodoStatus } from './todo.js'
 export { teamPlugin } from './team.js'
+export { consultPlugin } from './consult.js'
 export { htmlToText, webPlugin } from './web.js'
 export { simulatorPlugin } from './simulator.js'
 export { androidPlugin } from './android.js'
@@ -46,6 +48,7 @@ export const builtinPlugins: readonly HarnessPlugin[] = [
   searchPlugin,
   todoPlugin,
   teamPlugin,
+  consultPlugin,
   checkpointPlugin,
   guardrailsPlugin,
   webPlugin,

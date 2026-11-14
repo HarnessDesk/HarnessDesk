@@ -48,6 +48,7 @@ import { goalName } from '../lib/goals'
 import { openExternal } from '../lib/desktop'
 import { canPlace, forgetMissing, fromStored, MAX_TILES, placeTile, removeTile, wouldReplace as modelWouldReplace, type SideBySideState } from '../lib/side-by-side'
 import { budgetMeterWords, formatMeterUsd, intakeStopWords, openTriggerWaits, originHoverWords, originSubject } from '../lib/intake'
+import { runOrigin } from '../lib/run-origin'
 import { PaneProvider, usePane, useSnapshot, useStore } from '../state/context'
 import { useNeedsYouAnswers } from '../state/needs-you'
 import type { AppSnapshot } from '../state/snapshot'
@@ -105,7 +106,9 @@ import { WindowControls } from './WindowControls'
 import {
   SeatList,
   ToolBody,
+  ToolBodyControls,
   ToolSection,
+  ToolProse,
   PanelFilter,
   type SeatListRow,
   type TopBarTab,
@@ -121,7 +124,6 @@ import {
   Menu,
   MenuItem,
   MenuToggle,
-  Note,
   PaneColumn, PaneTabsRow,
   PaneSurface,
   Popover,
@@ -1100,7 +1102,7 @@ export const TeamRoomPane = ({
     execution: detailsRun, cards: intents, sessions: snapshot.sessions,
     evidence: snapshot.boardEvidence.get(room), findings: snapshot.findings.get(room)?.rows,
     findingRun: snapshot.findingRuns.get(detailsRun.id), publicationOn: goal?.goal.findingPublication !== false,
-    origin: detailsRun.intake ? `From trigger ${detailsRun.intake.trigger}` : goal?.goal.origin.kind === 'person' ? 'Started by you' : null,
+    origin: runOrigin(detailsRun, goal?.goal.origin.kind),
     attempts: checkAttempts.attempts, incompleteAttempts: checkAttempts.incomplete,
   } : null
   const runChooser = runs.length > 1 ? <span aria-label="Choose a Run">
@@ -1152,8 +1154,8 @@ export const TeamRoomPane = ({
     <ToolSection label="Seats" fold defaultOpen={seatRows.length > 0} value={seatRows.length} action={<Button variant="ghost" size="icon-sm" aria-label="Seat an Agent in this Team"
       disabled={record || !goal} title={record ? RECORD_REASON : !goal ? 'This compatibility room is read-only' : undefined}
       onClick={() => setAdding(true)}><PlusIcon /></Button>}>
-      {roster.length > 4 && <PanelFilter value={filter} onChange={setFilter} placeholder="Filter Seats" />}
-      {idleShared && <Note>None of these agents has used the board yet.</Note>}
+      {roster.length > 4 && <ToolBodyControls><PanelFilter value={filter} onChange={setFilter} placeholder="Filter Seats" /></ToolBodyControls>}
+      {idleShared && <ToolProse variant="note">None of these agents has used the board yet.</ToolProse>}
       {seatRows.length > 0 && filteredSeats.length === 0 && <EmptyState variant="inline" title={`No agent here matches “${filter.trim()}”.`} />}
       <SeatList rows={filteredSeats} />
     </ToolSection>
@@ -1252,7 +1254,7 @@ export const TeamRoomPane = ({
       <div className={styles.split}>
         <div className={styles.body} data-slot="room-body">
           {(triggerKind || open === 'runs') && <div hidden={open !== 'runs'} className={open !== 'runs' ? 'hidden' : 'flex min-h-0 min-w-0 flex-1 flex-col'}>
-            <TeamRuns key={room} runs={runs} findings={snapshot.findingRuns} ledger={snapshot.findings.get(room)} origin={originStatus} trigger={triggerControl}
+            <TeamRuns key={room} runs={runs} findings={snapshot.findingRuns} ledger={snapshot.findings.get(room)} origin={originStatus} triggerTeam={triggerKind} trigger={triggerControl}
               problem={runHistoryProblem?.room === room ? runHistoryProblem.message : runsReviewProblem?.room === room ? runsReviewProblem.text : timelineReadError ?? snapshot.findings.get(room)?.error ?? snapshot.findings.get(room)?.problem ?? null}
               onOpen={id => { setChosenRun(id); show('run') }} onEdit={() => store.openFile(`${goal!.goal.root}/.harnessdesk/triggers.yml`)}
               onRunVisibility={onRunReviewVisibility} active={open === 'runs'} />
@@ -1283,14 +1285,14 @@ export const TeamRoomPane = ({
                 onWrap={!wrapDisabled ? () => setWrapping(true) : undefined}
                 onBoard={() => show('board')}
                 onReviewCheck={() => { const check = timelineRun.operations.find(one => one.kind === 'check' && one.state === 'uncertain'); if (check?.card != null) setRetryCheck({ run: timelineRun.id, card: check.card }) }}
-                origin={timelineRun.intake ? `From trigger ${timelineRun.intake.trigger}` : goal?.goal.origin.kind === 'person' ? 'Started by you' : null}
+                origin={runOrigin(timelineRun, goal?.goal.origin.kind)}
                 onOpenSeat={show} onOpenBoard={() => show('board')} number={runs.findIndex(one => one.id === timelineRun.id) + 1}
                 model={runTimelineOf(heldClient, timelineRun, { sessions: snapshot.sessions, waitingSeats,
                   evidence: snapshot.boardEvidence.get(room),
                   findingRun: snapshot.findingRuns.get(timelineRun.id),
                   publicationOn: goal?.goal.findingPublication !== false,
                   findings: snapshot.findings.get(room)?.filter === 'all' ? snapshot.findings.get(room)?.rows : [],
-                  origin: timelineRun.intake ? `From trigger ${timelineRun.intake.trigger}` : goal?.goal.origin.kind === 'person' ? 'Started by you' : null,
+                  origin: runOrigin(timelineRun, goal?.goal.origin.kind),
                   ...(checkAttempts.attempts ? { attempts: checkAttempts.attempts } : {}),
                   ...(checkAttempts.incomplete.size ? { incompleteAttempts: checkAttempts.incomplete } : {}),
                 })}

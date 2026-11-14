@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
+import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { LEAD_LIMITS, type GoalView, type FlowPreview, type LeadAcceptanceContract, type LeadPermissionPolicy, type LeadProject, type Sha } from '@harnessdesk/protocol'
 import { createLeadJournal, leadBudgetProjection, leadDraftCaps, LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, parseLeadSeatChoices,
@@ -7,6 +7,7 @@ import { createLeadJournal, leadBudgetProjection, leadDraftCaps, LEAD_MESSAGES_D
 import { readChecksAt } from '../evidence/checks-file.js'
 import { atomicJson } from '../goals/store.js'
 import { LeadFileJournal } from './journal.js'
+import { LeadContextStore } from './context-store.js'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { rawPushUrl, githubRepositoryFromUrl, HARDENED_GIT_CONFIG } from '../git-hardening.js'
@@ -184,7 +185,9 @@ export interface LeadAssemblyOptions {
     readonly seats?: LeadSeatChoices; readonly prices: Readonly<Record<string, MessagesPrice>>
     readonly resolveTool: (call: LeadPermissionCall) => Promise<LeadResolvedTool>
     readonly freezePlan: typeof freezeLeadPlan
-    readonly readEvidence: (runId: string, read: (call: LeadPermissionCall) => Promise<unknown>) => Promise<LeadAcceptanceEvidence> }) => Promise<void>
+    readonly readEvidence: (runId: string, read: (call: LeadPermissionCall) => Promise<unknown>) => Promise<LeadAcceptanceEvidence>
+    /** The stored conversation beside the journal. */
+    readonly context: LeadContextStore }) => Promise<void>
   readonly onError?: (error: unknown) => void
 }
 
@@ -248,7 +251,9 @@ export class LeadAssembly {
     if (!journal.state.budget) await journal.updateBudget({ version: 1, type: 'initialize', now: options.now(), logicalGoalId: 'lead-goal',
       caps: leadDraftCaps(journal.state.spendLimit, LEAD_DEFAULT_CAPS), freshnessMs: FRESHNESS_MS })
     const seats = leadSeatChoices(options.readySeats())
-    await options.create({ journal, project, model: LEAD_MESSAGES_DEFAULTS.model, prices: LEAD_PRICES,
+    const context = await LeadContextStore.open({ directory: join(await realpath(options.home), 'lead'), journal, model: LEAD_MESSAGES_DEFAULTS.model,
+      now: options.now, nextId: () => `context-${randomUUID()}` })
+    await options.create({ journal, project, model: LEAD_MESSAGES_DEFAULTS.model, prices: LEAD_PRICES, context,
       ...(seats ? { seats } : {}),
       // A plan whose seats cannot hold their ceilings would only fail at its start, after the person approved it.
       freezePlan: async contract => {

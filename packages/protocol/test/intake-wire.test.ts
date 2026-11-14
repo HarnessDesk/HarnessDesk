@@ -99,3 +99,51 @@ test('explicit PR follow events validate without broadening or duplicating the v
     assert.throws(() => request('authoring/triggers/render', { definitions: [{ ...definition, on: { kind: 'pull-request', events } }] }), ValidationError)
   }
 })
+
+test('a @harnessdesk request is an issue and pull-request event a Lead trigger may name, and the vocabulary stays closed', () => {
+  const definition = {
+    id: 'ask-desk', on: { kind: 'issue', events: ['mentioned'] },
+    opens: { lead: true }, goal: ['issue'], again: null, dedupe: ['issue', 'event'], from: 'collaborators',
+    concurrency: 1, forks: 'never', budget: { usd: 5, rounds: 3, hours: 4, withoutProgress: 2 },
+  }
+  assert.doesNotThrow(() => request('authoring/triggers/render', { definitions: [definition] }))
+  assert.doesNotThrow(() => request('authoring/triggers/render', { definitions: [{
+    ...definition, on: { kind: 'pull-request', events: ['opened', 'pushed', 'checks-failed', 'review-commented', 'mentioned'] },
+    goal: ['pr'], dedupe: ['pr', 'head', 'event'],
+  }] }))
+  assert.doesNotThrow(() => request('authoring/triggers/render', { definitions: [{ ...definition, on: { kind: 'issue', events: ['labelled', 'closed', 'commented', 'mentioned'] } }] }))
+  for (const on of [
+    { kind: 'issue', events: ['mentioned', 'mentioned'] },
+    { kind: 'pull-request', events: ['mentioned', 'asked'] },
+    { kind: 'schedule', events: ['mentioned'], everyMinutes: 60 },
+  ]) {
+    assert.throws(() => request('authoring/triggers/render', { definitions: [{ ...definition, on }] }), ValidationError, JSON.stringify(on))
+  }
+})
+
+test('mention triage controls take a trigger, a decision id and a mode, and nothing that could steer what is admitted', () => {
+  const valid: Record<string, Record<string, unknown>> = {
+    'trigger/decisions': { root: ROOT, id: 'ask' },
+    'trigger/decision/reevaluate': { root: ROOT, id: 'ask', decision: `d-${'a'.repeat(20)}` },
+    'trigger/mode': { root: ROOT, id: 'ask', mode: 'act' },
+    'phone/triage/list': { limit: 50 },
+  }
+  for (const [method, params] of Object.entries(valid)) {
+    assert.doesNotThrow(() => request(method, params), `${method} accepts its own shape`)
+    for (const field of ['decision-text', 'reason', 'opens', 'budget', 'again', 'fact', 'comment', 'grant']) {
+      assert.throws(() => request(method, { ...params, [field]: 'x' }), ValidationError, `${method} refuses a forged ${field}`)
+    }
+  }
+  assert.throws(() => request('trigger/mode', { root: ROOT, id: 'ask', mode: 'auto' }), ValidationError)
+  assert.throws(() => request('trigger/decision/reevaluate', { root: ROOT, id: 'ask', decision: 'accept' }), ValidationError)
+  assert.throws(() => request('phone/triage/list', { limit: 101 }), ValidationError)
+  assert.throws(() => request('phone/triage/list', { limit: 0 }), ValidationError)
+  assert.doesNotThrow(() => request('phone/triage/list', {}))
+})
+
+test('a trigger draft may be a mention, as the create dialog offers it', () => {
+  for (const on of ['pull-request', 'issue', 'schedule', 'mention']) {
+    assert.doesNotThrow(() => request('authoring/triggers/draft', { id: 'ask-dex', on, opens: { lead: true } }), on)
+  }
+  assert.throws(() => request('authoring/triggers/draft', { id: 'ask-dex', on: 'comment', opens: { lead: true } }), ValidationError)
+})

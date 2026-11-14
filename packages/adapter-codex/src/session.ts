@@ -67,6 +67,9 @@ import { CODEX_RUNTIME_ID, mapSummary, mapUsage, nameFromMessage, stripContext }
  */
 const SETTLE_MS = 5_000
 
+/** How long a Stop waits on its sub-agents' stops before it settles; the sweep runs on. */
+const TREE_WAIT_MS = 3_000
+
 export interface CodexSessionDeps {
   /** Which Codex account owns this thread — the runtime it was started on. */
   readonly runtime?: RuntimeId
@@ -109,6 +112,19 @@ export interface CodexSessionDeps {
    * always that one: a review's is its reviewer's (`ReviewTurns.interruptible`).
    */
   readonly interruptible?: (threadId: string, turnId: string) => string
+  /**
+   * Stops every in-progress turn below this thread — its sub-agents, theirs,
+   * and so on — leaving each subscribed. Never rejects; bounded by the runtime.
+   */
+  readonly stopDescendants?: (threadId: string) => Promise<void>
+  /**
+   * Whether a sub-agent below this thread still has a turn running, by what
+   * Codex has announced. Lets Stop reach sub-agents that outlast this
+   * thread's own turn.
+   */
+  readonly subagentsRunning?: (threadId: string) => boolean
+  /** Every send on this conversation has had its `turn/start` answered or refused. */
+  readonly startSettled?: (threadId: string) => void
 }
 
 export class CodexSession implements AgentSession {
@@ -130,6 +146,8 @@ export class CodexSession implements AgentSession {
    * `turn/interrupt`, so the session has to know which turn is live.
    */
   #currentTurnId: string | null = null
+  /** Sends still starting a turn here: asked for, not yet answered with the turn they started. */
+  #starting = 0
   #turnRevision = 0
   readonly #interruptions = new Map<string, Promise<void>>()
   readonly #turnEndWaiters = new Set<() => void>()
@@ -517,10 +535,36 @@ export class CodexSession implements AgentSession {
     return this.#silentTurnIds.get(turnId)
   }
 
-  async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief' }): Promise<TurnId> {
+  async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief'; readonly signal?: AbortSignal }): Promise<TurnId> {
+    this.#starting += 1
+    try {
+      return await this.#send(input, opts)
+    } finally {
+      this.#starting -= 1
+      // Said after the send's own outcome, never in place of it: a throw here
+      // must not replace the rejection the caller is waiting on.
+      if (this.#starting === 0) {
+        try { this.deps.startSettled?.(this.id) } catch { /* the next status says it */ }
+      }
+    }
+  }
+
+  /** Sends still waiting on Codex to start their turn: no idle is said over one. */
+  get starting(): number {
+    return this.#starting
+  }
+
+  async #send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief'; readonly signal?: AbortSignal }): Promise<TurnId> {
+    const signal = opts?.signal
+    if (signal?.aborted) throw signal.reason
     const overrides = this.#pendingOverrides
     this.#pendingOverrides = {}
     const enriched = await this.#withContext(recordDeskInput(input))
+    // Withdrawn while its context resolved: nothing is written, and the overrides wait for the next turn.
+    if (signal?.aborted) {
+      this.#pendingOverrides = { ...overrides, ...this.#pendingOverrides }
+      throw signal.reason
+    }
     this.#pendingInputs.push(enriched)
     const silent = opts?.recordAs === 'notice'
     if (silent) {
@@ -545,6 +589,14 @@ export class CodexSession implements AgentSession {
       throw error
     }
     if (this.#turnRevision === revision) this.#currentTurnId = response.turn.id
+    // Withdrawn while the agent was accepting it: the turn it started is stopped, not left to run.
+    if (signal?.aborted) {
+      const stopping: Promise<unknown> = this.#currentTurnId === response.turn.id
+        ? this.interruptTurn()
+        : this.deps.server.request('turn/interrupt', { threadId: this.id, turnId: response.turn.id }, { timeoutMs: 2_000 })
+      await stopping.catch(() => undefined)
+      throw signal.reason
+    }
     if (!silent) {
       // What the person sent, not what the adapter put in front of it: a hand-off to Codex was called "Git" (review of #231).
       // Skipped for a standing order: it is not what opened this conversation for a person, and must not name the row after it.
@@ -620,7 +672,49 @@ export class CodexSession implements AgentSession {
   }
 
   /**
-   * Stops the turn running on this thread.
+   * Stop: ends the turn running on this thread and every sub-agent turn below
+   * it, so nothing this conversation started keeps working after a person
+   * presses Stop.
+   *
+   * Codex stops only the thread it is asked about (`Session::interrupt_task`
+   * aborts that thread's own turn, 0.167.1) and its sub-agents are threads of
+   * their own, so the runtime asks each of them in turn. This thread's own
+   * stop is written first and the descendants are asked in the same tick.
+   * The call settles once this thread has answered and the tree has been
+   * asked, or after `TREE_WAIT_MS` of the tree at most, so a stalled process
+   * cannot hold a Stop for the sum of its per-request bounds; the sweep goes
+   * on in the background. Only this thread's own answer can make it fail.
+   * Nothing is unsubscribed: the conversation stays open.
+   *
+   * With this thread's own turn over and sub-agents below it still working
+   * (`subagentsRunning`), Stop asks only the tree: there is no turn here to
+   * stop, and nothing is started on this thread. With neither, it is refused
+   * as before. So is a Stop that lands while a send is still starting a turn
+   * here (`#starting`): stopping only the tree would leave the turn being
+   * started to run as if Stop had covered it, so nothing is stopped and the
+   * refusal says no turn is running yet; the next Stop finds it running.
+   */
+  async interrupt(): Promise<void> {
+    if (this.#currentTurnId === null && this.#starting === 0 && this.deps.subagentsRunning?.(this.id)) {
+      await this.#stopTree()
+      return
+    }
+    this.#requireActiveTurn('interrupt')
+    const own = this.interruptTurn()
+    const [result] = await Promise.allSettled([own, this.#stopTree()])
+    if (result.status === 'rejected') throw result.reason
+  }
+
+  /** Asks every sub-agent turn below this thread to stop; settles within `TREE_WAIT_MS` and never rejects. */
+  #stopTree(): Promise<void> {
+    const tree = this.deps.stopDescendants?.(this.id) ?? Promise.resolve()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    return Promise.race([tree, new Promise<void>(resolve => { timer = setTimeout(resolve, TREE_WAIT_MS) })])
+      .finally(() => clearTimeout(timer))
+  }
+
+  /**
+   * Stops the turn running on this thread, and only that one.
    *
    * Codex checks a stop against the turn it holds as running and, refusing
    * one that names another, says which it holds: "expected active turn id …
@@ -631,7 +725,7 @@ export class CodexSession implements AgentSession {
    * the one `interruptible` says, which for a review is already the one
    * Codex holds; the retry is for a Codex that holds another.
    */
-  async interrupt(): Promise<void> {
+  async interruptTurn(): Promise<void> {
     const turnId = this.#requireActiveTurn('interrupt')
     const prior = this.#interruptions.get(turnId)
     if (prior) return prior
@@ -841,7 +935,7 @@ export class CodexSession implements AgentSession {
     // carries completion and approvals back to the host. Other threads stay live.
     const turnId = this.#currentTurnId
     if (turnId !== null) {
-      try { await this.interrupt() } catch (error) {
+      try { await this.interruptTurn() } catch (error) {
         if (!(error instanceof CodexRpcError) || error.message !== 'no active turn to interrupt') throw error
         this.noteTurnEnded(turnId)
       }

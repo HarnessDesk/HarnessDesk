@@ -125,7 +125,7 @@ export const createLeadWakeGate = (stuckMs = LEAD_STUCK_MS) => {
       }
       seen = JSON.stringify(previous)
     },
-    look(snapshot: ClientSnapshot | null, owned: Owned, actions: readonly LeadAction[], now: number, chats: readonly LeadObservedStage[] = []): { readonly wake: boolean; readonly fingerprint: string; readonly why: 'changed' | 'stuck' | null } {
+    look(snapshot: ClientSnapshot | null, owned: Owned, actions: readonly LeadAction[], now: number, chats: readonly LeadObservedStage[] = []): { readonly wake: boolean; readonly fingerprint: string; readonly why: 'changed' | 'stuck' | null; readonly ownChanged: boolean } {
       for (const run of snapshot?.runs ?? []) {
         if (!owned.runs.includes(run.id)) continue
         const key = JSON.stringify([run.state, run.rounds.map(round => round.state), run.operations.map(operation => operation.state)])
@@ -136,7 +136,9 @@ export const createLeadWakeGate = (stuckMs = LEAD_STUCK_MS) => {
       const why = fingerprint !== seen ? 'changed' as const : stuck.length ? 'stuck' as const : null
       for (const reading of stuck) stuckSaid.add(reading.runId)
       counts = { checked: counts.checked + 1, quiet: counts.quiet + (why ? 0 : 1), lastCheckedAt: now }
-      return { wake: why !== null, fingerprint, why }
+      // Whether the goal's own runs, teams or boards moved, apart from any chat: a chat is never the approved goal's own.
+      const own = (text: string | null): string | null => { if (!text || text === 'unsynchronized') return text; const { chats: _chats, ...rest } = JSON.parse(text) as { chats?: unknown }; return JSON.stringify(rest) }
+      return { wake: why !== null, fingerprint, why, ownChanged: why === 'stuck' || own(fingerprint) !== own(seen) }
     },
   }
 }

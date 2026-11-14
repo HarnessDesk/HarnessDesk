@@ -135,6 +135,7 @@ const interruptedTurns = new Set()
  */
 const childParents = new Map()
 let spawned = 0
+let delegateReadFailed = false
 const spawnChild = (parent) => {
   const child = `${parent}-sub-${++spawned}`
   childParents.set(child, parent)
@@ -317,6 +318,8 @@ const thread = (overrides = {}) => {
     agentRole: null,
     gitInfo: { sha: 'abc123', branch: 'main', originUrl: 'git@example.com:me/repo.git' },
     name: null,
+    // A sub-agent names its parent however it is described, resumed included.
+    parentThreadId: childParents.get(describedId) ?? null,
     turns: [],
     ...overrides,
   }
@@ -865,6 +868,28 @@ const turnOpening = () => {
     )
   }
   return events
+}
+
+/**
+ * FAKE_CODEX_MODE=limit: every turn ends the way an account out of its usage
+ * allowance ends one — an `error` notification that will not be retried, then
+ * a failed `turn/completed` carrying `usageLimitExceeded`. The words are the
+ * shape of Codex's own, with no account in them.
+ */
+const playLimit = () => {
+  for (const message of turnOpening()) send(message)
+  const error = {
+    message: "You've hit your usage limit. Try again later.",
+    codexErrorInfo: 'usageLimitExceeded',
+    additionalDetails: null,
+    misalignment: null,
+  }
+  notify('error', { error, willRetry: false, threadId: THREAD, turnId: TURN })
+  notify('turn/completed', {
+    threadId: THREAD,
+    turn: { id: TURN, items: [], itemsView: 'full', status: 'failed', error, startedAt: turnStartedAt },
+  })
+  notify('thread/status/changed', { threadId: THREAD, status: { type: 'idle' } })
 }
 
 const playTurn = (openingAlreadySent = false) => {
@@ -2296,6 +2321,13 @@ rl.on('line', (line) => {
       if (process.env.FAKE_CODEX_ROLLOUT_HOME) stored.path = thread({ id: params.threadId }).path
       const history = historyOf(params.threadId)
       if (!params.includeTurns) {
+        // FAKE_CODEX_DELEGATE_READ_FAIL_ONCE: the first read of a spawned
+        // child fails, as one of a thread not yet materialised can.
+        if (process.env.FAKE_CODEX_DELEGATE_READ_FAIL_ONCE && childParents.has(params.threadId) && !delegateReadFailed) {
+          delegateReadFailed = true
+          send({ id, error: { code: -32600, message: `thread ${params.threadId} is not materialized yet` } })
+          return
+        }
         replyAfterHold(childParents.has(params.threadId) ? process.env.FAKE_CODEX_DELEGATE_READ_GATE : null,
           id, { thread: { ...stored, turns: [] } }, 'DELEGATE_READ_HELD')
         return
@@ -2574,6 +2606,108 @@ rl.on('line', (line) => {
         setImmediate(() => notify('turn/completed', { threadId: THREAD, turn: { id: TURN, items: [], itemsView: 'summary', status: 'completed', error: null } }))
         return
       }
+      // A child that outlives its parent's turn, announced the way Codex
+      // 0.167.1 announces a spawned agent: no `thread/started` for it. The
+      // parent's own `collabAgentToolCall` spawn item names it, and its status
+      // and turns reach this connection under its own thread id. The root's
+      // turn ends and goes idle while the child's own turn is still running.
+      // The suffix says what happens next:
+      // - `-done`: the child finishes on its own a moment later;
+      // - `-closed`: the child's thread closes with no `turn/completed`;
+      // - `-error`: the root's thread fails, then the child finishes;
+      // - `-busy`: a second child starts too; the root is said active (a turn
+      //   coming, not yet started), then the first child finishes while the
+      //   second still works;
+      // - `-unannounced`: no spawn item at all, so the child is known only by
+      //   what it does and by a `thread/read` of its parent;
+      // - `-late`: the child's status and turn come first and the spawn item
+      //   naming it 50 ms after, before the root's turn ends;
+      // - `-activity`: announced the way Codex 0.160 does, by a
+      //   `subAgentActivity` item of kind `started` rather than a spawn call.
+      // FAKE_CODEX_CHILD_DONE_MS sets how long `-done` waits (50 ms).
+      const outlive = /^spawn-outlive(?:-(done|closed|error|busy|unannounced|late|activity))?$/.exec(said)
+      if (outlive) {
+        const then = outlive[1] ?? null
+        const root = THREAD
+        const child = spawnChild(root)
+        workingThreads.add(child)
+        const childTurn = { id: `turn-${child}`, items: [], itemsView: 'full', status: 'inProgress', error: null }
+        const spawnItem = (status, receiverThreadIds) => ({
+          type: 'collabAgentToolCall', id: `spawn-${child}`, tool: 'spawnAgent', status, senderThreadId: root,
+          receiverThreadIds, prompt: 'Check one payment provider.', model: null, reasoningEffort: null, agentsStates: {},
+        })
+        const childDone = () => {
+          workingThreads.delete(child)
+          notify('turn/completed', { threadId: child, turn: { ...childTurn, itemsView: 'summary', status: 'completed' } })
+          notify('thread/status/changed', { threadId: child, status: { type: 'idle' } })
+        }
+        const announce = () => {
+          if (then === 'activity') {
+            const activity = { type: 'subAgentActivity', id: `activity-${child}`, kind: 'started', agentThreadId: child, agentPath: '/root/provider', model: null, reasoningEffort: null }
+            notify('item/started', { threadId: root, turnId: TURN, item: activity, startedAtMs: nowMs() })
+            notify('item/completed', { threadId: root, turnId: TURN, item: activity, completedAtMs: nowMs() })
+            return
+          }
+          notify('item/started', { threadId: root, turnId: TURN, item: spawnItem('inProgress', []), startedAtMs: nowMs() })
+          notify('item/completed', { threadId: root, turnId: TURN, item: spawnItem('completed', [child]), completedAtMs: nowMs() })
+        }
+        send(response)
+        notify('turn/started', { threadId: root, turn: response.result.turn })
+        if (then !== 'unannounced' && then !== 'late') announce()
+        notify('thread/status/changed', { threadId: child, status: { type: 'active', activeFlags: [] } })
+        notify('turn/started', { threadId: child, turn: childTurn })
+        if (then === 'busy') {
+          const second = spawnChild(root)
+          workingThreads.add(second)
+          notify('item/completed', { threadId: root, turnId: TURN, item: { ...spawnItem('completed', [second]), id: `spawn-${second}` }, completedAtMs: nowMs() })
+          notify('turn/started', { threadId: second, turn: { ...childTurn, id: `turn-${second}` } })
+        }
+        const finishRoot = () => {
+          workingThreads.delete(root)
+          notify('turn/completed', { threadId: root, turn: { id: TURN, items: [], itemsView: 'summary', status: 'completed', error: null } })
+          notify('thread/status/changed', { threadId: root, status: { type: 'idle' } })
+          if (then === 'done') setTimeout(childDone, Number(process.env.FAKE_CODEX_CHILD_DONE_MS ?? 50))
+          if (then === 'closed') setTimeout(() => { workingThreads.delete(child); notify('thread/closed', { threadId: child }) }, 50)
+          if (then === 'error') setTimeout(() => {
+            notify('thread/status/changed', { threadId: root, status: { type: 'systemError' } })
+            setTimeout(childDone, 30)
+          }, 50)
+          if (then === 'busy') setTimeout(() => {
+            notify('thread/status/changed', { threadId: root, status: { type: 'active', activeFlags: [] } })
+            setTimeout(childDone, 30)
+          }, 50)
+        }
+        if (then === 'late') setTimeout(() => { announce(); finishRoot() }, 50)
+        else setImmediate(finishRoot)
+        return
+      }
+      // A turn whose start is not answered while `FAKE_CODEX_START_GATE` names
+      // a file that exists: the turn Codex is starting when Stop lands.
+      if (said === 'start-held') {
+        replyAfterHold(process.env.FAKE_CODEX_START_GATE, id, response.result, 'START_HELD')
+        afterHold(process.env.FAKE_CODEX_START_GATE, () => notify('turn/started', { threadId: THREAD, turn: response.result.turn }), 'START_HELD')
+        return
+      }
+      // A root whose turn keeps running over a tree of sub-agents, each a
+      // thread of its own: a working child, that child's working grandchild,
+      // and a second child whose only turn has already finished. Spawned in
+      // that order, so the helper ledger names them in it.
+      if (said === 'spawn-tree') {
+        const root = THREAD
+        const child = spawnChild(root)
+        const grandchild = spawnChild(child)
+        const finished = spawnChild(root)
+        const history = historyOf(finished)
+        history.stored = true
+        history.turns.push({ id: `turn-${finished}`, items: [], itemsView: 'notLoaded', status: 'completed', error: null })
+        send(response)
+        notify('turn/started', { threadId: root, turn: response.result.turn })
+        for (const id of [child, grandchild]) {
+          workingThreads.add(id)
+          notify('turn/started', { threadId: id, turn: { id: `turn-${id}`, items: [], itemsView: 'full', status: 'inProgress', error: null } })
+        }
+        return
+      }
       // A thread Codex closes on its own while a client still holds it: `closeit`.
       if (said === 'closeit') {
         send(response)
@@ -2628,6 +2762,7 @@ rl.on('line', (line) => {
         return
       }
       if (mode === 'turn') setImmediate(playTurn)
+      if (mode === 'limit') setImmediate(playLimit)
       if (mode === 'delegated-approval') setImmediate(() => {
         const parent = THREAD
         THREAD = `${parent}-child`
@@ -2653,8 +2788,11 @@ rl.on('line', (line) => {
       return
     }
 
+    // FAKE_CODEX_CLEAN=fail refuses every clean, the way a thread that is no
+    // longer loaded is refused, so a test can see the Stop sweep go on.
     case 'thread/backgroundTerminals/clean':
-      send({ id, result: {} })
+      if (process.env.FAKE_CODEX_CLEAN === 'fail') send({ id, error: { code: -32600, message: 'thread not loaded' } })
+      else send({ id, result: {} })
       return
 
     case 'turn/interrupt':

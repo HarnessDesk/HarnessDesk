@@ -12,7 +12,7 @@ export const DESK_TOOLS = DESK_TOOL_CEILINGS
  * do yet.
  */
 export const EMBARGOED_TOOLS: Readonly<Record<string, readonly string[]>> = {
-  git: ['pr_review', 'pr_comment', 'issue_comment'],
+  git: ['pr_review', 'pr_comment', 'issue_comment', 'pr_thread_settle'],
 }
 
 /** Whether a tool is one a blind round's embargo holds back: only a shipped plugin's, by its own identity. */
@@ -25,6 +25,7 @@ export const TOOL_WORDS: Readonly<Record<string, { readonly doing: string; reado
   pr_create: { doing: 'opening a pull request', ask: 'open a pull request' },
   pr_update: { doing: 'changing a pull request', ask: 'change a pull request' },
   pr_merge: { doing: 'merging a pull request', ask: 'merge a pull request' },
+  pr_thread_settle: { doing: 'settling a review thread', ask: 'settle a review thread' },
   run_tests: { doing: 'running the tests', ask: 'run the tests' },
   create_checkpoint: { doing: 'taking a checkpoint', ask: 'take a checkpoint' },
 }

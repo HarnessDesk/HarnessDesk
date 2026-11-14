@@ -40,6 +40,9 @@ const mount = (): HTMLInputElement => {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     searchHistory: vi.fn(async () => {}),
+    // The bell reads the desk's inbox; this desk has nothing waiting.
+    lead: { subscribe: () => () => {}, state: { revision: 0 } },
+    transport: { request: vi.fn(async () => ({ version: 1, needsYou: 0, items: [] })) },
   } as unknown as AppStore
   act(() => {
     root.render(

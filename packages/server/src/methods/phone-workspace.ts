@@ -1,3 +1,4 @@
+import { sessionMethods } from './sessions.js'
 import type { HostMethodTable } from './context.js'
 
 /**
@@ -11,8 +12,20 @@ export const phoneWorkspaceMethods = {
   // Current model membership is checked by PhoneWork before allocation and returns a phone problem.
   'workspace/session/start': (ctx, params) => ctx.phoneWork.sessionStart(params),
   'workspace/session/send': (ctx, params) => ctx.phoneWork.sessionSend(params),
-  'workspace/stop': (ctx, params) => ctx.phoneWork.stop(params),
+  'workspace/session/rename': (ctx, params) => ctx.phoneWork.sessionRename(params, async address => sessionMethods['session/setTitle'](ctx, address)),
+  'workspace/session/archive': (ctx, params) => ctx.phoneWork.sessionArchive(params, async address => sessionMethods['session/archive'](ctx, address)),
+  'workspace/session/pin': (ctx, params) => ctx.phoneWork.sessionPin(params, async address => sessionMethods['session/pin'](ctx, address)),
+  'workspace/session/delete': (ctx, params) => ctx.phoneWork.sessionDelete(params, async address => sessionMethods['session/delete'](ctx, address)),
+  // A stop from a phone is the person's. It is recorded as the effect starts, right before the interrupt is sent, and
+  // never on the path that only cancels a recovery. The record never holds the stop up.
+  'workspace/stop': async (ctx, params) => {
+    // The record is taken back when the interrupt fails, so a later stop the desk did not send is not put on the person.
+    let undo: (() => void) | undefined
+    try {
+      return await ctx.phoneWork.stop(params, undefined, () => { try { undo = ctx.personStopping(params.id) } catch { /* As above. */ } })
+    } catch (error) { try { undo?.() } catch { /* Never in the way of the error. */ } throw error }
+  },
   'workspace/thread/read': (ctx, params) => ctx.phoneWork.threadRead(params),
   'workspace/approval/decide': (ctx, params) => ctx.phoneWork.approvalDecide(params),
   'workspace/team/wrap': (ctx, params) => ctx.phoneWork.teamWrap(params),
-} satisfies Pick<HostMethodTable, 'workspace/read' | 'workspace/sessions/list' | 'workspace/session/start' | 'workspace/session/send' | 'workspace/stop' | 'workspace/thread/read' | 'workspace/approval/decide' | 'workspace/team/wrap'>
+} satisfies Pick<HostMethodTable, 'workspace/read' | 'workspace/sessions/list' | 'workspace/session/start' | 'workspace/session/send' | 'workspace/session/rename' | 'workspace/session/archive' | 'workspace/session/pin' | 'workspace/session/delete' | 'workspace/stop' | 'workspace/thread/read' | 'workspace/approval/decide' | 'workspace/team/wrap'>

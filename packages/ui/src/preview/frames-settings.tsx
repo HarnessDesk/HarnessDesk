@@ -53,6 +53,7 @@ const SCHEMA_FIXTURE = {
     verbose: { type: 'boolean', description: 'Print every step as it runs.', default: false },
     retries: { type: 'number', description: 'How many times to retry a failed check.', default: 2 },
     level: { type: 'string', enum: ['low', 'medium', 'high'], description: 'How thorough a pass this runs.' },
+    signature: { type: 'string', title: 'Signature', description: 'Opens each comment. Blank adds none.', default: '**{role}** · via HarnessDesk' },
   },
   required: ['level'],
 } as const

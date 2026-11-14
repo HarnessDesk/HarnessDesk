@@ -543,6 +543,48 @@ test('layout survives without changing compilation', () => {
   )
 })
 
+test('an Agent role\'s ask parses, writes back identically, and each bound is its own problem', () => {
+  const roleOf = (parsed: ReturnType<typeof parseFlowPolicy>) =>
+    parsed.document?.format === 'agents' ? parsed.document.flow.roles.find((one) => one.id === 'worker') : undefined
+  for (const [extra, expected] of [
+    ['', undefined],
+    ['\n    ask: { seats: [fake], times: 2 }', { seats: [{ runtime: 'fake' }], times: 2 }],
+    ['\n    ask:\n      seats: [fake, fake-two=m1/high]\n      times: 20\n      timeoutSeconds: 900', { seats: [{ runtime: 'fake' }, { runtime: 'fake-two', model: 'm1', effort: 'high' }], times: 20, timeoutSeconds: 900 }],
+    ['\n    ask: { seats: [{ runtime: fake, model: "m: odd" }], times: 1, timeoutSeconds: 30 }', { seats: [{ runtime: 'fake', model: 'm: odd' }], times: 1, timeoutSeconds: 30 }],
+  ] as const) {
+    const parsed = parseFlowPolicy(source(`    kind: agent\n    uses: writer${extra}`))
+    assert.deepEqual(parsed.problems.filter((one) => one.level === 'error'), [], extra)
+    const worker = roleOf(parsed)
+    assert.deepEqual(worker?.kind === 'agent' ? JSON.parse(JSON.stringify(worker.ask ?? null)) : 'missing', expected ?? null, extra)
+    const written = serializeFlowPolicy(parsed.document!.flow as import('@harnessdesk/protocol').FlowPolicy)
+    const reread = parseFlowPolicy(written)
+    assert.deepEqual(roleOf(reread), worker, written)
+    // Written back identically: a second write is byte-for-byte the first.
+    assert.equal(serializeFlowPolicy(reread.document!.flow as import('@harnessdesk/protocol').FlowPolicy), written)
+  }
+  const refused: [string, string][] = [
+    ['ask: { seats: [fake], times: 0 }', 'roles.worker.ask.times'],
+    ['ask: { seats: [fake], times: 21 }', 'roles.worker.ask.times'],
+    ['ask: { seats: [fake], times: 1.5 }', 'roles.worker.ask.times'],
+    ['ask: { seats: [fake] }', 'roles.worker.ask.times'],
+    ['ask: { seats: [fake], times: 1, timeoutSeconds: 29 }', 'roles.worker.ask.timeoutSeconds'],
+    ['ask: { seats: [fake], times: 1, timeoutSeconds: 901 }', 'roles.worker.ask.timeoutSeconds'],
+    ['ask: { seats: [], times: 1 }', 'roles.worker.ask.seats'],
+    ['ask: { times: 1 }', 'roles.worker.ask.seats'],
+    ['ask: { seats: [a, b, c, d, e], times: 1 }', 'roles.worker.ask.seats'],
+    ['ask: { seats: ["=broken"], times: 1 }', 'roles.worker.ask.seats[0]'],
+    ['ask: { seats: [fake], times: 1, depth: 2 }', 'roles.worker.ask.depth'],
+    ['ask: fake', 'roles.worker.ask'],
+  ]
+  for (const [bad, at] of refused) {
+    const found = errors(source(`    kind: agent\n    uses: writer\n    ${bad}`))
+    assert.ok(found.some((one) => one.startsWith(`${at}:`)), `${bad} → ${found.join(' | ')}`)
+  }
+  // Only an Agent role asks.
+  const person = errors(source('    kind: agent\n    uses: writer').replace('    outcomes: [done]', '    outcomes: [done]\n    ask: { seats: [fake], times: 1 }'))
+  assert.ok(person.some((one) => one.startsWith('roles.person.ask:')), person.join(' | '))
+})
+
 test('blindness is a boolean Agent-role policy', () => {
   const role = (extra: string) => parseFlowPolicy(source(`    kind: agent\n    uses: writer${extra}`))
   const blindOf = (parsed: ReturnType<typeof parseFlowPolicy>) =>

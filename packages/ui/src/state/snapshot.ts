@@ -64,6 +64,7 @@ import type { Carry } from '../lib/handoff'
 import { emptyNoticePolicy, type NoticePolicy } from '../lib/notice-policy'
 import type { InboxEntry } from '../lib/inbox'
 import type { PersonNotice } from '@harnessdesk/protocol'
+import { DEFAULT_CARRY_ON, type CarryOnIncidentView, type CarryOnPolicy } from '@harnessdesk/protocol'
 
 import type { PlanEdit } from '../lib/plan-edits'
 
@@ -266,10 +267,17 @@ export interface TeamFrameRequest {
 }
 
 export interface AppSnapshot {
+  /** Window-local secondary transcript; never a navigation subject. */
+  readonly adjacentSession: { readonly key: SessionKey; readonly subject: string; readonly loading: boolean; readonly error: string | null } | null
   /** Startup capability proved by the host handshake; absent until then. */
   readonly leadAvailable: boolean
   /** The desk was started with the phone link on; the Phone page and its command exist only then. */
   readonly phoneLink: boolean
+  /**
+   * Carry-on incidents of Team and Flow seats, by the seat's session key. The
+   * Team's own `limit` notice carries the question; nothing else reads these.
+   */
+  readonly seatCarryOn: ReadonlyMap<string, CarryOnIncidentView>
   readonly teamFrameRequests: Readonly<Record<string, TeamFrameRequest>>
   /** Per-project state of local, opt-in commit-to-Seat capture. */
   readonly captureHealth: ReadonlyMap<string, import('@harnessdesk/protocol').CaptureHealth>
@@ -339,6 +347,18 @@ export interface AppSnapshot {
    */
   readonly accountPools: AccountPoolMap
   /**
+   * What the desk does when a conversation reaches a usage limit, and whether
+   * it may continue with another agent. An agent's own `whenOut` overrides
+   * the first; see `@harnessdesk/protocol`'s `carry-on.ts`.
+   */
+  readonly carryOnPolicy: CarryOnPolicy
+  /**
+   * The host's live carry-on incidents, by `sessionKey`: a conversation at
+   * its limit while the desk decides, asks or waits. Loaded with
+   * `carryOn/list` on every connect and kept by `carryOn/changed`.
+   */
+  readonly carryOnIncidents: ReadonlyMap<string, CarryOnIncidentView>
+  /**
    * Account names only, wherever an account is drawn: the address waits for
    * a hover. For recording a screen or sharing one without anybody's email
    * in it — Settings › General.
@@ -379,9 +399,9 @@ export interface AppSnapshot {
    * never reaches the agent: a hidden model is still perfectly usable, and a
    * session already running on one keeps its row.
    */
+  readonly hiddenModels: Readonly<Record<string, readonly string[]>>
   /** Machine-local Team read and Hide marks, bound to the last observed change. */
   readonly teamsPrefs: import('../lib/teams-list').TeamsPrefs
-  readonly hiddenModels: Readonly<Record<string, readonly string[]>>
   /** Model routes usable (or greyed) for the selected runtime. */
   readonly routes: readonly RouteInfo[]
   /** The route the next session should run on; null is the backend's own provider. */
@@ -596,6 +616,13 @@ export interface AppSnapshot {
    * account, ordered by the host; the screen sorts by urgency itself.
    */
   readonly usage: readonly UsageReport[]
+  /**
+   * The agents a usage read has finished for since this window connected: the host answers `usage/reports` and a full
+   * `usage/refresh` only once every agent's read has settled (the host's `UsageService.asked`), so each agent the
+   * window knew when it asked, and each the answer names, was asked. One of those with no reading is Not reporting;
+   * one added since, or never answered for, is not yet called anything. Absent: every agent (a fixture's snapshot).
+   */
+  readonly usageAsked?: readonly RuntimeId[]
   /** Progress of the transcript scan behind the money figures. */
   readonly scan: ScanProgress | null
 
@@ -611,6 +638,13 @@ export interface AppSnapshot {
   readonly navCanForward: boolean
   /** The conversation handed to the open draft, if any. */
   readonly draftHandoff: DraftHandoff | null
+  /**
+   * The open draft's words came from a prompt link (`harnessdesk://new`).
+   * The composer marks the draft while its text is still exactly `text`;
+   * an edit or a send ends it. `context` is what else the link asked for,
+   * as plain words — a pull request, a Flow — never acted on.
+   */
+  readonly promptLinkDraft: { readonly text: string; readonly context: string | null } | null
   /**
    * Where the draft will start — see `DraftPlace`. Cleared the moment a
    * conversation is in front, and when the workspace changes under it: a
@@ -684,7 +718,6 @@ export interface AppSnapshot {
    * design/foundation/tokens.sheet.css.
    */
   readonly surface: 'cards' | 'sheet'
-  /** How the session list draws itself; persisted like the theme. */
   /**
    * Tasks the person reworded, by session key. The Tasks panel is a read of
    * the conversation, so an edit is the one thing in it the transcript does
@@ -693,6 +726,7 @@ export interface AppSnapshot {
    * See `lib/plan-edits.ts`.
    */
   readonly planEdits: Readonly<Record<string, readonly PlanEdit[]>>
+  /** How the session list draws itself; persisted like the theme. */
   readonly listPrefs: {
     readonly density: 'comfortable' | 'compact'
     /**
@@ -708,6 +742,7 @@ export interface AppSnapshot {
     /** Project roots kept at the top of the list, in the order they were pinned. */
     readonly pinned: readonly string[]
     /** Session keys kept at the top of their group, in the order they were pinned. */
+    /** Read-only projection of host session pins; never persisted with list preferences. */
     readonly pinnedSessions: readonly string[]
     /**
      * Column widths in the history table, in pixels, for the ones a person
@@ -791,9 +826,9 @@ export interface AppSnapshot {
    * which is what keeps a palette change reaching the editor — a family
    * copied out of the token at pick time would freeze it.
    */
+  readonly editorState: EditorState
   /** Stored preference; effectiveWindowMode applies it only to a conversation destination. */
   readonly windowMode: WindowMode
-  readonly editorState: EditorState
   readonly editorDocuments: EditorDocuments
   /** Shared full baselines, including clean saves; renderer-only. Null explicitly discards. */
   readonly editorLiveDocuments: EditorLiveDocuments
@@ -823,8 +858,6 @@ export interface AppSnapshot {
    * workspace's layout; whether this app keeps cookies is a standing
    * answer, so it lives here beside the theme.
    */
-  /** Live tile owners; never persisted with the workspace. */
-  readonly browserTiles: ReadonlyMap<string, BrowserTileMount>
   readonly browserPrefs: {
     /** Default-profile guests use a persistent partition when enabled; lane profiles are independently retained. */
     readonly persistSession: boolean
@@ -841,6 +874,8 @@ export interface AppSnapshot {
     /** Whether that browser's profile — its logins — survives a restart. */
     readonly keepExternalProfile: boolean
   }
+  /** Live tile owners; never persisted with the workspace. */
+  readonly browserTiles: ReadonlyMap<string, BrowserTileMount>
   /**
    * "What it cost"'s own Bars/Line toggle. A standing answer like
    * `editorPrefs`, not this window's state: a person who switches to Line
@@ -880,6 +915,7 @@ export const withClosedTurnFiles = (closed: ReadonlySet<string>, session: string
 const EMPTY: AppSnapshot = {
   leadAvailable: false,
   phoneLink: false,
+  seatCarryOn: new Map(),
   teamFrameRequests: {},
   captureHealth: new Map(),
   provenanceRevision: new Map(),
@@ -904,6 +940,8 @@ const EMPTY: AppSnapshot = {
   accountsByRuntime: {},
   accountPrefs: {},
   accountPools: {},
+  carryOnPolicy: DEFAULT_CARRY_ON,
+  carryOnIncidents: new Map(),
   hideAccountAddresses: false,
   harnessDeskAccount: null,
   profile: {},
@@ -934,6 +972,7 @@ const EMPTY: AppSnapshot = {
   workbench: EMPTY_WORKBENCH,
   layout: EMPTY_WORKBENCH.main,
   activeSessionKey: null,
+  adjacentSession: null,
   activeSessionId: null,
   loadingSessions: new Set(),
   approvals: [],
@@ -980,6 +1019,7 @@ const EMPTY: AppSnapshot = {
   navCanBack: false,
   navCanForward: false,
   draftHandoff: null,
+  promptLinkDraft: null,
   draftPlace: null,
   sidebarCollapsed: false,
   windowWidth: typeof window === 'undefined' ? 1440 : window.innerWidth,
@@ -1051,4 +1091,6 @@ export const emptySnapshot = (): AppSnapshot => ({
   seatActivities: new Map(),
   findings: new Map(),
   findingRuns: new Map(),
+  carryOnIncidents: new Map(),
+  seatCarryOn: new Map(),
 })

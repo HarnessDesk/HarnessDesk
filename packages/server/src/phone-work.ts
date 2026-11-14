@@ -1,11 +1,13 @@
 import type { DispatchAdmission } from './dispatch-admission.js'
-import type { LeadChatControl, UserContent, ModelInfo, PhoneAgentChoice, PhoneModelChoice } from '@harnessdesk/protocol'
+import { brandKeyField } from '@harnessdesk/protocol'
+import type { LeadAutonomyView, LeadChatControl, LeadInbox, LeadWorkBoard, PhoneLeadMemory, UserContent, ModelInfo, PhoneAgentChoice, PhoneModelChoice } from '@harnessdesk/protocol'
+import { LEAD_MEMORY_LIMITS, LEAD_RULE_LIMITS } from '@harnessdesk/protocol'
 import {
-  findOption, recommendedOptionValues, refuseOptionValue, runtimeId, sessionId as makeSessionId, type ConfigOption, type OptionValue, type Approval, type HostParams, type HostResult, type PhoneApprovalState, type PhoneWorkCapabilities, type PhoneWorkSnapshot,
+  findOption, leadTeamKey, leadWorkWaiting, recommendedOptionValues, refuseOptionValue, runtimeId, sessionId as makeSessionId, wireCodeOf, type ConfigOption, type OptionValue, type Approval, type HostParams, type HostResult, type PhoneApprovalState, type PhoneWorkCapabilities, type PhoneWorkSnapshot,
   type PhoneWorkThread, type RuntimeId, type Session, type SessionId, type SessionSummary,
 } from '@harnessdesk/protocol'
 import { assessApproval, buildThread, type PhoneApprovalTurn, type ThreadContext } from './phone-thread.js'
-import { folderName, scrub } from './phone-redact.js'
+import { folderName, phoneAppliesAtDesk, phoneProposalLine, scrub, scrubText } from './phone-redact.js'
 import type { PhoneWorkspace } from './phone-workspace.js'
 
 /**
@@ -20,10 +22,22 @@ export interface PhoneWorkPorts {
   /** Host-only provenance, never supplied by the phone. */
   readonly chatControl?: (id: string, cwd: string) => Promise<LeadChatControl | undefined>
   readonly workspace: Pick<PhoneWorkspace, 'workItems' | 'workUsage' | 'workSessions'>
+  /** The Lead's work board, the same projection the window's right rail draws; null while no Lead runs here. */
+  readonly leadWork?: () => Promise<LeadWorkBoard | null>
+  /** The desk's one inbox, the one the bell and the phone's Inbox list: what the Work list's Needs you must agree with. */
+  readonly leadInbox?: () => Promise<LeadInbox | null>
+  /** Each Team's goal id and the room its board is, so a Team the board and the inbox name differently is one Team. */
+  readonly leadTeams?: () => Promise<readonly { readonly goal: string; readonly room?: string | null }[]>
+  /** Autonomy modes, rules and deadline for the phone's Lead settings; null while no Lead runs here. */
+  readonly leadAutonomy?: () => Promise<LeadAutonomyView | null>
+  /** The Lead's memory as the thread needs it: the proposals waiting and how much is kept; null while no Lead runs. */
+  readonly leadMemory?: () => Promise<PhoneLeadMemory | null>
   /** What the desk is called to the phone that paired with it. */
   readonly deskName: () => string
   readonly home: string | null
   readonly seatName: (runtime: RuntimeId) => string | null
+  /** The agent's mark, a lobe-icons key from `brandForRuntime`; null or absent when it has none. */
+  readonly seatBrand?: (runtime: RuntimeId) => string | null
   /** Index membership; archives are readable only when explicitly requested. */
   readonly isOwn: (runtime: RuntimeId, id: SessionId, includeArchived?: boolean) => boolean
   readonly summary: (runtime: RuntimeId, id: SessionId) => SessionSummary | null
@@ -38,11 +52,12 @@ export interface PhoneWorkPorts {
   /** Admitted project roots, with no caller-supplied path and no per-chat folder the host made for a no-folder chat. */
   readonly projectRoots: () => readonly string[]
   readonly projectName?: (root: string) => string | null
+  readonly canDelete?: (runtime: RuntimeId) => boolean
   readonly canInterrupt: (runtime: RuntimeId) => boolean
   readonly models: (runtime: RuntimeId) => Promise<readonly ModelInfo[]>
   /** A runtime's models only if the desk already holds them or the runtime is running; null rather than start it. */
   readonly knownModels: (runtime: RuntimeId) => Promise<readonly ModelInfo[] | null>
-  readonly newSessionValues: (runtime: RuntimeId, cwd?: string, choices?: PhoneStartChoices) => Promise<Readonly<Record<string, OptionValue>>>
+  readonly newSessionValues: (runtime: RuntimeId, cwd?: string, choices?: PhoneStartChoices, cautious?: boolean) => Promise<Readonly<Record<string, OptionValue>>>
   /** Host-only receipts: invoke after preflight, immediately before the actual
    * allocation, queue mutation, send or interrupt. Never take these from wire data. */
   readonly create: (params: HostParams<'session/create'>, effectStarted?: () => void) => Promise<HostResult<'session/create'>>
@@ -58,7 +73,7 @@ export interface PhoneWorkPorts {
 
 /** The controls the desk honours for a phone so far. The rest are left false, and the phone leaves them out. */
 const CAPABILITIES: PhoneWorkCapabilities = {
-  startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false, chooseAgent: false,
+  startSession: true, startTeam: false, reply: true, stop: true, delete: false, rename: true, archive: true, pin: true, chooseModel: false, chooseAgent: false,
   choosePermissions: false, attach: false, undo: false, decide: true,
 }
 
@@ -96,6 +111,9 @@ export async function phoneSessionValues(
   runtime: RuntimeId, cwd: string | undefined, preferences: Readonly<Record<string, unknown>>,
   resolve: (params: HostParams<'runtime/sessionDefaults'>) => Promise<readonly ConfigOption[]>,
   choices: PhoneStartChoices = {},
+  /** Work the Lead starts, not the person: a saved or recommended choice that widens what the agent may do the most
+   * (`risk: 'high'`, such as bypassing permissions) is never carried into it. The safest choice stands in. */
+  cautious = false,
 ): Promise<Readonly<Record<string, OptionValue>>> {
   const drafts = preferences['draftValues']
   const raw = drafts && typeof drafts === 'object' && !Array.isArray(drafts)
@@ -120,6 +138,13 @@ export async function phoneSessionValues(
     }
   }
   const base = await read({})
+  // High risk: a choice the runtime marks so, or a permissions switch turned on (approving everything without asking).
+  const highRisk = (options: readonly ConfigOption[], id: string, value: OptionValue) => {
+    const option = findOption(options, id)
+    if (option?.type === 'boolean') return option.category === '_permissions' && value === true
+    return option?.type === 'select' && option.choices.some(choice => choice.value === value && choice.risk === 'high')
+  }
+  if (cautious) for (const [id, value] of Object.entries(saved)) if (highRisk(base, id, value)) delete saved[id]
   if (choices.model !== undefined) {
     for (const option of base) if (selector(option) || option.category === 'thought_level') delete saved[option.id]
     const model = base.find(option => option.category === 'model')
@@ -144,10 +169,31 @@ export async function phoneSessionValues(
     if (!option || !value || refuseOptionValue(option, value)) return refuse('That effort is not available for this model.')
     saved[option.id] = value
   }
+  // A model or profile can declare a value high risk that the base read did not, so a cautious start checks the saved
+  // dependent values again against what the chosen selectors declare.
+  if (cautious) for (const [id, value] of Object.entries(saved)) if (!(id in savedSelectors) && highRisk(declared, id, value)) delete saved[id]
   const dependentSaved = Object.fromEntries(Object.entries(saved).filter(([id]) => !(id in savedSelectors)))
   validate(dependentSaved, declared)
-  const dependentRecommendations = (options: readonly ConfigOption[]) => Object.fromEntries(
-    Object.entries(recommendedOptionValues(options)).filter(([id]) => !options.some(option => option.id === id && selector(option))))
+  const dependentRecommendations = (options: readonly ConfigOption[]) => {
+    const recommended = Object.fromEntries(
+      Object.entries(recommendedOptionValues(options)).filter(([id]) => !options.some(option => option.id === id && selector(option))))
+    if (!cautious) return recommended
+    // A cautious start also holds every permission-like list to a choice that is not high risk, whatever the runtime
+    // would start on: the recommendation when it is safe, else the first choice that is.
+    for (const option of options) {
+      if (option.type === 'boolean' && !(option.id in saved)) {
+        if (highRisk(options, option.id, recommended[option.id] ?? option.currentValue)) recommended[option.id] = false
+        continue
+      }
+      if (option.type !== 'select' || selector(option) || option.id in saved) continue
+      const value = recommended[option.id] ?? option.currentValue
+      if (!highRisk(options, option.id, value)) continue
+      const safe = option.choices.find(choice => choice.risk !== 'high' && !choice.disabled)
+      if (safe) recommended[option.id] = safe.value
+      else delete recommended[option.id]
+    }
+    return recommended
+  }
   // Recommendations dependent on a model/profile are read only after those
   // selectors resolve. An old model's effort must never ride a new model.
   let values = { ...selectors, ...dependentRecommendations(declared), ...dependentSaved }
@@ -169,9 +215,49 @@ export async function phoneSessionValues(
 const guarded = async <T>(work: () => Promise<T>): Promise<T> => {
   try { return await work() } catch (error) {
     if (error instanceof PhoneWorkRefusal) throw error
-    throw new PhoneWorkRefusal(scrub(error instanceof Error ? error.message : '', 200) || 'The desk could not do that.')
+    const refusal = new PhoneWorkRefusal(scrub(error instanceof Error ? error.message : '', 200) || 'The desk could not do that.')
+    if (wireCodeOf(error) === 'historyUnavailable') Object.assign(refusal, { wireCode: 'historyUnavailable' })
+    throw refusal
   }
 }
+
+/** The board as the phone gets it: the same items in the same order, its prose through the same scrub as any other. */
+export const phoneWorkBoard = (board: LeadWorkBoard): LeadWorkBoard => ({
+  version: 1, more: board.more,
+  items: board.items.map(card => {
+    const out = { ...card, title: scrub(card.title, 120) || 'Work' }
+    for (const key of ['blocker', 'fact', 'note'] as const) {
+      const text = card[key] === undefined ? '' : scrub(card[key], key === 'note' ? 300 : 160)
+      if (text) out[key] = text
+      else delete out[key]
+    }
+    return out
+  }),
+  // Reminders ride the same board: what the phone lists with its due time and cancels through lead/reminder/cancel.
+  ...(board.reminders?.length ? { reminders: board.reminders.map(entry => ({ ...entry, text: scrub(entry.text, 200) || 'Reminder' })) } : {}),
+})
+
+/**
+ * Autonomy as the phone gets it: the Lead's proposal words through the same scrub as the board, since the Lead wrote
+ * them. A rules card keeps its line breaks (the phone shows a section's words as they would read), capped to the
+ * section's limit. A card the phone cannot show exactly as Apply would write it carries `deskOnly`, said outright rather
+ * than left to the absence of `add` (which a line the scrub empties would also produce): the phone offers No alone.
+ */
+export const phoneAutonomy = (view: LeadAutonomyView): LeadAutonomyView => view.proposals === undefined ? view : ({
+  ...view,
+  proposals: view.proposals.map(proposal => {
+    if (proposal.change.kind !== 'rules') return proposal
+    const { add, ...change } = proposal.change
+    const line = add === undefined ? '' : phoneProposalLine(add)
+    return { ...proposal, change: { ...change, text: scrubText(change.text, LEAD_RULE_LIMITS.chars), ...(line ? { add: line } : {}) },
+      ...(phoneAppliesAtDesk(proposal.change) ? { deskOnly: true as const } : {}) }
+  }),
+})
+
+/** Memory as the phone gets it: a proposed note is the Lead's words, so it goes through the same scrub. */
+export const phoneMemory = (memory: PhoneLeadMemory): PhoneLeadMemory => ({
+  ...memory, inbox: memory.inbox.map(candidate => ({ ...candidate, text: scrub(candidate.text, LEAD_MEMORY_LIMITS.textChars) || 'Note' })),
+})
 
 export class PhoneWork {
   readonly #ports: PhoneWorkPorts
@@ -217,19 +303,29 @@ export class PhoneWork {
     const reads = [...new Set(runtime ? [runtime, ...ids] : ids)]
     // Only the default agent is started for its models; a snapshot never starts any other agent.
     const read = (one: RuntimeId) => one === runtime ? this.#ports.models(one) : this.#knownModels(one)
-    const [items, usage, catalogues] = await Promise.all([this.#ports.workspace.workItems(), this.#ports.workspace.workUsage(),
-      Promise.all(reads.map(one => read(one).then(modelChoices).catch((): PhoneModelChoice[] => [])))])
+    const [items, usage, catalogues, work, autonomy, memory, inbox, teams] = await Promise.all([this.#ports.workspace.workItems(), this.#ports.workspace.workUsage(),
+      Promise.all(reads.map(one => read(one).then(modelChoices).catch((): PhoneModelChoice[] => []))),
+      this.#ports.leadWork?.().catch(() => null) ?? null, this.#ports.leadAutonomy?.().catch(() => null) ?? null,
+      this.#ports.leadMemory?.().catch(() => null) ?? null, this.#ports.leadInbox?.().catch(() => null) ?? null,
+      this.#ports.leadTeams?.().catch(() => []) ?? []])
+    // The Inbox's needs-you Teams and chats no work item holds, so the phone's Work list counts what its Inbox counts.
+    const waiting = work ? leadWorkWaiting(work, inbox, leadTeamKey(teams)) : []
     const choices = new Map(reads.map((one, index) => [one, catalogues[index]!]))
     const models = runtime ? choices.get(runtime)! : []
-    const agents: PhoneAgentChoice[] = ids.map(id => ({ id: String(id), name: scrub(this.#ports.seatName(id) ?? '', 60) || 'Agent', models: choices.get(id)!, ...(id === runtime ? { default: true as const } : {}) }))
+    const agents: PhoneAgentChoice[] = ids.map(id => ({ id: String(id), name: scrub(this.#ports.seatName(id) ?? '', 60) || 'Agent', ...brandKeyField(this.#ports.seatBrand?.(id)),
+      models: choices.get(id)!, ...(id === runtime ? { default: true as const } : {}) }))
     let projects: string[] = []
     try { projects = [...this.#projectNames()].filter(([, roots]) => roots.length === 1).map(([name]) => name).sort().slice(0, 50) } catch { /* Unreadable admission metadata is not a project choice. */ }
     return {
       deskName: scrub(this.#ports.deskName(), 60) || 'Desk',
       items, projects,
       ...(usage ? { usage } : {}),
+      ...(work ? { work: phoneWorkBoard(work) } : {}),
+      ...(autonomy ? { autonomy: phoneAutonomy(autonomy) } : {}),
+      ...(memory ? { memory: phoneMemory(memory) } : {}),
+      ...(waiting.length ? { workWaiting: waiting.map(entry => ({ ...entry, title: scrub(entry.title, 120) || 'Untitled' })) } : {}),
       models, agents, flows: [], commands: [],
-      capabilities: { ...CAPABILITIES, chooseModel: models.length > 0, chooseAgent: agents.length > 1 },
+      capabilities: { ...CAPABILITIES, delete: this.#ports.readyRuntimes().some(id => this.#ports.canDelete?.(id) === true), chooseModel: models.length > 0, chooseAgent: agents.length > 1 },
       threads: [],
     }
   }
@@ -245,6 +341,26 @@ export class PhoneWork {
     const runtime = runtimeId(id.slice(0, at)), session = makeSessionId(id.slice(at + 1))
     if (this.#ports.seatName(runtime) === null || !this.#ports.isOwn(runtime, session, includeArchived)) return refuse('That is not a session this desk can show.')
     return { runtime, session, key: `${runtime}:${session}` }
+  }
+
+  async sessionRename(params: HostParams<'workspace/session/rename'>, handler: (params: HostParams<'session/setTitle'>) => Promise<HostResult<'session/setTitle'>>) {
+    const { runtime, session } = this.#target(params.id)
+    return guarded(() => handler({ runtime, sessionId: session, title: params.title }))
+  }
+
+  async sessionArchive(params: HostParams<'workspace/session/archive'>, handler: (params: HostParams<'session/archive'>) => Promise<HostResult<'session/archive'>>) {
+    const { runtime, session } = this.#target(params.id, !params.archived)
+    return guarded(() => handler({ runtime, sessionId: session, archived: params.archived }))
+  }
+
+  async sessionPin(params: HostParams<'workspace/session/pin'>, handler: (params: HostParams<'session/pin'>) => Promise<HostResult<'session/pin'>>) {
+    const { runtime, session } = this.#target(params.id)
+    return guarded(() => handler({ runtime, sessionId: session, pinned: params.pinned }))
+  }
+
+  async sessionDelete(params: HostParams<'workspace/session/delete'>, handler: (params: HostParams<'session/delete'>) => Promise<HostResult<'session/delete'>>) {
+    const { runtime, session } = this.#target(params.id, true)
+    return guarded(() => handler({ runtime, sessionId: session }))
   }
 
   async threadRead(params: { id: string }, admit?: DispatchAdmission<string>): Promise<PhoneWorkThread> {
@@ -297,7 +413,7 @@ export class PhoneWork {
   }
 
   /** Host-owned exact project root. `input` is a host-only envelope override, never phone params. Without `agent` it starts on the default runtime. */
-  async startInProject(params: { text: string; agent?: string } & PhoneStartChoices, cwd?: string, admit?: (id?: string) => Promise<void>, effectStarted?: () => void, admitCwd?: DispatchAdmission<string>, input?: readonly UserContent[], firstMessageStarted?: () => void): Promise<HostResult<'workspace/session/start'>> {
+  async startInProject(params: { text: string; agent?: string; cautious?: boolean } & PhoneStartChoices, cwd?: string, admit?: (id?: string) => Promise<void>, effectStarted?: () => void, admitCwd?: DispatchAdmission<string>, input?: readonly UserContent[], firstMessageStarted?: () => void): Promise<HostResult<'workspace/session/start'>> {
     const preferred = this.#ports.defaultRuntime()
     const runtime = params.agent === undefined ? preferred : this.#agents(preferred).find(one => String(one) === params.agent) ?? null
     if (runtime === null && params.agent !== undefined) return { id: '', problem: 'That agent is not available on this desk. Refresh and try again.' }
@@ -309,7 +425,7 @@ export class PhoneWork {
         if (choices.model !== undefined && !modelChoices(await this.#ports.models(runtime)).some(model => model.id === choices.model)) {
           return { id: '', problem: 'That model is not available on this desk. Refresh the model list and try again.' }
         }
-        values = await this.#ports.newSessionValues(runtime, cwd, choices)
+        values = await this.#ports.newSessionValues(runtime, cwd, choices, params.cautious === true)
       }
       catch (error) {
         if (choices.model !== undefined || choices.effort !== undefined) return { id: '', problem: scrub(error instanceof Error ? error.message : '', 200) || 'Those model choices are no longer available.' }

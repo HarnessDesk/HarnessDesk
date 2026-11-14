@@ -1,11 +1,17 @@
 import { LeadAway } from '../components/LeadAway'
+import { LeadProactiveCard } from '../components/LeadCards'
 import { LeadCheck } from '../components/LeadCheck'
+import { LeadWork } from '../components/LeadWork'
+import { LeadCheckpointNotice, LeadContextSection } from '../components/LeadCheckpoint'
+import { MentionDecisionRows, type MentionTriageState } from '../components/MentionDecisions'
 import { LeadStatusPanel, useLeadControls } from '../components/LeadControls'
 import { PhoneAsk, PhoneSettingsSection } from '../components/PhoneSettings'
+import { PromptLinkMarker } from '../components/PromptLinkMarker'
 import { createLeadFixtureStore } from './frames-lead'
-import { useMemo, useState } from 'react'
+import { leadContextFacts, leadSceneProjection } from './lead-fixture'
+import { useMemo, useState, useSyncExternalStore } from 'react'
 import type { TriggerBudgetState } from '@harnessdesk/protocol'
-import { Menu, Section, Text } from '../design'
+import { ComposerNoticeStack, Menu, Section, Text } from '../design'
 import { SeatFace } from '../components/AgentCards'
 import { AgentRow } from '../components/AgentRoster'
 import { ComposerOptionMenu, PermissionControl } from '../components/ComposerControls'
@@ -15,8 +21,9 @@ import { BudgetFooter } from '../components/TeamRoomPane'
 import { runTimeline } from '../lib/run-timeline'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { Dial, Frame } from './main'
-import { PREVIEW_AGENTS, PREVIEW_SESSION_KEY } from './harness'
+import { PREVIEW_AGENTS, PREVIEW_SESSION_KEY, previewStore } from './harness'
 import { overviewInput } from './team-overview-fixture'
+import { triggerDecisionsPage } from './intake-fixture'
 
 const comparison = overviewInput('comparison')
 const recordedCards = runTimeline({ execution: comparison.run!.execution, cards: comparison.cards }).rows
@@ -31,23 +38,51 @@ const budget: TriggerBudgetState = {
 const LeadStatusCoverage = () => <Menu close={() => {}}><LeadStatusPanel close={() => {}} controls={useLeadControls()} /></Menu>
 const LeadAndPhoneCoverage = () => {
   const own = useMemo(() => {
-    const fixture = createLeadFixtureStore('running'), snapshot = fixture.getSnapshot()
-    localStorage.setItem('hd-lead-seen-v1', JSON.stringify({ at: Date.now() - 360_000, revision: 0, spent: 0 }))
+    const fixture = createLeadFixtureStore('presence'), snapshot = fixture.getSnapshot()
     const teams = new Map(snapshot.teams), evidence = new Map(snapshot.boardEvidence)
     teams.set('coverage-check', { intents: [{ id: 1, role: 'implement', state: 'done' }] } as never)
     evidence.set('coverage-check', { checks: ['verify'], cards: [{ card: 2, facts: [{ record: { fact: { kind: 'review', verdict: 'approve', at: 'a'.repeat(40) } } }] }] } as never)
     Object.assign(snapshot, { teams, boardEvidence: evidence })
     const phone = { enabled: true, deskName: 'Demo desk', deskId: 'demo', port: 3000, devices: [], pending: [{ id: 'demo-phone', name: 'Jane Doe’s phone', requestedAt: Date.now() }] }
     const request = fixture.transport.request.bind(fixture.transport)
-    fixture.transport.request = (async (method, params) => method === 'phone/state' ? phone : request(method, params)) as typeof fixture.transport.request
+    // The conversation's facts as Settings shows them once the latest messages alone fill the Lead's room.
+    fixture.transport.request = (async (method, params) => method === 'phone/state' ? phone : method === 'lead/context/read' ? { ...leadContextFacts, full: true }
+      : request(method, params)) as typeof fixture.transport.request
     fixture.phone.changed({ method: 'phone/changed', params: phone } as never)
+    fixture.lead.changed({ method: 'lead/changed', params: leadSceneProjection('presence') } as never)
     return fixture
   }, [])
+  const lead = useSyncExternalStore(own.lead.subscribe, () => own.lead.state)
   return <StoreProvider store={own}>
-    <Section title="Lead status"><LeadStatusCoverage /><LeadAway active state={own.lead.state} label="Dex" />
-      <LeadCheck room="coverage-check" needed revision={1} label="Dex" onError={() => {}} /></Section>
+    <Section title="Lead status"><LeadStatusCoverage /><LeadAway active state={lead} label="Dex" />
+      <LeadProactiveCard report={{ finding: 'The review is ready.', caveat: 'Checks still need you.', ask: 'Open changes', action: 'changes' }} />
+      <LeadCheck room="coverage-check" needed revision={1} label="Dex" onError={() => {}} />
+      <LeadCheckpointNotice checkpoint={{ id: leadContextFacts.checkpoints[0]!.id }} /></Section>
+    <LeadContextSection />
     <PhoneSettingsSection /><PhoneAsk />
   </StoreProvider>
+}
+
+/** The Lead's work list over the work-ledger fixture: one item in each stage's group, as the host would hand it over. */
+const LeadWorkCoverage = () => {
+  const own = useMemo(() => createLeadFixtureStore('work-ledger'), [])
+  return <StoreProvider store={own}><Section title="Lead work"><LeadWork /></Section></StoreProvider>
+}
+
+/** A mention trigger's history as an expanded row shows it: the work thread and each decision with Re-evaluate. */
+const MentionTriageCoverage = () => {
+  const triage = useMemo<MentionTriageState>(() => ({
+    page: triggerDecisionsPage(), problem: null, busy: false,
+    reload: () => {}, setMode: async () => {}, reevaluate: async () => {},
+  }), [])
+  return <Section title="Mention triage" level="heading"><MentionDecisionRows triage={triage} /></Section>
+}
+
+/** A new chat's draft as a prompt link left it: the composer holds the link's words, so the mark shows what else it asked for. */
+const PromptLinkCoverage = () => {
+  const own = useMemo(() => previewStore({ promptLinkDraft: { text: 'Fix the flaky checkout test.', context: 'Pull request #42 · Flow review.' } }), [])
+  return <StoreProvider store={own}><Section title="Prompt link draft" level="heading">
+    <ComposerNoticeStack><PromptLinkMarker text="Fix the flaky checkout test." /></ComposerNoticeStack></Section></StoreProvider>
 }
 
 /** State-specific exports stay inspectable even when the unified Work view uses compact rows. */
@@ -81,6 +116,9 @@ export const RetainedComponentsCoverage = () => {
       </Section>
       <Section title="Run budget" level="heading"><BudgetFooter state={budget} now={now} /></Section>
       <LeadAndPhoneCoverage />
+      <LeadWorkCoverage />
+      <MentionTriageCoverage />
+      <PromptLinkCoverage />
       </>}
     </div>
   </Frame>

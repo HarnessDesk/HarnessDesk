@@ -681,6 +681,189 @@ for (const [name, args] of [
 })
 
 
+// #2085: after a soft summary the next request opens a new epoch, and the child journals the memory Core that epoch's
+// instructions read (`memoryEpoch`, three arguments) before it reserves. The frame check allowed two, so the host
+// stopped the child as a protocol break: no reserve, `lead-request-failed`, then `lead-child-exited`, on every Resume.
+test('the first request after a summary reaches the provider: the child journals its epoch memory without being stopped', async () => {
+  const { runLeadChild } = await import('../src/' + 'child.js')
+  const { fixture: managementFixture, project } = await import('./fixtures/loop.js')
+  const { message } = await import('./fixtures/fake-messages.js')
+  const management = await managementFixture()
+  const records: any[] = []
+  const journal = await createLeadJournal({ read: async () => [], append: async record => { records.push(record) } })
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: Date.now(), logicalGoalId: 'lead-goal',
+    caps: { usdMicros: 100_000, rounds: 10 }, freshnessMs: 60_000 })
+  // The journal shape the desk showed: a kept memory, a normal exchange, a soft summary applied, then a person message.
+  await journal.memoryCore({ revision: 5, entries: [{ id: 'm1', text: 'Reply in short sentences.', kind: 'preference', by: 'person' }] })
+  await journal.appendMessage('person-1', 'Check the build.', 'person')
+  await journal.appendReply('The build is green.')
+  await journal.contextCompactionStarted('context-1', Date.now(), 'soft')
+  await journal.contextCompactionApplied({ id: 'context-1', at: Date.now(), fromSeq: 6, toSeq: 1325, beforeTokens: 60_876, afterTokens: 55_468,
+    model: 'fixture-model', usdMicros: 0, fallback: false })
+  await journal.appendMessage('person-2', 'Only note desk changes from now on.', 'person')
+  assert.equal(journal.state.context.epoch, 1)
+  const child: any = new EventEmitter()
+  child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.pid = 4242
+  const runtime = runLeadChild({ input: child.stdin, output: child.stdout, connectDesk: async () => ({ ...management.options.desk,
+    close: () => { void management.options.desk.events()[Symbol.asyncIterator]().return() } }), onExit: () => child.emit('exit', 0, null) })
+  child.kill = () => { void runtime.close().then(() => child.emit('exit', 0, null)); return true }
+  let calls = 0
+  const exits: string[] = [], failures: unknown[] = []
+  const f = await fixture({ journal, spawn: () => child, bootstrap: async () => ({ key: secret, descriptor, project,
+    model: 'fixture-model', prices: management.options.messages.prices }), resolveTool: management.options.resolveTool,
+    onExit: (reason: string) => { exits.push(reason) }, onFailure: (failure: unknown) => { failures.push(failure) },
+    providerSend: async () => { calls++; return message([{ type: 'text', text: 'Noted.' }]) } })
+  try {
+    const result = await f.supervisor.send({ ...request, epoch: 1 })
+    assert.equal(result.status, 'completed')
+    assert.equal(calls, 1, 'the request reached the provider')
+    assert.ok(records.some(record => record.type === 'budget' && record.event.type === 'reserve'), 'the request was reserved')
+    // The rules the epoch holds ride as a fourth argument, through the same frame check (#2165).
+    assert.deepEqual(journal.state.memoryEpoch, { goal: 'lead-goal', epoch: 1, memory: journal.state.memory, rules: {} })
+    assert.equal(f.supervisor.live, true); assert.deepEqual(exits, []); assert.deepEqual(failures, [])
+    assert.equal(journal.state.managementReason, null)
+  } finally { await f.supervisor.stop(); await runtime.close() }
+})
+
+test('every operation the child may call passes the frame check at its full arity, and one argument more does not', async () => {
+  const ipc: any = await import('../src/child-ipc.js'), { LEAD_RPC_ARGS, LEAD_RPC_OPERATIONS, parseLeadIpc } = ipc
+  assert.deepEqual(Object.keys(LEAD_RPC_ARGS).sort(), [...LEAD_RPC_OPERATIONS].sort())
+  for (const operation of LEAD_RPC_OPERATIONS as string[]) {
+    const [, most] = LEAD_RPC_ARGS[operation] as [number, number]
+    assert.doesNotThrow(() => parseLeadIpc({ version: 1, type: 'rpc', id: 1, operation, args: Array(most).fill(null) }), operation)
+    assert.throws(() => parseLeadIpc({ version: 1, type: 'rpc', id: 1, operation, args: Array(most + 1).fill(null) }), /lead-ipc-invalid/, operation)
+  }
+})
+
+test('the child reads the desk\'s memory status through the host: the text, or null when the host has none or answers with something else', async () => {
+  for (const [answer, expected] of [['<desk-memory-status>\n- kept as tag m2\n</desk-memory-status>', '<desk-memory-status>\n- kept as tag m2\n</desk-memory-status>'], [null, null], [undefined, null], [42, null]] as const) {
+    let replied!: (message: any) => void
+    const reply = new Promise<any>(resolve => { replied = resolve })
+    let asked = 0
+    const child = fake((value, child) => {
+      if (value.type === 'initialize') child.stdout.write(frame({ version: 1, type: 'ready' }))
+      if (value.type === 'request') { asked = value.id; child.stdout.write(frame({ version: 1, type: 'rpc', id: 1, operation: 'readMemoryStatus', args: [] })) }
+      if (value.type === 'reply') { replied(value); child.stdout.write(frame({ version: 1, type: 'response', id: asked, result: { status: 'completed' } })) }
+      if (value.type === 'shutdown') child.kill()
+    })
+    const f = await fixture({ spawn: () => child, ...(answer === undefined ? {} : { readMemoryStatus: async () => answer }) })
+    void f.supervisor.send(request).catch(() => {})
+    const message = await reply
+    assert.equal(message.ok, true)
+    assert.equal(message.value, expected, String(answer))
+    await f.supervisor.stop()
+  }
+})
+
+test('a memory status the host cannot read answers null and leaves the child running: the wake goes on without the block', async () => {
+  let replied!: (message: any) => void
+  const reply = new Promise<any>(resolve => { replied = resolve })
+  let asked = 0
+  let killed = false
+  const warnings: string[] = []
+  const failures: unknown[] = []
+  const child = fake((value, child) => {
+    if (value.type === 'initialize') child.stdout.write(frame({ version: 1, type: 'ready' }))
+    if (value.type === 'request') { asked = value.id; child.stdout.write(frame({ version: 1, type: 'rpc', id: 1, operation: 'readMemoryStatus', args: [] })) }
+    if (value.type === 'reply') { replied(value); child.stdout.write(frame({ version: 1, type: 'response', id: asked, result: { status: 'completed' } })) }
+    if (value.type === 'shutdown') { killed = true; child.kill() }
+  })
+  const f = await fixture({ spawn: () => child, readMemoryStatus: async () => { throw new Error('memory store unreadable') },
+    onWarning: (code: string) => { warnings.push(code) }, onFailure: (failure: unknown) => { failures.push(failure) } })
+  const sent = f.supervisor.send(request)
+  const message = await reply
+  assert.equal(message.ok, true)
+  assert.equal(message.value, null)
+  assert.equal((await sent as any).status, 'completed')
+  assert.equal(killed, false)
+  assert.deepEqual(failures, [])
+  assert.deepEqual(warnings, ['lead-memory-status-unavailable'])
+  await f.supervisor.stop()
+})
+
+test('a child stopped for a broken frame, and a failure it caught, both reach the host by stage and code alone', async () => {
+  const failures: any[] = []
+  const child = fake((value, child) => {
+    if (value.type === 'initialize') child.stdout.write(frame({ version: 1, type: 'ready' }))
+    else if (value.type === 'request') {
+      child.stdout.write(frame({ version: 1, type: 'failure', stage: 'appendReply', code: 'lead-journal-busy' }))
+      child.stdout.write(frame({ version: 1, type: 'rpc', id: 1, operation: 'recordWake', args: [{ text: 'Keep this private.' }, 2] }))
+    }
+  })
+  const f = await fixture({ spawn: () => child, onFailure: (failure: unknown) => { failures.push(failure) } })
+  await assert.rejects(f.supervisor.send(request), /lead-child-protocol-invalid/)
+  assert.deepEqual(failures, [{ stage: 'child appendReply', code: 'lead-journal-busy', stopped: false }, { stage: 'frame rpc recordWake', code: 'lead-ipc-invalid', stopped: true }])
+  assert.ok(!JSON.stringify(failures).includes('private'))
+  await f.supervisor.stop()
+})
+
+test('a failure report is a diagnostic: malformed ones are dropped, repeats are logged once and a run is capped, and the child keeps working', async () => {
+  const failures: any[] = []
+  const { LEAD_CHILD_FAILURES_PER_RUN } = await module()
+  const child = fake((value, child) => {
+    if (value.type === 'initialize') child.stdout.write(frame({ version: 1, type: 'ready' }))
+    else if (value.type === 'request') {
+      const report = (stage: unknown, code: unknown) => child.stdout.write(frame({ version: 1, type: 'failure', stage, code }))
+      // Prose, a path, an unknown stage and a code past the length a child can produce: none is fatal, each is dropped.
+      report('appendReply', 'could not open /demo/desk/lead for Jane Doe')
+      report('read the person\'s notes', 'lead-journal-busy')
+      report('appendReply', `lead-${'x'.repeat(61)}`)
+      report('appendReply', 42)
+      // A loop failing every tick says it once.
+      for (let tick = 0; tick < 5; tick++) report('activity', 'lead-child-operation-failed')
+      for (let n = 0; n < LEAD_CHILD_FAILURES_PER_RUN + 5; n++) report('messages', `lead-step-${n}`)
+      child.stdout.write(frame({ version: 1, type: 'response', id: value.id, result: { status: 'completed' } }))
+    }
+  })
+  const f = await fixture({ spawn: () => child, onFailure: (failure: unknown) => { failures.push(failure) } })
+  assert.equal((await f.supervisor.send(request)).status, 'completed')
+  assert.equal(f.supervisor.live, true, 'no diagnostic stops the child')
+  assert.deepEqual(failures.slice(0, 2), [{ stage: 'child', code: 'lead-failure-invalid', stopped: false }, { stage: 'child activity', code: 'lead-child-operation-failed', stopped: false }])
+  assert.equal(failures.length, LEAD_CHILD_FAILURES_PER_RUN + 1)
+  assert.deepEqual(failures.at(-1), { stage: 'child', code: 'lead-failures-suppressed', stopped: false })
+  assert.ok(!JSON.stringify(failures).match(/Jane|demo|notes/))
+  await f.supervisor.stop()
+})
+
+test('a logged code is only ever a name the host accepts back', async () => {
+  const { leadFailureCode, leadFailureCodeValid } = await import('../src/child-ipc.js')
+  assert.equal(leadFailureCode(new Error('could not open /demo/desk/lead')), 'Error')
+  assert.equal(leadFailureCode(Object.assign(new Error('read /demo/desk'), { code: 'ENOENT' })), 'ENOENT')
+  assert.equal(leadFailureCode(Object.assign(new Error('x'), { wireCode: 'lead-card-stale' })), 'lead-card-stale')
+  assert.equal(leadFailureCode(new Error(`lead-${'x'.repeat(80)}`)), 'Error', 'a lead code too long for the host is never sent')
+  for (const failure of [new Error(`lead-${'x'.repeat(60)}`), new TypeError('x'), { wireCode: 'lead-a' }, 'text', null, { name: 'Has space' }, { code: 'econn' }])
+    assert.ok(leadFailureCodeValid(leadFailureCode(failure)), String(leadFailureCode(failure)))
+  for (const code of ['has space', 'lead-UPPER', '/demo/desk', '', 'x'.repeat(41)]) assert.equal(leadFailureCodeValid(code), false, code)
+})
+
+// #2085 came from a child call that drifted from the host's table. Every call the child can make is driven here and
+// checked against the same table the host reads, at every argument shape the call can take.
+test('every call the child makes to the host sends an argument count the table allows', async () => {
+  const { leadChildRpcPorts } = await import('../src/' + 'child.js')
+  const { LEAD_RPC_OPERATIONS, leadRpcArgsFit } = await import('../src/child-ipc.js')
+  const sent: { operation: string; count: number }[] = []
+  const rpc = async (operation: any, args: unknown[]) => { sent.push({ operation, count: args.length }); return operation === 'readContext' ? null : operation === 'compactContext' ? true : {} }
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  const ports = leadChildRpcPorts(rpc, () => journal.state)
+  const ask = { question: 'Start the review?', options: [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }], recommended: 'yes' }
+  const proactive = { finding: 'The build is red.', caveat: 'Nothing restarted.', ask: 'Look now?' }
+  const refs = [{ kind: 'chat', id: 'chat-1' }]
+  const port = ports.journal
+  await port.execute({} as any); await port.updateBudget({} as any); await port.setManagementPhase('running'); await port.setManagementPhase('waiting-for-user', 'lead-request-failed')
+  await port.invalidateResults(); await port.offerCard({} as any); await port.restoreResult('result-1', 1); await port.recoverUnsettledRequests()
+  await port.recordWake({} as any); await port.memoryEpoch('lead-goal', 1, journal.state.memory)
+  await port.appendReply('Done.'); await port.appendReply('Found.', proactive as any); await port.appendReply('Which?', undefined, ask as any)
+  await port.appendReply('See the chat.', undefined, undefined, refs as any); await port.appendReply('See the chat. Which?', undefined, ask as any, refs as any)
+  await ports.resolveTool({} as any); await ports.freezePlan({}); await ports.readEvidence('run-1')
+  await ports.transport.send({ requestId: 'request-1', body: '{}' } as any); await ports.transport.send({ requestId: 'request-1', body: '{}', withheld: [{}] } as any)
+  await ports.context.record({} as any); await ports.context.read(1); await ports.context.compact('due'); await ports.context.memoryStatus()
+  for (const call of sent) assert.ok(leadRpcArgsFit(call.operation as any, call.count), `${call.operation} sent ${call.count}`)
+  assert.deepEqual([...new Set(sent.map(call => call.operation))].sort(), [...LEAD_RPC_OPERATIONS].sort(), 'every operation was driven')
+  assert.ok(sent.some(call => call.operation === 'appendReply' && call.count === 4))
+  assert.ok(sent.some(call => call.operation === 'provider-send' && call.count === 3))
+})
+
 test('actual child forwards the durable Messages request id with its reserved body', async () => {
   const { runLeadChild } = await import('../src/' + 'child.js')
   const { fixture: managementFixture, project } = await import('./fixtures/loop.js')
@@ -817,6 +1000,37 @@ test('a plan whose seats cannot hold comes back to the child as its code, and th
 })
 
 
+test('a chat handle nobody holds is an RPC refusal by name, never a broken child; a handle sent to execute is', async () => {
+  for (const operation of ['resolveTool', 'execute'] as const) {
+    let reply!: (value: any) => void
+    const replied = new Promise<any>(resolve => { reply = resolve })
+    const call = { method: 'lead/chat/read', params: { id: 'demo-opus' } }
+    const child = fake((message, child) => {
+      if (message.type === 'initialize') child.stdout.write(frame({ version: 1, type: 'ready' }))
+      if (message.type === 'request') child.stdout.write(frame({ version: 1, type: 'rpc', id: 1, operation,
+        args: operation === 'resolveTool' ? [call] : [{ id: 'attempt-1', request: { ...call, project: null, runId: null, start: null }, context: {} }] }))
+      if (message.type === 'reply') reply(message)
+      if (message.type === 'shutdown') child.kill()
+    })
+    const f = await fixture({ spawn: () => child, resolveTool: async () => {
+      if (operation === 'resolveTool') throw Object.assign(new Error('lead-chat-unknown'), { wireCode: 'lead-chat-unknown' })
+      // Execution only ever sees an id: a call the host had to resolve again means the child skipped resolution.
+      return { project: null, runId: null, start: null, context: {}, call: { method: 'lead/chat/read', params: { id: 'claude:a' } } }
+    } })
+    const sent = f.supervisor.send(request).catch(() => {})
+    try {
+      if (operation === 'resolveTool') {
+        const response = await replied
+        assert.equal(response.ok, false); assert.equal(response.value, 'lead-chat-unknown')
+        assert.equal(f.supervisor.live, true)
+      } else {
+        await sent
+        assert.equal(f.supervisor.live, false, 'a handle reaching execution is a protocol failure')
+      }
+    } finally { await f.supervisor.stop(); await sent }
+  }
+})
+
 const crew = { implement: [{ runtime: 'acme-writer', model: 'acme/writer-1' }], review: [{ runtime: 'acme-reviewer', model: 'acme/reviewer-1', effort: 'high' }] }
 /** The real child, wired in-process to a supervisor over framed streams, with the provider answered by the host seam. */
 const childRig = async (bootstrapExtra: Record<string, unknown>, providerSend: (requestId: string, body: string) => Promise<unknown>, extra: Record<string, unknown> = {}) => {
@@ -842,7 +1056,7 @@ test('the actual child names the host project root and seats to the model', asyn
   const f = await childRig({ seats: crew }, async (_requestId, sent) => { body = sent; return message() })
   try {
     assert.equal((await f.supervisor.send(request)).status, 'completed')
-    const system: string = JSON.parse(body).system
+    const system: string = JSON.parse(body).system[0].text
     assert.ok(system.split('\n').includes(`Project root: ${f.project.path} (project id ${f.project.id}).`))
     const offered = system.split('\n').find(line => line.startsWith('Seats a plan may name'))!
     for (const seat of [...crew.implement, ...crew.review]) assert.ok(offered.includes(JSON.stringify(seat)))
@@ -894,6 +1108,19 @@ test('the host writes a model reply the child asks for, as the assistant message
     assert.deepEqual(f.assistant(), ['The first worker has started.'])
     assert.deepEqual(asked, ['The first worker has started.'], 'the host admitted the exact text before it was written')
     assert.equal(f.supervisor.live, true)
+  } finally { await f.supervisor.stop() }
+})
+
+test('a reply still carrying protocol JSON is written as its prose, with a warning that names no content', async () => {
+  const warnings: string[] = [], asked: string[] = []
+  const raw = 'Which one?\n\n{"version":1,"type":"lead-output","text":"Pick","ask":{"question":"secret-ish words","options":[{"id":"a","label":"A"}],"recommended":"zz"}}'
+  const f = await replyRig([raw], { admitReply: async (text: string) => { asked.push(text) }, onWarning: (code: string) => { warnings.push(code) } })
+  try {
+    await f.supervisor.send(request)
+    assert.equal((await f.replied).ok, true)
+    assert.deepEqual(f.assistant(), ['Which one?'])
+    assert.deepEqual(asked, ['Which one?'])
+    assert.deepEqual(warnings, ['lead-reply-envelope-dropped'])
   } finally { await f.supervisor.stop() }
 })
 
@@ -1152,6 +1379,24 @@ test('the host admits and stores the child ordinary ask across appendReply IPC',
   } finally { await f.supervisor.stop() }
 })
 
+test('the work items a reply names cross appendReply IPC as refs, scanned like the words, with or without an ask', async () => {
+  const refs = [{ kind: 'team', id: 'goal-7', title: 'Build a game' }, { kind: 'session', id: 'codex:thread-1' }]
+  const admitted: string[] = []
+  const f = await replyRig(['The Team is running.', null, null, refs], { admitReply: async (text: string) => { admitted.push(text) } })
+  try {
+    await f.supervisor.send(request)
+    assert.equal((await f.replied).ok, true)
+    assert.deepEqual(f.journal.state.messages.at(-1)?.refs, refs)
+    assert.deepEqual(admitted, ['The Team is running.', JSON.stringify(refs)])
+  } finally { await f.supervisor.stop() }
+  // A ref beside a proactive report is not an ordinary reply's: the frame is refused.
+  const bad = await replyRig(['A finding.', { finding: 'x', caveat: 'y', ask: 'z' }, null, refs])
+  try {
+    await bad.supervisor.send(request).catch(() => {})
+    assert.deepEqual(bad.assistant(), [])
+  } finally { await bad.supervisor.stop().catch(() => {}) }
+})
+
 test('an ask-only appendReply frame keeps the child alive and retains the decision in history', async () => {
   const ask = { question: 'Choose a next step', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
   const admitted: string[] = []
@@ -1186,4 +1431,19 @@ test('appendReply refuses an ask together with a proactive report without writin
     assert.deepEqual(f.assistant(), [])
     assert.deepEqual(admitted, [])
   } finally { await f.supervisor.stop() }
+})
+
+test('the host hears that the reply is being written when the child hands it over, before it is kept', async () => {
+  const order: string[] = []
+  const child = fake((message, child) => {
+    if (message.type === 'initialize') child.stdout.write(frame({ version: 1, type: 'ready' }))
+    if (message.type === 'request') child.stdout.write(frame({ version: 1, type: 'rpc', id: 1, operation: 'appendReply', args: ['The build is green.'] }))
+    if (message.type === 'reply') { order.push('reply'); child.stdout.write(frame({ version: 1, type: 'response', id: 1, result: { status: 'completed' } })) }
+    if (message.type === 'shutdown') child.kill()
+  })
+  const f = await fixture({ spawn: () => child, onReplying: () => order.push('replying'), admitReply: async () => { order.push('admitted') } })
+  const sent = f.supervisor.send(request).catch(() => {})
+  for (let waited = 0; !order.includes('reply') && waited < 5000; waited += 20) await new Promise(resolve => setTimeout(resolve, 20))
+  assert.deepEqual(order, ['admitted', 'replying', 'reply'])
+  await f.supervisor.stop(); await sent
 })

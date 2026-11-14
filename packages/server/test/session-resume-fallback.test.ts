@@ -66,6 +66,7 @@ const contextFor = (options: {
   readonly seatCwd: string | null
   readonly ceiling?: 'read' | 'edit'
   readonly indexed?: Session[]
+  readonly refreshedFolders?: string[]
   readonly resumeSession: (id: SessionId, opts: Record<string, unknown>) => Promise<AgentSession>
 }): HostContext => {
   const runtime = {
@@ -76,10 +77,10 @@ const contextFor = (options: {
 
   return {
     loadouts: { observe: () => {} },
-    sessionIndex: { reopen: () => {}, record: (session: Session) => indexed.push(session) },
+    sessionIndex: { refreshMissingFolder: async (cwd: string) => { options.refreshedFolders?.push(cwd) }, reopen: () => {}, record: (session: Session) => indexed.push(session) },
     sessionWorktrees: { prepare: async () => ({}) },
     runtimes: { resolve: () => runtime, ensureStarted: async () => {} },
-    registry: { forReopen: () => undefined, upsert: (session: Session, live: AgentSession) => ({ session, live }) },
+    registry: { forReopen: () => undefined, opening: () => () => {}, upsert: (session: Session, live: AgentSession) => ({ session, live }) },
     laneEnvironment: { forSession: async () => undefined },
     evidence: {
       seats: {
@@ -173,8 +174,9 @@ test("a caller's own `knownCwd` is stripped before the runtime sees it, Seat or 
 })
 
 test("a Seat whose recorded folder is gone says so, rather than repeating the listing's sentence", async () => {
+  const refreshedFolders: string[] = []
   const ctx = contextFor({
-    seatCwd: KNOWN_CWD,
+    seatCwd: KNOWN_CWD, refreshedFolders,
     resumeSession: async (_id, opts) => {
       if (opts.knownCwd === KNOWN_CWD) throw new SessionFolderGoneError('Antigravity cannot open this conversation: its folder no longer exists.', KNOWN_CWD)
       throw doesNotList()
@@ -188,6 +190,7 @@ test("a Seat whose recorded folder is gone says so, rather than repeating the li
       return true
     },
   )
+  assert.deepEqual(refreshedFolders, [], 'a refused reopen cannot trigger a folder recovery measurement')
 })
 
 test('with no Seat record, the same refusal is thrown — never a folder invented for it', async () => {

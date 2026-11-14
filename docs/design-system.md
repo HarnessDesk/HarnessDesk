@@ -218,6 +218,7 @@ Two default running sizes: 13px for chrome and 14px for reading. 12px carries me
 | `--hd-line-heading` | `28px` |
 | `--hd-line-title` | `30px` |
 | `--hd-line-display` | `40px` |
+| `--hd-leading-reading` | `1.625` |
 | `--hd-weight-normal` | `400` |
 | `--hd-weight-medium` | `400` |
 | `--hd-weight-semibold` | `580` |
@@ -277,6 +278,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-rail-sheet-filter` | `blur(12px)` |
 | `--hd-bar-ink` | `calc(8px + 8px + 1px)` |
 | `--hd-column` | `736px` |
+| `--hd-composer-notices-max-height` | `60dvh` |
 | `--hd-page-wide` | `1320px` |
 | `--hd-page-aside` | `320px` |
 | `--hd-page-gutter` | `24px` |
@@ -1216,6 +1218,29 @@ One role, its purpose, and its actual seating result, each with a distinct place
 
 Sources and lower-precedence copies stay available without repeating source paragraphs between role cards.
 
+### `AGENT_FLOW_TONE`
+
+`packages/ui/src/design/patterns/AgentFlow.tsx`
+
+A light judges how a child ended; working is the one that moves.
+
+### `AgentFlowCard`
+
+`packages/ui/src/design/patterns/AgentFlow.tsx`
+
+The transcript's card: one head that says how many and how they are doing,
+then each child on a spine. `waiting` is the fan-in line — the parent is
+waiting on its children — and goes once the wait is over.
+
+### `AgentLanes`
+
+`packages/ui/src/design/patterns/AgentFlow.tsx`
+
+Who ran when: one lane per child against a shared clock from the first
+start to now (or the last end). A working bar reaches the right edge and
+breathes; a finished one is its outcome's colour. Lanes are data geometry —
+their offsets are the measured times, not a layout.
+
 ### `ApprovalReason`
 
 `packages/ui/src/design/patterns/ApprovalDialog.tsx`
@@ -1321,6 +1346,14 @@ the room narrating rather than somebody speaking. It carries a chip, though,
 because the difference between "still reading" and "ran out of its window
 forty minutes ago" is the whole reason the row exists, and a grey sentence
 in a busy channel is not that difference.
+
+When the stop waits on the person, the same row carries the decision:
+`choices` as a line of buttons under the sentence, the first one the
+filled act the composer's own decision card draws, `always` as the box that
+turns the answer into the rule from now on (its label states its scope, and
+it is unticked each time the question is shown), and `note` for the one
+fact that varies (a candidate that was skipped and why). A Team never gets a second card for it — the notice is where the
+room already says the member stopped.
 
 ### `Checklist`
 
@@ -1447,11 +1480,17 @@ A live update that removes the opener or disables confirmation can request
 
 The shared session window frame, independent of its transcript source.
 
-### `ConversationThread`
+### `scrollThreadToEnd`
 
 `packages/ui/src/design/patterns/ConversationShell.tsx`
 
-A transcript keeps the session's reading gutter and measured dock clearance.
+Moves a thread to its end and keeps it following there, as when the person sends a message.
+
+### `threadFollowsEnd`
+
+`packages/ui/src/design/patterns/ConversationShell.tsx`
+
+Whether a thread is following its end: true until the reader scrolls away from it.
 
 ### `ConversationDock`
 
@@ -1508,6 +1547,12 @@ Overview's two related sections; the secondary column yields on narrow pages.
 `packages/ui/src/design/patterns/DashboardBands.tsx`
 
 Plan readings share a responsive card grid.
+
+### `DashboardAccountFoot`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+Where a reading came from and how old it is, on the card's own inset like the heading and figures above it.
 
 ### `DashboardFigure`
 
@@ -1948,7 +1993,9 @@ Works outside a group too; only grouped readings contribute to its card.
 
 `packages/ui/src/design/patterns/LeadAskOptions.tsx`
 
-The composer is the free-text answer; settled choices remain readable without controls.
+The composer is the free-text answer. A question nobody can answer any more keeps its options as the same control,
+inert, so it still reads as the question it was; a line under it says why: who answered, on which device and when,
+or that time ran out or a newer question took its place, and that nothing was done.
 
 ### `LeadAvatar`
 
@@ -1970,7 +2017,7 @@ Who runs the desk: two picture cards. A name is an immediate preference; this co
 
 `packages/ui/src/design/patterns/LeadAvatar.tsx`
 
-A Lead line: a face column every line keeps, so the text aligns, and the face itself only on a turn's first line.
+A Lead turn centres its face on the first block's first line box, including prose, lists, headings and cards.
 
 ### `LeadGreeting`
 
@@ -2013,6 +2060,12 @@ An approved plan's linear flow in reading order. The Timeline owns the
 decorative connectors; role labels describe responsibility without naming
 a runtime. Labels are text, wrap whole, and cannot introduce markup.
 
+### `LeadWorking`
+
+`packages/ui/src/design/patterns/LeadWorking.tsx`
+
+A pending reply's body, inside the same LeadTurn as its eventual text. The clock is a fact, never a live announcement.
+
 ### `LeftColumnTop`
 
 `packages/ui/src/design/patterns/LeftColumn.tsx`
@@ -2044,6 +2097,12 @@ Explorer occupies the same column; its header and foot share the row inset.
 `packages/ui/src/design/patterns/LeftColumn.tsx`
 
 Seat rows indent their leading column while retaining the parent's end rail.
+
+### `LeftColumnBulkBar`
+
+`packages/ui/src/design/patterns/LeftColumn.tsx`
+
+A persistent bottom rail for a list's bulk selection, wrapping at narrow widths.
 
 ### `LibraryMatrix`
 
@@ -2166,6 +2225,26 @@ composer's own width: the tone is in the tile, the words wrap, and the
 action sits at the right as a small button, moving below the copy in a
 narrow container. An optional secondary action keeps the primary choice
 prominent while retaining a distinct alternative in the same action group.
+
+### `DecisionNotice`
+
+`packages/ui/src/design/patterns/Notices.tsx`
+
+A question about the conversation it sits over, with several answers and
+a way to stop being asked: a usage limit reached, where the person picks
+Switch, Wait or Stop, once or for good.
+
+`ComposerNotice` holds at most two actions; a decision needs more, and a
+box that turns the answer into the rule. So the sentence leads, as in
+every composer notice, and the answers sit under it, recommended first,
+with the box after them. Its label states its scope ("Always do this for
+Agent") because the rule it writes is the person's to find again in
+Settings. Not an overlay — the conversation stays readable and usable, and
+using it is an answer too — so it is a `group`, never a `dialog`.
+
+`alternatives` are the answers that are not the first one: other accounts
+or agents, behind a quiet link that opens a menu of them — each kind under
+its own heading when the menu holds both.
 
 ### `ComposerNoticeStack`
 
@@ -2911,17 +2990,47 @@ The header is the card's label, a disclosure when it folds, and its `value`
 every card's state without opening one. A card's rows keep their own 12px
 edge, which is the card's side padding; the card adds the top and bottom.
 
+So everything in a card stands on that row edge through a part that knows
+it: rows (`Row`, `ListRows surface="panel"`, `SummaryList surface="panel"`,
+`Checklist surface="panel"`), a group's label (`ToolGroup`), a sentence or a
+note (`ToolProse`), buttons (`ToolBodyControls`). A bare `Button`, `Text` or
+`SectionHead` has no edge of its own and lands on the card's border;
+`e2e/ui-system/tool-section-inset.spec.ts` measures every card it reaches.
+
 ### `ToolFold`
 
 `packages/ui/src/design/patterns/ToolBody.tsx`
 
 The rest of a card behind one quiet line: "All facts", "Show all".
 
+### `ToolGroup`
+
+`packages/ui/src/design/patterns/ToolBody.tsx`
+
+A group of a card's rows under its own label: "Needs you · 1", "Rules".
+The label stands on the card's row edge; the rows under it bring their own
+edge, so the group adds none. The region is named by its visible label
+(`aria-labelledby`), so a reader hears it once: `heading` when it carries
+more than `label` (a count), `label` otherwise.
+
+The label is a quiet band, in muted ink: the card's own title keeps the
+secondary ink above it and the rows' names the foreground below, so it reads
+as a label of its rows rather than one more row. It sits nearer the rows it
+names (4px) than the group before it (12px more above every group after the
+first). Only the group's own label takes that 4px; a head inside its rows
+keeps its own rhythm.
+
 ### `ToolProse`
 
 `packages/ui/src/design/patterns/ToolBody.tsx`
 
 Prose and a missing-fact note stand on the card's row edge; a note takes second-line type.
+
+### `ToolBodyControls`
+
+`packages/ui/src/design/patterns/ToolBody.tsx`
+
+A card's buttons, on the card's row edge: "Review update…". Never a bare `Button` in a card.
 
 ### `TopBarToolButton`
 
@@ -2964,7 +3073,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
 | `screenAppearance` | 0 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. A hard zero since #838: the Git pane's two own declarations are named, reasoned exemptions (`SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS`), matched by sheet, selector, property and value. |
-| `singleAreaPrimitive` | 6 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. Named data-geometry and native-boundary exemptions in `SINGLE_AREA_PRIMITIVE_EXEMPTIONS` remain exempt only while each export stays single to its recorded area. |
+| `singleAreaPrimitive` | 4 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. Named data-geometry and native-boundary exemptions in `SINGLE_AREA_PRIMITIVE_EXEMPTIONS` remain exempt only while each export stays single to its recorded area. |
 | `uppercaseLabel` | 0 | A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `visualKindUnion` | 0 | One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role. |
@@ -3071,7 +3180,7 @@ before anyone edits the source.
 | `settings-permissions` | 3 | 0 | 0 |
 | `settings-browser` | 3 | 0 | 0 |
 | `settings-profile` | 5 | 0 | 0 |
-| `settings-runtime` | 5 | 0 | 0 |
+| `settings-runtime` | 6 | 0 | 0 |
 | `settings-account` | 3 | 0 | 0 |
 | `settings-project` | 3 | 0 | 0 |
 | `settings-skill` | 3 | 0 | 0 |
@@ -3091,4 +3200,4 @@ before anyone edits the source.
 | `menu-suggestions` | 8 | 3 | 0 |
 | `menu-inbox` | 8 | 3 | 0 |
 | `menu-palette` | 8 | 3 | 0 |
-| **total** | 703 | 162 | 10 |
+| **total** | 704 | 162 | 10 |

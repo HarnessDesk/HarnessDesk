@@ -47,6 +47,9 @@ export interface LeadRigOptions {
   /** Ordinary session tools, with one runtime and no reviewed plan. */
   readonly ordinaryChats?: boolean
   readonly holdOrdinaryContinuation?: boolean
+  /** With `ordinaryChats`: the Lead names each chat by the handle the host gave it, lists them, reaches the other
+   * project's chat through a handle the journal holds for it, and tries a handle nobody holds. */
+  readonly ordinaryHandles?: boolean
   /** Offline host-publication fixture: one run, pinned demo repository and distinct repair commits. */
   readonly publication?: boolean
   /** Full offline forge walks: only explicit person creation and reviewed owned pushes. */
@@ -140,7 +143,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     const until = Date.now() + (options.waitMs ?? 240_000)
     while (!await predicate()) {
       if (evidenceFailure && /spawnSync ps.*EPERM/.test(evidenceFailure.message)) throw evidenceFailure
-      if (Date.now() >= until) throw new Error(`Timed out waiting for ${label}; phase=${journal?.state.phase}; reason=${journal?.state.managementReason}; evidence=${evidenceFailure?.message ?? 'none'}; pr=${JSON.stringify(journal?.state.pr)}; handbacks=${JSON.stringify(journal?.state.handbacks.map(op => ({ stage: op.stage, head: op.head, publishedHead: op.publishedHead })))}; rounds=${JSON.stringify(host?.flowsPlane.leadRuns().map(run => ({ state: run.state, reason: run.reason, rounds: run.rounds.map(round => ({ n: round.n, role: round.role, state: round.state, cards: round.cards.map(id => { const card = host.teamPlane.stateFor(run.goal).intents.find(card => card.id === id); return { id, state: card?.state, title: card?.title } }) })) })))}`)
+      if (Date.now() >= until) throw new Error(`Timed out waiting for ${label}; phase=${journal?.state.phase}; reason=${journal?.state.managementReason}; ownedPush=${journal?.state.ownedPush?.stage ?? 'none'}; evidence=${evidenceFailure?.message ?? 'none'}; pr=${JSON.stringify(journal?.state.pr)}; handbacks=${JSON.stringify(journal?.state.handbacks.map(op => ({ stage: op.stage, head: op.head, publishedHead: op.publishedHead })))}; rounds=${JSON.stringify(host?.flowsPlane.leadRuns().map(run => ({ state: run.state, reason: run.reason, rounds: run.rounds.map(round => ({ n: round.n, role: round.role, state: round.state, cards: round.cards.map(id => { const card = host.teamPlane.stateFor(run.goal).intents.find(card => card.id === id); return { id, state: card?.state, title: card?.title } }) })) })))}`)
       await sleep(25)
     }
   }
@@ -278,10 +281,15 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
         let started: any
         try { started = JSON.parse(result('ordinary-start').content) } catch { return [text('Ordinary start failed')] }
         if (!started?.id) return [text('Ordinary start failed')]
-        if (!result('ordinary-read')) return [{ type: 'tool_use', id: 'ordinary-read', name: 'chat_read', input: { id: started.id } }]
-        if (!result('ordinary-send')) return [{ type: 'tool_use', id: 'ordinary-send', name: 'chat_send', input: { id: started.id, text: 'Keep the task bounded' } }]
-        if (!result('ordinary-stop')) return [{ type: 'tool_use', id: 'ordinary-stop', name: 'chat_stop', input: { id: started.id } }]
-        if (!result('ordinary-foreign')) return [{ type: 'tool_use', id: 'ordinary-foreign', name: 'chat_read', input: { id: ordinaryForeign } }]
+        const chat = options.ordinaryHandles ? started.handle : started.id
+        if (options.ordinaryHandles && !result('ordinary-list')) return [{ type: 'tool_use', id: 'ordinary-list', name: 'chat_list', input: {} }]
+        if (!result('ordinary-read')) return [{ type: 'tool_use', id: 'ordinary-read', name: 'chat_read', input: { id: chat } }]
+        if (!result('ordinary-send')) return [{ type: 'tool_use', id: 'ordinary-send', name: 'chat_send', input: { id: chat, text: 'Keep the task bounded' } }]
+        if (!result('ordinary-stop')) return [{ type: 'tool_use', id: 'ordinary-stop', name: 'chat_stop', input: { id: chat } }]
+        if (options.ordinaryHandles && !result('ordinary-unknown')) return [{ type: 'tool_use', id: 'ordinary-unknown', name: 'chat_send', input: { id: 'nobody-here', text: 'Hello' } }]
+        // With handles, the other project's chat is read by its id and by its handle in one turn, to compare the refusals.
+        if (!result('ordinary-foreign')) return [...options.ordinaryHandles ? [{ type: 'tool_use', id: 'ordinary-foreign-id', name: 'chat_read', input: { id: ordinaryForeign } }] : [],
+          { type: 'tool_use', id: 'ordinary-foreign', name: 'chat_read', input: { id: options.ordinaryHandles ? 'other-writer' : ordinaryForeign } }]
         return [text('The ordinary session is stopped; the other project stayed outside this conversation.')]
       }
       if (!state.contract || !state.consent) {
@@ -369,11 +377,14 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       if (!restoring) await host.start()
       for (const [id, providerName] of (options.ordinaryChats ? [['rig-writer', 'synthetic-writer']] : [['rig-writer', 'synthetic-writer'], ['rig-reviewer', 'synthetic-reviewer']]) as readonly (readonly [string, string])[]) {
         const codexHome = join(home, id); await mkdir(codexHome, { recursive: true })
+        // The first write names its run. Step 2 starts from step 1's reviewed commit, and step 1 is not always
+        // repaired (a review that finds no finished check re-reviews the same commit), so the same bytes would
+        // leave step 2's writer nothing to commit and stall its Team.
         const runtime = new RigRuntime({ id: id as RuntimeId, name: id === 'rig-writer' ? 'Scripted writer' : 'Scripted reviewer', codexHome,
           binaryPath: join(root, 'packages/adapter-codex/test/fixtures/fake-codex.mjs'),
           capabilities: new GatedRegistry(extensions!, () => host.ceilingGate),
           env: { ...(options.ordinaryChats ? { FAKE_CODEX_MODE: 'hold' } : {}), FAKE_CODEX_PROCESS_CALLS: workerLog, FAKE_CODEX_FLOW: options.ordinaryChats ? '' : JSON.stringify({ state: passes, gates, approvalLog: workerLog, passPerRun: true, reviewGateOnHead: options.checksBeforeReview === true, approvalBeforeWork: options.scenario === 'worker-approval', approvalCommand: options.workerApprovalCommand, steps: {
-            write: { kind: 'write', title: 'Implement the approved goal', outcomes: ['committed'], file: 'retry.txt', contents: 'Incomplete retry status list\n' },
+            write: { kind: 'write', title: 'Implement the approved goal', outcomes: ['committed'], file: 'retry.txt', contents: 'Incomplete retry status list for {{run}}\n' },
             repair: { kind: 'write', title: 'Repair the blocking findings and rerun required checks', outcomes: ['committed'], file: 'retry.txt', contents: options.publication ? 'Complete retry status list {{intent}}\n' : 'Complete retry status list\n' },
             ...(options.publication ? { followRepair: { kind: 'write', title: 'Repair the followed pull request', outcomes: ['committed'], file: 'retry.txt', contents: 'Followed retry status list {{intent}}\n' } } : {}),
             review: { kind: 'review', title: 'Check and review the committed result', outcomes: options.publication ? ['approve'] : ['request-changes', 'approve'] },
@@ -402,6 +413,8 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       }
       storage = await LeadFileJournal.open(home, 'synthetic-thread', { canaries: [LEAD_RIG_KEY] })
       journal = await createLeadJournal(storage)
+      // A handle for the other project's chat, as if the desk had named it there: resolving it must grant nothing.
+      if (options.ordinaryHandles && ordinaryForeign) await journal.nameChats([{ id: ordinaryForeign, base: 'other-writer' }])
       if (!journal.state.policy) {
         await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
         await journal.updateBudget({ version: 1, type: 'initialize', now: Date.now(), logicalGoalId: 'synthetic-goal', caps: proposal.caps, freshnessMs: options.freshnessMs ?? 60_000 })
@@ -564,6 +577,8 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     }
     return { get host() { return host }, logger, home, project, get journal() { return journal }, get service() { return service }, get childLive() { return supervisor?.live ?? false },
       provider, children, calls, windowNotifications, get latestEvidence() { return latestEvidence }, pending, waitFor, workerCalls, worktrees, personGates, releaseWorkers, decide, sendGoal, settle, dispose,
+      /** The journal's records as stored. */
+      records: () => storage!.read(),
       offline: options.offlineForge ? {
         read: readForge,
         async pushes() { return (await new GitRecord(join(home, 'offline-gateway')).list({ repository: 'acme/widgets', limit: 1000 })).filter(row => row.op === 'push' && row.outcome === 'ok') },

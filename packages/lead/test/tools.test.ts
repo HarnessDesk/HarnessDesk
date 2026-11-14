@@ -93,7 +93,7 @@ test('chat_send exposes and forwards a reset retry selector', async () => {
   const { LEAD_TOOLS, parseLeadToolCall } = await import('../src/tools.js')
   assert.deepEqual(LEAD_TOOLS.chat_send.input_schema.properties.retryAt, { type: 'string', enum: ['reset'] })
   assert.deepEqual(parseLeadToolCall({ type: 'tool_use', id: 'retry', name: 'chat_send', input: { id: 'fixture:chat', text: 'Continue', retryAt: 'reset' } }),
-    { method: 'lead/chat/send', params: { id: 'fixture:chat', text: 'Continue', retryAt: 'reset', effectId: undefined } })
+    { method: 'lead/chat/send', params: { id: 'fixture:chat', text: 'Continue', retryAt: 'reset', effectId: undefined, cause: undefined } })
 })
 
 test('a stored recipe-1 plan can still start its exact frozen source', async () => {
@@ -184,4 +184,32 @@ test('chat dispatch carries each journal effect id outside model arguments', asy
     assert.equal(s.calls.at(-1).params.effectId, effectId)
     assert.equal('effectId' in params, false)
   }
+})
+
+test("reminder_set carries what woke the turn, so the host knows whose reminder it is, and the model cannot choose", async () => {
+  const s = await fixture()
+  const tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true })
+  await tools.dispatch({ method: 'lead/reminder/set', params: { text: 'Call the vendor', inMinutes: 30 } }, 'r-1', undefined, 'person')
+  await tools.dispatch({ method: 'lead/reminder/set', params: { text: 'Follow up', inMinutes: 30, cause: 'person' } }, 'r-2', undefined, 'automatic')
+  assert.deepEqual(s.calls.filter(c => c.method === 'lead/reminder/set').map(c => (c.params as { cause?: string }).cause), ['person', 'automatic'])
+})
+
+// #2106: the Lead proposes changes to its own settings; no alias applies one.
+test('the settings tools only propose: no alias reaches a method that changes autonomy, rules or a decision', async () => {
+  const { LEAD_TOOLS, parseLeadToolCall } = await import('../src/tools.js')
+  const methods = Object.values(LEAD_TOOLS).map(entry => entry.method as string)
+  for (const method of ['lead/autonomy/set', 'lead/rules/update', 'lead/settings/decide', 'lead/deadline/set']) assert.equal(methods.includes(method), false, method)
+  assert.deepEqual(parseLeadToolCall({ type: 'tool_use', id: 't1', name: 'autonomy_propose', input: { kind: 'desk-change', mode: 'observe' } }),
+    { method: 'lead/autonomy/propose', params: { kind: 'desk-change', mode: 'observe' } })
+  assert.deepEqual(parseLeadToolCall({ type: 'tool_use', id: 't2', name: 'rules_propose', input: { section: 'talk', add: 'Report in Chinese, conclusion first.' } }),
+    { method: 'lead/rules/propose', params: { section: 'talk', add: 'Report in Chinese, conclusion first.' } })
+  assert.throws(() => parseLeadToolCall({ type: 'tool_use', id: 't3', name: 'settings_decide', input: { id: 's1', decision: 'apply' } }), LeadToolRefusedError)
+  assert.throws(() => parseLeadToolCall({ type: 'tool_use', id: 't4', name: 'autonomy_propose', input: { kind: 'desk-change', mode: 'observe', apply: true } }), LeadToolRefusedError)
+})
+
+test('#2174: the allowance tool says to quote the Dashboard\'s reset and age words as written and never round them', async () => {
+  const { leadToolDefinitions } = await import('../src/tools.js')
+  const usage = leadToolDefinitions.find(tool => tool.name === 'usage_summary')!
+  assert.match(usage.description, /Say resetsIn and readAge as written[^.]*; never round them/)
+  assert.match(usage.description, /resetPassed means the figures were read before that reset/)
 })

@@ -1,10 +1,25 @@
 # Lead repeats, second looks and allowance warnings on the phone
 
-These are the inner method/params values carried by the existing encrypted phone request. Results remain the same versioned host projections used by the desktop; error envelopes remain unchanged. New methods are absent from the Lead client door. No existing phone tier is widened.
+These are the inner method/params values carried by the existing encrypted phone request. Results remain the same versioned host projections used by the desktop; error envelopes remain unchanged. The phone control methods in the table below are absent from the Lead client door. No existing phone tier is widened.
+
+The private Lead client door exposes the read-only `lead/desk/summary`
+(`LeadDeskSummary`, optional `limit`) and `lead/usage/summary`
+(`LeadUsageSummary`, `{}`) methods. These desk-wide summaries carry bounded,
+scrubbed metadata without transcripts or account identities; they grant no
+cross-project action permission and are not paired-phone methods. The desk
+summary caps running, attention and project lists at 20 with omitted counts.
+Both scan at most 2,000 sessions and expose `sessionsScanned` and
+`countsPartial`; desk totals stay exact, while per-project and usage running
+counts cover the scanned sessions when partial. The desk summary also carries
+`waiting`: the Inbox's `needsYou` count, the rows it counts (the Lead's open
+question included) and `more` past the list, so a count matches what is listed.
 
 | Method | Required tier | Params | Result |
 | --- | --- | --- | --- |
 | `lead/schedule/read` | `read` | `{}` | `LeadSchedule` |
+| `lead/context/read` | `read` | `{}` | `LeadContextFacts` |
+| `lead/inbox/read` | `read` | `{}` | `LeadInbox`: `{version: 1, needsYou, items}`, the person's inbox (see below) |
+| `lead/context/use` | `read` | `{}` | `LeadContextUse`: `{version: 1, windowTokens, usedTokens, percent, lastSummaryAt, lastSummaryAge?, compacting, full?}` (`lastSummaryAge` is how long ago in the desk's words, "2h ago"), the figure the Lead reads about itself |
 | `lead/repeat/control` | `run` | `taskId`, `action` | updated `LeadSchedule` |
 | `lead/budget/raise` | `answer` | `logicalGoalId`, `caps`, `expectedRevision` | `LeadWindowProjection` |
 | `lead/spendLimit/set` | `answer` | `usdMicros`, `expectedRevision` | `LeadWindowProjection` |
@@ -29,6 +44,39 @@ Phones must count and sort work by `stage`, using the three person stages
 before working, queued and idle items; they must not re-derive attention from
 cards, state or prose. Older desks omit these fields, so phones fall back to
 `phase` (`needsYou` means waiting). Existing `phase` and `line` are unchanged.
+
+## The inbox
+
+`lead/inbox/read` (read tier, `{}`) is the inbox the desktop's bell lists, and
+the phone's Inbox tab lists the same one. It answers `LeadInbox`:
+
+```json
+{"version": 1, "needsYou": 4, "items": [
+  {"id": "lead", "kind": "lead", "title": "Dex is waiting for you", "detail": "needs-answer", "at": 1789000000000, "needsYou": true, "count": 3},
+  {"id": "team:goal-1", "kind": "team", "title": "build a game", "project": "Widgets", "at": 1789000000000, "needsYou": true, "target": "goal-1"},
+  {"id": "notice:usage-1", "kind": "notice", "title": "Usage is high", "detail": "…", "at": 1788990000000, "needsYou": false, "read": false}
+]}
+```
+
+- `kind` is `lead` (the Lead waits on the person; `detail` is its
+  `stageReason` slug), `ask` (its open question; `target` is the message id),
+  `chat` (`target` is `runtime:session`), `team` (`target` is the Team's goal
+  id) or `notice` (a notice the desk kept; never counted).
+- Items that need the person come first, newest first, then kept notices,
+  newest first; at most 40 of each (`LEAD_INBOX_LIMIT`).
+- `count`, on the Lead's row only, is how many things the Lead waits on when it
+  is more than one (each approval it holds, plus a way out or a plan to
+  approve); absent means 1. The Lead's header word uses the same number.
+- `needsYou` is the one count both surfaces show: the rows' counts plus items
+  past the desk summary's cap, so it can be larger than the number of listed
+  `needsYou: true` items. Do not count the list again.
+- An `ask` row's `at` is when the desk first saw the question, not the read.
+  The row is listed exactly while that question's state in
+  `lead/presence/read`'s `asks` is `open`: the person writing about something
+  else leaves it, and an answer, its expiry or a newer question of the Lead's
+  takes it away.
+- Titles are untrusted text the desk has scrubbed; draw them as plain text.
+- Read it when the Inbox opens and when a `presence` or `notices` push arrives.
 
 ## Read schedule and run history
 
@@ -508,9 +556,14 @@ controls). The recommendation names an option id. Questions are one line up to
 legacy journal reports may have neither.
 
 Render the recommended option as primary and the others as secondary. Only the
-latest assistant ask with no person message after it is live. Older and answered
-asks are quiet, non-interactive records; mark the picked label when it matches
-the next person message. Disable live choices whenever sending is unavailable
+latest assistant ask is live, and only while its state in `lead/presence/read`'s
+`asks` is `open` (see "What changed while you were away"): a person message
+about something else leaves it live, and it closes when it is answered, expires
+or a newer question replaces it (`replacedBy`), or when the person's next
+message is one of its option labels. Before the first presence read, a person
+message after it settles it. Older and answered asks are quiet,
+non-interactive records; mark the picked label when it matches the next person
+message. Disable live choices whenever sending is unavailable
 or in flight. Keep the composer for another answer; there is no Other button.
 
 Answer through the existing send method, using the exact option label as text:
@@ -523,6 +576,55 @@ No new method or tier is needed. An older phone ignores the optional fields and
 keeps showing the proactive question line. For an ordinary reply it shows the
 existing prose, including the question when it also appears in `text`.
 
+
+## What opened a goal
+
+A goal a trigger opened (a `@harnessdesk` request, or any other trigger event
+armed with `opens: { lead: true }`) arrives in `lead/thread/read` and
+`lead/changed` as a `system` message, never as the person's: its `text` is the
+desk's own line, and it carries `trigger`, the event's facts as the host
+recorded them:
+
+```json
+{"version": 1, "id": "message-1", "revision": 1, "role": "system", "text": "Request on pull request #12 from you",
+ "trigger": {"source": "pull-request", "event": "mentioned", "subject": "acme/widgets#12", "from": "you",
+  "words": "Make the empty state keyboard accessible", "url": "https://github.com/acme/widgets/pull/12#issuecomment-9001"}}
+```
+
+- `source` is `pull-request`, `issue` or `schedule`; `event` is the trigger's
+  event word (`mentioned` for a request); `subject` reads as the thread
+  `origin`'s.
+- `from` is set on a request only: `you`, `collaborator`, `outside` or
+  `unconfirmed`, decided from the forge's facts, never from the comment.
+- `words` is untrusted: the asker's words for a request, the issue or pull
+  request's title for any other event, folded to one line and at most 280
+  characters. It is absent when the desk withheld them from the Lead.
+- `url` is the comment a request was asked in, else the event's page, or null.
+
+Draw it as a desk line, not a bubble: `text` linked to `url` (open only an
+`https` address), then `words`, if any, in quotation marks as plain text,
+never rendered Markdown. An older phone that ignores `trigger` already draws
+`text` as the grey `system` line. A goal opened before this field existed stays
+a `user` message with the raw request text; draw it as before and do not parse
+it.
+
+## Links a reply names
+
+An assistant `LeadMessage` may also carry `refs`, one to eight pointers to what
+the reply names, never on a person message or with `proactive`:
+
+```json
+{"version": 1, "id": "message-5", "revision": 5, "role": "assistant", "text": "The docs Team is on it.",
+ "refs": [{"kind": "team", "id": "room-docs", "title": "Docs"}, {"kind": "work", "id": "work-3"}]}
+```
+
+`kind` is `team`, `goal`, `session`, `chat` or `work`; a `session` or `chat`
+id is `runtime:session`, a `work` id names an item of `lead/work/list`. A `team`
+id is the Team's room id: the phone's Team items are listed by goal id, so match
+it against `team.roomId` of the Team items in `workspace/read`, and a `goal` id
+against the item's `id`. The
+model writes them, so a client links only what its desk lists, under the desk's
+own title, and drops the rest; `title` is the model's and is a fallback only.
 
 ## Delegated chat incidents
 
@@ -539,3 +641,64 @@ The host requires a newer person answer before moving. After that choice, a
 move starts an ordinary chat on that agent with the brief, original first message and a
 host-built bounded progress digest. The old chat remains. Person-held chats
 are excluded; Stop during a reset wait cancels its retry.
+
+## The Lead's work list
+
+`workspace/read` (and every `workspace` topic push) carries an optional `work`, a `LeadWorkBoard`: the same board the desk's right rail draws, built by the host from one projection. Older desks omit it; a phone hides the list then.
+
+```json
+{"version":1,"more":0,"items":[
+  {"id":"work-4","title":"Rename the status column","project":"demo","stage":"needs-you","group":"needs-you","blocker":"An approval waits for you","links":{"chats":["fixture:chat-4"],"teams":[],"prs":[],"issues":[]},"createdAt":1767225600000,"updatedAt":1767229200000},
+  {"id":"work-2","title":"Fix the retry status list","project":"demo","stage":"in-review","group":"in-review","fact":"Pull request acme/widgets#42 is open","links":{"chats":[],"teams":[],"prs":["acme/widgets#42"],"issues":[]},"createdAt":1767222000000,"updatedAt":1767229000000}
+]}
+```
+
+Draw four groups in `LEAD_WORK_GROUPS` order, Needs you first: `needs-you`, `working`, `in-review`, `done`, labelled Needs you, Working, In review and Done. Items arrive already grouped and ordered; never re-derive a group from `stage`, prose or links. `blocker` is the host's reason an item waits and earns a visible line under Needs you; `fact`, `note` and `after` are optional detail. Titles, notes and facts pass the same scrub as every other phone string. `more` counts closed items left out of Done.
+
+The person's Done or Drop closes an item and nothing else; its chats, Teams and pull requests are left as they are:
+
+| Method | Required tier | Params | Result |
+| --- | --- | --- | --- |
+| `lead/work/close` | `run` | `id`, `outcome` (`done` or `dropped`) | `LeadWorkBoard` |
+
+```json
+{"method":"lead/work/close","params":{"id":"work-4","outcome":"dropped"}}
+```
+
+A close is never undone by later desk activity. An unknown id refuses with `notFound`. The phone has no way to note on an item or set its stage: notes are the Lead's, stages the host's.
+
+## What changed while you were away
+
+The host builds one digest for a device that has been away, and keeps what each device has seen. Both calls are `read` tier. The phone never sends its own device name: the host takes it from the paired device, so `device` in the params is ignored for a phone and one phone cannot read or dismiss as another.
+
+| Method | Required tier | Params | Result |
+| --- | --- | --- | --- |
+| `lead/presence/read` | `read` | `active?` (the person is looking now; marks the device seen), `recap?` (the last 24 hours, whether or not the device was away) | `LeadPresenceView` |
+| `lead/presence/dismiss` | `read` | `digest` (the id on the card) | `LeadPresenceView` |
+| `lead/brief/read` | `read` | none | `LeadBriefSettings` |
+
+```json
+{"version":1,"digest":{"version":1,"id":"away-1767200000000-1767210800000","kind":"away","from":1767200000000,"to":1767210800000,"items":[{"kind":"waiting","id":"work-4","title":"Rename the status column","fact":"An approval waits for you"},{"kind":"done","id":"work-1","title":"Update the onboarding copy"}],"more":0,"spentUsdMicros":1200000},"asks":[{"id":"message-4","status":"answered","answer":{"option":"Start it","by":"iPhone","at":1767209000000}},{"id":"message-7","status":"expired","expiresAt":1767205000000}],"brief":{"enabled":false,"at":"07:30"}}
+```
+
+Draw the digest card at the top of the Lead thread when `digest` is not null: its items in the order Needs you, Stopped or stuck, Done, a `more` note when `more > 0`, the spend, and the optional `summary` above them. Dismissing sends `lead/presence/dismiss` with the card's `id`; the same digest stays on the desktop. `kind` is `away`, `recap` or `brief` (the title is While you were away, What happened or Morning brief).
+
+While the app is open, read `lead/presence/read` with `active: true` about every 30 seconds (and when the app returns to the front), so the desk never offers back what the phone watched; a read made while the app is in the background sends `active: false`. The `presence` topic (read tier) carries `{"v":1}` and no text whenever an ask was answered or expired elsewhere or a brief arrived: read the view again when it comes. A question whose `expiresAt` has passed offers no answer from that moment, even before the next read.
+
+`asks` says what became of each question by the id of the message that carries it. `open` offers its options. `expired` offers none and reads "Expired · nothing was done"; answering it refuses with `lead-ask-expired`; a question another device already answered refuses with `lead-ask-answered`, naming that device, even when its answer is already in the thread. When the text is a tapped option, send `ask` with `lead/thread/send`: the `id` of the message that carries the question. Without it the host can only judge the newest open question, and a tap that arrives after another device's answer would pass as plain words. An `ask` that names no question the thread holds is refused with `lead-ask-expired`; plain text that equals an option of the newest question is refused the same way, but only while that question is still the Lead's last message and its answer or expiry is under ten minutes old; after that it is an ordinary message. Show the refusal as a sentence ("This question was already answered. Nothing was done."), and for typed text add "If you meant something else, say it in other words." `answered` is a receipt: the option, the device label and the time. The thread itself is not changed. Send `lead/thread/send` as before; the host records the receipt.
+
+The morning brief is a push on the `notices` topic: kind `message`, `deep` is `lead`, the title at most 80 and the body at most 240 characters. Opening it shows the brief digest through `lead/presence/read`. Turning the brief on and choosing its time is the desktop's (`lead/brief/update` is not offered to the phone); the phone reads `brief` to show whether it is on.
+
+## Memory
+
+The workspace snapshot carries `memory` (`PhoneLeadMemory`) when the desk has a Lead: the proposals waiting for the person, the Core and Archive counts and whether automatic keeping is on. Draw each proposal under the first Lead reply whose revision is after its `afterSeq`, or under the latest reply when none is, with Keep, Edit and No. The `lead/memory/changed` notification carries the new `revision`; read again when it is newer than the one you hold.
+
+| Method | Required tier | Params | Result |
+| --- | --- | --- | --- |
+| `lead/memory/view` | `read` | `{}` | `LeadMemoryView` |
+| `lead/memory/change` | `answer` | a `LeadMemoryChange` with `action` `keep`, `dismiss` or `forget` | `LeadMemoryView` |
+
+A Keep, from either surface, also writes one line in the Lead's thread: a `system` message (id `receipt-<n>`) reading `Kept · <kind>: <text>`, the kind as the desk names it (Preference, Fact, Lesson, Rule) and the words as kept. An Apply on a settings proposal (`lead/settings/decide`) writes `Applied · <section title>, version <n>` for a rule section, or `Applied · <mode title>, <Off|Observe|Act>` for a mode. No and a stale card write nothing. Draw it as the grey `system` line the thread already draws; it arrives through `lead/thread/read` and `lead/changed` like any message and never answers or closes a question.
+
+`keep` with `text` keeps the person's edited wording, which then counts as the person's note; limit that text to 400 UTF-16 code units, as the desk does. Every other action (`edit`, `move`, `forget-all`, `auto`, `undo`, `add`) is refused from a phone with `notOnPhoneSurface` and a sentence to show as it is. The phone never gets `lead/memory/propose` or `lead/memory/search`, which are the Lead's own.
+

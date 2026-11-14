@@ -272,7 +272,7 @@ test('Node package selection excludes CI end-to-end files and runs dependants on
     const source = createPlan(directory, { paths: ['packages/server/src/index.ts'], chromium: true })
     const tests = source.steps.find(step => step.name === 'Node tests: server')
     assert.equal(source.steps.find(step => step.name === 'Node build').status, 'run')
-    assert.deepEqual(tests.args, ['--test', '--test-timeout=120000', 'packages/server/dist/test/host.test.js'])
+    assert.deepEqual(tests.args, ['--test', '--test-concurrency=3', '--test-timeout=120000', 'packages/server/dist/test/host.test.js'])
     assert.deepEqual(tests.needs, ['Node build'])
     const small = createPlan(directory, { paths: ['packages/protocol/src/index.ts'], chromium: true })
     assert.equal(small.steps.find(step => step.name === 'Node tests: server').status, 'run')
@@ -291,8 +291,17 @@ test('Node package selection leaves the dedicated Node 26 Lead files to CI', asy
     const { createPlan } = await api()
     const plan = createPlan(directory, { paths: ['packages/server/test/lead-e2e-plan.test.ts'], chromium: true })
     assert.deepEqual(plan.steps.find(step => step.name === 'Node tests: server').args,
-      ['--test', '--test-timeout=120000', 'packages/server/dist/test/host.test.js'])
+      ['--test', '--test-concurrency=3', '--test-timeout=120000', 'packages/server/dist/test/host.test.js'])
   })
+})
+
+test('local package checks bound simultaneous files instead of using every available core', async () => {
+  const { createPlan } = await api()
+  const plan = createPlan(root, { paths: ['packages/server/src/phone-workspace.ts'], chromium: true })
+  const tests = plan.steps.find(step => step.name === 'Node tests: server')
+  assert.ok(tests.args.includes('--test-concurrency=3'))
+  assert.ok(tests.args.includes('--test-timeout=120000'))
+  assert.ok(tests.args.includes('packages/server/dist/test/bootstrap-idle-runtime.test.js'))
 })
 
 test('host retention runs alone with the ordinary deadline, outside the concurrent server files', async () => {
@@ -302,7 +311,7 @@ test('host retention runs alone with the ordinary deadline, outside the concurre
     const plan = createPlan(directory, { paths: ['packages/server/test/host-retention.test.ts'], chromium: true })
     const ordinary = plan.steps.find(step => step.name === 'Node tests: server')
     const retention = plan.steps.find(step => step.name === 'Node tests: server retention')
-    assert.deepEqual(ordinary.args, ['--test', '--test-timeout=120000', 'packages/server/dist/test/host.test.js'])
+    assert.deepEqual(ordinary.args, ['--test', '--test-concurrency=3', '--test-timeout=120000', 'packages/server/dist/test/host.test.js'])
     assert.equal(retention?.status, 'run')
     assert.deepEqual(retention.args, ['--test', '--test-timeout=120000', 'packages/server/dist/test/host-retention.test.js'])
     assert.deepEqual(retention.needs, ['Node build'])

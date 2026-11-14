@@ -13,7 +13,8 @@ export type FirstPhoneMessage = z.infer<typeof FirstPhoneMessage>
 
 const Position = { epoch: z.string().min(1).max(64), seq: z.number().int().nonnegative() }
 
-export const AuthOk = z.object({ t: z.literal('auth.ok'), ...Position })
+/** `pushKey` and `kid` repeat the ones `enroll.ok` gave, so a phone that did not keep them has them again. Optional: an older desk leaves them out. */
+export const AuthOk = z.object({ t: z.literal('auth.ok'), pushKey: Secret32.optional(), kid: z.number().int().min(1).optional(), ...Position })
 export const EnrollOk = z.object({
   t: z.literal('enroll.ok'),
   deviceId: DeviceId,

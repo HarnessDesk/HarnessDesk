@@ -138,7 +138,7 @@ export class EvidenceStore {
     let unknown = false
     for (const line of lines) {
       this.#indexSeat(project, line)
-      const goal = line.type === 'seat' ? this.#seatBoards.get(this.#seatKey(project, line.record.id)) : line.type === 'evidence' ? line.record.card?.board : this.#seatBoards.get(this.#seatKey(project, line.closing.seat))
+      const goal = line.type === 'seat' ? this.#seatBoards.get(this.#seatKey(project, line.record.id)) : line.type === 'evidence' ? line.record.card?.board : this.#seatBoards.get(this.#seatKey(project, line.type === 'seat-closed' ? line.closing.seat : line.consult.seat))
       if (goal) goals.add(goal)
       else unknown = true
     }

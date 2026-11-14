@@ -1976,6 +1976,7 @@ for (const importer of [...screenSources, ...appSources]) {
  */
 export const NAMED_ROOTS = new Map([
   [path.join(UI_SRC, 'components', 'Conversation.tsx'), 'conversation'],
+  [path.join(UI_SRC, 'components', 'AdjacentTranscript.tsx'), 'conversation'],
   [path.join(UI_SRC, 'components', 'LeadPage.tsx'), 'conversation'],
   [path.join(UI_SRC, 'components', 'Settings.tsx'), 'settings'],
   [path.join(UI_SRC, 'components', 'TeamRoomPane.tsx'), 'room'],
@@ -4422,11 +4423,8 @@ export const SINGLE_AREA_PRIMITIVE_EXEMPTIONS = [
   {
     module: 'design/ui/chart.tsx',
     kind: 'data-geometry',
-    exports: [
-      'ChartCard', 'ChartFoot', 'ChartFrame', 'ChartTitle',
-      'BurnDown', 'ChartAxis', 'ChartHead', 'ChartHint', 'ChartTools',
-      'DayColumns', 'PaceBadge', 'ChartTip', 'ChartTipRow',
-    ],
+    // The rest of the kit reaches Settings › Runtimes too, through the Dashboard's account card, so it is no longer single-area.
+    exports: ['ChartTip', 'ChartTipRow'],
     area: 'usage',
     reason: 'The chart kit draws measured data series on axes and supplies their labels and summaries; it is data geometry rather than a screen control.',
   },
@@ -4436,20 +4434,6 @@ export const SINGLE_AREA_PRIMITIVE_EXEMPTIONS = [
     exports: ['HeatGrid', 'HeatLegend'],
     area: 'usage',
     reason: 'The heat grid renders a calendar of values, with a legend for its scale; it is a data view rather than a screen control.',
-  },
-  {
-    module: 'design/ui/delta.tsx',
-    kind: 'data-geometry',
-    exports: ['Delta'],
-    area: 'usage',
-    reason: 'The delta is a signed change readout derived from data, rather than an interactive control owned by a screen.',
-  },
-  {
-    module: 'design/ui/tone.ts',
-    kind: 'data-geometry',
-    exports: ['tintFor', 'tintsFor'],
-    area: 'usage',
-    reason: 'These helpers map a series index to the tone ramp used to distinguish chart data, rather than styling screen controls.',
   },
   {
     module: 'design/adapters/terminal.ts',

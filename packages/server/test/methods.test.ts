@@ -57,7 +57,7 @@ test('opening in a folder without runtime board tools sends a session-linked not
   } as unknown as AgentRuntime
   const ctx = contextWith({
     loadouts: { observe: () => {} },
-    sessionIndex: { reopen: () => {}, record: (session: unknown) => indexed.push(session) },
+    sessionIndex: { refreshMissingFolder: async () => {}, reopen: () => {}, record: (session: unknown) => indexed.push(session) },
     sessionWorktrees: { prepare: async () => ({}) },
     runtimes: { resolve: () => runtime, ensureStarted: async () => {} },
     laneEnvironment: { forCheckout: () => undefined, forSession: async () => undefined },
@@ -69,6 +69,7 @@ test('opening in a folder without runtime board tools sends a session-linked not
     },
     registry: {
       forReopen: () => null,
+      opening: () => () => {},
       upsert: (opened: unknown) => ({ session: opened }),
     },
     attachments: { carriesFilter: async () => false },

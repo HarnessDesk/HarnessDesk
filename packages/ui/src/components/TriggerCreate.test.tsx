@@ -176,3 +176,87 @@ it('the plain path never reads a triggers file — this dialog only mounts on an
   await settle()
   expect(spy.mock.calls.filter((call) => call[0] === 'authoring/read')).toHaveLength(0)
 })
+
+it('a mention trigger asks who may ask — the arming account or collaborators, plus named people and bots — never anyone', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const rendered: TriggerDefinition[] = []
+  fakeHost(store, {
+    'authoring/triggers/draft': (params) => {
+      const { id, on } = params as { id: string; on: string }
+      return on === 'mention'
+        ? { ...DRAFT(id, { kind: 'mention', events: ['commented'] }), goal: ['thread'], dedupe: ['thread', 'event'], from: 'me' }
+        : DRAFT(id, { kind: 'pull-request', events: ['opened', 'pushed'] })
+    },
+    'authoring/triggers/render': (params) => {
+      const { definitions } = params as { definitions: readonly TriggerDefinition[] }
+      rendered.push(definitions[0]!)
+      return { source: JSON.stringify(definitions), issues: [] }
+    },
+  })
+  render(store)
+  await settle()
+  const choice = [...document.body.querySelectorAll('[role="radiogroup"][aria-label="Source"] *')].find((one) => one.textContent?.trim() === 'A mention') as HTMLElement
+  act(() => choice.click())
+  await settle()
+  const section = document.body.querySelector('[aria-label="Who may ask"]')!
+  expect(section).not.toBeNull()
+  const options = [...section.querySelectorAll('option')].map((one) => one.value)
+  expect(options).toEqual(['me', 'collaborators'])
+  expect(document.body.textContent).toContain('Starts in observe mode')
+  const people = [...section.querySelectorAll('input')][1]!
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+  act(() => {
+    setter.call(people, 'jane-doe, a-teammate')
+    people.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await settle()
+  expect(rendered.at(-1)?.people).toEqual(['jane-doe', 'a-teammate'])
+})
+
+it('“When someone asks @harnessdesk” hands the trigger to the Lead, reads requests alone, and says why the other events are off', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  Object.assign(store.getSnapshot(), { leadAvailable: true })
+  const drafted: unknown[] = [], rendered: TriggerDefinition[] = []
+  fakeHost(store, {
+    'authoring/triggers/draft': (params) => {
+      drafted.push(params)
+      const { id, opens } = params as { id: string; opens: TriggerDefinition['opens'] }
+      return { ...DRAFT(id, { kind: 'pull-request', events: ['opened', 'pushed'] }), opens }
+    },
+    'authoring/triggers/render': (params) => {
+      const { definitions } = params as { definitions: readonly TriggerDefinition[] }
+      rendered.push(definitions[0]!)
+      return { source: JSON.stringify(definitions), issues: [] }
+    },
+  })
+  render(store)
+  await settle()
+  const ask = document.body.querySelector('[aria-label="Fire when someone asks @harnessdesk"]') as HTMLElement
+  expect(ask).not.toBeNull()
+  act(() => ask.click())
+  await settle()
+  expect(drafted.at(-1)).toMatchObject({ on: 'pull-request', opens: { lead: true } })
+  expect(rendered.at(-1)).toMatchObject({ on: { kind: 'pull-request', events: ['mentioned'] }, opens: { lead: true }, from: 'me', again: null })
+  expect(document.body.textContent).toContain('When you write @harnessdesk … on a pull request, hand it to the Lead as a request')
+  const opened = document.body.querySelector('[aria-label="Fire when a pull request is opened"]') as HTMLButtonElement
+  expect(opened.hasAttribute('disabled') || opened.getAttribute('aria-disabled') === 'true').toBe(true)
+  expect(opened.closest('[data-slot="row"]')!.getAttribute('title')).toMatch(/reads only requests/)
+  expect(document.body.textContent).not.toContain('Continue an open Goal')
+  expect(document.body.textContent).toContain('Who may ask')
+
+  // Off again: the trigger opens what this composer was opened for.
+  act(() => ask.click())
+  await settle()
+  expect(drafted.at(-1)).toMatchObject({ on: 'pull-request', opens: { flow: 'review-pr' } })
+  expect(rendered.at(-1)?.on).toEqual({ kind: 'pull-request', events: ['opened', 'pushed'] })
+})
+
+it('with no Lead on this desk, asking is offered but cannot be chosen, and says why', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  fakeHost(store)
+  render(store)
+  await settle()
+  const ask = document.body.querySelector('[aria-label="Fire when someone asks @harnessdesk"]') as HTMLButtonElement
+  expect(ask.hasAttribute('disabled') || ask.getAttribute('aria-disabled') === 'true').toBe(true)
+  expect(ask.closest('[data-slot="row"]')!.getAttribute('title')).toBe('The Lead is off on this desk, and only the Lead takes requests.')
+})

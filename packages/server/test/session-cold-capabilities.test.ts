@@ -58,8 +58,8 @@ const laneContext = (supported: boolean) => {
       forSession: async (owner: string, conversation: string) => laneEnvironmentFor(runtime, environmentForSession(owner, conversation, [lane], [seat])),
     },
     evidence: { seats: { latestKeptOf: () => null, latestOf: () => seat } },
-    registry: { forReopen: () => undefined, upsert: (session: Session, live: AgentSession) => ({ session, live }) },
-    sessionIndex: { reopen: () => {}, record: () => {} },
+    registry: { forReopen: () => undefined, opening: () => () => {}, upsert: (session: Session, live: AgentSession) => ({ session, live }) },
+    sessionIndex: { refreshMissingFolder: async () => {}, reopen: () => {}, record: () => {} },
     sessionWorktrees: { prepare: async () => ({}) },
     sessions: {
       attach: async () => transcript,
@@ -182,7 +182,7 @@ for (const method of ['session/archive', 'session/delete'] as const) {
     assert.equal(runtime.info.capabilities.archiveHistory, false)
     assert.equal(runtime.info.capabilities.deleteHistory, false)
     const target = sessionId('thread-2')
-    if (method === 'session/delete') await assert.rejects(host.call(method, { runtime: runtime.info.id, sessionId: target }), /Trash/)
+    if (method === 'session/delete') await assert.rejects(host.call(method, { runtime: runtime.info.id, sessionId: target }), /erases conversations for good, so delete it on the computer\./)
     else await host.call(method, { runtime: runtime.info.id, sessionId: target, archived: true })
     assert.equal(runtime.health().state, 'ready')
     const nativeArchived = await runtime.listSessions({ archived: 'only' })

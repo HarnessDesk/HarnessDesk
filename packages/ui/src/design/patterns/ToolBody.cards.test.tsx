@@ -88,3 +88,12 @@ it('keeps long labels and summaries named while the disclosure and independent a
   expect(toggle.type).toBe('button')
   expect(toggle.getAttribute('aria-expanded')).toBe('false')
 })
+
+it('a pinned head stays in view on the card\'s own ground while the card scrolls in a shorter box; an unpinned one scrolls away', () => {
+  act(() => root.render(<><ToolSection label="Away" pinHead action={<button>Dismiss</button>}><p>Rows</p></ToolSection><ToolSection label="Plain"><p>Rows</p></ToolSection></>))
+  const head = (label: string) => card(label).querySelector<HTMLElement>('[data-slot="group-label"]')!
+  expect(head('Away').className).toContain('sticky')
+  expect(head('Away').className).toContain('bg-(--hd-panel-card-fill)')
+  expect(head('Away').textContent).toContain('Dismiss')
+  expect(head('Plain').className).not.toContain('sticky')
+})

@@ -498,6 +498,18 @@ test('a published destination bar credits only its active visible registration',
   expect(hidden.covered).not.toContain('panels/library-bar.tsx#LibraryBar')
 })
 
+test('the read-only transcript preview mounts both reader components', async ({ page }) => {
+  await page.goto('/preview.html')
+  const specimen = page.locator('[data-frame-id="coverage-adjacent-transcript"]')
+  await expect(specimen.locator('[data-transcript]')).toContainText('worktree list')
+  await expect(specimen.locator('textarea')).toHaveCount(0)
+  const result = await collectCoverage(page)
+  expect(result.covered).toEqual(expect.arrayContaining([
+    'components/AdjacentTranscript.tsx#AdjacentTranscript',
+    'components/Items.tsx#ReadOnlyTranscript',
+  ]))
+})
+
 test.describe('preview coverage', () => {
   test('Seat browsers preview live pages and Seats with nothing open', async ({ page }) => {
     await page.goto('/preview.html?tile-browsers')
@@ -581,7 +593,7 @@ test.describe('preview coverage', () => {
       for (const component of (await collectCoverage(page)).covered) covered.add(component)
     })
 
-    for (const [item, query] of (['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement', '?compact-panels', '?board-list', '?team-frame=controls', '?tile-browsers', '?flows-page=catalogue', '?flows-page=editor', '?frame-wall=library&frame-detail=skill&frame-name=code-review', '?frame-wall=agents&frame-account-name=dialog', '?lead-synthetic=app-shell', '?lead-synthetic=result-person-gate', '?lead-synthetic=settings-configured']).entries()) test(`coverage page 1: query ${item}`, async () => {
+    for (const [item, query] of (['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement', '?compact-panels', '?board-list', '?team-frame=controls', '?tile-browsers', '?flows-page=catalogue', '?flows-page=editor', '?frame-wall=library&frame-detail=skill&frame-name=code-review', '?frame-wall=agents&frame-account-name=dialog', '?subagent-flow']).entries()) test(`coverage page 1: query ${item}`, async () => {
       const page = getPage(); test.setTimeout(360_000);
       await page.goto(`/preview.html${query}`)
       if (query === '?board-list') {
@@ -593,8 +605,6 @@ test.describe('preview coverage', () => {
       if (query === '?team-frame=controls') await expect(page.getByRole('menuitem', { name: 'Fill the window', exact: true })).toBeVisible()
       if (query === '?flows-page=catalogue') await expect(page.getByRole('button', { name: 'New Flow', exact: true })).toBeVisible()
       if (query === '?flows-page=editor') await expect(page.getByRole('main', { name: 'Flow editor', exact: true })).toBeVisible()
-      if (query.startsWith('?lead-synthetic=') && query !== '?lead-synthetic=settings-configured') await expect(page.getByRole('region', { name: / thread$/ })).toBeVisible()
-      if (query === '?lead-synthetic=settings-configured') await expect(page.getByRole('combobox', { name: 'Permission mode', exact: true })).toBeVisible()
       if (query.includes('frame-detail=skill')) await expect(page.locator('[data-slot="skill-page"]')).toBeVisible()
       await settleCoveragePage(page)
       const result = await collectCoverage(page)
@@ -631,13 +641,41 @@ test.describe('preview coverage', () => {
       for (const file of result.covered) covered.add(file)
     })
 
-    for (const query of ['lead-synthetic=first-name', 'lead-synthetic=opening-jobs', 'lead-synthetic=wake-ledger', 'lead-chat=lead', 'desk-account=pending', 'desk-account=settings']) test(`coverage Lead and account scene: ${query}`, async () => {
-      test.setTimeout(360_000)
-      // These app scenes own timers and subscriptions. Give each its own context
-      // rather than retaining them on the inventory's long-lived page.
+    test('coverage carry-on card over the composer', async () => {
+      test.setTimeout(120_000)
+      // The scene owns a store and its pushes, so it gets a page of its own,
+      // as the Lead scenes below do, rather than the inventory's long-lived one.
       const page = await getPage().context().browser()!.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' })
       try {
-        await page.goto(new URL(`/preview.html?${query}`, getPage().url()).href)
+        await page.goto(new URL('/preview.html?notices=carry-on', getPage().url()).href)
+        // The card mounts only once the scene's carryOn/changed push lands.
+        await expect(page.locator('[data-slot="decision-notice"]')).toBeVisible({ timeout: 30_000 })
+        const result = await collectCoverage(page)
+        expect(result.covered).toContain('components/CarryOnNotice.tsx#CarryOnNotice')
+        for (const file of result.covered) covered.add(file)
+      } finally { await page.context().close() }
+    })
+
+    for (const query of ['lead-synthetic=app-shell', 'lead-synthetic=result-person-gate', 'lead-synthetic=memory-proposal', 'lead-synthetic=autonomy-proposal', 'lead-synthetic=settings-configured', 'lead-synthetic=work-ledger', 'lead-synthetic=first-name', 'lead-synthetic=opening-jobs', 'lead-synthetic=wake-ledger', 'lead-chat=lead', 'desk-account=pending', 'desk-account=settings']) test(`coverage Lead and account scene: ${query}`, async () => {
+      test.setTimeout(360_000)
+      // These app scenes own timers and subscriptions. Give each its own context
+      // rather than retaining them on the inventory's long-lived page: every
+      // Lead scene loaded there makes a later visit of that page likelier to
+      // stall with its module graph aborted and a blank document.
+      // The configured base URL, not the shared page's: a worker that restarts
+      // after a failure starts that page on about:blank.
+      const page = await getPage().context().browser()!.newPage({ baseURL: String(test.info().project.use.baseURL), viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' })
+      try {
+        await page.goto(`/preview.html?${query}`)
+        if (['lead-synthetic=app-shell', 'lead-synthetic=result-person-gate', 'lead-synthetic=memory-proposal', 'lead-synthetic=autonomy-proposal', 'lead-synthetic=work-ledger'].includes(query)) await expect(page.getByRole('region', { name: / thread$/ })).toBeVisible()
+        if (query === 'lead-synthetic=settings-configured') await expect(page.getByRole('combobox', { name: 'Permission mode', exact: true })).toBeVisible()
+        // The Lead's offered note sits under the reply it came with, with Keep, Edit and No.
+        if (query === 'lead-synthetic=memory-proposal') await expect(page.getByRole('button', { name: 'Keep', exact: true })).toBeVisible()
+        // The Lead's proposed settings changes sit under the reply that proposes them, each with Apply and No.
+        if (query === 'lead-synthetic=autonomy-proposal') await expect(page.locator('[data-slot="lead-settings-proposals"]').getByRole('button', { name: 'Apply', exact: true })).toHaveCount(2)
+        // A reply that names work carries links under it: the pull request the desk has for the work it names.
+        // The scene's later reminder reply names the same work, so look under the reply that names it first.
+        if (query === 'lead-synthetic=work-ledger') await expect(page.locator('article').filter({ hasText: 'The keyboard work is running in its chat' }).locator('[data-slot="lead-refs"]').getByRole('button', { name: 'Fix the retry status list', exact: true })).toBeVisible()
         await settleCoveragePage(page)
         for (const component of (await collectCoverage(page)).covered) covered.add(component)
         if (query === 'desk-account=settings') {
@@ -890,6 +928,13 @@ test.describe('preview coverage', () => {
     await page.goto('/preview.html?lead-chat=lead')
     const frame = page.locator('[data-frame-id="lead-host-notice"]')
     await expect(frame.getByRole('article', { name: 'Desk', exact: true })).toHaveText('Allowed under your rule for this goal: /workspace/demo/src/panel.tsx · 3 times')
+  })
+
+  test('preview shows a trigger-opened goal as the event and quotes the words as plain text', async ({ page }) => {
+    await page.goto('/preview.html?lead-chat=lead')
+    const notice = page.locator('[data-frame-id="lead-trigger-notice"] [data-slot="lead-trigger"]')
+    await expect(notice.getByRole('button', { name: 'Request on pull request #12 from a collaborator (write access)' })).toBeVisible()
+    await expect(notice.locator('[data-lead-trigger-words]')).toHaveText('\u201cCan the Lead look at the failing checkout test?\u201d')
   })
 
   test('preview shows the three board-tool permission card states and keeps grants quiet', async ({ page }) => {

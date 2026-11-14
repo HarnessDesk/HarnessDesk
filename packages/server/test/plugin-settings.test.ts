@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { ExtensionKernel } from '@harnessdesk/cordis-host'
-import { builtinPlugins } from '@harnessdesk/plugins'
+import { builtinPlugins, COMMIT_COAUTHOR_PROBLEM } from '@harnessdesk/plugins'
 import type { HostMethodName, HostToClient, PluginInstance } from '@harnessdesk/protocol'
 import WebSocket from 'ws'
 
@@ -189,4 +189,27 @@ test('where an agent opens a page is restored from the file, not from an empty o
   t.after(() => second.close())
   const last = second.placements.at(-1) as { placement?: string } | undefined
   assert.equal(last?.placement, 'window', 'the stored placement, not the default')
+})
+
+test('a malformed Commit co-author is refused in one sentence, and nothing is saved', async (t) => {
+  const { stateDir, workspace } = await dirs(t)
+  const desk = await boot(stateDir, workspace)
+  t.after(() => desk.close())
+  const client = await Client.connect(desk.server)
+  t.after(() => client.close())
+
+  await client.call('plugin/configure', { pluginId: 'git', config: { commitCoAuthor: 'Co-authored-by: Jane Doe <dev@example.com>' } })
+  for (const malformed of ['Jane Doe <dev@example.com>', 'Co-authored-by: Jane Doe <dev@example.com>\nCo-authored-by: Acme Bot <bot@acme.dev>']) {
+    await assert.rejects(
+      client.call('plugin/configure', { pluginId: 'git', config: { commitCoAuthor: malformed, reviewSignature: 'changed' } }),
+      { message: COMMIT_COAUTHOR_PROBLEM },
+    )
+  }
+  const kept = configOf(await client.call('plugin/list', {}), 'git')
+  assert.equal(kept['commitCoAuthor'], 'Co-authored-by: Jane Doe <dev@example.com>', 'the last good value stands')
+  assert.equal(kept['reviewSignature'], undefined, 'and nothing else in the refused save was taken')
+
+  // Blank is the explicit off, and saves.
+  await client.call('plugin/configure', { pluginId: 'git', config: { commitCoAuthor: '  ' } })
+  assert.equal(configOf(await client.call('plugin/list', {}), 'git')['commitCoAuthor'], '  ')
 })

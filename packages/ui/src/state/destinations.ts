@@ -11,14 +11,16 @@ export interface FlowPageStart {
   readonly done?: string
 }
 export type SettingsRoute =
-  | { readonly kind: 'section'; readonly section: SettingsSection; readonly focus: string | null }
+  /** `nonce` is per click and never kept, as a Lead door's is: the same row's door clicked again shows it again. */
+  | { readonly kind: 'section'; readonly section: SettingsSection; readonly focus: string | null; readonly nonce?: number }
   | { readonly kind: 'project'; readonly root: string }
   | { readonly kind: 'skill'; readonly name: string }
   | { readonly kind: 'add-runtime' }
   | { readonly kind: 'runtime'; readonly runtime: RuntimeId }
   | { readonly kind: 'account'; readonly runtime: RuntimeId; readonly key: string }
 export type PageDestination =
-  | { readonly kind: 'lead'; readonly focus?: string }
+  /** `nonce` is per click and never kept: a door opened again on the same row is a new request to show it. */
+  | { readonly kind: 'lead'; readonly focus?: string; readonly nonce?: number }
   | { readonly kind: 'settings'; readonly route: SettingsRoute }
   | { readonly kind: 'dashboard'; readonly view: 'overview' | 'plans' | 'spend' | 'activity' | 'projects'; readonly scope: RuntimeId | null }
   | { readonly kind: 'agents'; readonly id: string | null }
@@ -36,8 +38,13 @@ export interface DestinationHistory {
 }
 export const destinationOf = (view: WorkView): Destination => ({ kind: 'work', view })
 export const sameDestination = (a: Destination, b: Destination): boolean => JSON.stringify(readDestination(a, true)) === JSON.stringify(readDestination(b, true))
+const nonceOf = (destination: Destination): number | undefined => destination.kind === 'lead' ? destination.nonce
+  : destination.kind === 'settings' && destination.route.kind === 'section' ? destination.route.nonce : undefined
 export const visitDestination = (history: DestinationHistory, target: Destination, replace = false): DestinationHistory =>
-  sameDestination(history.current, target) ? history : {
+  sameDestination(history.current, target)
+    // The same place asked for again by a door's new click: nothing is pushed, but the page hears the click.
+    ? nonceOf(target) !== undefined && nonceOf(target) !== nonceOf(history.current) ? { ...history, current: target } : history
+    : {
     current: target,
     back: replace ? history.back : [...history.back, history.current].slice(-50),
     forward: replace ? history.forward : [],

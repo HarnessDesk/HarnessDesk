@@ -584,6 +584,31 @@ test('an older host window projection without stage fields remains readable', ()
   assert.equal(result.wayOut, 'resume')
 })
 
+test('every request failure sentence names the Lead the person chose, never "the Lead"', () => {
+  for (const [reason, text] of Object.entries(protocol.LEAD_REQUEST_FAILURE_TEXT)) {
+    assert.doesNotMatch(text, /\bthe Lead\b/i, reason)
+    assert.doesNotMatch(protocol.leadRequestFailure(reason, 'Lex')!.detail, /\bthe Lead\b|\{label\}/i, reason)
+  }
+  assert.equal(protocol.leadRequestFailure('lead-request-refused', 'Lex')!.detail, 'Lex could not send its request, so nothing was spent. Sending a message tries again.')
+  assert.equal(protocol.leadRequestFailure('lead-request-rate-limited', 'Lex')!.detail, 'The provider asked Lex to wait.')
+})
+
+test('a request that did not complete reaches the window as a failure with its code and sentence; other waits carry none', () => {
+  // Every request wait but a cancelled one is a failure of the request, not the Lead waiting on the person.
+  const requestWaits = protocol.LEAD_MANAGEMENT_REASONS.filter(reason => reason.startsWith('lead-request-') && reason !== 'lead-request-cancelled')
+  assert.deepEqual([...protocol.LEAD_REQUEST_FAILURES].sort(), [...requestWaits].sort())
+  assert.deepEqual(protocol.leadRequestFailure('lead-request-uncertain', 'Dex'), { reason: 'lead-request-uncertain', detail: protocol.LEAD_REQUEST_FAILURE_TEXT['lead-request-uncertain'] })
+  const withheld = protocol.leadRequestFailure('lead-request-withheld', 'Dex')!
+  assert.match(withheld.detail, /^Dex's instructions/); assert.ok(!withheld.detail.includes('{label}'))
+  for (const reason of ['lead-request-cancelled', 'lead-plan-refused', null, undefined, 'toString']) assert.equal(protocol.leadRequestFailure(reason, 'Dex'), null)
+  const window = { version: 1, revision: 2, thread, settings, requestInFlight: false, wayOut: null, waitReason: 'lead-request-unsent', planConsentExpiresAt: null }
+  const failure = protocol.leadRequestFailure('lead-request-unsent', 'Dex')
+  assert.deepEqual(protocol.parseLeadWindowProjection({ ...window, failure }).failure, failure)
+  assert.equal(protocol.parseLeadWindowProjection(window).failure, undefined)
+  assert.throws(() => protocol.parseLeadWindowProjection({ ...window, failure: { reason: 'lead-plan-refused', detail: 'x' } }))
+  assert.throws(() => protocol.parseLeadWindowProjection({ ...window, failure: { reason: 'lead-request-unsent', detail: 'two\nlines' } }))
+})
+
 test('strict asks and new proactive output require bounded unique options and a recommendation; stored legacy reports survive', () => {
   const ask = { question: 'Start this work?', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
   const parse = validator('parseLeadAsk'), strict = validator('parseLeadProactiveOutput')
@@ -622,4 +647,51 @@ test('ask labels are trimmed and unique across case and collapsed whitespace', (
   for (const label of ['START  IT', 'start\u00a0it'])
     for (const validate of parse([options[0], { ...options[1], label }])) assert.throws(validate, protocol.ValidationError)
   for (const validate of parse([{ ...options[0], label: 'Start  it' }, options[1]])) assert.doesNotThrow(validate)
+})
+test('a reply carries at most eight refs the phone and desk both read, and only a reply carries any', () => {
+  const refs = [{ kind: 'work', id: 'work-3' }, { kind: 'team', id: 'room-docs', title: 'Docs for Jane Doe' }, { kind: 'chat', id: 'codex:thread-1' }]
+  const reply = { version: 1, id: 'reply', revision: 2, role: 'assistant', text: 'The docs Team is on it.', refs }
+  assert.deepEqual(protocol.parseLeadMessage(reply), reply)
+  assert.throws(() => protocol.parseLeadMessage({ ...reply, role: 'user' }))
+  assert.throws(() => protocol.parseLeadMessage({ ...reply, refs: [{ kind: 'issue', id: 'x' }] }))
+  assert.throws(() => protocol.parseLeadMessage({ ...reply, refs: [refs[0], refs[0]] }))
+  assert.throws(() => protocol.parseLeadMessage({ ...reply, refs: Array.from({ length: 9 }, (_, index) => ({ kind: 'work', id: `work-${index}` })) }))
+  assert.throws(() => protocol.parseLeadMessage({ ...reply, refs: [] }))
+})
+
+test('a reminder line is a plain reply: an assistant message with no ask, report or wake of its own', () => {
+  const line = { version: 1, id: 'message-9', revision: 9, role: 'assistant', text: 'You asked me to remind you: send the notes.', reminded: 'remind-2' }
+  assert.deepEqual(protocol.parseLeadMessage(line), line)
+  assert.throws(() => protocol.parseLeadMessage({ ...line, role: 'user' }), /a reminder line is a plain reply/)
+  assert.throws(() => protocol.parseLeadMessage({ ...line, ask: { question: 'Now?', options: [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }], recommended: 'yes' } }))
+  assert.throws(() => protocol.parseLeadMessage({ ...line, reminded: '' }))
+})
+
+test('#2183: a trigger-opened turn carries what opened it; the thread line is made from those facts alone', () => {
+  const trigger = { source: 'pull-request', event: 'mentioned', subject: 'acme/widgets#12', from: 'you', words: 'Make the empty state keyboard accessible',
+    url: 'https://github.com/acme/widgets/pull/12#issuecomment-9001' }
+  const turn = { version: 1, id: 'message-1', revision: 1, role: 'user', source: 'automatic', text: 'Request on pull request #12 from you\nBEGIN UNTRUSTED EVENT CONTEXT', trigger }
+  const line = { version: 1, id: 'message-1', revision: 1, role: 'system', text: 'Request on pull request #12 from you', trigger }
+  assert.deepEqual(protocol.parseLeadMessage(turn), turn)
+  assert.deepEqual(protocol.parseLeadMessage(line), line)
+  const event = { source: 'issue', event: 'checks-failed', subject: '7', url: null }
+  assert.deepEqual(protocol.parseLeadMessageTrigger(event), event)
+  // Refused: the person's own message, a reply, a wake, who-asked on an ordinary event, a link that is not https,
+  // words over the bound or across lines, and a who-asked the host never writes.
+  assert.throws(() => protocol.parseLeadMessage({ ...turn, source: 'person' }), /a trigger belongs to the turn a trigger opened/)
+  assert.throws(() => protocol.parseLeadMessage({ ...turn, source: undefined }), /a trigger belongs/)
+  assert.throws(() => protocol.parseLeadMessage({ ...line, role: 'assistant' }), /a trigger belongs/)
+  assert.throws(() => protocol.parseLeadMessage({ ...turn, wake: { kind: 'reminder', reminder: 'remind-1', text: 'Check' } }))
+  assert.throws(() => protocol.parseLeadMessageTrigger({ ...event, from: 'you' }), /who asked belongs to a request/)
+  for (const url of ['javascript:alert(1)', 'http://github.com/acme/widgets/pull/12', 'https://github.com/acme widgets', ''])
+    assert.throws(() => protocol.parseLeadMessageTrigger({ ...trigger, url }), protocol.ValidationError)
+  assert.throws(() => protocol.parseLeadMessageTrigger({ ...trigger, words: 'x'.repeat(protocol.LEAD_TRIGGER_WORDS_MAX + 1) }), protocol.ValidationError)
+  assert.throws(() => protocol.parseLeadMessageTrigger({ ...trigger, words: 'two\nlines' }), protocol.ValidationError)
+  assert.throws(() => protocol.parseLeadMessageTrigger({ ...trigger, from: 'Jane Doe' }), protocol.ValidationError)
+  assert.throws(() => protocol.parseLeadMessageTrigger({ ...trigger, source: 'mention' }), protocol.ValidationError)
+  assert.equal(protocol.leadTriggerLine(trigger as never), 'Request on pull request #12 from you')
+  assert.equal(protocol.leadTriggerLine({ ...trigger, from: 'outside' } as never), 'Request on pull request #12 from someone outside the repository')
+  assert.equal(protocol.leadTriggerLine(event as never), 'Checks failed on issue #7')
+  assert.equal(protocol.leadTriggerLine({ ...event, event: 'brand-new' } as never), 'Brand new on issue #7')
+  assert.equal(protocol.leadTriggerLine({ source: 'schedule', event: 'tick', subject: '1700000000000', url: null }), 'Scheduled run')
 })

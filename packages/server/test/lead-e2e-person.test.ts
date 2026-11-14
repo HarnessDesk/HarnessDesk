@@ -162,10 +162,11 @@ test('declining step 1 acceptance parks a model retry of step 2 as predecessor u
   await rig.host.call('lead/thread/send', { idempotencyKey: 'go-on', text: 'Carry on without step 2.' })
   await rig.waitFor(() => rig.provider.requests.length > before, 'the request that follows the person message')
   const last = rig.provider.requests[before]!.body.messages.at(-1)
-  const desk = last.content.map((block: any) => block.text).join('')
+  const lines = last.content.flatMap((block: any) => typeof block.text === 'string' ? block.text.split('\n') : [])
   assert.equal(last.role, 'user')
-  assert.ok(desk.split('\n').includes('Step states: first started, second pending.'), 'the desk says where each step stands')
-  assert.ok(desk.includes(`"digest":"${rig.journal.state.contract!.digest}"`), 'and carries the approved contract')
+  assert.ok(lines.includes('Step states: first started, second pending.'), 'the desk says where each step stands')
+  // The plan is carried once in the conversation, not necessarily in the last turn.
+  assert.equal(JSON.stringify(rig.provider.requests[before]!.body.messages).split(`\\"digest\\":\\"${rig.journal.state.contract!.digest}\\"`).length - 1, 1, 'and carries the approved contract, once')
   await rig.assertNoForbiddenEffects()
 })
 
@@ -186,6 +187,35 @@ test('Stop goal stops only its owned live Flow and leaves worktrees and commits 
   await rig.assertNoForbiddenEffects()
 })
 
+test('a comment asking to stop ends the goal its thread opened the way Stop does, and the next step never starts', async t => {
+  const rig = await createLeadRig({ holdWorkers: true }); t.after(() => rig.dispose())
+  await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
+  // The goal as a mention trigger's firing opens it: that firing is its origin.
+  await rig.journal.setOrigin({ source: 'issue', event: 'commented', subject: 'acme/widgets#1', url: 'https://github.com/acme/widgets/issues/1' }, 'trigger-firing-1')
+  await rig.decide(rig.pending('plan')!, 'approve'); await rig.workerWaiting()
+  const owned = [...rig.journal.state.runs]
+  assert.equal(owned.length, 1, 'the first step’s Team is working, and the second step waits for it')
+  const comment = 'https://github.com/acme/widgets/issues/1#issuecomment-9001'
+
+  assert.deepEqual(await rig.host.stopLeadForThread({ firings: ['firing-2'], comment }), { plan: false, runs: 0 }, 'a thread that did not open the goal stops nothing of it')
+  assert.equal(rig.host.flowsPlane.leadRuns().find(one => one.id === owned[0]!.runId)!.state, 'running')
+
+  assert.deepEqual(await rig.host.stopLeadForThread({ firings: ['firing-0', 'firing-1'], comment }), { plan: true, runs: 1 })
+  await rig.settle()
+  assert.equal(rig.journal.state.phase, 'stopped')
+  assert.equal((await rig.host.call('lead/thread/read', {})).thread.state, 'stopped')
+  for (const run of owned) assert.equal(rig.host.flowsPlane.leadRuns().find(one => one.id === run.runId)!.state, 'stopped')
+  const stops = (await rig.records()).filter(record => record.type === 'stop')
+  assert.deepEqual(stops.map(record => (record as { from?: unknown }).from), [{ kind: 'mention', comment }], 'journaled once, as a stop from that comment')
+
+  // Its worker's gate opens, and still nothing more starts: the plan is stopped.
+  await rig.releaseWorkers(); await rig.settle()
+  assert.deepEqual(rig.journal.state.runs.map(run => run.runId), owned.map(run => run.runId))
+  assert.deepEqual(rig.host.flowsPlane.leadRuns().map(one => one.id), owned.map(run => run.runId), 'the second step never starts')
+  assert.deepEqual(await rig.host.stopLeadForThread({ firings: ['firing-1'], comment }), { plan: false, runs: 0 }, 'a second ask finds it already stopped')
+  await rig.assertNoForbiddenEffects()
+})
+
 test('the phone names each Lead Team by its step, refuses a wrap before acceptance, and wraps both once the person accepts', async t => {
   const rig = await createLeadRig(); t.after(() => rig.dispose())
   await rig.reviewed()
@@ -203,6 +233,9 @@ test('the phone names each Lead Team by its step, refuses a wrap before acceptan
   assert.equal(rig.journal.state.phase, 'accepted')
   await rig.waitFor(async () => (await teamItems()).filter(item => item.team?.canWrap === true).length === 2, 'both Teams wrappable')
   // The next goal starts before the person wraps: the accepted Teams stay the Lead's, named and wrappable.
+  // Start it the way a send does: stop the model process first. A live child keeps reading the accepted runs, and a
+  // read still open when the new goal is recorded refuses it (#2042).
+  await rig.service.stopGoal()
   await rig.waitFor(() => canBeginLeadGoal(rig.journal.state), 'the accepted goal settled')
   await rig.journal.beginGoal('next-goal', Date.now())
   assert.deepEqual(rig.journal.state.teams, [])

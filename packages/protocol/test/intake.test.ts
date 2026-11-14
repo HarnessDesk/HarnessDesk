@@ -18,14 +18,15 @@ import {
  * change, never something a declaration can reach on its own.
  */
 
-test('the source union, its events and its default keys are exactly the three the phase ships', () => {
+test('the source union, its events and its default keys are exactly the four the desk ships', () => {
   const sources: readonly TriggerSource[] = TRIGGER_SOURCES
-  assert.deepEqual([...sources], ['pull-request', 'issue', 'schedule'])
+  assert.deepEqual([...sources], ['pull-request', 'issue', 'schedule', 'mention'])
   const exhaustive = (on: TriggerOn): number => {
     switch (on.kind) {
       case 'pull-request': return on.events.length
       case 'issue': return on.events.length
       case 'schedule': return on.everyMinutes
+      case 'mention': return on.events.length
     }
   }
   assert.equal(exhaustive({ kind: 'schedule', events: ['tick'], everyMinutes: 15 }), 15)
@@ -33,8 +34,12 @@ test('the source union, its events and its default keys are exactly the three th
     'pull-request': TRIGGER_DEFAULTS['pull-request'].fields,
     issue: TRIGGER_DEFAULTS.issue.fields,
     schedule: TRIGGER_DEFAULTS.schedule.fields,
+    mention: TRIGGER_DEFAULTS.mention.fields,
   }
-  assert.deepEqual(fields, { 'pull-request': ['pr', 'head', 'event'], issue: ['issue', 'event'], schedule: ['slot'] })
+  assert.deepEqual(fields, { 'pull-request': ['pr', 'head', 'event'], issue: ['issue', 'event'], schedule: ['slot'], mention: ['thread', 'event'] })
+  assert.deepEqual(TRIGGER_DEFAULTS.mention.events, ['commented'])
+  assert.deepEqual(TRIGGER_DEFAULTS.mention.goal, ['thread'])
+  assert.deepEqual(TRIGGER_DEFAULTS.mention.dedupe, ['thread', 'event'])
   assert.deepEqual(TRIGGER_DEFAULTS['pull-request'].events, ['opened', 'pushed'])
   assert.deepEqual(TRIGGER_DEFAULTS.issue.events, ['labelled', 'closed', 'commented'])
   assert.deepEqual(TRIGGER_DEFAULTS.schedule.events, ['tick'])
@@ -50,7 +55,8 @@ test('the source union, its events and its default keys are exactly the three th
 test('a definition carries no command, environment, ceiling or free-form template field', () => {
   // `label` is an exact-match filter over validated names (owner decision, phase 8 task 4), never a template.
   // `from` is one of three fixed words for whose comments fire it (owner decision, 2026-09-24), never a name or a pattern.
-  const keys = ['id', 'on', 'opens', 'goal', 'again', 'dedupe', 'concurrency', 'forks', 'budget', 'label', 'from'] as const
+  // `handle`, `people` and `bots` are a mention trigger's forge logins, validated as logins (2026-11-09), never a pattern.
+  const keys = ['id', 'on', 'opens', 'goal', 'again', 'dedupe', 'concurrency', 'forks', 'budget', 'label', 'from', 'handle', 'people', 'bots'] as const
   type Missing = Exclude<keyof TriggerDefinition, (typeof keys)[number]>
   const nothingElse: [Missing] extends [never] ? true : false = true
   const noCommand: 'command' extends keyof TriggerDefinition ? true : false = false
@@ -61,6 +67,9 @@ test('a definition carries no command, environment, ceiling or free-form templat
 
 
 test('the allowed PR event vocabulary includes opt-ins while defaults remain opened and pushed', () => {
-  assert.deepEqual(TRIGGER_EVENTS['pull-request'], ['opened', 'pushed', 'checks-failed', 'review-commented'])
+  assert.deepEqual(TRIGGER_EVENTS['pull-request'], ['opened', 'pushed', 'checks-failed', 'review-commented', 'mentioned'])
   assert.deepEqual(TRIGGER_DEFAULTS['pull-request'].events, ['opened', 'pushed'])
+  // A request is opted into by name on either source, never a default.
+  assert.ok(TRIGGER_EVENTS.issue.includes('mentioned'))
+  assert.ok(!TRIGGER_DEFAULTS.issue.events.includes('mentioned'))
 })

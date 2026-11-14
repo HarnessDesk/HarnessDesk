@@ -10,12 +10,14 @@ import type { LeadState } from './state.js'
 import type { LeadDispatch } from './journal.js'
 import type { LeadPermissionCall } from './permissions.js'
 import type { LeadAcceptanceEvidence } from './acceptance.js'
-import { createLeadLoop, type LeadLoop } from './loop.js'
+import { createLeadLoop, type LeadContextPort, type LeadLoop } from './loop.js'
 import { leadBudgetProjection } from './budget.js'
 import { parseLeadSeatChoices } from './instructions.js'
 import { createLeadTools, type LeadResolvedTool } from './tools.js'
 import type { LeadMessagesRequest, MessagesTransport } from './messages-types.js'
-import { LEAD_PROBE_PREFIX, LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, type LeadIpcMessage, type LeadJournalPort, type LeadRpcOperation } from './child-ipc.js'
+import { parseLeadContextTurns } from './messages.js'
+import { leadEpochAddendum, leadEpochState } from './context.js'
+import { LEAD_PROBE_PREFIX, LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, leadFailureCode, type LeadIpcMessage, type LeadJournalPort, type LeadRpcOperation } from './child-ipc.js'
 
 const denied = () => new Error('lead-child-operation-failed')
 /** The socket the host connected, asked for once over the IPC channel and received as a handle; the channel
@@ -60,7 +62,7 @@ interface ChildOptions {
 }
 const parseBootstrap = (value: unknown): LeadChildConfig => {
   const source = ipcObject(value)
-  if (Object.keys(source).some(key => !['key', 'descriptor', 'project', 'model', 'prices', 'projectPolicy', 'seats', 'memory'].includes(key))) throw denied()
+  if (Object.keys(source).some(key => !['key', 'descriptor', 'project', 'model', 'prices', 'projectPolicy', 'seats'].includes(key))) throw denied()
   const project = ipcObject(source.project, ['id', 'path']); ipcText(project.id, 256); ipcText(project.path, 4096)
   if (source.model !== undefined) ipcText(source.model, 256)
   const prices = ipcObject(source.prices)
@@ -71,10 +73,6 @@ const parseBootstrap = (value: unknown): LeadChildConfig => {
   }
   if (source.projectPolicy !== undefined && source.projectPolicy !== null) parseLeadPermissionPolicy(source.projectPolicy)
   if (source.seats !== undefined) source.seats = parseLeadSeatChoices(source.seats)
-  if (source.memory !== undefined) {
-    if (!Array.isArray(source.memory) || source.memory.length > 100) throw denied()
-    for (const line of source.memory) ipcText(line, 400)
-  }
   // Legacy in-process fixtures may supply host bootstrap fields. Never retain
   // those fields in the memory-visible child configuration.
   const { key: _key, descriptor: _descriptor, ...config } = source
@@ -82,6 +80,53 @@ const parseBootstrap = (value: unknown): LeadChildConfig => {
 }
 /** The only child entry. No journal storage is opened: every journal operation
  * and host-derived scope crosses the bounded, validated stdin/stdout port. */
+type LeadChildRpc = (operation: LeadRpcOperation, args: unknown[], dispatch?: LeadDispatch) => Promise<unknown>
+/**
+ * Every call the child makes to the host, built on one `rpc`. Exported so a test can drive each one and check the
+ * arguments it sends against `LEAD_RPC_ARGS`: a call that carries one more than the table allows stops the child
+ * (#2085).
+ */
+export const leadChildRpcPorts = (rpc: LeadChildRpc, readState: () => LeadState) => {
+  const journal: LeadJournalPort = {
+    get state() { return structuredClone(readState()) },
+    execute: (attempt, dispatch) => rpc('execute', [attempt], dispatch) as ReturnType<LeadJournalPort['execute']>,
+    updateBudget: event => rpc('updateBudget', [event]) as ReturnType<LeadJournalPort['updateBudget']>,
+    setManagementPhase: async (phase, reason = null) => { await rpc('setManagementPhase', [phase, reason]) },
+    invalidateResults: async () => { await rpc('invalidateResults', []) },
+    offerCard: card => rpc('offerCard', [card]) as ReturnType<LeadJournalPort['offerCard']>,
+    restoreResult: async (id, revision) => { await rpc('restoreResult', [id, revision]) },
+    recoverUnsettledRequests: async () => { await rpc('recoverUnsettledRequests', []) },
+    recordWake: async wake => { await rpc('recordWake', [wake]) },
+    memoryEpoch: async (goal, epoch, memory, rules) => { await rpc('memoryEpoch', rules === undefined ? [goal, epoch, memory] : [goal, epoch, memory, rules]) },
+    appendReply: async (text, proactive, ask, refs) => {
+      const message = parseLeadMessage({ version: 1, id: 'reply', revision: 1, role: 'assistant', text, ...(proactive ? { proactive } : {}), ...(ask ? { ask } : {}), ...(refs?.length ? { refs } : {}) })
+      // The work items the reply names ride as a fourth argument, after an ask or its null.
+      await rpc('appendReply', message.refs ? [message.text, null, message.ask ?? null, message.refs] : message.ask ? [message.text, null, message.ask] : message.proactive ? [message.text, message.proactive] : [message.text])
+    },
+  }
+  return {
+    journal,
+    resolveTool: async (call: LeadPermissionCall): Promise<LeadResolvedTool> => await rpc('resolveTool', [call]) as LeadResolvedTool,
+    freezePlan: async <T>(contract: T): Promise<T> => await rpc('freezePlan', [contract]) as T,
+    readEvidence: async (runId: string): Promise<LeadAcceptanceEvidence> => await rpc('readEvidence', [runId]) as LeadAcceptanceEvidence,
+    transport: { send: (request => rpc('provider-send', request.withheld?.length ? [request.requestId, request.body, request.withheld] : [request.requestId, request.body])) as MessagesTransport['send'] },
+    context: {
+      record: async record => { await rpc('recordContext', [record]) },
+      compact: async trigger => (await rpc('compactContext', [trigger])) === true,
+      read: async epoch => {
+        const value = await rpc('readContext', [epoch])
+        if (value === null) return null
+        const fresh = ipcObject(value, ['epoch', 'messages'])
+        if (typeof fresh.epoch !== 'number' || !Number.isSafeInteger(fresh.epoch) || fresh.epoch < 0) throw denied()
+        return { epoch: fresh.epoch, messages: parseLeadContextTurns(fresh.messages).turns }
+      },
+      memoryStatus: async () => {
+        const value = await rpc('readMemoryStatus', [])
+        return typeof value === 'string' ? value : null
+      },
+    } satisfies Required<LeadContextPort>,
+  }
+}
 const spendKnown = (state: LeadState | null) => !!state?.budget && leadBudgetProjection(state.budget, Date.now()).spend === 'known'
 
 export const runLeadChild = (options: ChildOptions = {}) => {
@@ -107,21 +152,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
       catch { pending.delete(id); reject(denied()) }
     })
   }
-  const journal: LeadJournalPort = {
-    get state() { if (!state) throw denied(); return structuredClone(state) },
-    execute: (attempt, dispatch) => rpc('execute', [attempt], dispatch) as ReturnType<LeadJournalPort['execute']>,
-    updateBudget: event => rpc('updateBudget', [event]) as ReturnType<LeadJournalPort['updateBudget']>,
-    setManagementPhase: async (phase, reason = null) => { await rpc('setManagementPhase', [phase, reason]) },
-    invalidateResults: async () => { await rpc('invalidateResults', []) },
-    offerCard: card => rpc('offerCard', [card]) as ReturnType<LeadJournalPort['offerCard']>,
-    restoreResult: async (id, revision) => { await rpc('restoreResult', [id, revision]) },
-    recoverUnsettledRequests: async () => { await rpc('recoverUnsettledRequests', []) },
-    recordWake: async wake => { await rpc('recordWake', [wake]) },
-    appendReply: async (text, proactive, ask) => {
-      const message = parseLeadMessage({ version: 1, id: 'reply', revision: 1, role: 'assistant', text, ...(proactive ? { proactive } : {}), ...(ask ? { ask } : {}) })
-      await rpc('appendReply', message.ask ? [message.text, null, message.ask] : message.proactive ? [message.text, message.proactive] : [message.text])
-    },
-  }
+  const ports = leadChildRpcPorts(rpc, () => { if (!state) throw denied(); return state }), journal = ports.journal
   let closing: Promise<void> | null = null
   const close = (): Promise<void> => {
     if (closing) return closing
@@ -148,7 +179,6 @@ export const runLeadChild = (options: ChildOptions = {}) => {
           rawNotifications: false, client: { name: 'Lead', version: '1' } })))(config)
         if (closed) { client.close(); return }
         const project = config.project; childProject = project
-        const resolveTool = async (call: LeadPermissionCall): Promise<LeadResolvedTool> => await rpc('resolveTool', [call]) as LeadResolvedTool
         const desk = { call: client.call, synced: client.synced, snapshot: client.snapshot, events: () => ({
           async *[Symbol.asyncIterator]() {
             for await (const event of client!.events()) {
@@ -157,11 +187,13 @@ export const runLeadChild = (options: ChildOptions = {}) => {
             }
           },
         }) }
-        loop = createLeadLoop({ journal, desk, project, ...(config.seats ? { seats: config.seats } : {}), ...(config.memory?.length ? { memory: config.memory } : {}),
+        loop = createLeadLoop({ journal, desk, project, ...(config.seats ? { seats: config.seats } : {}),
           onActivity: busy => { if (!closed) send({ type: 'activity', busy }) },
           onPresence: ({ wakes, readings }) => { if (!closed) send({ type: 'presence', presence: { ...wakes, readings } }) },
+          // A failure the loop caught and carried on from reaches the host log by its stage and code, never its words.
+          onFailure: (stage, failure) => { if (!closed) { try { send({ type: 'failure', stage, code: leadFailureCode(failure) }) } catch { /* A log never owns the turn. */ } } },
           clock: { now: Date.now, schedule: callback => { const timer = setTimeout(callback, 50); return () => clearTimeout(timer) } },
-          nextId: randomUUID, messages: { apiKey: 'host-owned-provider-key', model: config.model, prices: config.prices, transport: { send: request => rpc('provider-send', [request.requestId, request.body]) as ReturnType<MessagesTransport['send']> }, // hd-secrets-ok: public marker; the host adds the real header
+          nextId: randomUUID, messages: { apiKey: 'host-owned-provider-key', model: config.model, prices: config.prices, transport: ports.transport, // hd-secrets-ok: public marker; the host adds the real header
             countInput: async body => new TextEncoder().encode(body).length + 1024,
             wait: (ms, signal) => new Promise((resolve, reject) => {
               if (signal.aborted) { reject(denied()); return }
@@ -169,8 +201,10 @@ export const runLeadChild = (options: ChildOptions = {}) => {
               const aborted = () => { clearTimeout(timer); signal.removeEventListener('abort', aborted); reject(denied()) }
               const timer = setTimeout(done, ms); signal.addEventListener('abort', aborted, { once: true })
             }) },
-          resolveTool, freezePlan: async contract => await rpc('freezePlan', [contract]) as typeof contract,
-          readEvidence: async runId => await rpc('readEvidence', [runId]) as LeadAcceptanceEvidence })
+          resolveTool: ports.resolveTool, freezePlan: ports.freezePlan, readEvidence: ports.readEvidence,
+          // The host parses what it reads back; what it sends here is parsed again before a request carries it.
+          onEpoch: at => ({ standingAddendum: leadEpochAddendum(leadEpochState(journal.state, at)) }),
+          context: ports.context })
         // A run that goes quiet sends no event; a minute's tick lets the gate call it stuck. It costs no request unless it is.
         setInterval(() => { if (!closed) loop?.poke() }, 60_000).unref()
         send({ type: 'ready' }); void loop.start().catch(fail); return
@@ -188,7 +222,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
         if (!entry) throw denied()
         pending.delete(message.id as number); sync(message.state)
         if (message.ok) entry.resolve(message.value)
-        else entry.reject(['lead-card-too-large', 'lead-card-stale', 'lead-plan-unseatable', 'lead-plan-not-independent', 'lead-budget-admission'].includes(message.value as string)
+        else entry.reject(['lead-card-too-large', 'lead-card-stale', 'lead-plan-unseatable', 'lead-plan-not-independent', 'lead-budget-admission', 'lead-provider-refused', 'lead-provider-withheld', 'lead-chat-unknown'].includes(message.value as string)
           ? Object.assign(new Error(String(message.value)), { wireCode: message.value }) : denied())
         return
       }
@@ -211,7 +245,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
         const parsed = parseClientMessage({ id: 1, method: call.method, params: call.params })
         const tools = createLeadTools({ journal, desk: client, project: childProject!,
           now: Date.now, nextId: randomUUID, synchronized: () => loop!.state.synchronized,
-          resolveTool: async call => await rpc('resolveTool', [call]) as LeadResolvedTool })
+          resolveTool: ports.resolveTool })
         try { const result = await tools.execute({ method: parsed.method, params: parsed.params } as LeadPermissionCall)
           if (result.outcome !== 'succeeded') throw denied()
           send({ type: 'read-result', id: message.id, ok: true, value: result.value ?? null })
@@ -222,7 +256,18 @@ export const runLeadChild = (options: ChildOptions = {}) => {
         if (!loop || (message.id as number) <= requestId) throw denied()
         requestId = message.id as number
         const input = ipcObject(message.input)
-        ipcObject(input, ['messages', 'maxTokens', ...(['system', 'proactive', 'conversation', 'wakeSource'] as const).filter(key => Object.hasOwn(input, key))])
+        ipcObject(input, ['messages', 'maxTokens', ...(['system', 'proactive', 'conversation', 'wakeSource', 'stable', 'compaction', 'epoch', 'base', 'kept'] as const).filter(key => Object.hasOwn(input, key))])
+        if (input.compaction !== undefined && input.compaction !== true) throw denied()
+        if (input.epoch !== undefined && (typeof input.epoch !== 'number' || !Number.isSafeInteger(input.epoch) || input.epoch < 0)) throw denied()
+        for (const key of ['stable', 'base', 'kept'] as const) if (input[key] !== undefined) {
+          const mark = ipcObject(input[key], ['turns', 'blocks'])
+          if (![mark.turns, mark.blocks].every(value => typeof value === 'number' && Number.isSafeInteger(value) && value >= 1)) throw denied()
+        }
+        if (input.compaction) {
+          const result = await loop.compact(message.input as unknown as LeadMessagesRequest)
+          send({ type: 'response', id: message.id, result })
+          return
+        }
         if (input.wakeSource !== undefined && !['schedule', 'desk-change', 'person', 'trigger'].includes(String(input.wakeSource))) throw denied()
         if (input.proactive !== undefined && typeof input.proactive !== 'boolean') throw denied()
         if (input.conversation !== undefined && typeof input.conversation !== 'boolean') throw denied()

@@ -22,7 +22,29 @@ export interface FlowAgentRole {
    * close either way. Only an Agent role says it.
    */
   readonly blind?: boolean
+  /** Agents this role's seats may consult with `ask_agent`, read-only, one level deep. Absent: none. */
+  readonly ask?: FlowAsk
 }
+
+/**
+ * Who a role's seats may ask, and how much. `agent` in the tool names one of
+ * `seats`' runtimes; the asked agent runs held at the read ceiling, cannot ask
+ * again, and is discarded after it answers.
+ */
+export interface FlowAsk {
+  readonly seats: readonly FlowSeat[]
+  /** Asks per seat, per run: 1 to 20. */
+  readonly times: number
+  /** How long one ask may take, 30 to 900 seconds; absent is 300. */
+  readonly timeoutSeconds?: number
+}
+
+/** The bounds of `ask`, shared by the file's parser, the wire and the engine. */
+export const FLOW_ASK_LIMITS = {
+  seats: 4,
+  times: { min: 1, max: 20 },
+  timeoutSeconds: { min: 30, max: 900, default: 300 },
+} as const
 
 export type FlowPolicyRole = FlowAgentRole
   | { readonly id: string; readonly kind: 'check'; readonly check: FlowCheck }
@@ -277,6 +299,13 @@ export interface FlowExecution {
   /** The declared brief input, frozen at start; null when the Flow declares none. */
   readonly brief?: string | null
   readonly startedAt?: number
+  /**
+   * Who started the run when it came through the client door: the command
+   * line, or an MCP client, and the name it stated. Stamped by the host,
+   * never taken from a request; absent on older runs and on runs started in
+   * the window, by a trigger or by the Lead.
+   */
+  readonly startedBy?: { readonly via: 'cli' | 'mcp'; readonly client: string } | null
   /** First departure from running, stamped once; null until then. Absent on older records. */
   readonly endedAt?: number | null
   /** Current departure from running; cleared on resume. Absent on older records. */
@@ -288,6 +317,8 @@ export interface FlowExecution {
   readonly operations: readonly FlowOperation[]
   readonly legacyRun: FlowRun | null
   readonly reason: string | null
+  /** Asks used with `ask_agent`, by seat key, written by the host so a restarted desk keeps the count. */
+  readonly asks?: Readonly<Record<string, number>>
   /**
    * A person's answer to a Seat's question that the Seat would not take,
    * even when asked twice. The question is already closed, so the answer is
@@ -505,6 +536,8 @@ export interface FlowStartRequest extends FlowRunOptions {
   readonly continues?: string | null
   /** The empty Goal a front-door start reuses, at the revision its preview saw; it must match the preview's own. */
   readonly goal?: { readonly id: string; readonly revision: number }
+  /** The Lead's own door only: what caused this start, so automatic work keeps the person's room. */
+  readonly cause?: 'person' | 'automatic'
 }
 
 /** Bounded, host-derived context a check command reads from `HARNESSDESK_FLOW_CONTEXT`. */

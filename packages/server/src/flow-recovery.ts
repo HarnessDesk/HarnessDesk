@@ -114,6 +114,9 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
       typeof answer['canContinue'] !== 'boolean' || !(answer['refusal'] === null || text(answer['refusal']))) bad('has a kept answer it cannot describe')
   }
   if (raw['attended'] !== undefined && typeof raw['attended'] !== 'boolean') bad('has unreadable attendance')
+  // Asks used with `ask_agent`, by seat id: absent on a run that never asked.
+  if (raw['asks'] !== undefined && (!object(raw['asks']) ||
+    !Object.entries(raw['asks']).every(([seat, used]) => seat !== '' && integer(used) && used >= 0))) bad('has an unreadable ask count')
   if (raw['overrides'] !== undefined) {
     if (!object(raw['overrides'])) bad('has unreadable seat overrides')
     try { parseClientMessage({ id: 1, method: 'flow/preview', params: { root: '', source: '', seats: raw['overrides'] } }) } catch { bad('has unreadable seat overrides') }
@@ -161,6 +164,9 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
     !['logicalGoalId', 'contractDigest', 'startId', 'stepId'].every(key => text(lead[key]) && lead[key] !== '') ||
     !/^[a-f0-9]{64}$/.test(String(lead['contractDigest'])) ||
     lead['base'] !== undefined && (!text(lead['base']) || !/^[a-f0-9]{40,64}$/.test(lead['base'])))) bad('has unreadable Lead authority')
+  const startedBy = raw['startedBy']
+  if (startedBy !== undefined && startedBy !== null && (!object(startedBy) || (startedBy['via'] !== 'cli' && startedBy['via'] !== 'mcp') ||
+    !text(startedBy['client']) || !startedBy['client'])) bad('names who started it in a way it cannot describe')
   const reserving = raw['reserving']
   if (reserving !== undefined && (!object(reserving) || !text(reserving['goal']) || !reserving['goal'] || !integer(reserving['revision']))) {
     bad('names a Goal reservation it cannot describe')
@@ -290,6 +296,13 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
       !(intake['supersededThrough'] === undefined || (integer(intake['supersededThrough']) && intake['supersededThrough'] >= 0)) ||
       !(again === null || (object(again) && text(again['role']) && text(again['title'])))) bad('has trigger bookkeeping it cannot describe')
   }
+  // Carry-on's replacement journal and the Seat lineage it leaves (§9.2).
+  const replacing = raw['replacing']
+  if (replacing !== undefined && (!object(replacing) || !Object.entries(replacing).every(([key, entry]) => keys.has(key) && object(entry) &&
+    text(entry['from']) && (entry['card'] === null || integer(entry['card'])) &&
+    (entry['lane'] === undefined || entry['lane'] === null || text(entry['lane']))))) bad('has a Seat replacement it cannot describe')
+  const replaced = raw['replaced']
+  if (replaced !== undefined && (!object(replaced) || !Object.values(replaced).every((from) => text(from)))) bad('has a Seat lineage it cannot describe')
   const compiled = raw['compiled']
   if (!object(compiled) || !Array.isArray(compiled['bindings']) || !Array.isArray(compiled['problems'])) bad('has no compiled policy')
   for (const binding of (compiled as { bindings: unknown[] }).bindings) {

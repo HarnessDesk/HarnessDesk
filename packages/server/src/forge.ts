@@ -3,8 +3,8 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { promisify } from 'node:util'
 
-import { validateForgeArgs, type ForgePush, type ForgeCreate, type ForgeUpdate, type ForgeMerge, type ForgeReview, type ForgeComment, type ForgeRecordQuery, type ForgeAttribute, type ForgeVerb, type ForgeWriteResult, type ForgeEngine, type ForgeIdentity, type ForgeScope, type ForgeSeat } from '@harnessdesk/cordis-host'
-import { isForgeReference, itemId, type ConfigOption, type ForgeAssociatedPullRequest, type ForgeReference, type PublicationItem } from '@harnessdesk/protocol'
+import { FORGE_READS, validateForgeArgs, type ForgePush, type ForgeCreate, type ForgeUpdate, type ForgeMerge, type ForgeReview, type ForgeComment, type ForgeRecordQuery, type ForgeAttribute, type ForgeVerb, type ForgeWriteResult, type ForgeEngine, type ForgeIdentity, type ForgeScope, type ForgeSeat, type ForgeThreadsQuery, type ForgeReviewThreads, type ForgeThreadSettle, type ForgeThreadSettled } from '@harnessdesk/cordis-host'
+import { isForgeReference, isReviewThreadId, itemId, type ConfigOption, type ForgeAssociatedPullRequest, type ForgeReference, type PublicationItem } from '@harnessdesk/protocol'
 
 import type { GitGateway, GitRequester, GitApproval } from './git-gateway/index.js'
 import type { HeldQuestion } from './ceilings/gate.js'
@@ -147,7 +147,7 @@ export class ForgePlane implements ForgeEngine {
       seat: { label: seat.label, role: seat.role, round: seat.round, team: seat.team },
       conversation: { runtime: scope.runtime!, sessionId: scope.sessionId! } }
     const repository = await gateway.pins.pinned(checkout.root)
-    if (!['record', 'attribute', 'repository', 'associatedPullRequest'].includes(verb)) {
+    if (!FORGE_READS.includes(verb)) {
       try {
         if (scope.actor === 'context') throw new Error('Context resolution cannot write to the forge.')
         if (!this.port.admitWrite) throw new Error('The host has no forge write ceiling gate.')
@@ -163,17 +163,18 @@ export class ForgePlane implements ForgeEngine {
   }
   #op(verb: ForgeVerb, args: unknown): import('./git-gateway/index.js').GitRecordEntry['op'] {
     if (verb === 'comment') return (args as ForgeComment)?.subject === 'issue' ? 'issue.comment' : 'pr.comment'
+    if (verb === 'settleThread') return (args as ForgeThreadSettle)?.outcome === 'fixed' ? 'pr.thread.resolve' : 'pr.thread.answer'
     const op = { push: 'push', create: 'pr.create', update: 'pr.update', merge: 'pr.merge', review: 'pr.review' } as const
-    if (verb === 'record' || verb === 'attribute' || verb === 'repository' || verb === 'associatedPullRequest') throw new Error('A forge read has no write operation.')
+    if (verb === 'record' || verb === 'attribute' || verb === 'repository' || verb === 'associatedPullRequest' || verb === 'reviewThreads') throw new Error('A forge read has no write operation.')
     return op[verb]
   }
-  #address(args: unknown): { number?: number } {
-    const number = (args as { number?: unknown } | null)?.number
-    return Number.isSafeInteger(number) && Number(number) > 0 ? { number: Number(number) } : {}
+  #address(args: unknown): { number?: number; thread?: string } {
+    const { number, thread } = (args ?? {}) as { number?: unknown; thread?: unknown }
+    return { ...(Number.isSafeInteger(number) && Number(number) > 0 ? { number: Number(number) } : {}), ...(isReviewThreadId(thread) ? { thread } : {}) }
   }
   /** Refusals before plugin execution still belong in a known project's record. */
   async refuseTool(tool: string, args: unknown, scope: ForgeScope, reason: string, since = Date.now()): Promise<void> {
-    const verb = ({ git_push: 'push', pr_create: 'create', pr_update: 'update', pr_merge: 'merge', pr_review: 'review', pr_comment: 'comment', issue_comment: 'comment' } as Partial<Record<string, ForgeVerb>>)[tool]
+    const verb = ({ git_push: 'push', pr_create: 'create', pr_update: 'update', pr_merge: 'merge', pr_review: 'review', pr_comment: 'comment', issue_comment: 'comment', pr_thread_settle: 'settleThread' } as Partial<Record<string, ForgeVerb>>)[tool]
     if (!verb || !this.port.gitGateway) return
     const checkout = await this.port.checkoutOf?.(scope)
     const repository = checkout && await this.port.gitGateway.pins.pinned(checkout.root)
@@ -348,6 +349,31 @@ export class ForgePlane implements ForgeEngine {
     const { gateway, checkout, requester, repository } = await this.#destination(scope, 'comment', args)
     this.#live(scope)
     return { output: await gateway.comment({ ...args, repository, requester, steeredFrom: gitSteerContext.getStore()?.command, beforeWrite: this.#beforeWrite(scope, gateway, checkout.root, checkout.cwd, repository) }), repository }
+  }
+  async reviewThreads(args: ForgeThreadsQuery, scope: ForgeScope): Promise<ForgeReviewThreads> {
+    const { gateway, repository } = await this.#context(scope, 'reviewThreads', args)
+    if (!repository) throw new Error('This project has no pinned repository. Call git_push and approve its repository first.')
+    return gateway.reviewThreads(repository, args.number)
+  }
+  /**
+   * Settles one review thread by outcome, after the same destination,
+   * ceiling and embargo gates every forge write passes. The round a bot
+   * reviewer's cap counts is the calling seat's: its Team and review round,
+   * or — a conversation outside a Team — the turn the host has running for
+   * it. The person is never capped.
+   */
+  async settleThread(args: ForgeThreadSettle, scope: ForgeScope): Promise<ForgeThreadSettled> {
+    const { gateway, checkout, requester, repository } = await this.#destination(scope, 'settleThread', args)
+    const seat = requester.kind === 'session' ? requester.seat ?? null : null
+    // No Team round and no running turn the host can name is no round at
+    // all: the gateway then leaves a bot reviewer's thread for the person
+    // rather than count a round it cannot tell apart from the next.
+    const round = scope.actor === 'human' ? null
+      : seat?.round != null ? `round ${seat.team ?? ''}#${seat.round}`
+        : scope.turnId ? `turn ${scope.runtime}/${scope.sessionId}/${scope.turnId}` : undefined
+    this.#live(scope)
+    const settled = await gateway.settleReviewThread({ ...args, repository, requester, ...(round !== undefined ? { round } : {}), steeredFrom: gitSteerContext.getStore()?.command, beforeWrite: this.#beforeWrite(scope, gateway, checkout.root, checkout.cwd, repository) })
+    return { ...settled, repository }
   }
   async repository(scope: ForgeScope): Promise<string | null> {
     return (await this.#context(scope, 'repository', {})).repository

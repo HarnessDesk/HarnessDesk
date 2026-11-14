@@ -344,7 +344,7 @@
     "radius": 6
   },
   "button/button/size/inline-link": {
-    "h": 31,
+    "h": 29,
     "text": 13,
     "weight": "400",
     "line": 13,

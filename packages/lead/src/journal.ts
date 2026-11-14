@@ -1,18 +1,23 @@
-import { parseLeadApprovalAudit, parseLeadWorkerApprovalRule, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
+import { parseLeadApprovalAudit, parseLeadAutonomyChange, parseLeadAutonomyRules, parseLeadMessageRefs, type LeadMessageRef, parseLeadAutonomyRecord, parseLeadWorkerApprovalRule, type LeadAutonomyChange, type LeadAutonomyRecord, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
 import {
-  parseLeadOrigin, parseLeadHandback, parseLeadWakeRecord, type LeadWakeRecord, parseLeadProactive, type LeadProactive, parseLeadAsk, type LeadAsk, type LeadOrigin, type LeadHandback, parseLeadMessage, parseLeadThreadSend, parseLeadFollowPreferences, parseLeadPullRequest, type LeadFollowPreferences, type LeadPullRequest, type LeadName, type LeadMessage, type LeadSendReceipt,
+  parseLeadOrigin, parseLeadMessageTrigger, parseLeadHandback, parseLeadWakeRecord, type LeadWakeRecord, parseLeadProactive, type LeadProactive, parseLeadAsk, type LeadAsk, type LeadOrigin, type LeadHandback, parseLeadMessage, parseLeadThreadSend, parseLeadFollowPreferences, parseLeadPullRequest, type LeadFollowPreferences, type LeadPullRequest, type LeadName, type LeadMessage, type LeadSendReceipt,
   CLIENT_METHODS, CLIENT_ACTION_TIERS, LEAD_LIMITS, LEAD_MANAGEMENT_REASONS, leadNoSpendLimit, clientTierFor, parseLeadCard, parseLeadCardDecision, parseLeadPermissionPolicy, parseLeadBudgetEvent, parseLeadCaps,
   type LeadCard, type LeadCardDecision, type LeadPermissionPolicy, type LeadBudgetEvent, type LeadBudgetState, type LeadCaps,
 } from '@harnessdesk/protocol'
 import { compareLeadPolicyAuthority, sameLeadPolicyValues, decideLeadPermission, type LeadPermissionCall, type LeadPermissionContext, type LeadPermissionDecision, type LeadPermissionRequest } from './permissions.js'
 import { prepareLeadJournalData, mergeLeadJournalSecurity, type LeadJournalSecurity } from './journal-security.js'
 import type { LeadPersistencePort } from './ports.js'
-import { isLeadPlanRenewal, hasUncertainLeadChatEffect, isLeadCancellation, canReportLeadChatEffect, leadDecisionRevisionMatches, reduceLeadRecord, replayLeadJournal, fenceLeadWorkerDispatch, hasPendingLeadPlan, leadWorkerDispatchBlockedByOpenPr, assertPlanApprovable, leadGoalSpendCap, type LeadState } from './state.js'
+import { isLeadPlanRenewal, hasUncertainLeadChatEffect, isLeadCancellation, canReportLeadChatEffect, leadDecisionRevisionMatches, reduceLeadRecord, replayLeadJournal, fenceLeadWorkerDispatch, hasPendingLeadPlan, leadRequestFenced, leadWorkerDispatchBlockedByOpenPr, assertPlanApprovable, leadGoalSpendCap, type LeadState } from './state.js'
 import { leadBudgetProjection, type LeadBudgetLedger } from './budget.js'
+import { parseLeadMemoryCore, type LeadMemoryCore } from './memory.js'
+import { leadChatNamings, leadChatHandleOf, leadChatHandleText, leadChatBaseValid, leadChatIdShaped, LEAD_CHAT_HANDLES, type LeadChatNaming } from './chat-handles.js'
 
 const boolean = (value: unknown): boolean => { if (typeof value !== 'boolean') throw new Error('lead-journal-boolean'); return value }
 
 export const LEAD_JOURNAL_BYTES = 1_048_576
+/** What a `settings-changed` record says changed: a kind, never the content. */
+export const LEAD_SETTINGS_CHANGES = ['activity', 'name', 'follow', 'credential'] as const
+export type LeadSettingsChange = typeof LEAD_SETTINGS_CHANGES[number]
 export interface LeadRunIdentity { readonly correlationId: string; readonly runId: string; readonly teamId: string }
 export interface LeadRunObservation extends LeadRunIdentity { readonly firstRoundId: string; readonly terminal: boolean }
 export interface LeadArgumentSummary {
@@ -63,6 +68,13 @@ export const parseLeadPublicationOperation = (value: unknown): LeadPublicationOp
   return { id: identifier(source.id), decision: parseLeadCardDecision(source.decision), source: parseLeadPublicationSource(source.source), at: integer(source.at),
     ...effectBoundary(source), stage: choice(source.stage, ['push-prepared', 'push-started', 'superseded', 'pushed', 'create-prepared', 'completed', 'needs-you']) }
 }
+/** Where a stop came from when it was not the person's own Stop: a comment on the thread that opened the goal, by URL. */
+export interface LeadStopFrom { readonly kind: 'mention'; readonly comment: string }
+const parseLeadStopFrom = (value: unknown): LeadStopFrom => {
+  const source = object(value, ['kind', 'comment'])
+  if (typeof source.comment !== 'string' || source.comment.length > 512 || !/^https:\/\/[^\s]+$/.test(source.comment)) throw new Error('lead-journal-stop-from')
+  return { kind: choice(source.kind, ['mention']), comment: source.comment }
+}
 export type LeadJournalEvent =
   | { readonly type: 'worker-rule-obsolete'; readonly rule?: LeadWorkerApprovalRule }
   | { readonly type: 'worker-rule-saved'; readonly rule: LeadWorkerApprovalRule }
@@ -74,7 +86,8 @@ export type LeadJournalEvent =
   | { readonly type: 'management'; readonly phase: 'planning' | 'waiting-for-user'; readonly reason?: string | null }
   | { readonly type: 'invalidate-results' | 'resume' }
   | { readonly type: 'new-goal'; readonly id: string; readonly now: number }
-  | { readonly type: 'settings-changed'; readonly name?: LeadName; readonly follow?: LeadFollowPreferences }
+  /** `what` names the kind of change, never its content: absent only in records written before it existed. */
+  | { readonly type: 'settings-changed'; readonly name?: LeadName; readonly follow?: LeadFollowPreferences; readonly what?: LeadSettingsChange }
   | { readonly type: 'publication'; readonly operation: LeadPublicationOperation; readonly pr: LeadPullRequest | null }
   | { readonly type: 'pr-observed'; readonly pr: LeadPullRequest }
   | { readonly type: 'owned-push'; readonly operation: LeadOwnedPush }
@@ -92,12 +105,15 @@ export type LeadJournalEvent =
    * change does; without one it is recorded for the goals and plan approvals that follow. */
   | { readonly type: 'spend-limit'; readonly usdMicros: number | null; readonly now: number; readonly logicalGoalId?: string }
   | { readonly type: 'budget'; readonly event: LeadBudgetEvent }
+  /** The person's autonomy modes and the rule sections they edited, as the host saved them. The whole record, so replay needs no history. */
+  | { readonly type: 'autonomy'; readonly autonomy: LeadAutonomyRecord; readonly change?: LeadAutonomyChange }
   | { readonly type: 'policy'; readonly policy: LeadPermissionPolicy }
   | { readonly type: 'card'; readonly card: LeadCard }
   | { readonly type: 'card-decision'; readonly decision: LeadCardDecision; readonly expiresAt: number | null }
   | { readonly type: 'start-resolution'; readonly evidenceSeq: number; readonly id: string; readonly identity: LeadRunIdentity | null; readonly goalId: string | null }
   | { readonly type: 'stop-effects-done'; readonly stopSeq: number }
-  | { readonly type: 'stop' | 'recovery-block' | 'recovery-resolved' }
+  | { readonly type: 'stop'; readonly from?: LeadStopFrom }
+  | { readonly type: 'recovery-block' | 'recovery-resolved' }
   | { readonly type: 'recovery-report' | 'reconciliation-conflict'; readonly id: string }
   | { readonly type: 'team-approved'; readonly teamId: string; readonly contractDigest: string }
   | { readonly type: 'attempt'; readonly id: string; readonly correlationId: string; readonly method: string; readonly action: string | null;
@@ -107,6 +123,35 @@ export type LeadJournalEvent =
   | { readonly type: 'dispatch-start'; readonly id: string; readonly dispatched: boolean }
   | { readonly type: 'result'; readonly id: string; readonly outcome: LeadAttemptOutcome; readonly identity: LeadRunIdentity | null }
   | { readonly type: 'reconciliation'; readonly id: string; readonly identity: LeadRunIdentity | null; readonly count: number; readonly evidence: string }
+  /** Context compaction: started, one model attempt that failed (or `interrupted` by a restart), and applied. The
+   * stored conversation changes only after `applied`; a crash in between leaves the old conversation in place. */
+  | { readonly type: 'context-compaction-started'; readonly id: string; readonly at: number; readonly trigger: LeadCompactionTrigger }
+  | { readonly type: 'context-compaction-failed'; readonly id: string; readonly reason: string }
+  | { readonly type: 'context-compaction-applied'; readonly id: string; readonly at: number; readonly fromSeq: number; readonly toSeq: number
+      readonly beforeTokens: number; readonly afterTokens: number; readonly model: string; readonly usdMicros: number; readonly fallback: boolean }
+  /** The pruning stage alone brought the conversation back under its line: a new epoch, no checkpoint. */
+  | { readonly type: 'context-pruned'; readonly id: string; readonly at: number; readonly beforeTokens: number; readonly afterTokens: number }
+  /** The host's memory store changed Core: the Lead reads this at its next epoch. */
+  | { readonly type: 'memory-core'; readonly memory: LeadMemoryCore }
+  /** Host only. A host notice in the thread that says what the person's own press changed: "Kept · Fact: …" when they
+   * keep a memory the Lead proposed, "Applied · <section>, version N" when they apply a settings proposal (#2176). */
+  | { readonly type: 'receipt'; readonly text: string }
+  /** The Core one epoch's standing instructions were built with, so a restart in that epoch builds them again byte
+   * for byte. `goal` is the logical goal id, empty between goals. `rules` are the person's sections those instructions
+   * hold, which the settings note compares against; absent in a record written before they were kept (#2165). */
+  | { readonly type: 'memory-epoch'; readonly goal: string; readonly epoch: number; readonly memory: LeadMemoryCore; readonly rules?: LeadAutonomyRecord['rules'] }
+  /** Host only. Handles for chats the Lead is about to see: each takes its base's next number, so a handle is given
+   * once and never again, even after the bounded map drops it. Observation only: no decision rests on it. */
+  | { readonly type: 'chat-handles'; readonly namings: readonly LeadChatNaming[] }
+/** A receipt is one line the host wrote, at most 600 characters. Line breaks and tabs in what was kept fold to single
+ * spaces first, so a kept memory written over two lines still gets its receipt; any other control character refuses. */
+export const leadReceiptText = (value: unknown): string => {
+  if (typeof value !== 'string') throw new Error('lead-journal-record')
+  const line = value.replace(/[\t\n\v\f\r\u0085\u2028\u2029 ]+/g, ' ').trim()
+  if (!line || line.length > 600 || /[\u0000-\u001f\u007f-\u009f]/.test(line)) throw new Error('lead-journal-record')
+  return line
+}
+export type LeadCompactionTrigger = 'soft' | 'hard' | 'manual' | 'overflow'
 export type LeadJournalRecord = Base & LeadJournalEvent
 export interface LeadJournalStorage extends LeadPersistencePort<LeadJournalRecord> { prepare?(value: unknown, previous?: LeadState): LeadJournalRecord; checkpoint?(): LeadState | null; journalSecurity?(): LeadJournalSecurity }
 const object = (value: unknown, keys?: readonly string[]): Record<string, unknown> => {
@@ -119,6 +164,8 @@ const integer = (value: unknown, min = 0): number => {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < min) throw new Error('lead-journal-number')
   return value
 }
+/** A logical goal id, or empty between goals. */
+const leadMemoryEpochGoal = (value: unknown): string => value === '' ? '' : identifier(value)
 const identifier = (value: unknown): string => {
   if (typeof value !== 'string' || !/^[A-Za-z0-9._:/@-]{1,256}$/.test(value)) throw new Error('lead-journal-id')
   return value
@@ -186,11 +233,18 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   const seq = integer(source.seq, 1)
   const keys: Record<string, readonly string[]> = {
     'worker-rule-dispatch-cancelled': ['id'], 'worker-rule-dispatch': ['id', 'diff'], 'worker-rule-obsolete': Object.hasOwn(source, 'rule') ? ['rule'] : [], 'worker-rule-saved': ['rule'], 'worker-rule-used': ['id', ...(Object.hasOwn(source, 'diff') ? ['diff'] : [])], 'worker-rule-revoked': ['id', ...(Object.hasOwn(source, 'auditFailed') ? ['auditFailed'] : [])], wake: ['wake'], 'handback': ['operation'], 'handback-limit': [], 'ci-passed': ['head'], origin: ['origin', ...(Object.hasOwn(source, 'key') ? ['key'] : [])], 'new-goal': ['id', 'now'],
-    'renew-plan': ['now', ...(Object.hasOwn(source, 'cardId') ? ['cardId'] : [])], management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'settings-changed': ['name', 'follow'].filter(key => Object.hasOwn(source, key)), publication: ['operation', 'pr'], 'pr-observed': ['pr'], 'owned-push': ['operation'], message: ['idempotencyKey', 'message'], 'restore-result': ['id', 'revision'], 'retry-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
+    'renew-plan': ['now', ...(Object.hasOwn(source, 'cardId') ? ['cardId'] : [])], management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'settings-changed': ['name', 'follow', 'what'].filter(key => Object.hasOwn(source, key)), publication: ['operation', 'pr'], 'pr-observed': ['pr'], 'owned-push': ['operation'], message: ['idempotencyKey', 'message'], 'restore-result': ['id', 'revision'], 'retry-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
     'second-look-attempt': ['runId', 'stopKey', 'now'], 'second-look-restart': ['runId', 'stopKey', 'roundId', 'now'],
-    'person-caps': ['logicalGoalId', 'caps', 'now'], 'spend-limit': ['usdMicros', 'now', ...(Object.hasOwn(source, 'logicalGoalId') ? ['logicalGoalId'] : [])], policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
+    'person-caps': ['logicalGoalId', 'caps', 'now'], autonomy: ['autonomy', ...(Object.hasOwn(source, 'change') ? ['change'] : [])], 'spend-limit': ['usdMicros', 'now', ...(Object.hasOwn(source, 'logicalGoalId') ? ['logicalGoalId'] : [])], policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: Object.hasOwn(source, 'from') ? ['from'] : [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
     decision: ['id', 'effect', 'reason', 'rule'], 'dispatch-start': ['id', 'dispatched'], result: ['id', 'outcome', 'identity'], reconciliation: ['id', 'identity', 'count', 'evidence'],
+    'context-compaction-started': ['id', 'at', 'trigger'], 'context-compaction-failed': ['id', 'reason'],
+    'context-compaction-applied': ['id', 'at', 'fromSeq', 'toSeq', 'beforeTokens', 'afterTokens', 'model', 'usdMicros', 'fallback'],
+    'context-pruned': ['id', 'at', 'beforeTokens', 'afterTokens'],
+    'memory-core': ['memory'],
+    receipt: ['text'],
+    'memory-epoch': ['goal', 'epoch', 'memory', ...(Object.hasOwn(source, 'rules') ? ['rules'] : [])],
+    'chat-handles': ['namings'],
   }
   const type = choice(source.type, Object.keys(keys))
   object(source, ['version', 'seq', 'type', ...keys[type]!])
@@ -215,7 +269,8 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     case 'new-goal': event = { type, id: identifier(source.id), now: integer(source.now, 0) }; break
     case 'management': event = { type, phase: choice(source.phase, ['planning', 'waiting-for-user']), ...(Object.hasOwn(source, 'reason') ? { reason: source.reason === null ? null : choice(source.reason, LEAD_MANAGEMENT_REASONS) } : {}) }; break
     case 'message': event = { type, idempotencyKey: nullable(source.idempotencyKey, identifier), message: parseLeadMessage(source.message) }; break
-    case 'settings-changed': event = { type, ...(Object.hasOwn(source, 'name') ? { name: choice(source.name, ['dex', 'lex'] as const) } : {}), ...(Object.hasOwn(source, 'follow') ? { follow: parseLeadFollowPreferences(source.follow) } : {}) }; break
+    case 'settings-changed': event = { type, ...(Object.hasOwn(source, 'name') ? { name: choice(source.name, ['dex', 'lex'] as const) } : {}), ...(Object.hasOwn(source, 'follow') ? { follow: parseLeadFollowPreferences(source.follow) } : {}),
+      ...(Object.hasOwn(source, 'what') ? { what: choice(source.what, LEAD_SETTINGS_CHANGES) } : {}) }; break
     case 'publication': event = { type, operation: parseLeadPublicationOperation(source.operation), pr: nullable(source.pr, parseLeadPullRequest) }; break
     case 'owned-push': event = { type, operation: parseLeadOwnedPush(source.operation) }; break
     case 'pr-observed': event = { type, pr: parseLeadPullRequest(source.pr) }; break
@@ -235,10 +290,12 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
       if (source.usdMicros !== null && (integer(source.usdMicros) > LEAD_LIMITS.maxUsdMicros)) throw new Error('lead-journal-number')
       event = { type, usdMicros: source.usdMicros as number | null, now: integer(source.now), ...(Object.hasOwn(source, 'logicalGoalId') ? { logicalGoalId: identifier(source.logicalGoalId) } : {}) }; break
     case 'budget': event = { type, event: parseLeadBudgetEvent(source.event) }; break
+    case 'autonomy': event = { type, autonomy: parseLeadAutonomyRecord(source.autonomy), ...(Object.hasOwn(source, 'change') ? { change: parseLeadAutonomyChange(source.change) } : {}) }; break
     case 'policy': event = { type, policy: parseLeadPermissionPolicy(source.policy) }; break
     case 'card': event = { type, card: parseLeadCard(source.card) }; break
     case 'card-decision': event = { type, decision: parseLeadCardDecision(source.decision), expiresAt: nullable(source.expiresAt, integer) }; break
-    case 'stop': case 'recovery-block': case 'recovery-resolved': event = { type }; break
+    case 'stop': event = { type, ...(Object.hasOwn(source, 'from') ? { from: parseLeadStopFrom(source.from) } : {}) }; break
+    case 'recovery-block': case 'recovery-resolved': event = { type }; break
     case 'recovery-report': case 'reconciliation-conflict': event = { type, id: identifier(source.id) }; break
     case 'team-approved':
       if (typeof source.contractDigest !== 'string' || !/^[a-f0-9]{64}$/.test(source.contractDigest)) throw new Error('lead-journal-digest')
@@ -269,6 +326,29 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
         JSON.stringify(identity) !== JSON.stringify(count === 1 ? runIdentity(live[0]!) : null)) throw new Error('lead-journal-match-count')
       event = { type, id: identifier(source.id), identity, count, evidence: source.evidence as string }; break
     }
+    case 'context-compaction-started': event = { type, id: identifier(source.id), at: integer(source.at), trigger: choice(source.trigger, ['soft', 'hard', 'manual', 'overflow']) }; break
+    case 'context-compaction-failed':
+      if (typeof source.reason !== 'string' || !/^[a-z-]{1,64}$/.test(source.reason)) throw new Error('lead-journal-record')
+      event = { type, id: identifier(source.id), reason: source.reason }; break
+    case 'context-compaction-applied': {
+      if (typeof source.fallback !== 'boolean' || integer(source.toSeq) < integer(source.fromSeq)) throw new Error('lead-journal-record')
+      event = { type, id: identifier(source.id), at: integer(source.at), fromSeq: integer(source.fromSeq), toSeq: integer(source.toSeq),
+        beforeTokens: integer(source.beforeTokens), afterTokens: integer(source.afterTokens), model: identifier(source.model), usdMicros: integer(source.usdMicros), fallback: source.fallback }; break
+    }
+    case 'context-pruned': event = { type, id: identifier(source.id), at: integer(source.at), beforeTokens: integer(source.beforeTokens), afterTokens: integer(source.afterTokens) }; break
+    case 'memory-core': event = { type, memory: parseLeadMemoryCore(source.memory) }; break
+    case 'receipt': event = { type, text: leadReceiptText(source.text) }; break
+    case 'memory-epoch': event = { type, goal: leadMemoryEpochGoal(source.goal), epoch: integer(source.epoch), memory: parseLeadMemoryCore(source.memory),
+      ...(Object.hasOwn(source, 'rules') ? { rules: parseLeadAutonomyRules(source.rules) } : {}) }; break
+    case 'chat-handles': {
+      if (!Array.isArray(source.namings) || source.namings.length < 1 || source.namings.length > LEAD_CHAT_HANDLES.perRecord) throw new Error('lead-journal-record')
+      event = { type, namings: source.namings.map(value => {
+        const naming = object(value, ['id', 'base', 'n'])
+        if (typeof naming.id !== 'string' || naming.id.length > 300 || !leadChatIdShaped(naming.id) || !leadChatBaseValid(naming.base)) throw new Error('lead-journal-record')
+        return { id: naming.id, base: naming.base, n: integer(naming.n, 1) }
+      }) }
+      break
+    }
     default: throw new Error('lead-journal-type')
   }
   const record = { version: 1 as const, seq, ...event }
@@ -288,7 +368,7 @@ export type LeadDispatchResult = { readonly value: unknown } & (
 )
 export type LeadDispatch = (call: LeadPermissionCall, correlationId: string) => Promise<LeadDispatchResult>
 export interface LeadRecoveryAction { readonly id: string; readonly type: 'retry-read' | 'reconciled' | 'needs-user' | 'not-dispatched'; readonly count?: number }
-const refusal = (floor: 'start' | 'invalid-input', reason: string): LeadPermissionDecision => ({ effect: 'deny', floor, reason, rule: null, call: null })
+const refusal = (floor: 'start' | 'invalid-input' | 'unapproved', reason: string): LeadPermissionDecision => ({ effect: 'deny', floor, reason, rule: null, call: null })
 
 export { LEAD_MANAGEMENT_REASONS } from '@harnessdesk/protocol'
 
@@ -396,6 +476,14 @@ export class LeadJournal {
       await this.#append({ type: 'spend-limit', usdMicros, now: Math.max(now, budget?.now ?? 0), ...(applyToGoal && budget ? { logicalGoalId: budget.logicalGoalId } : {}) })
     })
   }
+  /** Host only; the child's journal port has no such operation. Saves the person's autonomy modes and edited rule sections. */
+  setAutonomy(autonomy: LeadAutonomyRecord, change?: LeadAutonomyChange): Promise<void> {
+    return this.#queue(async () => {
+      const parsed = parseLeadAutonomyRecord(autonomy)
+      if (JSON.stringify(this.#state.autonomy) === JSON.stringify(parsed)) return
+      await this.#append({ type: 'autonomy', autonomy: parsed, ...(change ? { change: parseLeadAutonomyChange(change) } : {}) })
+    })
+  }
   async #append(event: LeadJournalEvent, committed?: () => void): Promise<void> {
     const raw = { version: 1, seq: this.#state.seq + 1, ...event }
     const prepared = prepareLeadJournalRecord(raw, this.security)
@@ -444,7 +532,59 @@ export class LeadJournal {
     }
     return this.#append({ type: 'wake', wake: parsed })
   }) }
-  settingsChanged(name?: LeadName, follow?: LeadFollowPreferences): Promise<void> { return this.#queue(() => this.#append({ type: 'settings-changed', ...(name === undefined ? {} : { name }), ...(follow === undefined ? {} : { follow }) })) }
+  /** Host only. The conversation the model reads is compacted in the host's context store, fenced by these records. */
+  contextCompactionStarted(id: string, at: number, trigger: LeadCompactionTrigger): Promise<void> { return this.#queue(async () => {
+    if (this.#state.context.pending) throw new Error('lead-context-pending')
+    return this.#append({ type: 'context-compaction-started', id, at, trigger })
+  }) }
+  contextCompactionFailed(id: string, reason: string): Promise<void> { return this.#queue(async () => {
+    if (this.#state.context.pending?.id !== id) throw new Error('lead-context-pending')
+    return this.#append({ type: 'context-compaction-failed', id, reason })
+  }) }
+  contextCompactionApplied(applied: Omit<Extract<LeadJournalEvent, { type: 'context-compaction-applied' }>, 'type'>): Promise<void> { return this.#queue(async () => {
+    if (this.#state.context.pending?.id !== applied.id) throw new Error('lead-context-pending')
+    return this.#append({ type: 'context-compaction-applied', ...applied })
+  }) }
+  contextPruned(pruned: Omit<Extract<LeadJournalEvent, { type: 'context-pruned' }>, 'type'>): Promise<void> { return this.#queue(async () => {
+    if (this.#state.context.pending?.id !== pruned.id) throw new Error('lead-context-pending')
+    return this.#append({ type: 'context-pruned', ...pruned })
+  }) }
+  /** Host only. One receipt notice in the thread for something the person's own press changed. */
+  receipt(text: string): Promise<void> { return this.#queue(async () => this.#append({ type: 'receipt', text: leadReceiptText(text) })) }
+  /** Host only. Core changed in the memory store; a revision already journaled is not written twice. */
+  memoryCore(memory: LeadMemoryCore): Promise<void> { return this.#queue(async () => {
+    const parsed = parseLeadMemoryCore(memory)
+    if (parsed.revision <= this.#state.memory.revision) return
+    return this.#append({ type: 'memory-core', memory: parsed })
+  }) }
+  /** The Core and the person's rule sections an epoch's instructions were first built with. Written once per goal and
+   * epoch; a later call for the same pair is a no-op, so the first build is the one a restart repeats. */
+  memoryEpoch(goal: string, epoch: number, memory: LeadMemoryCore, rules?: LeadAutonomyRecord['rules']): Promise<void> { return this.#queue(async () => {
+    const at = { goal: leadMemoryEpochGoal(goal), epoch: integer(epoch), memory: parseLeadMemoryCore(memory), ...(rules === undefined ? {} : { rules: parseLeadAutonomyRules(rules) }) }
+    const held = this.#state.memoryEpoch
+    if (held && held.goal === at.goal && held.epoch === at.epoch) return
+    return this.#append({ type: 'memory-epoch', ...at })
+  }) }
+  /**
+   * Host only. The handle of each chat, naming the ones not yet named in one record. A chat keeps the handle it was
+   * given; a chat the map cannot name (a full base, too many bases) is left out and goes by its id.
+   */
+  nameChats(wanted: readonly { readonly id: string; readonly base: string }[]): Promise<ReadonlyMap<string, string>> { return this.#queue(async () => {
+    const namings = leadChatNamings(this.#state.chatHandles, wanted)
+    const named = new Map(namings.map(naming => [naming.id, leadChatHandleText(naming.base, naming.n)]))
+    if (namings.length) await this.#append({ type: 'chat-handles', namings })
+    const out = new Map<string, string>()
+    for (const { id } of wanted) { const handle = named.get(id) ?? leadChatHandleOf(this.#state.chatHandles, id); if (handle) out.set(id, handle) }
+    return out
+  }) }
+  /**
+   * Gives every reader a fresh revision. `what` says which kind of change it was, never its content: the name, the follow
+   * preferences, the key, or (with nothing named) the Lead's own activity, which is what a send's ticks are.
+   */
+  settingsChanged(name?: LeadName, follow?: LeadFollowPreferences, what?: LeadSettingsChange): Promise<void> {
+    const kind: LeadSettingsChange = what ?? (name !== undefined ? 'name' : follow !== undefined ? 'follow' : 'activity')
+    return this.#queue(() => this.#append({ type: 'settings-changed', ...(name === undefined ? {} : { name }), ...(follow === undefined ? {} : { follow }), what: kind }))
+  }
   publication(operation: LeadPublicationOperation, pr: LeadPullRequest | null = null): Promise<void> { return this.#queue(() => this.#append({ type: 'publication', operation, pr })) }
   /** Host-only exit after an external publication succeeded but its final
    * person-gate answer refused. The child cannot release this decision fence. */
@@ -462,7 +602,10 @@ export class LeadJournal {
   setOrigin(origin: LeadOrigin, key?: string): Promise<void> { return this.#queue(() => this.#append({ type: 'origin', origin, ...(key ? { key } : {}) })) }
   ownedPush(operation: LeadOwnedPush): Promise<void> { return this.#queue(() => this.#append({ type: 'owned-push', operation })) }
   observePr(pr: LeadPullRequest): Promise<void> { return this.#queue(() => this.#append({ type: 'pr-observed', pr })) }
-  appendMessage(idempotencyKey: string, text: string, source: NonNullable<LeadMessage['source']>, committed?: () => void): Promise<LeadSendReceipt> {
+  /** `wake` marks a desk wake (a reminder that came due): the model's user turn, never the person's message. `surface` is
+   * the device that sent a person's message (#2166), kept with it so every later request reads where it came from.
+   * `trigger` is the event an automatic goal opened on (#2183), what a thread draws in place of the model's text. */
+  appendMessage(idempotencyKey: string, text: string, source: NonNullable<LeadMessage['source']>, committed?: () => void, wake?: LeadMessage['wake'], surface?: LeadMessage['surface'], trigger?: LeadMessage['trigger']): Promise<LeadSendReceipt> {
     if (!['person', 'automatic', 'schedule'].includes(source)) return Promise.reject(new Error('Lead message source is required.'))
     const input = parseLeadThreadSend({ idempotencyKey, text })
     return this.#queue(async () => {
@@ -470,7 +613,8 @@ export class LeadJournal {
       if (previous) return { messageId: previous.messageId, revision: previous.revision }
       const revision = this.#state.seq + 1, messageId = `message-${revision}`
       await this.#append({ type: 'message', idempotencyKey: input.idempotencyKey,
-        message: { version: 1, id: messageId, revision, role: 'user', text: input.text, source } }, committed)
+        message: { version: 1, id: messageId, revision, role: 'user', text: input.text, source, ...(wake ? { wake } : {}), ...(surface && source === 'person' && !wake ? { surface } : {}),
+          ...(trigger && source !== 'person' && !wake ? { trigger: parseLeadMessageTrigger(trigger) } : {}) } }, committed)
       return { messageId, revision }
     })
   }
@@ -515,10 +659,27 @@ export class LeadJournal {
     }
     return true
   }) }
-  appendReply(text: string, proactive?: LeadProactive, ask?: LeadAsk): Promise<void> { return this.#queue(() => {
-    const revision = this.#state.seq + 1
+  /** The latest messages the Lead model wrote itself, as opposed to notices the host wrote (#2144). Held in memory only:
+   * an observer reads them for messages appended in this sitting, and a restart starts past every earlier reply. */
+  readonly #modelReplies: string[] = []
+  /** Whether the message of this id is a reply the Lead model wrote, appended through `appendModelReply`. */
+  isModelReply(id: string): boolean { return this.#modelReplies.includes(id) }
+  /** The Lead model's own reply to a turn. A host notice goes through `appendReply` and never counts as the Lead's words. */
+  appendModelReply(text: string, proactive?: LeadProactive, ask?: LeadAsk, refs?: readonly LeadMessageRef[]): Promise<void> {
+    return this.#appendReply(text, proactive, ask, refs, undefined, true)
+  }
+  /** `reminded` marks a line the desk wrote to say the person's reminder of that id, never a model's reply. */
+  appendReply(text: string, proactive?: LeadProactive, ask?: LeadAsk, refs?: readonly LeadMessageRef[], reminded?: string): Promise<void> {
+    return this.#appendReply(text, proactive, ask, refs, reminded, false)
+  }
+  #appendReply(text: string, proactive: LeadProactive | undefined, ask: LeadAsk | undefined, refs: readonly LeadMessageRef[] | undefined, reminded: string | undefined, model: boolean): Promise<void> { return this.#queue(() => {
+    const revision = this.#state.seq + 1, id = `message-${revision}`
+    // Kept once the write is durable and before the observers it notifies run, so they read it as the model's; a reply
+    // that does not parse or is not written keeps nothing, and the host notice that takes its number next is not it.
+    const committed = model ? () => { this.#modelReplies.push(id); this.#modelReplies.splice(0, this.#modelReplies.length - 16) } : undefined
     return this.#append({ type: 'message', idempotencyKey: null,
-      message: parseLeadMessage({ version: 1, id: `message-${revision}`, revision, role: 'assistant', text, ...(proactive ? { proactive: parseLeadProactive(proactive) } : {}), ...(ask ? { ask: parseLeadAsk(ask) } : {}) }) })
+      message: parseLeadMessage({ version: 1, id, revision, role: 'assistant', text, ...(proactive ? { proactive: parseLeadProactive(proactive) } : {}), ...(ask ? { ask: parseLeadAsk(ask) } : {}),
+        ...(refs?.length ? { refs: parseLeadMessageRefs(refs) } : {}), ...(reminded !== undefined ? { reminded } : {}) }) }, committed)
   }) }
   #policyChange(state: LeadState, policy: LeadPermissionPolicy, id: string): LeadJournalEvent | null {
     if (!state.policy) throw new Error('lead-policy-unavailable')
@@ -726,7 +887,8 @@ export class LeadJournal {
     })
   }
   beginGoal(id: string, now: number): Promise<void> { return this.#queue(() => this.#append({ type: 'new-goal', id, now })) }
-  stop(stopEffects?: () => Promise<void>): Promise<void> { return this.#budgetWrite(() => this.#append({ type: 'stop' }), stopEffects) }
+  /** `from` names a stop asked for elsewhere than the person's own Stop, so the journal says where it came from. */
+  stop(stopEffects?: () => Promise<void>, from?: LeadStopFrom): Promise<void> { return this.#budgetWrite(() => this.#append({ type: 'stop', ...(from ? { from: parseLeadStopFrom(from) } : {}) }), stopEffects) }
   /** The supervisor retries pending idempotent cancellation after a crash. */
   async runStopEffects(effects: () => Promise<void>): Promise<void> {
     const stopSeq = await this.#queue(async () => this.#state.stopEffectsPending)
@@ -778,8 +940,10 @@ export class LeadJournal {
             run.correlationId === step.attemptId && this.#state.budget!.executionIds.includes(run.runId)))
         if (unbound) budget = { ...budget, spend: 'unknown' }
       } } catch { /* Invalid time cannot manufacture headroom. */ }
+      // No context, no clock: NaN fails every expiry comparison closed.
+      const now = capturedContext === null ? Number.NaN : this.#state.budget ? Math.max(capturedContext.now, this.#state.budget.now) : capturedContext.now
       let decision = capturedContext === null ? refusal('invalid-input', 'Invalid permission context')
-        : decideLeadPermission(request, { ...capturedContext, budget, now: this.#state.budget ? Math.max(capturedContext.now, this.#state.budget.now) : capturedContext.now,
+        : decideLeadPermission(request, { ...capturedContext, budget, now,
           desk: this.#state.policy ?? capturedContext.desk, approved })
       const step = this.#state.steps.find(step => step.id === stepId)
       const cancellation = isLeadCancellation(method, action)
@@ -787,6 +951,9 @@ export class LeadJournal {
       if (tier !== 'read' && !cancellation && (['stopped', 'accepted', 'declined'].includes(this.#state.phase) || leadWorkerDispatchBlockedByOpenPr(this.#state) || hasPendingLeadPlan(this.#state) ||
         this.#state.recoveryBlocked || this.#state.workerAuditWait || this.#state.managementReason === 'lead-worker-audit-failed' || this.#state.orphanedWorkerDispatch || this.#state.workerApprovals.some(rule => rule.dispatch) || [...this.#state.attempts.values()].some(attempt => attempt.kind === 'mutation' && (attempt.outcome === 'uncertain' || attempt.phase === 'started' && attempt.dispatched))))
         decision = refusal('start', 'Management is stopped pending recovery or user action')
+      // A request's goal waits for the person's approval whatever the policy mode allows: a stop narrows, so it passes.
+      if (tier !== 'read' && !cancellation && leadRequestFenced(this.#state, now))
+        decision = refusal('unapproved', 'A request from an issue or pull request starts and sends nothing without the person\'s current approval of its plan')
       if (method === 'flow/start-goal' && (!step || step.state !== 'pending' || request.start?.id !== step.id ||
         this.#state.steps.find(step => step.state !== 'started')?.id !== step.id)) decision = refusal('start', 'Step is unapproved, out of order or already admitted')
       if (decision.effect === 'allow' && method === 'flow/start-goal' && step) {

@@ -31,6 +31,8 @@ export interface CeilingGatePort {
   refused?(call: GatedCall, reason: string): Promise<void>
   /** Why a conversation may not publish to a forge yet — a blind review round still open — or null. */
   embargoOf?(runtime: string, sessionId: string): string | null
+  /** Why nothing at all is admitted from a conversation whose life is over — a consult that has answered — or null. */
+  closedOf?(runtime: string, sessionId: string): string | null
 }
 
 export interface Conversation {
@@ -106,6 +108,8 @@ export class CeilingGate {
   async admit(call: GatedCall): Promise<Admission> {
     const { runtime, sessionId } = call.scope
     if (runtime === undefined || sessionId === undefined) return { admitted: true }
+    const closed = this.port.closedOf?.(String(runtime), String(sessionId)) ?? null
+    if (closed !== null) return this.#refused(call, closed)
     const root = this.port.rootOf(String(runtime), String(sessionId))
     if (root === null) return this.#refused(call, unresolvedDelegationRefusal)
     if (call.publishes) {

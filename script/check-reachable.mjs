@@ -74,6 +74,14 @@ const UNREACHED = {
     'likewise — the native phone starts an ordinary session here; the window uses session/create and turn/send',
   'workspace/session/send':
     'likewise — the native phone replies here; the window uses turn/send directly',
+  'workspace/session/rename':
+    'likewise — a paired phone renames here; the desktop uses session/setTitle',
+  'workspace/session/archive':
+    'likewise — a paired phone archives and restores here; the desktop uses session/archive',
+  'workspace/session/pin':
+    'likewise — a paired phone changes host pins here; the desktop uses session/pin',
+  'workspace/session/delete':
+    'likewise — a paired phone requests the desktop deletion path here; the desktop uses session/delete',
   'workspace/stop':
     'likewise — the native phone stops a turn here; the window uses turn/interrupt directly',
   'workspace/thread/read':
@@ -84,6 +92,8 @@ const UNREACHED = {
     'likewise — the native phone wraps a Team whose Lead result the person accepted; the window wraps through goal/preview and goal/wrap',
   'team/rooms':
     'likewise — every room a workspace holds arrives by push, so nothing needs to ask',
+  'phone/triage/list':
+    'likewise — the native phone lists mention triage decisions read only; the window reads them per trigger through trigger/decisions',
 }
 
 /**

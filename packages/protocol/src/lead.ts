@@ -4,7 +4,11 @@ import { CLIENT_ACTION_TIERS, CLIENT_METHODS, type ClientMethodName } from './cl
 import type { CeilingLevel } from './evidence.js'
 import type { FlowSeat } from './flow.js'
 import { flowSeatValidator } from './flow-seat.js'
+import { parseLeadDeviceRef } from './lead-presence.js'
+import { LEAD_AUTONOMY_KINDS } from './lead-autonomy.js'
+import { LEAD_REQUEST_FAILURES, type LeadRequestFailure } from './lead-recovery.js'
 import { isBoolean, isObject, literalUnion, optional, optionalNullable, ValidationError, type Validator } from './validate.js'
+import { formatElapsed } from './elapsed.js'
 
 /** Versioned plain data only. Provider credentials and transport descriptors are private to the child bootstrap. */
 export const LEAD_VERSION = 1
@@ -104,7 +108,7 @@ export interface LeadPermissionPolicy {
   readonly mode: LeadPermissionMode
   readonly rules: readonly LeadPermissionRule[]
 }
-export type LeadStopReason = 'budget' | 'rounds' | 'unknown-spend' | 'cancelled' | 'connection-lost' | 'recovery' | 'error'
+export type LeadStopReason = 'budget' | 'rounds' | 'unknown-spend' | 'cancelled' | 'connection-lost' | 'recovery' | 'error' | 'deadline'
 export interface LeadBudgetState {
   readonly version: 1
   /** Present in host thread projections to fence controls to the current goal. */
@@ -133,7 +137,9 @@ export type LeadBudgetEvent = { readonly version: 1; readonly now: number } & (
   /** Reserve all potential input at the most expensive input/cache rate. */
   | { readonly type: 'reserve'; readonly requestId: string; readonly inputTokens: number; readonly maxOutputTokens: number;
       readonly inputUsdMicrosPerMillion: number; readonly outputUsdMicrosPerMillion: number;
-      readonly cacheReadUsdMicrosPerMillion: number; readonly cacheWriteUsdMicrosPerMillion: number }
+      readonly cacheReadUsdMicrosPerMillion: number; readonly cacheWriteUsdMicrosPerMillion: number
+      /** A request that writes a checkpoint of the conversation rather than answering it. */
+      readonly purpose?: 'compaction' }
   /** Actual inputTokens exclude the separately billed cache-read/write counts. */
   | { readonly type: 'settle'; readonly requestId: string; readonly inputTokens: number; readonly outputTokens: number;
       readonly cacheReadTokens?: number; readonly cacheWriteTokens?: number }
@@ -211,11 +217,22 @@ export interface LeadChatIncidentObservation extends LeadChatIncident {
   readonly candidates: readonly LeadChatCandidate[]
 }
 
-export interface LeadAskOption { readonly id: string; readonly label: string }
+export interface LeadAskOption {
+  readonly id: string
+  readonly label: string
+  /** Choosing it starts or restarts a chat. An answer that picked an option without it starts none: the host refuses
+   * the start, so an answer never begins what the question said it would not. Left out on every other option. */
+  readonly starts?: true
+}
 export interface LeadAsk {
   readonly question: string
   readonly options: readonly LeadAskOption[]
   readonly recommended: string
+  /** Minutes the question stays answerable, from when the host first saw it. Left out: it does not expire. */
+  readonly expiresInMinutes?: number
+  /** The host read this question from the Lead under the rule that marks an option `starts` (#2145). Only then does an
+   * answer without a `starts` option refuse a chat start; a question stored before the rule keeps the old behaviour. */
+  readonly startsMarked?: true
 }
 /** One host-rendered unprompted finding. Actions navigate existing surfaces; they never grant authority. */
 export interface LeadProactive {
@@ -225,9 +242,23 @@ export interface LeadProactive {
   readonly options?: readonly LeadAskOption[]
   readonly recommended?: string
   readonly action?: 'plan' | 'changes' | 'approvals'
+  /** As on `LeadAsk`: the options were written under the `starts` rule. */
+  readonly startsMarked?: true
 }
 export interface LeadApprovalAudit { readonly ruleId: string; readonly target: string; readonly diff?: string }
+/** What a reply's work item is: a Team (or its goal), a conversation (a session or a chat the Lead runs), or a work-ledger item. */
+export const LEAD_MESSAGE_REF_KINDS = ['team', 'goal', 'session', 'chat', 'work'] as const
+export type LeadMessageRefKind = typeof LEAD_MESSAGE_REF_KINDS[number]
+/**
+ * A work item a reply names, so the window and the phone can open it. Model output: a ref is a pointer, never a grant, and
+ * a surface opens only one it can resolve on the desk itself. A ref it cannot resolve is not drawn.
+ */
+export interface LeadMessageRef { readonly kind: LeadMessageRefKind; readonly id: string; readonly title?: string }
+/** At most this many refs on one reply. */
+export const LEAD_MESSAGE_REFS_MAX = 8
 export interface LeadMessage {
+  /** Work items the reply names, in the order it names them; assistant replies only. */
+  readonly refs?: readonly LeadMessageRef[]
   /** Host attribution: consent counts only the person's own messages. */
   readonly source?: 'person' | 'automatic' | 'schedule'
   /** Host acknowledgement, never supplied by the Lead model. */
@@ -240,14 +271,91 @@ export interface LeadMessage {
   readonly role: 'user' | 'assistant' | 'system' | 'notice'
   /** Untrusted prose; rendering still requires the transcript sanitizer. */
   readonly text: string
+  /** Host notice only: the earlier conversation was summarised here. `lead/context/read` holds the summary by id. */
+  readonly checkpoint?: LeadCheckpointMarker
+  /**
+   * The desk woke the Lead (a reminder came due): never words the person wrote. The journal keeps it as the model's
+   * user turn; a thread projection shows it as a `system` line reading the reminder's own words.
+   */
+  readonly wake?: LeadMessageWake
+  /**
+   * A line the desk wrote in the Lead's name to say the person's reminder `reminded` while the thread waited on them:
+   * no model wrote it, so it is not the Lead's reply to what came before (the chats it started since its last reply
+   * still count).
+   */
+  readonly reminded?: string
+  /**
+   * The person's own messages only: the surface that sent it, as the send's device named it (`phone:` or `window:`).
+   * The Lead reads it with the message, so a later turn never takes an earlier one for another device's (#2166). Kept
+   * in the journal; the thread projection leaves it out.
+   */
+  readonly surface?: LeadMessageSurface
+  /**
+   * A goal a trigger opened (#2183): what the host knew about the event that opened it, from the trigger's validated
+   * facts only. The journal keeps the model's fenced prompt as the user turn; a thread projection draws this instead,
+   * as a `system` line whose `text` is {@link leadTriggerLine}, never as the person's message.
+   */
+  readonly trigger?: LeadMessageTrigger
 }
+/** Who asked, for a request (`mentioned`), as the host decided it from the forge's facts; never from the comment. */
+export const LEAD_REQUEST_FROM = ['you', 'collaborator', 'outside', 'unconfirmed'] as const
+export type LeadRequestFrom = typeof LEAD_REQUEST_FROM[number]
+/** At most this many characters of the asker's words ride a trigger, after the host folds them to one line. */
+export const LEAD_TRIGGER_WORDS_MAX = 280
+/**
+ * The event that opened a goal, as the host recorded it. `source`, `event` and `subject` read as {@link LeadOrigin}'s;
+ * `from` is set on a request only. `words` is untrusted: the asker's words for a request, the issue or pull request's
+ * title for any other event, folded to one line and cut, and absent when the host withheld them from the model. `url`
+ * is the comment a request was asked in, else the event's own page.
+ */
+export interface LeadMessageTrigger {
+  readonly source: 'pull-request' | 'issue' | 'schedule'
+  readonly event: string
+  readonly subject: string
+  readonly from?: LeadRequestFrom
+  readonly words?: string
+  readonly url: string | null
+}
+const LEAD_REQUEST_FROM_WORDS: Readonly<Record<LeadRequestFrom, string>> = {
+  you: 'you', collaborator: 'a collaborator (write access)', outside: 'someone outside the repository', unconfirmed: 'someone whose write access was not confirmed',
+}
+/** The event an ordinary trigger fired on, as a thread says it; `where` is "pull request #12" or "issue #7". */
+const LEAD_TRIGGER_EVENT_LINES: Readonly<Record<string, (where: string) => string>> = {
+  opened: where => `Opened: ${where}`,
+  pushed: where => `New commits on ${where}`,
+  'checks-failed': where => `Checks failed on ${where}`,
+  'review-commented': where => `Review comment on ${where}`,
+  labelled: where => `Label added on ${where}`,
+  closed: where => `Closed: ${where}`,
+  commented: where => `Comment on ${where}`,
+}
+/** "pull request #12" or "issue #7": a subject's number, never its repository's name. */
+export const leadTriggerWhere = (source: 'pull-request' | 'issue', subject: string): string =>
+  `${source === 'pull-request' ? 'pull request' : 'issue'} #${/(\d+)$/.exec(subject)?.[1] ?? subject}`
+/** A request's first line, the one the model reads and the one the thread draws: where it was asked and who asked. */
+export const leadRequestLine = (where: string, from: LeadRequestFrom): string => `Request on ${where} from ${LEAD_REQUEST_FROM_WORDS[from]}`
+/** What a trigger-opened goal's line says, for both surfaces and for a phone that draws only `text`. */
+export const leadTriggerLine = (trigger: LeadMessageTrigger): string => {
+  if (trigger.source === 'schedule') return 'Scheduled run'
+  const where = leadTriggerWhere(trigger.source, trigger.subject)
+  if (trigger.event === 'mentioned') return leadRequestLine(where, trigger.from ?? 'unconfirmed')
+  return Object.hasOwn(LEAD_TRIGGER_EVENT_LINES, trigger.event) ? LEAD_TRIGGER_EVENT_LINES[trigger.event]!(where)
+    : `${trigger.event.replace(/-/g, ' ').replace(/^./, first => first.toUpperCase())} on ${where}`
+}
+export const LEAD_MESSAGE_SURFACES = ['phone', 'desktop'] as const
+export type LeadMessageSurface = typeof LEAD_MESSAGE_SURFACES[number]
+/** Which surface a device reference names: a paired phone, or a desktop window. */
+export const leadSurfaceOf = (device: { readonly id: string }): LeadMessageSurface => device.id.startsWith('phone:') ? 'phone' : 'desktop'
+/** What woke the Lead: `reminder` is the reminder's id, `text` its own words (untrusted, as the person or Lead set them). */
+export interface LeadMessageWake { readonly kind: 'reminder'; readonly reminder: string; readonly text: string }
 export type LeadThreadState = 'draft' | 'planning' | 'awaiting-plan' | 'running' | 'waiting-for-user' | 'following' | 'accepted' | 'declined' | 'stopped'
 export const LEAD_MANAGEMENT_REASONS = [
   'lead-predecessor-unavailable', 'lead-predecessor-unverifiable', 'lead-renewal-blocked',
-  'lead-disabled', 'lead-key-changed', 'lead-host-shutdown', 'lead-child-exited', 'lead-ownership-withdrawn',
+  'lead-disabled', 'lead-key-changed', 'lead-host-shutdown', 'lead-child-exited', 'lead-child-exited-again', 'lead-ownership-withdrawn',
   'lead-result-awaiting-person', 'lead-handback-limit', 'lead-handback-pending', 'lead-publication-needs-you', 'lead-pr-head-changed', 'lead-pr-branch-rewritten', 'lead-result-revisions-exhausted', 'lead-start-binding-failed', 'lead-plan-refused', 'lead-activity-failed', 'lead-subscription-failed', 'lead-tools-refused',
   'lead-repair-failed', 'lead-repair-withdrawn', 'lead-repair-abandoned', 'lead-repair-unverified', 'lead-repair-recovery-failed',
   'lead-card-too-large', 'lead-send-deadline', 'lead-request-refused', 'lead-request-rate-limited', 'lead-request-failed', 'lead-request-max-tokens', 'lead-request-invalid-response', 'lead-request-cancelled', 'lead-request-uncertain',
+  'lead-request-unsent', 'lead-request-unsent-again', 'lead-request-withheld', 'lead-request-held', 'lead-request-held-again',
   'lead-worker-audit-failed', 'lead-chat-effect-uncertain', 'lead-run-not-started', 'lead-budget-unknown', 'lead-plan-unseatable', 'lead-plan-not-independent',
 ] as const
 export interface LeadThread {
@@ -348,9 +456,14 @@ export interface LeadPresence {
 export interface LeadWakeRecord {
   readonly id: string; readonly at: number
   readonly source: 'schedule' | 'desk-change' | 'person' | 'trigger'
-  readonly decision: 'silent' | 'spoke' | 'asked'
+  /** `failed`: the wake's request did not complete, and nothing was said. */
+  readonly decision: 'silent' | 'spoke' | 'asked' | 'failed'
   readonly modelTurn: boolean
   readonly usdMicros: number | null
+  /** What the wake's model requests reported, summed. Absent for a wake without a model turn and on older records. */
+  readonly tokens?: LeadWakeTokens
+  /** Set when the person's setting was Observe: the host saw this kind of thing and did nothing about it. */
+  readonly observed?: import('./lead-autonomy.js').LeadAutonomyKind
 }
 export interface LeadWakeLog { readonly revision: number; readonly wakes: readonly LeadWakeRecord[] }
 /** A goal the Lead opens on its own at a set time. It only ever reaches a plan card: the person still approves. */
@@ -402,8 +515,14 @@ export interface LeadWindowProjection extends LeadHostProjection {
   readonly revokedApprovals?: readonly LeadSavedApproval[]
   readonly personActions?: readonly LeadAction[]
   readonly requestInFlight: boolean
+  /** Host request clock and admitted desk operation; presentation only, no model prose. */
+  readonly activity?: { readonly since: number; readonly method: string | null
+    /** The step in plain words (`lead-steps.ts`): thinking, the desk call in flight or the last one, or writing the reply. Absent on older desks. */
+    readonly step?: string }
   readonly wayOut: LeadPersonAction
   readonly waitReason: typeof LEAD_MANAGEMENT_REASONS[number] | null
+  /** Present while the wait is a request that did not complete: its code and the sentence a surface shows. Absent on older desks. */
+  readonly failure?: LeadRequestFailure
   readonly planConsentExpiresAt: number | null
   /** Present only while the goal is running; it is read from the journal and grants nothing. */
   readonly progress?: LeadProgress
@@ -426,7 +545,9 @@ export const LEAD_CONTROL_REFUSALS = ['lead-runtime-unsupported', 'lead-unavaila
   'lead-approval-not-live', 'lead-no-person-wait', 'lead-plan-pending', 'lead-card-stale', 'lead-card-decided', 'lead-worker-approval',
   'lead-gate-changed', 'lead-gate-save-failed', 'lead-settings-combination', 'lead-evidence-read-refused',
   'lead-change-pending', 'lead-card-too-large', 'lead-projection-failed', 'lead-key-missing', 'lead-secret-in-thread',
-  'lead-chat-effect-uncertain', 'lead-thread-closed', 'lead-budget-stopped', 'lead-protection-unavailable', 'lead-request-in-flight', 'lead-project-missing', 'lead-steer-unavailable', 'lead-repeat-missing', 'lead-repeat-quiet', 'lead-repeat-cleanup-pending'] as const
+  'lead-chat-effect-uncertain', 'lead-thread-closed', 'lead-budget-stopped', 'lead-protection-unavailable', 'lead-request-in-flight', 'lead-project-missing', 'lead-steer-unavailable', 'lead-repeat-missing', 'lead-repeat-quiet', 'lead-repeat-cleanup-pending', 'lead-ask-expired', 'lead-ask-answered', 'lead-slot-reserved', 'lead-rules-stale', 'lead-rule-empty', 'lead-rule-version-missing', 'lead-deadline-goal', 'lead-deadline-past',
+  'lead-memory-missing', 'lead-memory-stale', 'lead-memory-full', 'lead-memory-core-full', 'lead-memory-instruction-refused', 'lead-ask-replaced',
+  'lead-proposal-missing', 'lead-proposal-decided', 'lead-proposal-desk-only'] as const
 export type LeadControlRefusal = typeof LEAD_CONTROL_REFUSALS[number]
 /** Window-only input. Credentials are consumed by the broker lifecycle, never persisted as settings. */
 export interface LeadSettingsUpdate {
@@ -444,7 +565,14 @@ export interface LeadHandback {
   readonly runId: string; readonly teamId: string; readonly round: number; readonly at: number
   readonly stage: 'prepared' | 'running' | 'awaiting-ci' | 'completed' | 'failed' | 'abandoned' | 'withdrawn'; readonly publishedHead: string | null; readonly detail?: string
 }
-export interface LeadThreadSend { readonly idempotencyKey: string; readonly text: string }
+export interface LeadThreadSend {
+  readonly idempotencyKey: string
+  readonly text: string
+  /** Which device wrote it, so an answer to a question can name who answered. The phone link sets it itself. */
+  readonly device?: import('./lead-presence.js').LeadDeviceRef
+  /** The id of the message whose option this text answers, when it is a tapped option. */
+  readonly ask?: string
+}
 /** Stable first result, retained across retries and journal recovery. */
 export interface LeadSendReceipt { readonly messageId: string; readonly revision: LeadRevision }
 /** Public control vocabulary carries no secrets and grants no human decision authority. */
@@ -597,7 +725,7 @@ const rule: Validator<LeadPermissionRule> = (value, path = '') => {
 export const parseLeadPermissionPolicy: Validator<LeadPermissionPolicy> = object({
   version, revision, mode: literalUnion('plan', 'default', 'manage'), rules: list(rule, LEAD_LIMITS.rules, 0, rule => rule.id),
 })
-const stopReason = literalUnion('budget', 'rounds', 'unknown-spend', 'cancelled', 'connection-lost', 'recovery', 'error')
+const stopReason = literalUnion('budget', 'rounds', 'unknown-spend', 'cancelled', 'connection-lost', 'recovery', 'error', 'deadline')
 const budgetState: Validator<LeadBudgetState> = object({
   version, logicalGoalId: optional(id), revision, caps: parseLeadCaps, leadUsdMicros: micros, workerUsdMicros: micros, reservedUsdMicros: micros,
   roundsAdmitted: integer(0, LEAD_LIMITS.rounds), spend: literalUnion('known', 'unknown', 'stale', 'partial', 'ambiguous'),
@@ -633,7 +761,7 @@ const budgetEvent = tag<LeadBudgetEvent>({
   },
   reserve: object<BudgetOf<'reserve'>>({ ...budgetBase, type: literalUnion('reserve'), requestId: id, inputTokens: tokenCount,
     maxOutputTokens: tokenCount, inputUsdMicrosPerMillion: micros, outputUsdMicrosPerMillion: micros,
-    cacheReadUsdMicrosPerMillion: micros, cacheWriteUsdMicrosPerMillion: micros }),
+    cacheReadUsdMicrosPerMillion: micros, cacheWriteUsdMicrosPerMillion: micros, purpose: optional(literalUnion('compaction')) }),
   settle: object<BudgetOf<'settle'>>({ ...budgetBase, type: literalUnion('settle'), requestId: id, inputTokens: tokenCount, outputTokens: tokenCount, cacheReadTokens: optional(tokenCount), cacheWriteTokens: optional(tokenCount) }),
   'write-off': object<BudgetOf<'write-off'>>({ ...budgetBase, type: literalUnion('write-off'), requestId: id }),
   uncertain: object<BudgetOf<'uncertain'>>({ ...budgetBase, type: literalUnion('uncertain'), requestId: id }),
@@ -709,21 +837,24 @@ const proactiveLine: Validator<string> = (value, path = '') => {
   const line = boundedText(800, false, proseControls)(value, path)
   return /[\r\n]/.test(line) ? fail(path, 'expected one proactive line') : line
 }
+const askExpiry: Validator<number> = (value, path = '') =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 5 && value <= 7 * 24 * 60 ? value : fail(path, 'expected 5 to 10080 minutes')
 const askOptionId: Validator<string> = (value, path = '') =>
   typeof value === 'string' && /^[a-z0-9-]{1,32}$/.test(value) ? value : fail(path, 'expected a short option slug')
-const askOptions = list(object<LeadAskOption>({ id: askOptionId, label: (value, path = '') => {
+const askOptions = list(omitUnset(object<LeadAskOption>({ id: askOptionId, label: (value, path = '') => {
   const label = text(60)(value, path)
   return label !== label.trim() || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(label) ? fail(path, 'expected one trimmed plain-text label') : label
-} }), 4, 2, option => option.id)
+}, starts: optional((value, path = '') => value === true ? true as const : fail(path, 'expected true')) }), ['starts']), 4, 2, option => option.id)
+const startsMarked = optional((value, path = '') => value === true ? true as const : fail(path, 'expected true'))
 export const parseLeadAsk: Validator<LeadAsk> = (value, path = '') => {
-  const ask = object<LeadAsk>({ question: proactiveLine, options: askOptions, recommended: askOptionId })(value, path)
+  const ask = omitUnset(object<LeadAsk>({ question: proactiveLine, options: askOptions, recommended: askOptionId, expiresInMinutes: optional(askExpiry), startsMarked }), ['expiresInMinutes', 'startsMarked'])(value, path)
   if (new Set(ask.options.map(option => option.label.trim().replace(/\s+/gu, ' ').toLowerCase())).size !== ask.options.length) fail(path, 'duplicate option label')
   if (!ask.options.some(option => option.id === ask.recommended)) fail(path, 'recommendation must name an option')
   return ask
 }
 export const parseLeadProactive: Validator<LeadProactive> = (value, path = '') => {
   const report = omitUnset(object<LeadProactive>({ finding: proactiveLine, caveat: proactiveLine, ask: proactiveLine,
-    options: optional(askOptions), recommended: optional(askOptionId), action: optional(literalUnion('plan', 'changes', 'approvals')) }), ['options', 'recommended'])(value, path)
+    options: optional(askOptions), recommended: optional(askOptionId), action: optional(literalUnion('plan', 'changes', 'approvals')), startsMarked }), ['options', 'recommended', 'startsMarked'])(value, path)
   if (report.options !== undefined || report.recommended !== undefined)
     parseLeadAsk({ question: report.ask, options: report.options, recommended: report.recommended }, path)
   return report
@@ -746,12 +877,43 @@ export const parseLeadApprovalAudit: Validator<LeadApprovalAudit> = omitUnset(ob
   const target = text(240)(value, path)
   return /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(target) ? fail(path ?? '', 'hidden audit target') : target
 }, diff: optional(boundedText(LEAD_APPROVAL_DETAIL_CHARS, true, proseControls)) }), ['diff'])
-const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, source: optional(literalUnion('person', 'automatic', 'schedule')), proactive: optional(parseLeadProactive), ask: optional(parseLeadAsk), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content }), ['proactive', 'ask', 'approval', 'source'])
+const parseLeadCheckpointMarker: Validator<LeadCheckpointMarker> = (value, path = '') => {
+  const source = isObject(value, path)
+  if (Object.keys(source).some(key => key !== 'id' && key !== 'fallback')) return fail(path, 'unexpected checkpoint field')
+  if (source.fallback !== undefined && source.fallback !== true) return fail(path, 'expected true')
+  return { id: id(source.id, `${path}.id`), ...(source.fallback === true ? { fallback: true as const } : {}) }
+}
+export const parseLeadMessageRef: Validator<LeadMessageRef> = omitUnset(object<LeadMessageRef>({ kind: literalUnion(...LEAD_MESSAGE_REF_KINDS), id: opaque, title: optional(text(120)) }), ['title'])
+/** The refs a reply carries, at most `LEAD_MESSAGE_REFS_MAX`, one per kind and id. */
+export const parseLeadMessageRefs: Validator<readonly LeadMessageRef[]> = list(parseLeadMessageRef, LEAD_MESSAGE_REFS_MAX, 1, ref => `${ref.kind}:${ref.id}`)
+const parseLeadMessageWake: Validator<LeadMessageWake> = object<LeadMessageWake>({ kind: literalUnion('reminder'), reminder: id, text: text(200) })
+/** A trigger's link: an absolute https address with no space or control in it, or null. */
+const triggerUrl: Validator<string> = (value, path = '') => {
+  const parsed = text(LEAD_LIMITS.textChars)(value, path)
+  return /^https:\/\/[^\s/]+\/\S*$/.test(parsed) && parsed.length <= 2048 ? parsed : fail(path, 'expected an https link')
+}
+const triggerShape = omitUnset(object<LeadMessageTrigger>({ source: literalUnion('pull-request', 'issue', 'schedule'), event: id, subject: opaque,
+  from: optional(literalUnion(...LEAD_REQUEST_FROM)), words: optional(text(LEAD_TRIGGER_WORDS_MAX)), url: nullable(triggerUrl) }), ['from', 'words'])
+/** The event that opened a goal: `from` belongs to a request alone. */
+export const parseLeadMessageTrigger: Validator<LeadMessageTrigger> = (value, path = '') => {
+  const trigger = triggerShape(value, path)
+  if (trigger.from !== undefined && trigger.event !== 'mentioned') fail(`${path}.from`, 'who asked belongs to a request')
+  return trigger
+}
+const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, source: optional(literalUnion('person', 'automatic', 'schedule')), proactive: optional(parseLeadProactive), ask: optional(parseLeadAsk), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content, checkpoint: optional(parseLeadCheckpointMarker), refs: optional(parseLeadMessageRefs), wake: optional(parseLeadMessageWake), reminded: optional(id), surface: optional(literalUnion(...LEAD_MESSAGE_SURFACES)), trigger: optional(parseLeadMessageTrigger) }), ['proactive', 'ask', 'approval', 'source', 'checkpoint', 'refs', 'wake', 'reminded', 'surface', 'trigger'])
 export const parseLeadMessage: Validator<LeadMessage> = (value, path = '') => {
   const message = leadMessageShape(value, path)
   if (message.approval !== undefined && message.role !== 'notice' || message.role === 'notice' && message.proactive) fail(path, 'invalid host notice')
   if (message.source !== undefined && message.role !== 'user') fail(path, 'source requires a user message')
   if (message.ask && (message.role !== 'assistant' || message.proactive)) fail(path, 'ask requires an ordinary assistant message')
+  if (message.checkpoint && message.role !== 'notice') fail(path, 'a checkpoint marker is a host notice')
+  if (message.refs && message.role !== 'assistant') fail(path, 'refs belong to a reply')
+  if (message.wake && message.role !== 'user' && message.role !== 'system') fail(path, 'a wake is a desk turn')
+  if (message.reminded !== undefined && (message.role !== 'assistant' || message.ask || message.proactive)) fail(path, 'a reminder line is a plain reply')
+  if (message.surface !== undefined && (message.role !== 'user' || message.wake)) fail(path, 'a surface belongs to the person\'s own message')
+  // The journal keeps a trigger on the automatic user turn; a thread projection carries it on the system line it draws.
+  if (message.trigger && (message.role === 'user' ? message.source !== 'automatic' && message.source !== 'schedule' : message.role !== 'system' || message.source !== undefined)
+    || message.trigger && (message.wake || message.surface !== undefined)) fail(path, 'a trigger belongs to the turn a trigger opened')
   return message
 }
 const cardPositions: Validator<Readonly<Record<string, number>>> = (value, path = '') => {
@@ -862,7 +1024,7 @@ export const nextLeadRevision = (current: LeadRevision): LeadRevision => {
   return revision(parsed + 1)
 }
 
-export const parseLeadThreadSend: Validator<LeadThreadSend> = object({ idempotencyKey: id, text: prose })
+export const parseLeadThreadSend: Validator<LeadThreadSend> = omitUnset(object<LeadThreadSend>({ idempotencyKey: id, text: prose, device: optional(parseLeadDeviceRef), ask: optional(id) }), ['device', 'ask'])
 export const parseLeadResume: Validator<{ readonly expectedRevision: number }> = object({ expectedRevision: revision })
 export const parseLeadSettingsUpdate: Validator<LeadSettingsUpdate> = object({
   follow: optional(parseLeadFollowPreferences), expectedRevision: revision, name: optional(literalUnion('dex', 'lex')), policy: optional(parseLeadPermissionPolicy), caps: optional(parseLeadCaps),
@@ -910,8 +1072,8 @@ const parseLeadAction: Validator<LeadAction> = (value, path = '') => {
     : object<Extract<LeadAction, { kind: 'check' }>>({ ...actionBase, kind: literalUnion('check'), name: text(40), command: boundedText(2000, false, proseControls) })(value, path)
 }
 export const parseLeadWindowProjection: Validator<LeadWindowProjection> = ipc(object({
-  version, revision, stage: optional(literalUnion(...LEAD_STAGES)), stageReason: optional(text(80)), thread: parseLeadThread, settings: parseLeadSettingsProjection, requestInFlight: isBoolean, wayOut: nullable(literalUnion('resume', 'decide-plan')),
-  waitReason: nullable(literalUnion(...LEAD_MANAGEMENT_REASONS)), planConsentExpiresAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)), progress: optional(parseLeadProgress), team: optional(id),
+  version, revision, stage: optional(literalUnion(...LEAD_STAGES)), stageReason: optional(text(80)), thread: parseLeadThread, settings: parseLeadSettingsProjection, requestInFlight: isBoolean, activity: optional(object({ since: integer(0, Number.MAX_SAFE_INTEGER), method: nullable(text(120)), step: optional(text(80)) })), wayOut: nullable(literalUnion('resume', 'decide-plan')),
+  waitReason: nullable(literalUnion(...LEAD_MANAGEMENT_REASONS)), failure: optional(object<LeadRequestFailure>({ reason: literalUnion(...LEAD_REQUEST_FAILURES), detail: text(400) })), planConsentExpiresAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)), progress: optional(parseLeadProgress), team: optional(id),
   savedApprovals: optional(list(object<LeadSavedApproval>({ id, target: text(240), count: integer(), uncertain: optional((value, path) => value === true ? true : fail(path ?? '', 'expected true')), entries: optional(parseLeadApprovalEntries) }), 128, 0, rule => rule.id)),
   revokedApprovals: optional(list(object<LeadSavedApproval>({ id, target: text(240), count: integer(), uncertain: optional((value, path) => value === true ? true : fail(path ?? '', 'expected true')), entries: optional(parseLeadApprovalEntries) }), 128, 0, rule => rule.id)),
   personActions: optional(list(parseLeadAction, 1024, 0, action => action.id)), presence: optional(parseLeadPresence),
@@ -920,7 +1082,254 @@ export const parseLeadWindowProjection: Validator<LeadWindowProjection> = ipc(ob
 
 export const parseLeadActionInput: Validator<LeadActionInput> = object({ id, contractDigest: digest, choice: literalUnion('yes-once', 'yes-goal', 'no', 'run') })
 
-export const parseLeadWakeRecord: Validator<LeadWakeRecord> = object({ id, at: integer(0, Number.MAX_SAFE_INTEGER), source: literalUnion('schedule', 'desk-change', 'person', 'trigger'), decision: literalUnion('silent', 'spoke', 'asked'), modelTurn: isBoolean, usdMicros: nullable(micros) })
+const wakeTokens = integer(0, 1_000_000_000)
+const parseLeadWakeTokens: Validator<LeadWakeTokens> = object({ input: wakeTokens, output: wakeTokens, cacheRead: wakeTokens, cacheWrite: wakeTokens })
+export const parseLeadWakeRecord: Validator<LeadWakeRecord> = omitUnset(object<LeadWakeRecord>({ id, at: integer(0, Number.MAX_SAFE_INTEGER), source: literalUnion('schedule', 'desk-change', 'person', 'trigger'), decision: literalUnion('silent', 'spoke', 'asked', 'failed'), modelTurn: isBoolean, usdMicros: nullable(micros), tokens: optional(parseLeadWakeTokens), observed: optional(literalUnion(...LEAD_AUTONOMY_KINDS)) }), ['tokens', 'observed'])
 export const parseLeadWakeLog: Validator<LeadWakeLog> = object({ revision: integer(), wakes: list(parseLeadWakeRecord, 128, 0, wake => wake.id) })
 
 export const parseLeadApprovalRevoke: Validator<{ readonly id: string; readonly contractDigest: string }> = object({ id, contractDigest: digest })
+
+
+/** Counts of unarchived ordinary chats (Team seats excluded) and Teams, across the desk. */
+export interface LeadDeskCounts { readonly running: number; readonly needsYou: number; readonly idle: number }
+export interface LeadDeskTotals { readonly chats: LeadDeskCounts; readonly teams: LeadDeskCounts }
+/** Titles are untrusted data. Project is a display name, never a filesystem path. */
+export interface LeadDeskItem {
+  readonly id: string
+  readonly title: string
+  readonly project: string | null
+  readonly state: 'running' | 'needs-you' | 'idle'
+  readonly updatedAt: number
+  readonly kind: 'chat' | 'team'
+}
+export interface LeadDeskSummary {
+  /** Exact aggregate counts, independent of the bounded detail scan. */
+  readonly totals: LeadDeskTotals
+  /** Per-project counts cover only sessionsScanned when true; totals stay exact. */
+  readonly countsPartial: boolean
+  readonly sessionsScanned: number
+  readonly projectsMore: number
+  readonly projects: readonly (LeadDeskTotals & { readonly project: string | null })[]
+  /** Newest first, default eight, at most twenty. */
+  readonly recent: readonly LeadDeskItem[]
+  /** Up to twenty working items, including those outside recent. */
+  readonly running: readonly LeadDeskItem[]
+  readonly runningMore: number
+  /** Up to twenty attention items, including those outside recent. May overlap recent. */
+  readonly needsYou: readonly LeadDeskItem[]
+  readonly needsYouMore: number
+  /** Items outside the recent window, including any also listed in needsYou. */
+  readonly olderCount: number
+  /** What waits on the person, from the one Inbox the bell and the phone show: its count, and the rows that count,
+   * the Lead's open question included. Present on the Lead's read (#2182). */
+  readonly waiting?: LeadDeskWaiting
+}
+/** One thing that waits on the person: the Lead's open question (`ask`, its message id), the Lead itself (`lead`, with
+ * `count` when it waits on more than one thing), or a chat or Team (`id` as a ref takes it). Titles are untrusted. */
+export interface LeadDeskWaitingItem {
+  readonly kind: 'ask' | 'lead' | 'chat' | 'team'
+  readonly id: string
+  readonly title: string
+  readonly project?: string
+  readonly count?: number
+}
+/** `count` is the rows' own counts added up, plus `more` needs-you work past the list. */
+export interface LeadDeskWaiting { readonly count: number; readonly items: readonly LeadDeskWaitingItem[]; readonly more: number }
+
+/** Allowance only, projected field by field from cached Dashboard reports. No account identifiers. */
+export interface LeadUsageWindow {
+  readonly label: string
+  readonly kind: '5h' | 'weekly' | 'monthly' | 'window' | 'allowance' | 'balance'
+  readonly unlimited?: boolean
+  readonly windowMinutes: number | null
+  readonly remainingPercent: number | null
+  readonly remaining: number | null
+  readonly unit: string | null
+  /** Absolute epoch milliseconds, never relative text. */
+  readonly resetsAt: number | null
+  /** How long until `resetsAt` in the Dashboard's words (`formatResetIn`, "21 d 3 h"): said as written, never rounded.
+   * Null when there is no reset or it is past. */
+  readonly resetsIn: string | null
+  /** `resetsAt` is already past: the figures were read before that reset, and the next one is not known. Absent otherwise. */
+  readonly resetPassed?: true
+  readonly reached: boolean
+  readonly projection: {
+    readonly kind: 'runs-out' | 'lasts-to-reset'
+    readonly at: number
+    readonly basis: 'average consumption since window start'
+    readonly since: number
+    readonly asOf: number
+  } | null
+}
+export interface LeadUsageSummary {
+  /** Runtime running counts are lower bounds when the session scan is partial. */
+  readonly countsPartial: boolean
+  readonly sessionsScanned: number
+  readonly asOf: number
+  /** Counts by presentation name, including running agents with no cached allowance. */
+  readonly runtimes: readonly { readonly name: string; readonly runningSessions: number }[]
+  readonly accounts: readonly {
+    readonly runtime: string
+    /** Presentation name, plan, and ordinal when several accounts share a name. */
+    readonly label: string
+    readonly plan: string | null
+    /** Desk-wide runtime count, a lower bound when countsPartial; repeated accounts share it. */
+    readonly runningSessions: number
+    readonly windows: readonly LeadUsageWindow[]
+    readonly reached: boolean
+    readonly fetchedAt: number
+    readonly stale: boolean
+    readonly error: 'sign-in needed' | 'reading failed' | null
+    readonly spend: { readonly currency: string; readonly today: number | null; readonly last30Days: number | null; readonly provenance: import('./usage.js').SpendProvenance } | null
+    /** Allowance that expires unspent: more than half is left and a window is about to refill. Absent otherwise. */
+    readonly useFirst?: true
+    /** Whole minutes between when these figures were read and `asOf`. */
+    readonly readAgeMinutes: number
+    /** The same age in the words every surface uses (`formatElapsed`, "8d ago"): said as written, never rounded. */
+    readonly readAge: string
+    /** The latest refresh failed; the windows are the last good figures, read `readAgeMinutes` ago. Absent otherwise. */
+    readonly refreshFailed?: true
+    /**
+     * A tracked agent nothing has read: no windows, and no reading to date. Every surface lists it as "Not reporting";
+     * it is never left out of a count. An account that answered with no window, balance or billing shape at all is
+     * Not reporting too, as the Plans table and the phone say it ("plan usage unavailable"). Absent otherwise.
+     */
+    readonly notReporting?: true
+    /**
+     * Figures read through another sign-in (`UsageReport.unverified`): the desk cannot tie them to this agent's own
+     * account, so they are never `windows`, but they are what the Dashboard draws for it. `whose` names the sign-in.
+     * Absent when there are none.
+     */
+    readonly unverified?: {
+      readonly whose: string
+      readonly windows: readonly LeadUsageWindow[]
+      readonly readAgeMinutes: number
+      readonly readAge: string
+      readonly stale: boolean
+    }
+  }[]
+  /**
+   * Which account to use first, from fresh readings only (`pacingAdvice`): `use-first` when a window refills soon with
+   * more than half unspent, else `resets-soonest`, the account with room whose window refills first. Null when no
+   * reading is fresh enough to decide.
+   */
+  readonly pacing: {
+    /** The same label as the account's entry. */
+    readonly account: string
+    readonly reason: 'use-first' | 'resets-soonest'
+    readonly window: string
+    readonly remainingPercent: number
+    /** Absolute epoch milliseconds. */
+    readonly resetsAt: number
+    /** The same time on the desk's own clock, as the person reads it ("Tue, Nov 17, 5:00 PM"). */
+    readonly resetsAtLocal: string
+    readonly readAgeMinutes: number
+    /**
+     * The advice as one plain sentence, to say as it stands. `use-first` is the note the Dashboard and the phone show;
+     * `resets-soonest` is no note on any surface, only the order of the accounts with room, and the sentence says so.
+     */
+    readonly said?: string
+  } | null
+}
+
+/** Where the Lead's earlier conversation was summarised. The notice carries only the marker; the summary is read by id. */
+export interface LeadCheckpointMarker { readonly id: string; readonly fallback?: true }
+/** Tokens a provider reported, summed over one wake's requests. The cached share of the prompt is cacheRead over all three inputs. */
+export interface LeadWakeTokens { readonly input: number; readonly output: number; readonly cacheRead: number; readonly cacheWrite: number }
+/** A checkpoint's sections, in order. The desk writes the first from the person's own messages; the model writes the
+ * other five. A view draws the first from `LeadContextCheckpoint.person`, never from the text. */
+export const LEAD_CHECKPOINT_SECTIONS = Object.freeze([
+  'What the person wants',
+  'Decisions made and why',
+  'Work and where each piece stands',
+  'Waiting on the person',
+  'Facts learned',
+  'Open questions / next step',
+] as const)
+/** The person's own words a checkpoint kept, as the desk took them from its journal: quoted with their references,
+ * latest kept first when they do not all fit, and the references of those left out. */
+export interface LeadCheckpointPerson {
+  readonly messages: readonly { readonly id: string; readonly text: string }[]
+  readonly leftOut: readonly string[]
+}
+export const LEAD_CHECKPOINT_PERSON = Object.freeze({ messages: 200, messageChars: 600, leftOut: 200 })
+/** One summary of the earlier conversation. `text` is null once the desk no longer keeps it. Untrusted prose: sanitise to render. */
+export interface LeadContextCheckpoint {
+  readonly id: string; readonly at: number
+  /** The model's summary was refused or failed three times; this one was built from the conversation itself. */
+  readonly fallback: boolean
+  readonly beforeTokens: number; readonly afterTokens: number
+  /** The model's five sections, as plain text under their headings; never drawn as markup. A summary from before
+   * `person` existed also holds the person's section here. */
+  readonly text: string | null
+  /** The person's section as data: a view draws it from this, so no model text can stand in for it. Absent on a
+   * summary from before it existed, and once `text` is no longer kept. */
+  readonly person?: LeadCheckpointPerson
+}
+/** How full the Lead's conversation is and how much of it the provider served from its cache. Facts, never a control. */
+export interface LeadContextFacts {
+  readonly version: 1
+  /** The window the Lead's model is held to. */
+  readonly windowTokens: number
+  /** The prompt of the latest request, or null before the first. */
+  readonly usedTokens: number | null
+  /** Cache reads over prompt tokens across recent model wakes, 0 to 1; null before any wake reported tokens. */
+  readonly cacheHitRate: number | null
+  /** True while a summary is being written. */
+  readonly compacting: boolean
+  /** Oldest first, at most eight. */
+  readonly checkpoints: readonly LeadContextCheckpoint[]
+  /** Every summary the conversation has had, as the thread marks them; `checkpoints` keeps only the latest eight.
+   * Absent from a desk that does not count them, where the list's length stands in. */
+  readonly count?: number
+  /** The latest compaction could not bring the conversation under the hard line, even keeping the fewest recent
+   * turns: no compaction runs until it grows further. Absent otherwise. */
+  readonly full?: true
+}
+
+/** How full the Lead's conversation is, as one figure: what the Lead reads about itself and what a phone shows. No
+ * summary text, so it carries none of the conversation. */
+export interface LeadContextUse {
+  readonly version: 1
+  readonly windowTokens: number
+  /** The prompt of the latest request, or null before the first. */
+  readonly usedTokens: number | null
+  /** `usedTokens` as a whole percent of the window, or null before the first request. */
+  readonly percent: number | null
+  /** When the earlier conversation was last summarised, or null when it never was. */
+  readonly lastSummaryAt: number | null
+  /** How long ago that was in the desk's own words (`formatElapsed`: "just now", "2h ago"), to be said as written; null
+   * when it never was. Present when the host read it with its clock (#2182). */
+  readonly lastSummaryAge?: string | null
+  readonly compacting: boolean
+  readonly full?: true
+}
+/** The figure from the facts; with `now`, also how long ago the last summary was, so an old one never reads as just now. */
+export const leadContextUse = (facts: LeadContextFacts, now?: number): LeadContextUse => {
+  const lastSummaryAt = facts.checkpoints.reduce<number | null>((latest, one) => latest === null || one.at > latest ? one.at : latest, null)
+  return {
+    version: 1, windowTokens: facts.windowTokens, usedTokens: facts.usedTokens,
+    percent: facts.usedTokens === null || facts.windowTokens <= 0 ? null : Math.round(facts.usedTokens / facts.windowTokens * 100),
+    lastSummaryAt, ...(now === undefined ? {} : { lastSummaryAge: lastSummaryAt === null ? null : formatElapsed(lastSummaryAt, now) }),
+    compacting: facts.compacting, ...(facts.full ? { full: true as const } : {}),
+  }
+}
+export const LEAD_CONTEXT_CHECKPOINT_CHARS = 32_768
+const parseLeadCheckpointPerson: Validator<LeadCheckpointPerson> = object({
+  messages: list(object({ id, text: boundedText(LEAD_CHECKPOINT_PERSON.messageChars, true, /[\u0000-\u001f\u007f-\u009f]/) }), LEAD_CHECKPOINT_PERSON.messages),
+  leftOut: list(id, LEAD_CHECKPOINT_PERSON.leftOut) })
+const parseLeadContextCheckpoint: Validator<LeadContextCheckpoint> = omitUnset(object({ id, at: integer(0, Number.MAX_SAFE_INTEGER), fallback: isBoolean,
+  beforeTokens: wakeTokens, afterTokens: wakeTokens, text: nullable(boundedText(LEAD_CONTEXT_CHECKPOINT_CHARS, true, proseControls)),
+  person: optional(parseLeadCheckpointPerson) }), ['person'])
+export const parseLeadContextFacts: Validator<LeadContextFacts> = omitUnset(object({ version, windowTokens: integer(1, 100_000_000), usedTokens: nullable(wakeTokens),
+  cacheHitRate: nullable((value, path = '') => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1 ? value : fail(path, 'expected a ratio')),
+  compacting: isBoolean, checkpoints: list(parseLeadContextCheckpoint, 8, 0, checkpoint => checkpoint.id), count: optional(integer(0, Number.MAX_SAFE_INTEGER)),
+  full: optional((value, path = '') => value === true ? true as const : fail(path, 'expected true')) }), ['full', 'count'])
+/**
+ * The question a Lead message puts to the person, wherever it carries it: an ordinary reply's `ask`, or the options of
+ * a report it wrote on an automatic wake. Every surface draws both as the same buttons, so the desk tracks, answers,
+ * expires and lists both as one question.
+ */
+export const leadMessageAsk = (message: { readonly ask?: LeadAsk; readonly proactive?: LeadProactive }): LeadAsk | undefined =>
+  message.ask ?? (message.proactive?.options?.length && message.proactive.recommended
+    ? { question: message.proactive.ask, options: message.proactive.options, recommended: message.proactive.recommended, ...(message.proactive.startsMarked ? { startsMarked: true as const } : {}) } : undefined)

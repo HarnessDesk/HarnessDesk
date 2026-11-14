@@ -22,7 +22,7 @@ test('the closed first-match table covers every boolean and enum combination', (
       for (const requestInFlight of booleans) for (const chatEffectQueued of booleans)
         check({ kind: 'lead', state, pendingPersonCard, waitReason, resultReady, workerApproval, checkToRun, requestInFlight, chatEffectQueued })
   for (const archived of booleans) for (const waiting of booleans) for (const failed of booleans) for (const queuePaused of booleans) for (const running of booleans) for (const queued of booleans)
-    check({ kind: 'session', archived, waiting, failed, queuePaused, running, queued })
+    for (const stopped of booleans) check({ kind: 'session', archived, waiting, failed, queuePaused, running, queued, stopped })
   for (const status of ['needs-you', 'ready', 'stopped', 'working', 'done'] as const) for (const prepared of booleans)
     check({ kind: 'team', status, prepared })
   for (const kind of ['lead', 'session', 'team']) assert.ok(LEAD_STAGE_TABLE.filter(row => row.kind === kind).at(-1)!.when({ kind } as LeadStageFacts))
@@ -44,4 +44,13 @@ test('every management reason is explicitly classified and only you stages wait 
   for (const waitReason of LEAD_MANAGEMENT_REASONS) assert.equal(leadStage({ ...base, waitReason }).stage, LEAD_WAIT_STAGES[waitReason])
   for (const stage of ['you-answer', 'you-review', 'you-blocked', 'working', 'queued', 'idle'] as const)
     assert.equal(isWaitingOnYou(stage), stage.startsWith('you-'))
+})
+
+test('a session the person stopped is idle for a stated reason, never a finished one, and only while nothing else moves', () => {
+  const quiet = { kind: 'session', archived: false, waiting: false, failed: false, queuePaused: false, running: false, queued: false } as const
+  assert.deepEqual(leadStage({ ...quiet, stopped: true }), { stage: 'idle', reason: 'stopped' })
+  assert.deepEqual(leadStage(quiet), { stage: 'idle', reason: 'idle' })
+  assert.equal(leadStage({ ...quiet, stopped: true, running: true }).stage, 'working')
+  assert.equal(leadStage({ ...quiet, stopped: true, waiting: true }).stage, 'you-answer')
+  assert.deepEqual(leadStage({ ...quiet, stopped: true, archived: true }), { stage: 'idle', reason: 'archived' })
 })

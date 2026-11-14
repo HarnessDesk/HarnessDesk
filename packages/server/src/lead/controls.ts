@@ -1,19 +1,25 @@
 import { leadThreadStage } from './projection.js'
-import { boundLeadApprovalHistory, leadWorkerApprovalEntries } from '@harnessdesk/protocol'
+import { LEAD_STEP_THINKING, boundLeadApprovalHistory, leadSurfaceOf, leadDisplayName, leadRequestFailure, leadWorkerApprovalEntries } from '@harnessdesk/protocol'
 import {
   parseLeadApprovalRevoke, parseLeadMessage, parseLeadAsk, parseLeadProactiveOutput, leadProactiveReport, leadWaitNeedsChange, LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate, parseLeadNameReceipt,
-  parseLeadOrigin, type LeadOrigin, parseLeadThreadSend, parseLeadResume, parseLeadActionInput, parseLeadSteerInput, type LeadSteer, type LeadAction, type LeadActionInput,
+  parseLeadOrigin, type LeadOrigin, type LeadMessageTrigger, parseLeadThreadSend, parseLeadResume, parseLeadActionInput, parseLeadSteerInput, type LeadSteer, type LeadAction, type LeadActionInput,
   parseLeadBudgetRaise, parseLeadSpendLimitSet, leadNoSpendLimit, type LeadBudgetRaise, type LeadSpendLimitSet, type LeadScheduledTask, type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification, type LeadPresence,
 } from '@harnessdesk/protocol'
-import { isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadLimitedCaps, leadContinuation, leadHistory, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
+import { isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadLimitedCaps, leadApprovedPlan, leadPlanMoment, leadWithPlan, leadHistory, leadAppendUser, type LeadContextMark, type LeadJournal, type LeadState, type LeadStopFrom, type MessagesTurn } from '@harnessdesk/lead'
 import type { LeadService } from './service.js'
 import { admitLeadCard, leadApprovalCards, leadProgress, leadRunTeam, leadWindowThread } from './projection.js'
 import { leadContainsSecret } from './secrets.js'
+import { fitLeadTrigger } from './automatic-goals.js'
+import { leadMemoryScan, leadRememberRequest } from './memory-scan.js'
+import type { LeadContextStore } from './context-store.js'
+import type { LeadContextFacts } from '@harnessdesk/protocol'
 
 export const LEAD_PLAN_CONSENT_MS = 86_400_000
 /** How long a click on a withdrawn result waits for the Lead to offer that same card again: one read of the desk. */
 export const LEAD_REOFFER_WAIT_MS = 15_000
+/** How long a request waits for a settings mark still being written before it reads the mark as it stands. */
+const LEAD_SHOWN_WRITE_WAIT_MS = 3_000
 
 /** Trusted host feedback survives the resume transition that clears the wait.
  * It is supplied as current context, rather than fabricated assistant history. */
@@ -67,12 +73,41 @@ interface LeadControlsOptions {
   readonly stopEffects?: () => Promise<void>
   /** Child execution may continue across multiple service.send results. */
   readonly readRequestInFlight?: () => boolean
+  /** A request or compaction that failed and was turned into a wait: `stage` and the caught failure, for the host log. */
+  readonly onFailure?: (stage: 'request' | 'compaction', failure: unknown) => void
+  readonly readActiveTool?: () => string | null
   readonly readChatEffectQueued?: () => boolean
   /** The Lead's latest checks between turns; shown only while a goal runs. */
   readonly readPresence?: () => LeadPresence | null
   /** Hands the text to the goal's worker that is in a turn; false when none took it. */
   readonly steerWorker?: (text: string) => Promise<boolean>
+  /** The open work cards, already bounded; they ride the end of each request and are never stored in the thread. */
+  readonly readWorkContext?: (turn: { readonly proactive: boolean }) => Promise<string | null>
+  /** What is in memory now and what became of the Lead's proposals, as desk context that closes each request. */
+  readonly readMemoryContext?: () => Promise<string | { readonly text: string; readonly settingsShownAt?: number } | null>
+  /** Told once the Lead's reply to the person is stored, with the `settingsShownAt` the request that got it read. */
+  readonly settingsShown?: (at: number) => Promise<void>
+  /** The stored conversation. Absent, each request is rebuilt from the words the person can read, as before. */
+  readonly context?: Pick<LeadContextStore, 'request' | 'due' | 'compact' | 'facts' | 'compacting' | 'epoch'> & Partial<Pick<LeadContextStore, 'settle'>>
+  /** Test seam for the idle check after a step was recorded. */
+  readonly scheduleContextCheck?: (run: () => void) => void
+  /** The Lead's current step in plain words, from the desk call in flight; null while it has named none. */
+  readonly readActiveStep?: () => string | null
 }
+const written = (message: { readonly id: string }) => Number(message.id.slice('message-'.length))
+/** Whether the Lead model answered the request that left when the journal stood at `seq`: a reply of its own words (not
+ * proactive, not a host notice) written past `seq` and before any later user turn. Its id carries the seq it was written
+ * at, which a later revision never changes. A reminder's or another message's turn starts with a user message of its
+ * own, so a reply after one answers that turn, never this request (#2180). */
+const leadAnsweredRequest = (journal: LeadJournal, seq: number): boolean => {
+  for (const message of journal.state.messages) {
+    if (written(message) <= seq) continue
+    if (message.role === 'user') return false
+    if (message.role === 'assistant' && !message.proactive && journal.isModelReply(message.id)) return true
+  }
+  return false
+}
+
 /** One host owner, no transport or rendering. Child ports never contain these operations. */
 export class LeadControls {
   #tail: Promise<unknown> = Promise.resolve()
@@ -80,20 +115,34 @@ export class LeadControls {
   #failedRevision: number | null = null
   // Steers live with the goal they were sent in; a new goal starts an empty list.
   #steers: { readonly goal: string | null; readonly list: LeadSteer[] } = { goal: null, list: [] }
+  #replySince: number | null = null
   #runningSince: { readonly goal: string | null; readonly at: number } | null = null
   #continuation: Promise<void> | null = null
   #continueAgain = false
   #requestInFlight = false
   #automaticRequest = false
+  /** Set only by a path the person took (their own message, their plan approval, their resume); read once by the next request. */
+  #personRequest = false
+  /** The device the person's latest message came from, as its send named it: the next person turn says where (#2146). */
   #requestWaitReason: string | null = null
+  /** The request in hand is a desk wake the schedule made (a reminder), whatever the thread's origin. */
+  #scheduleRequest = false
   #requestConversation = true
   #closed = false
   #lastRevision = -1
   #actionsGeneration = 0
   #actions: { readonly scope: string; readonly generation: number; readonly value: readonly LeadAction[] } | null = null
   readonly #detach: () => void
+  /** A person request that read the settings and returned before its reply was stored (the child stores it from a
+   * continuation after a tool call): kept when a reply of the Lead's lands past `seq` (#2180). */
+  #shownPending: { readonly at: number; readonly seq: number } | null = null
+  /** The latest settings mark being written: the next request waits for it before it reads the settings, so a request
+   * from another device never reads the mark from before it and says the same news again. */
+  #shownWrite: Promise<void> = Promise.resolve()
+  #contextWork: Promise<unknown> = Promise.resolve()
+  #contextCheck = false
   constructor(private readonly options: LeadControlsOptions) {
-    this.#detach = options.journal.onChange(() => { void this.#notify() })
+    this.#detach = options.journal.onChange(() => { this.#settleShown(); void this.#notify() })
   }
   #notify(liveApprovals = false): Promise<void> {
     this.#notifications = this.#notifications.then(async () => {
@@ -114,6 +163,14 @@ export class LeadControls {
     return this.#notifications
   }
   close(): void { this.#closed = true; this.#detach() }
+  /** The pending settings mark, kept once the reply it waited for is stored. */
+  #settleShown(): void {
+    const pending = this.#shownPending
+    if (!pending || !leadAnsweredRequest(this.options.journal, pending.seq)) return
+    this.#shownPending = null
+    const shown = this.options.settingsShown
+    if (shown) this.#shownWrite = this.#shownWrite.then(() => shown(pending.at)).catch(() => { /* The next reply keeps it. */ })
+  }
   async idle(): Promise<void> {
     await this.#tail
     while (this.#continuation) await this.#continuation
@@ -192,9 +249,14 @@ export class LeadControls {
     const auditFailed = state.managementReason === 'lead-worker-audit-failed'
     const approvalHistory = boundLeadApprovalHistory(state.workerApprovals.map(rule => ({ ...rule, entries: auditFailed ? leadWorkerApprovalEntries(rule) : rule.entries ?? [] })))
     const requestInFlight = this.#inFlight()
+    if (!requestInFlight) this.#replySince = null
+    else this.#replySince ??= this.options.now()
+    const step = this.options.readActiveStep?.() ?? null
+    const activity = requestInFlight ? { since: this.#replySince!, method: this.options.readActiveTool?.() ?? null, step: step ?? LEAD_STEP_THINKING } : null
     const { stage, reason: stageReason } = leadThreadStage(state, thread, personActions, waitReason as LeadWindowProjection['waitReason'], requestInFlight, this.options.readChatEffectQueued?.() ?? false)
-    const result = parseLeadWindowProjection({ stage, stageReason, version: 1, revision: state.seq, thread, settings, wayOut, waitReason,
-      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight, personActions, savedApprovals: approvalHistory.filter(rule => !rule.revoked).map(({ id, target, count, entries, dispatch }) => ({ id, target, count, ...(dispatch && auditFailed ? { uncertain: true } : {}), ...(entries?.length ? { entries } : {}) })), revokedApprovals: approvalHistory.filter(rule => rule.revoked).map(({ id, target, count, entries }) => ({ id, target, count, ...(entries?.length ? { entries } : {}) })), ...(progress && { progress }), ...(team && { team }), ...(presence && { presence }), ...(steers.length && { steers }) })
+    const failure = leadRequestFailure(waitReason, leadDisplayName(settings.name))
+    const result = parseLeadWindowProjection({ stage, stageReason, version: 1, revision: state.seq, thread, settings, wayOut, waitReason, ...(failure && { failure }),
+      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight, ...(activity && { activity }), personActions, savedApprovals: approvalHistory.filter(rule => !rule.revoked).map(({ id, target, count, entries, dispatch }) => ({ id, target, count, ...(dispatch && auditFailed ? { uncertain: true } : {}), ...(entries?.length ? { entries } : {}) })), revokedApprovals: approvalHistory.filter(rule => rule.revoked).map(({ id, target, count, entries }) => ({ id, target, count, ...(entries?.length ? { entries } : {}) })), ...(progress && { progress }), ...(team && { team }), ...(presence && { presence }), ...(steers.length && { steers }) })
     try { await this.options.service.assertPublic(result, state.seq) } catch (error) { this.#publicFailure(error) }
     return result
   }
@@ -221,7 +283,24 @@ export class LeadControls {
   }
   #unanswered(): boolean {
     const state = this.options.journal.state
-    return !this.#continuation && state.messages.findLast(message => message.role === 'user' || message.role === 'assistant')?.role === 'user'
+    // A desk wake the Lead let pass is not the person's message left unanswered: Resume would only wake it again.
+    const last = state.messages.findLast(message => message.role === 'user' || message.role === 'assistant')
+    return !this.#continuation && last?.role === 'user' && !last.wake
+  }
+  /**
+   * What became of the wake sent under `key`: `pending` while a request (the host's or the Lead's own tool loop) or a
+   * summary may still write after it, `said` once the Lead wrote a message after it before the next user turn (the person's or another wake), and
+   * `silent` when it ended without one (quiet, refused or failed).
+   */
+  wakeOutcome(key: string): 'pending' | 'said' | 'silent' {
+    const state = this.options.journal.state, send = state.sends.find(one => one.key === key)
+    if (this.#inFlight() || this.#continuation || this.options.context?.compacting) return 'pending'
+    const at = send ? state.messages.findIndex(message => message.id === send.messageId) : -1
+    if (at < 0) return 'silent'
+    // Only the Lead's turn that answers this wake counts: it ends at the next user turn, a person's message or another
+    // wake, so a later wake's reply or a queued turn's text never says this one was said.
+    const after = state.messages.slice(at + 1), next = after.findIndex(message => message.role === 'user')
+    return (next < 0 ? after : after.slice(0, next)).some(message => message.role === 'assistant' && message.text.trim()) ? 'said' : 'silent'
   }
   workerApprovalsChanged(): Promise<void> {
     this.#actionsGeneration++
@@ -245,9 +324,19 @@ export class LeadControls {
     void this.#notify(true)
     return this.#projection()
   }) }
-  send(value: LeadThreadSend, automaticOrigin?: LeadOrigin, automaticProject?: string) { return this.#queue(async () => {
+  /** `automaticTrigger` describes the event an automatic goal opened on; the journal keeps it with the model's text (#2183). */
+  send(value: LeadThreadSend, automaticOrigin?: LeadOrigin, automaticProject?: string, automaticTrigger?: LeadMessageTrigger) { return this.#queue(async () => {
     const input = parseLeadThreadSend(value), { journal, service } = this.options
+    // The trigger only describes the turn: what fails it is dropped, never a reason to refuse the send (#2183).
+    const trigger = automaticOrigin ? fitLeadTrigger(automaticTrigger) : undefined
     if (leadContainsSecret(input)) throw leadRefusal('lead-secret-refused')
+    // A request to keep words aimed at an agent is refused here, before the model reads it: memory is read on every
+    // later turn, so the scan every proposal passes runs on the person's request too (docs/decisions.md).
+    const kept = automaticOrigin ? null : leadRememberRequest(input.text)
+    if (kept !== null) {
+      const scan = leadMemoryScan(kept)
+      if (!scan.ok && scan.reason === 'instruction') throw leadRefusal('lead-memory-instruction-refused')
+    }
     const previous = journal.state.sends.find(send => send.key === input.idempotencyKey)
     if (previous) return { messageId: previous.messageId, revision: previous.revision }
     const origin = automaticOrigin ? parseLeadOrigin(automaticOrigin) : null
@@ -289,15 +378,17 @@ export class LeadControls {
     if (journal.state.phase === 'waiting-for-user' && (journal.state.recoveryBlocked ||
       journal.state.consent && journal.state.consent.expiresAt <= this.options.now())) throw leadRefusal('lead-no-person-wait')
     return this.#commitRequest(async committed => {
-      const receipt = await journal.appendMessage(input.idempotencyKey, input.text, origin ? origin.source === 'schedule' ? 'schedule' : 'automatic' : 'person', committed)
+      // The surface stays with the person's message (#2166): a tool continuation and every later turn read it there.
+      const receipt = await journal.appendMessage(input.idempotencyKey, input.text, origin ? origin.source === 'schedule' ? 'schedule' : 'automatic' : 'person', committed,
+        undefined, !origin && input.device ? leadSurfaceOf(input.device) : undefined, trigger)
       if (resume) await journal.resume(undefined, true, committed)
       return receipt
     }, !!origin)
   }) }
   async #commitRequest<T>(commit: (committed: () => void) => Promise<T>, proactive = false,
-    waitReason = this.options.journal.state.managementReason, conversation = true): Promise<T> {
+    waitReason = this.options.journal.state.managementReason, conversation = true, person = !proactive): Promise<T> {
     let committed = false
-    try { return await commit(() => { committed = true; this.#requestInFlight = true; this.#automaticRequest = proactive; this.#requestWaitReason = waitReason; this.#requestConversation = conversation }) }
+    try { return await commit(() => { committed = true; this.#requestInFlight = true; this.#automaticRequest = proactive; if (person) this.#personRequest = true; this.#requestWaitReason = waitReason; this.#requestConversation = conversation }) }
     finally { if (committed) this.#detachContinue() }
   }
   #detachContinue(forcePublication = false): void {
@@ -327,7 +418,8 @@ export class LeadControls {
   }
   async #continue(): Promise<void> {
     const { journal, service } = this.options
-    const proactive = this.#automaticRequest; this.#automaticRequest = false
+    const proactive = this.#automaticRequest, person = this.#personRequest, scheduled = this.#scheduleRequest
+    this.#automaticRequest = false; this.#personRequest = false; this.#scheduleRequest = false
     if (['accepted', 'declined', 'stopped'].includes(journal.state.phase) || journal.state.budget?.stop || journal.state.managementReason === 'lead-worker-audit-failed') {
       this.#requestInFlight = false
       await journal.settingsChanged()
@@ -335,26 +427,87 @@ export class LeadControls {
     }
     try {
       try { await this.options.meterSpend?.() } catch { /* The Lead itself refuses while spend stays unknown. */ }
-      // History is rebuilt from what the person can read, as plain text, so no reasoning block from an earlier
-      // request is carried into a prefix that has changed since the provider wrote it.
-      const messages: MessagesTurn[] = leadHistory(journal.state.messages)
       const waitReason = this.#requestWaitReason
       this.#requestWaitReason = null
-      const recovery = leadRecoveryContext(waitReason)
-      if (recovery) messages.push({ role: 'user', content: [{ type: 'text', text: recovery }] })
-      // The history above is words only. Chats the Lead already started or wrote to since its last reply are not in
-      // it, so a Lead resumed after a silent or failed turn is told, or it reads the request as undone and repeats it.
-      const done = journal.state.chatEffectsSinceReply
-      if (done.started || done.sent || done.stopped) messages.push({ role: 'user', content: [{ type: 'text', text: leadEffectsObservation(done) }] })
-      // Once a plan is approved every request ends with the contract, because the standing instructions say it
-      // arrives in a message and the history above holds only words. Before that, a request still ends in a user turn.
-      const { contract, steps } = journal.state
-      if (contract) messages.push({ role: 'user', content: leadContinuation({ contract, steps, runs: leadPlanRuns(journal.state), mayProposeNewPlan: canReplaceLeadPlan(journal.state),
-        personActions: await this.options.readPersonActions?.() ?? [] }) })
-      else if (messages.at(-1)?.role !== 'user') messages.push({ role: 'user', content: [
-        { type: 'text', text: 'Continue the conversation from the person\'s latest message. Answer directly or use an ordinary chat for a task. Offer a reviewed plan only when the work needs that workflow; no plan has been approved.' },
-      ] })
-      const result = await service.send({ maxTokens: LEAD_OUTPUT_TOKENS, messages, conversation: this.#requestConversation, ...(proactive ? { proactive: true, wakeSource: journal.state.origin?.source === 'schedule' ? 'schedule' as const : 'trigger' as const } : {}) })
+      const { context } = this.options
+      let persons: readonly string[] = []
+      // When the request that was sent read the settings; kept only once its reply to the person is stored. A new
+      // message from the person supersedes an earlier one still waiting for its reply: this request reads the settings
+      // again, and a wake, a reminder or a proactive turn leaves the person's mark to their own reply.
+      let settingsShownAt: number | undefined
+      if (person) this.#shownPending = null
+      const build = async () => {
+        // With the context engine the request starts from the stored conversation, tool pairs and all; without it,
+        // from the words the person can read. Either way no reasoning from an earlier request is carried.
+        const stored = context ? await context.request() : null
+        persons = stored?.persons ?? []
+        let messages: MessagesTurn[] = stored ? [...stored.messages] : leadHistory(journal.state.messages)
+        // Once a plan is approved every request carries the contract, because the standing instructions say it
+        // arrives in a message. It is the host's own words, kept in the stored conversation as they are (`kept`), so
+        // a later wake still reads the plan's step ids. With the context engine it is stored once: a conversation that
+        // already carries it gets no second copy, and one a checkpoint took it from gets it again. Without it, the
+        // words the person can read never hold it, so it goes on every request.
+        const { contract, steps } = journal.state
+        let kept: LeadContextMark | null = null
+        // What follows is desk context of this moment: after the cache mark, and stubbed when the step is stored.
+        const desk: { type: 'text'; text: string }[] = []
+        if (contract) {
+          const planned = leadWithPlan(messages, leadApprovedPlan(contract))
+          messages = planned.messages; kept = stored ? planned.kept ?? null : null
+          // Where the plan stands now (step states, its runs, the open waits) is of this moment, never kept verbatim.
+          desk.push(...leadPlanMoment({ contract, steps, runs: leadPlanRuns(journal.state), mayProposeNewPlan: canReplaceLeadPlan(journal.state),
+            personActions: await this.options.readPersonActions?.() ?? [] }))
+        }
+        const recovery = leadRecoveryContext(waitReason)
+        if (recovery) desk.push({ type: 'text', text: recovery })
+        // Chats the Lead already started or wrote to since its last reply are not in the words above, so a Lead resumed
+        // after a silent or failed turn is told, or it reads the request as undone and repeats it.
+        const done = journal.state.chatEffectsSinceReply
+        if (done.started || done.sent || done.stopped) desk.push({ type: 'text', text: leadEffectsObservation(done) })
+        // Before a plan is approved a request still ends in a user turn.
+        if (!contract && messages.at(-1)?.role !== 'user' && !desk.length) desk.push({ type: 'text',
+          text: 'Continue the conversation from the person\'s latest message. Answer directly or use an ordinary chat for a task. Offer a reviewed plan only when the work needs that workflow; no plan has been approved.' })
+        // The work ledger is desk context, read fresh for each request: it closes the request and is never kept in history.
+        let work: string | null = null
+        try { work = await this.options.readWorkContext?.({ proactive: !!proactive }) ?? null } catch { /* A request without the cards still answers. */ }
+        if (work) desk.push({ type: 'text', text: work })
+        // Memory as the desk holds it now: the Core in the standing instructions is frozen for the epoch, so a Keep, a No
+        // or a Forget since then reaches the model here, every request, and it never calls a declined note recorded.
+        let memory: string | null = null
+        settingsShownAt = undefined
+        // A mark still being written is read as written, never as the one before it; a write that hangs holds no request
+        // up for longer than a few seconds, and the request then reads the mark as it stands.
+        let wait: ReturnType<typeof setTimeout> | undefined
+        try {
+          await Promise.race([this.#shownWrite, new Promise<void>(resolve => { wait = setTimeout(resolve, LEAD_SHOWN_WRITE_WAIT_MS) })])
+        } finally { clearTimeout(wait) }
+        try {
+          const note = await this.options.readMemoryContext?.() ?? null
+          memory = typeof note === 'string' ? note : note?.text ?? null
+          if (note && typeof note === 'object') settingsShownAt = note.settingsShownAt
+        } catch { /* A request without it still answers. */ }
+        if (memory) desk.push({ type: 'text', text: memory })
+        // One user turn: the person's words, the plan and the desk's context of this moment are never two turns in a row.
+        messages = leadAppendUser(messages, desk)
+        return { maxTokens: LEAD_OUTPUT_TOKENS, messages, conversation: this.#requestConversation,
+          ...(stored ? { epoch: stored.epoch, ...(stored.base ? { base: stored.base } : {}), ...(stored.stable ? { stable: stored.stable } : {}), ...(kept ? { kept } : {}) } : {}),
+          ...(proactive ? { proactive: true } : {}),
+          // Only the person's own path is the person's; every other request (a scheduled run, a trigger's) names its source, and one that names none is automatic.
+          wakeSource: person ? 'person' as const : scheduled || journal.state.origin?.source === 'schedule' ? 'schedule' as const : 'trigger' as const }
+      }
+      // A compaction under way finishes first; past the hard line one runs now, whatever else is happening.
+      await this.#contextWork
+      if (context?.due() === 'hard') await this.#compactContext('hard')
+      // Where the journal stood when the request left: a reply of the Lead's stored past it answered this request.
+      const sentAt = journal.state.seq
+      let result = await service.send(await build())
+      // The provider counted more than the window: compact and try once more.
+      if (context && result.status === 'failed' && result.reason === 'lead-messages-too-long') {
+        await this.#compactContext('overflow')
+        result = await service.send(await build())
+      }
+      // A reply whose step could not be stored still answered the person: store their words with it.
+      if (persons.length) try { await context?.settle?.(persons) } catch { /* The next request sends them again. */ }
       if (result.text) await service.assertPublic(result.text)
       if (result.ask) {
         parseLeadMessage({ version: 1, id: 'reply', revision: 1, role: 'assistant', text: result.text ?? '', ask: result.ask, ...(result.proactive ? { proactive: result.proactive } : {}) })
@@ -365,8 +518,10 @@ export class LeadControls {
         if (proactive) {
           const report = leadProactiveReport(parseLeadProactiveOutput(result.proactive!), 0, 1, false)
           await service.assertPublic(report)
-          await journal.appendReply([report.finding, report.caveat, report.ask].join('\n'), report)
-        } else await journal.appendReply(result.text ?? '', undefined, result.ask)
+          await journal.appendModelReply([report.finding, report.caveat, report.ask].join('\n'), report)
+        } else {
+          await journal.appendModelReply(result.text ?? '', undefined, result.ask, result.refs)
+        }
       }
       else if (result.status === 'refused' && !['accepted', 'declined', 'stopped', 'waiting-for-user'].includes(journal.state.phase) && journal.state.budget &&
         leadBudgetProjection(journal.state.budget, this.options.now()).spend !== 'known') {
@@ -374,12 +529,78 @@ export class LeadControls {
         await journal.setManagementPhase('waiting-for-user', 'lead-budget-unknown')
       }
       else await journal.settingsChanged()
-    } catch {
+      // The person read a reply from a request that carried the settings: they are no longer news to the Lead. Decided
+      // from the journal, since the child stores its reply itself and returns a result without the words (#2170); a
+      // reply that comes from the child's continuation after a tool call lands after this, and keeps it then (#2180).
+      if (person && !proactive && settingsShownAt !== undefined && result.status === 'completed') {
+        this.#shownPending = { at: settingsShownAt, seq: sentAt }
+        this.#settleShown()
+      }
+      this.contextChanged()
+    } catch (failure) {
+      try { this.options.onFailure?.('request', failure) } catch { /* A log never owns the request. */ }
       this.#requestInFlight = this.#continueAgain
       const revision = journal.state.seq
-      if (!['accepted', 'declined', 'stopped'].includes(journal.state.phase)) await journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
+      // The service may already have latched the repeat-stop wait for this same failure (its exit can land before
+      // this catch runs); a generic failure never overwrites it, whichever order the two arrive in.
+      if (!['accepted', 'declined', 'stopped'].includes(journal.state.phase) && journal.state.managementReason !== 'lead-child-exited-again') await journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
       if (journal.state.seq === revision) await journal.settingsChanged()
     }
+  }
+  /** One compaction at a time, the person's request behind it; a failure leaves the conversation as it was. */
+  #compactContext(trigger: 'soft' | 'hard' | 'manual' | 'overflow'): Promise<unknown> {
+    const context = this.options.context
+    if (!context || this.#stopped()) return Promise.resolve()
+    const work = this.#contextWork.then(() => context.compact(trigger, input => this.options.service.send(input)))
+    this.#contextWork = work.catch(() => {}).finally(() => this.#notify())
+    void this.#notify()
+    return work.catch(failure => { try { this.options.onFailure?.('compaction', failure) } catch { /* A log never owns a compaction. */ } })
+  }
+  /**
+   * A step was stored: past the soft line, compact once the Lead is idle (no request of the host's and none of the
+   * child's in flight), so the person never waits on it. Checked again until idle, at most once a second.
+   */
+  contextChanged(): void {
+    if (!this.options.context || this.#contextCheck || this.#closed) return
+    this.#contextCheck = true
+    const check = () => {
+      this.#contextCheck = false
+      if (this.#closed || this.#stopped() || this.options.context?.due() == null) return
+      if (this.#continuation || this.options.readRequestInFlight?.() || this.options.context.compacting) { this.contextChanged(); return }
+      void this.#compactContext('soft')
+    }
+    ;(this.options.scheduleContextCheck ?? (run => { setTimeout(run, 1000).unref?.() }))(check)
+  }
+  /** Stopped, finished or out of budget: no compaction spends. */
+  #stopped(): boolean {
+    const state = this.options.journal.state
+    return ['accepted', 'declined', 'stopped'].includes(state.phase) || !!state.budget?.stop
+  }
+  /**
+   * Before a desk wake, from the child, outside its turn queue: compact past the hard line (`due`), or because the
+   * provider refused the wake as too long (`overflow`). True when the stored conversation moved to a new epoch.
+   */
+  async compactForWake(trigger: 'due' | 'overflow'): Promise<boolean> {
+    const context = this.options.context
+    if (!context || this.#closed || this.#stopped()) return false
+    const before = context.epoch
+    await this.#contextWork
+    if (trigger === 'overflow' || context.due() === 'hard') await this.#compactContext(trigger === 'overflow' ? 'overflow' : 'hard')
+    return context.epoch !== before
+  }
+  async readContext(): Promise<LeadContextFacts> {
+    if (!this.options.context) throw leadRefusal('lead-unavailable')
+    return this.options.context.facts()
+  }
+  /** The person's "Summarise now": refused while the Lead is answering, so it never cuts a turn in half. */
+  compactContext(): Promise<LeadContextFacts> {
+    return this.#queue(async () => {
+      const { context } = this.options
+      if (!context) throw leadRefusal('lead-unavailable')
+      if (this.#continuation || this.options.readRequestInFlight?.() || context.compacting) throw leadRefusal('lead-request-in-flight')
+      await this.#compactContext('manual')
+      return context.facts()
+    })
   }
   /**
    * A person's decision on a card. The Lead withdraws every undecided result
@@ -474,6 +695,51 @@ export class LeadControls {
   }) }
   /** A schedule slot redeems only a previously person-approved contract, and gets
    * its own logical goal, step ids, budget and fresh host-clock consent. */
+  /**
+   * A reminder that came due wakes the Lead as a desk wake: a schedule-sourced turn the journal marks `wake`, so no
+   * surface draws it as the person's message. One the person asked for (`wake.person`) is said in plain words, like a
+   * reply, and the Lead is pressed once more if it stays quiet; the Lead's own check-back keeps the proactive envelope,
+   * where silence is a fair answer. `begin` opens a goal first when the thread has closed, the way a scheduled run
+   * does. A thread that waits on the person cannot take a wake, so the person's reminder is said there in the Lead's
+   * name without a model request, and the thread goes on waiting. False when it cannot go now (a request in flight,
+   * an uncertain effect, a closed or waiting thread for the Lead's own check-back, no key); the host's timer offers it again.
+   */
+  remind(key: string, text: string, wake?: { readonly reminder: string; readonly text: string; readonly person: boolean }, begin = false): Promise<boolean> { return this.#queue(async () => {
+    const { journal, service } = this.options
+    const said = wake?.person ? `You asked me to remind you: ${wake.text.trim().replace(/[.!?]$/, '')}.` : ''
+    const sent = journal.state.sends.find(send => send.key === key)
+    if (sent) {
+      // A desk stopped between the entry and its line writes the line now, for the entry already there, while the
+      // thread still waits on the person and nothing came after the entry.
+      const messages = journal.state.messages, at = messages.findIndex(message => message.id === sent.messageId)
+      if (wake?.person && at >= 0 && messages[at]!.wake && !this.#inFlight() && leadWaitsOnPerson(journal.state) &&
+        !messages.slice(at + 1).some(message => message.role === 'user' || message.role === 'assistant' && message.text.trim()))
+        await journal.appendReply(said, undefined, undefined, undefined, wake.reminder)
+      return true
+    }
+    if (this.#inFlight() || leadContainsSecret([text, wake?.text ?? ''])) return false
+    const marked = wake ? { kind: 'reminder' as const, reminder: wake.reminder, text: wake.text } : undefined
+    if (wake?.person && leadWaitsOnPerson(journal.state)) {
+      // Marked as the desk's line: no model wrote it, so it is not the Lead's reply to the chats it started before.
+      await journal.appendMessage(key, text, 'schedule', undefined, marked)
+      await journal.appendReply(said, undefined, undefined, undefined, wake.reminder)
+      return true
+    }
+    const status = await service.status('anthropic').catch(() => null)
+    if (!status?.configured || status.unavailable) return false
+    if (begin && wake && canBeginLeadGoal(journal.state)) {
+      try { await this.options.stopRequest?.() } catch { return false }
+      if (this.#continuation) await this.#continuation
+      if (!canBeginLeadGoal(journal.state) || this.#inFlight()) return false
+      await journal.beginGoal(this.options.nextId(), this.options.now())
+      await journal.setOrigin({ source: 'schedule', event: 'work-reminder', subject: wake.reminder, url: null }, key)
+    }
+    if (hasUncertainLeadChatEffect(journal.state) || journal.state.budget?.stop) return false
+    if (!['draft', 'running', 'following'].includes(journal.state.phase)) return false
+    const person = wake?.person === true
+    await this.#commitRequest(committed => journal.appendMessage(key, text, 'schedule', () => { committed(); this.#scheduleRequest = true }, marked), !person, undefined, true, false)
+    return true
+  }) }
   runScheduled(task: LeadScheduledTask, slot: number): Promise<{ logicalGoalId: string; approved: boolean; reason?: string }> { return this.#queue(async () => {
     const { journal, service } = this.options
     if (this.#inFlight() || !(canBeginLeadGoal(journal.state) || journal.state.phase === 'draft' && !journal.state.messages.length)) throw leadRefusal('lead-request-in-flight')
@@ -513,7 +779,7 @@ export class LeadControls {
     const recheck = await this.options.validateRepeat(original)
     if (recheck) { await journal.appendReply(`This run needs your approval: ${recheck}`); return { logicalGoalId, approved: false, reason: recheck } }
     await this.#commitRequest(committed => journal.decideCard({ version: 1, cardId: card.id, cardType: 'plan', expectedRevision: card.revision,
-      contractDigest: card.contractDigest, choice: 'approve' }, this.options.now() + LEAD_PLAN_CONSENT_MS, this.options.stopEffects, undefined, committed), false, null, false)
+      contractDigest: card.contractDigest, choice: 'approve' }, this.options.now() + LEAD_PLAN_CONSENT_MS, this.options.stopEffects, undefined, committed), false, null, false, false)
     return { logicalGoalId, approved: true }
   }) }
   updateSettings(value: LeadSettingsUpdate): Promise<LeadWindowProjection | LeadNameReceipt> { return this.#queue(async () => {
@@ -542,7 +808,7 @@ export class LeadControls {
           throw leadRefusal('lead-secret-in-thread')
         await service.setKey(provider, key)
       }
-      await journal.settingsChanged()
+      await journal.settingsChanged(undefined, undefined, 'credential')
     } else {
       try { await service.assertPublic(input) } catch (error) { this.#publicFailure(error) }
       if (input.policy && input.caps) await journal.changePolicyAndBudgetCaps(input.policy, input.caps, input.expectedRevision,
@@ -569,6 +835,21 @@ export class LeadControls {
     if (this.#continuation) await this.#continuation
     return this.#projection()
   }) }
+  /**
+   * A stop asked for elsewhere than the person's Stop — a comment on the thread that opened this goal — taken exactly as
+   * Stop takes it: journaled with where it came from, the goal's owned runs stopped, then the model process ended. `owns`
+   * is read on the queue, against the journal as it is then, so a goal begun meanwhile is never the one stopped. False
+   * when `owns` refuses or the goal has already ended, and nothing is done.
+   */
+  stopAsked(from: LeadStopFrom, owns: (state: LeadState) => boolean): Promise<boolean> { return this.#queue(async () => {
+    const { journal } = this.options
+    if (['accepted', 'declined', 'stopped'].includes(journal.state.phase) || !owns(journal.state)) return false
+    this.#continueAgain = false
+    await journal.stop(this.options.stopEffects, from)
+    await this.options.stopRequest?.()
+    if (this.#continuation) await this.#continuation
+    return true
+  }) }
   steer(value: { readonly text: string }): Promise<LeadWindowProjection> { return this.#queue(async () => {
     const input = parseLeadSteerInput(value), { journal } = this.options
     if (leadContainsSecret(input)) throw leadRefusal('lead-secret-refused')
@@ -594,4 +875,13 @@ export class LeadControls {
     await this.#commitRequest(committed => this.options.journal.resume(parsed.expectedRevision, this.#unanswered(), committed), false, reason, false)
     return this.#projection()
   }) }
+}
+
+/**
+ * The thread waits on the person: a stop they must answer (a failed or held request, a summary to resume from, an
+ * uncertain effect, a spent budget) or a plan they have not decided. The loop takes no wake in that state.
+ */
+function leadWaitsOnPerson(state: LeadState): boolean {
+  if (['stopped', 'accepted', 'declined'].includes(state.phase)) return false
+  return state.phase === 'waiting-for-user' || state.phase === 'awaiting-plan' || hasUncertainLeadChatEffect(state) || !!state.budget?.stop
 }

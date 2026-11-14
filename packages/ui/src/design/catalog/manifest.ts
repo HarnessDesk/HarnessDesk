@@ -169,8 +169,8 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'spark', 'stepper', 'timeline', 'timeline-cards', 'table', 'toast', 'tool-pane', 'tooltip',
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'TerminalShellTabs', 'PublicationCard', 'ActionError', 'Change', 'RefusedAction',
-  'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices', 'Checklist', 'QrCode', 'FlowExample', 'FlowGraph', 'FlowCanvas', 'FlowStepRow',
-  'LeadAvatar', 'ConversationShell', 'lead-contract', 'LeadPlanFlow', 'LeadAskOptions', 'heat-grid', 'PlanCard', 'SidebarMenuState', 'CommandPalette',
+  'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices', 'Checklist', 'QrCode', 'FlowExample', 'FlowGraph', 'FlowCanvas', 'FlowStepRow', 'AgentFlow',
+  'LeadWorking', 'LeadAvatar', 'ConversationShell', 'lead-contract', 'LeadPlanFlow', 'LeadAskOptions', 'heat-grid', 'PlanCard', 'SidebarMenuState', 'CommandPalette',
   'SettingsRowMenu', 'HeaderStatusGroup', 'SelectionAction',
 ])
 
@@ -181,6 +181,7 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   CustomizeTabs: ['chips'],
+  LeadWorking: ['default'],
   LeadAvatar: ['default'],
   ConversationShell: ['default'],
   'lead-contract': ['default'],
@@ -307,6 +308,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   FlowCanvasWorkspace: ['default'],
   FlowCanvas: ['light', 'dark'],
   FlowStepRow: ['default'],
+  AgentFlow: ['default'],
   'heat-grid': ['default'],
   PaneColumn: ['default'],
   PlanCard: ['default'],
@@ -320,6 +322,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   CustomizeTabs: ['selected', 'unselected'],
+  LeadWorking: ['default'],
   LeadAvatar: ['default'],
   ConversationShell: ['default'],
   'lead-contract': ['default', 'loading'],
@@ -445,6 +448,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   FlowCanvasWorkspace: ['default', 'disabled'],
   FlowCanvas: ['editing', 'disabled', 'running', 'selected'],
   FlowStepRow: ['default', 'working', 'needs-you', 'success', 'inactive'],
+  AgentFlow: ['default', 'working', 'populated'],
   'heat-grid': ['default', 'empty', 'populated'],
   sidebar: [
     'default', 'hover', 'active', 'populated', 'working', 'needs-you', 'pinned',
@@ -493,6 +497,7 @@ Object.assign(SIZES, {
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   CustomizeTabs: 'packages/ui/src/panels/customize-navigation.tsx',
+  LeadWorking: 'packages/ui/src/components/LeadPage.tsx',
   'LeadAvatar': 'packages/ui/src/components/LeadPage.tsx',
   'ConversationShell': 'packages/ui/src/components/Conversation.tsx',
   'lead-contract': 'packages/ui/src/components/LeadCards.tsx',
@@ -558,6 +563,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   FlowCanvasWorkspace: 'packages/ui/src/components/ShapeEditor.tsx',
   FlowCanvas: 'packages/ui/src/preview/frames-flow-canvas.tsx',
   FlowStepRow: 'packages/ui/src/components/RunSteps.tsx',
+  AgentFlow: 'packages/ui/src/components/SubagentFlow.tsx',
   PaneColumn: 'packages/ui/src/components/Conversation.tsx',
   PlanCard: 'packages/ui/src/components/SettingsAgents.tsx',
   UsageMeterRow: 'packages/ui/src/components/SettingsAgents.tsx',
@@ -571,6 +577,7 @@ Object.assign(PATTERN_CONSUMER, { LeftColumn: 'packages/ui/src/components/Sideba
 Object.assign(PATTERN_CONSUMER, { ComposerTrack: 'packages/ui/src/components/ComposerControls.tsx' })
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  LeadWorking: 'packages/ui/src/preview/frames-lead.tsx',
   'LeadAvatar': 'packages/ui/src/preview/frames-lead.tsx',
   'ConversationShell': 'packages/ui/src/preview/frames-lead.tsx',
   'lead-contract': 'packages/ui/src/preview/frames-lead.tsx',
@@ -617,6 +624,7 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   FlowCanvasWorkspace: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   FlowCanvas: 'packages/ui/src/preview/frames-flow-canvas.tsx',
   FlowStepRow: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  AgentFlow: 'packages/ui/src/preview/agent-flow-board.tsx',
   DialogForm: 'packages/ui/src/design/explorer/boards.tsx',
   Lightbox: 'packages/ui/src/design/explorer/boards.tsx',
   Popover: 'packages/ui/src/design/explorer/boards.tsx',
@@ -689,6 +697,7 @@ const UI_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'key-value': ['KeyValue', 'KeyValueRow', 'MiddleTruncate', 'SummaryItem', 'SummaryList'],
   'label': ['Label'],
   'list-row': ['ListRow', 'ListRowDetail', 'ListRows'],
+  'marker': ['Marker', 'MarkerContent', 'MarkerIcon'],
   'message': ['Message', 'MessageContent', 'MessageFooter'],
   'menu-row': ['MenuListboxOption', 'MenuPresentation', 'MenuRowContent'],
   'native-select': ['NativeSelect'],
@@ -734,11 +743,12 @@ const UI_SYMBOL_AXES: Readonly<Record<string, CatalogSymbolAxes>> = {
 
 const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   CustomizeTabs: ['CustomizeTabs'],
+  LeadWorking: ['LeadWorking'],
   'lead-contract': ['LeadContract'],
   LeadPlanFlow: ['LeadPlanFlow'],
   LeadAskOptions: ['LeadAskOptions'],
   'LeadAvatar': ['LeadAvatar', 'LeadNameChoice', 'LeadIdentity', 'LeadLineNote', 'LeadSlot', 'LeadTurn', 'LeadGreeting'],
-  'ConversationShell': ['ConversationShell', 'ConversationThread', 'ConversationDock', 'ConversationComposerFrame', 'TranscriptAssistantMessage'],
+  'ConversationShell': ['ConversationShell', 'ConversationThread', 'ConversationDock', 'ConversationComposerFrame', 'TranscriptAssistantMessage', 'scrollThreadToEnd', 'threadFollowsEnd'],
   'ActionError': ['ActionError'],
   'AgentCard': ['AgentCard', 'CardBand', 'CardCrest', 'CardCrestBody', 'CardShell', 'MemberName'],
   'AgentCatalogue': ['AgentCatalogue', 'AgentCatalogueCard', 'AgentCatalogueSources'],
@@ -767,18 +777,19 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'FlowExample': ['FlowExample'],
   'FlowGraph': ['FlowGraph', 'FlowRoleConfiguration'],
   'FlowStepRow': ['FlowStepRow', 'RunStateChip'],
+  'AgentFlow': ['AgentFlowCard', 'AgentLanes', 'AGENT_FLOW_TONE'],
   'GitComparisonDialogs': ['DiffRangeDialog', 'MergeDialog'],
   'HeaderStatusGroup': ['HeaderStatusGroup', 'HeaderStatusReading', 'useHeaderStatusGroup'],
   'InboxMenu': ['InboxMenu'],
   'InfoCard': ['InfoCard', 'InfoCardBody'],
   'InspectorPanel': ['Counts', 'GroupLine', 'PanelBody', 'PanelEmpty', 'PanelFilter', 'PanelFooter', 'PanelFrame', 'PanelRow', 'RowTime', 'RunDot'],
-  'LeftColumn': ['LeftColumn', 'LeftColumnBody', 'LeftColumnEmpty', 'LeftColumnExplorerFoot', 'LeftColumnExplorerHead', 'LeftColumnGroup', 'LeftColumnHead', 'LeftColumnList', 'LeftColumnListOptions', 'LeftColumnModeHead', 'LeftColumnNavigation', 'LeftColumnProjectsHead', 'LeftColumnRename', 'LeftColumnRow', 'LeftColumnSeats', 'LeftColumnSeat', 'LeftColumnTop'],
+  'LeftColumn': ['LeftColumnBulkBar', 'LeftColumn', 'LeftColumnBody', 'LeftColumnEmpty', 'LeftColumnExplorerFoot', 'LeftColumnExplorerHead', 'LeftColumnGroup', 'LeftColumnHead', 'LeftColumnList', 'LeftColumnListOptions', 'LeftColumnModeHead', 'LeftColumnNavigation', 'LeftColumnProjectsHead', 'LeftColumnRename', 'LeftColumnRow', 'LeftColumnSeats', 'LeftColumnSeat', 'LeftColumnTop'],
   'LibraryMatrix': ['LibraryMatrix'],
   'Lightbox': ['Lightbox'],
   'MainDestination': ['DestinationBody', 'MainDestination'],
   'Menu': ['ContextMenu', 'IssueMark', 'Menu', 'MenuAccountGroup', 'MenuAccountRow', 'MenuItem', 'MenuLabel', 'MenuNote', 'MenuSeparator', 'MenuToggle', 'Submenu', 'useContextMenu', 'useMenuClose'],
   'ModalDialog': ['Dialog', 'DialogBody', 'DialogFooter', 'DialogHead', 'modalSurfaceClass'],
-  'Notices': ['ComposerNotice', 'ComposerNoticeStack', 'ComposerTail', 'InboxPanel', 'NoticeCard', 'NoticeStrip', 'showToast'],
+  'Notices': ['ComposerNotice', 'ComposerNoticeStack', 'ComposerTail', 'DecisionNotice', 'InboxPanel', 'NoticeCard', 'NoticeStrip', 'showToast'],
   'Page': ['Page', 'PageColumns', 'PageStack'],
   'PageControls': ['PageControls', 'PageExplanation', 'PreservedText', 'ShortcutKeys'],
   'PageOptions': ['PageOptions'],
@@ -799,7 +810,7 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'SignInRail': ['SignInRail'],
   'SubjectActionsMenu': ['SubjectActionsMenu'],
   'TerminalShellTabs': ['TerminalShellTabs'],
-  'ToolBody': ['ToolBody', 'ToolBodyControls', 'ToolBodySections', 'ToolFold', 'ToolProse', 'ToolSection'],
+  'ToolBody': ['ToolBody', 'ToolBodyControls', 'ToolBodySections', 'ToolFold', 'ToolGroup', 'ToolProse', 'ToolSection'],
   'ToolFooter': ['ToolFooterOutlet', 'ToolFooterProvider', 'ToolFooterPublisher', 'ToolFooterScope', 'ToolFooterSuppressed'],
   'TopBar': ['TopBar', 'TopBarToolButton'],
   'TurnWork': ['TurnItem', 'TurnWorkBody', 'TurnWorkHeader', 'TurnWorkHeaderLabel', 'TurnWorkLive'],
@@ -944,6 +955,7 @@ export const CANONICAL_UI_MODULES = [
 ] as const satisfies readonly ModuleSeed[]
 
 export const CANONICAL_PATTERN_MODULES = [
+  ['LeadWorking', 'lead-turn', 'A pending Lead reply with host activity, elapsed seconds and Stop in its turn'],
   ['LeadAvatar', 'lead-avatar', 'The chosen Lead character on its disc, one size per place'],
   ['ConversationShell', 'conversation', 'The session and Lead share their window, transcript and floating composer dock'],
   ['LeadPlanFlow', 'lead-plan-flow', 'Ordered plan steps and responsible roles on the shared timeline, ending in approval'],
@@ -999,6 +1011,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['FlowCards', 'flow-cards', 'Flow destination and picker cards with faithful policy thumbnails, source and earned summary'],
   ['FlowCanvasWorkspace', 'flow-canvas-workspace', 'Shared editable canvas, floating tools and responsive card rail'],
   ['FlowCanvasToolbar', 'flow-canvas-toolbar', 'Editing and view controls at the canvas left, Run actions at the right'],
+  ['AgentFlow', 'agent-flow', 'Sub-agents a conversation started: a card with each child’s phase, prompt and facts, and lanes on one clock'],
   ['FlowStepRow', 'flow-graph', 'Shared Flow and main Run Timeline step rows with kind, recorded state, time and run count'],
   ['SignInRail', 'sign-in-rail', 'Sign-in navigation on the shared sidebar ground'],
   ['TeamsBoard', 'teams-page', 'Attention columns, Team cards and folded receipts, composed from the shared card and text primitives'],

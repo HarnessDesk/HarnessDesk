@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { test, type TestContext } from 'node:test'
-import { approvalId, itemId, runtimeId, sessionId, turnId, type Session, type SessionSummary } from '@harnessdesk/protocol'
+import { approvalId, itemId, runtimeId, sessionId, turnId, usageCrossingKey, type Session, type SessionSummary } from '@harnessdesk/protocol'
 import { Host } from '../src/host.js'
 import { SessionIndex } from '../src/session-index.js'
 import { StateStore } from '../src/state.js'
@@ -13,9 +13,9 @@ import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
 
 /** A real host over a fake agent and an index seeded the way a desk's own is, asked the phone's way. */
-const desk = async (t: TestContext, bulk = false, interrupt = true, startTimes?: boolean) => {
+const desk = async (t: TestContext, bulk = false, interrupt = true, startTimes?: boolean, metered = false, deleteHistory: false | 'trash' | 'erase' = 'trash') => {
   const root = tempDir('hd-phone-host-')
-  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false, interrupt, ...(startTimes === undefined ? {} : { startTimes }) } })
+  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false, interrupt, metered, deleteHistory, ...(startTimes === undefined ? {} : { startTimes }) } })
   const row = (id: string, over: Partial<SessionSummary>): SessionSummary =>
     ({ runtime: runtime.info.id, id: sessionId(id), title: id, cwd: join(root, 'acme-api'), createdAt: 10, updatedAt: 20, status: { type: 'notLoaded' }, archived: false, ...over })
   const index = new SessionIndex(join(root, 'sessions.sqlite'))
@@ -194,10 +194,11 @@ test('the host answers the phone’s snapshot of the work in the phone’s own u
     [`${runtime.info.id}:priced`, 'session', 'done', 'Done', { micros: 750_000 }, { name: runtime.info.presentation.name }],
     [`${runtime.info.id}:free`, 'session', 'done', 'Done', undefined, { name: runtime.info.presentation.name }],
   ])
+  assert.ok(snapshot.items.every(item => item.canDelete === (runtime.info.capabilities.deleteHistory === 'trash')))
   assert.equal(snapshot.items[0]!.title, 'Fix the sign-in for … in …')
   assert.equal(snapshot.items[0]!.project, undefined, 'a folder that is no repository names no project, in the list or in the conversation')
   assert.equal(snapshot.deskName, 'Desk')
-  assert.deepEqual(snapshot.capabilities, { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: true, chooseAgent: false, choosePermissions: false, attach: false, undo: false, decide: true })
+  assert.deepEqual(snapshot.capabilities, { startSession: true, startTeam: false, reply: true, stop: true, delete: runtime.info.capabilities.deleteHistory === 'trash', rename: true, archive: true, pin: true, chooseModel: true, chooseAgent: false, choosePermissions: false, attach: false, undo: false, decide: true })
   assert.deepEqual(snapshot.models.map(model => model.id), runtime.models.map(model => model.id))
   // The desk starts its default agent in the background; once it answers it is listed with its own models.
   const ready = await host.call('workspace/read', {})
@@ -432,4 +433,108 @@ test('a phone offers the admitted projects to start in, never a folder the host 
   const snapshot = await phoneCall(host, 'workspace/read', {})
   assert.deepEqual(snapshot.projects, ['acme-api'])
   assert.ok(!JSON.stringify(snapshot.projects).includes(root))
+})
+
+test('Lead allowance uses only cached Dashboard reports and never asks a runtime', async t => {
+  const { host, runtime } = await desk(t, false, true, undefined, true)
+  // Populate the same cache the Dashboard uses, through a scripted runtime only.
+  await host.call('usage/reports', {})
+  let calls = 0
+  runtime.getRateLimits = async () => { calls++; throw new Error('Lead must not refresh allowance') }
+  const result = await host.call('lead/usage/summary', {})
+  assert.equal(calls, 0)
+  assert.equal(typeof result.asOf, 'number')
+  assert.equal(result.accounts.length, 1)
+  assert.equal(result.accounts[0]!.windows[0]!.remaining, 42)
+})
+
+test('the Lead and the phone list the accounts the Dashboard lists: nothing read is Not reporting, a stopped agent is left out', async t => {
+  // Not metered: the scripted agent reports no allowance, as an agent nobody can read does.
+  const { host, runtime, state } = await desk(t)
+  // Straight after a start nothing has been read: an empty cache is not an agent that says nothing (#2111 review).
+  assert.deepEqual((await host.call('lead/usage/summary', {})).accounts, [])
+  await host.call('usage/reports', {})
+  const summary = await host.call('lead/usage/summary', {})
+  assert.deepEqual(summary.accounts.map(account => [account.runtime, account.notReporting, account.windows.length]), [[runtime.info.presentation.name, true, 0]])
+  const usage = (await phoneCall(host, 'workspace/read', {})).usage
+  if (usage) assert.deepEqual(usage.runtimes.map((row: any) => [row.name, row.status, row.notReporting, row.readAt]), [[runtime.info.presentation.name, 'Not reporting', true, undefined]])
+  // Stopped tracking on the desk: no surface lists it any more.
+  await state.setPreferences({ usageOff: [runtime.info.id] })
+  assert.deepEqual((await host.call('lead/usage/summary', {})).accounts, [])
+})
+
+test('the bell and the phone drop an allowance notice a newer read no longer bears out (#2111)', async t => {
+  const { host, state, runtime } = await desk(t, false, true, undefined, true)
+  const resetsAt = Date.now() + 4 * 24 * 3_600_000
+  runtime.getRateLimits = async () => ({ lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 60, windowMinutes: 7 * 24 * 60, resetsAt }] })
+  const read = (await host.call('usage/reports', {})).find(one => one.lanes.some(lane => lane.usageKnown !== false))
+  const lane = read!.lanes.find(one => one.usageKnown !== false)!
+  assert.ok(lane.usedPercent >= 50 && lane.usedPercent < 80, `the scripted reading sits between the two lines (${lane.usedPercent}%)`)
+  const crossed = (threshold: number) => usageCrossingKey({ runtime: read!.runtime, account: read!.account, lane: lane.id, resetsAt: lane.resetsAt, threshold })
+  const notice = (id: string, title: string) => ({ id, contentKey: id, kind: 'usage:crossing', title, tone: 'warning', at: read!.fetchedAt - 3 * 24 * 3_600_000, read: false })
+  // Three days old: one says a line the newer read is under, one says a line it is still over.
+  // From before notices carried figures: one names this agent, which has been read since; one names an agent that has not.
+  const legacy = (id: string, title: string) => ({ id, kind: 'usage:crossing', title, tone: 'warning', at: read!.fetchedAt - 3 * 24 * 3_600_000, read: false })
+  await state.setPreferences({ inbox: [notice(crossed(80), 'Weekly is 80% used'), notice(crossed(50), 'Weekly is 50% used'),
+    legacy('old-own', `${runtime.info.presentation.name} — Weekly is 80% used.`), legacy('old-other', 'Another agent — Weekly is 80% used.')] })
+  const items = (await host.call('lead/inbox/read', {})).items.filter(item => item.kind === 'notice')
+  assert.deepEqual(items.map(item => item.title).sort(), ['Another agent — Weekly is 80% used.', 'Weekly is 50% used'])
+})
+
+for (const capability of [false, 'erase', 'trash'] as const) test(`phone rows follow runtime deletion capability: ${capability}`, async t => {
+  const { host } = await desk(t, false, true, undefined, false, capability)
+  const snapshot = await host.call('workspace/read', {})
+  assert.equal(snapshot.capabilities.delete, capability === 'trash')
+  assert.ok(snapshot.items.every(item => item.canDelete === (capability === 'trash')))
+  const rows = await host.call('phone/sessions/list', {})
+  assert.ok(rows.rows.every(row => row.canDelete === (capability === 'trash')))
+})
+
+test('desk transcript reads and background attachment do not mark a conversation opened', async t => {
+  const { host, runtime, root } = await desk(t)
+  const id = sessionId('priced')
+  runtime.minted.set(id, join(root, 'acme-api'))
+  const indexed = async () => (await host.call('session/index', {})).data.find(row => row.id === id)!
+  assert.equal((await indexed()).lastOpenedAt ?? 0, 0)
+  await host.call('session/read', { runtime: runtime.info.id, sessionId: id })
+  assert.equal((await indexed()).lastOpenedAt ?? 0, 0)
+  await host.call('session/resume', { runtime: runtime.info.id, sessionId: id })
+  assert.equal((await indexed()).lastOpenedAt ?? 0, 0)
+  await host.call('session/opened', { runtime: runtime.info.id, sessionId: id })
+  assert.ok((await indexed()).lastOpenedAt! > 0)
+})
+
+test('host migrates only existing pins after seeding and clears the legacy preference', async t => {
+  const root = tempDir('hd-pin-migration-')
+  const state = new StateStore(join(root, 'state.json'))
+  await state.load()
+  await state.setPreferences({ listPrefs: { sort: 'name', pinnedSessions: ['fake:kept', 'fake:seeded', 'fake:missing'] } })
+  await mkdir(join(root, 'transcripts', 'fake'), { recursive: true })
+  await writeFile(join(root, 'transcripts', 'fake', 'seeded.json'), JSON.stringify({ version: 1, runtime: 'fake', id: 'seeded', savedAt: 1, turns: [] }))
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  index.upsert({ runtime: runtimeId('fake'), id: sessionId('kept'), cwd: root, status: { type: 'notLoaded' }, createdAt: 1, updatedAt: 2 })
+  index.close()
+  const host = new Host({ state, logger: silent, builtinAgents: root, catalogRefreshMs: 0 })
+  host.register(new FakeRuntime())
+  t.after(() => host.dispose())
+  await host.start()
+  const deadline = Date.now() + 5_000
+  while (Object.hasOwn(state.state.preferences['listPrefs'] as object, 'pinnedSessions')) {
+    assert.ok(Date.now() < deadline, 'migration finishes after the index seed')
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.deepEqual(await host.call('session/pins', {}), ['fake:kept', 'fake:seeded'])
+  assert.deepEqual(state.state.preferences['listPrefs'], { sort: 'name' })
+  const savedList = async () => {
+    const saved = new StateStore(join(root, 'state.json'))
+    await saved.load()
+    return saved.state.preferences['listPrefs'] as object
+  }
+  let persisted = await savedList()
+  while (Object.hasOwn(persisted, 'pinnedSessions')) {
+    assert.ok(Date.now() < deadline, 'legacy pins are removed from durable preferences')
+    await new Promise(resolve => setTimeout(resolve, 10))
+    persisted = await savedList()
+  }
+  assert.deepEqual(persisted, { sort: 'name' })
 })

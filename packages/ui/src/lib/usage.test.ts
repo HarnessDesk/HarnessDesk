@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import * as protocol from '@harnessdesk/protocol'
 import { runtimeId, type UsageLane, type UsageReport } from '@harnessdesk/protocol'
 
 import {
@@ -14,6 +15,7 @@ import {
   formatCountdownShort,
   formatMoney,
   gatedUntil,
+  pacingNote,
   isBlocked,
   pace,
   costClause,
@@ -733,6 +735,11 @@ describe('formatting', () => {
     expect(formatAge(NOON - 2 * MINUTE, NOON)).toBe('2m ago')
   })
 
+  it('rounds an age down, as the phone does, so 14h 50m reads 14h ago (#2150)', () => {
+    expect(formatAge(NOON - (14 * 60 + 50) * MINUTE, NOON)).toBe('14h ago')
+    expect(formatAge(NOON - 50 * MINUTE, NOON)).toBe('50m ago')
+  })
+
   it('reads a plan the same on every badge, without rewriting what the source wrote', () => {
     // Codex reports its login method, in lower case; Cursor already title-cases.
     expect(planLabel('team')).toBe('Team')
@@ -976,5 +983,58 @@ describe('rightNow', () => {
 
   it('has nothing to choose between with one measured account', () => {
     expect(rightNow([report({ lanes: [lane({ id: 'w', usedPercent: 10 })] })], name, NOON)).toBeNull()
+  })
+})
+
+describe('pacingNote', () => {
+  const name = (): string => 'Agent A'
+  const weekly = (usedPercent: number, resetsAt: number): UsageLane =>
+    lane({ id: 'weekly', label: 'Weekly', usedPercent, windowMinutes: 10_080, resetsAt })
+
+  it('names the account whose window refills soon with most of it unspent, with its reset (Q15)', () => {
+    const line = pacingNote(
+      [
+        report({ account: 'dev@example.com', lanes: [weekly(10, NOON + 6 * DAY)] }),
+        report({ account: 'team@acme.dev', lanes: [weekly(30, NOON + 20 * HOUR)] }),
+      ],
+      name,
+      NOON,
+    )
+    expect(line).toBe(`Use Agent A (team@acme.dev) first — its Weekly has 70% left and resets ${new Date(NOON + 20 * HOUR).toLocaleDateString(undefined, { weekday: 'short' })} 8:00 AM.`)
+  })
+
+  it('says nothing when no allowance is about to be lost', () => {
+    expect(pacingNote(
+      [
+        report({ account: 'dev@example.com', lanes: [weekly(10, NOON + 6 * DAY)] }),
+        report({ account: 'team@acme.dev', lanes: [weekly(30, NOON + 5 * DAY)] }),
+      ],
+      name,
+      NOON,
+    )).toBeNull()
+  })
+
+  it('never decides on a failed refresh, whatever its kept figures say', () => {
+    expect(pacingNote(
+      [
+        report({ account: 'dev@example.com', lanes: [weekly(10, NOON + 6 * DAY)] }),
+        report({ account: 'team@acme.dev', lanes: [weekly(30, NOON + 20 * HOUR)], error: { message: 'HTTP 503' } as UsageReport['error'] }),
+      ],
+      name,
+      NOON,
+    )).toBeNull()
+  })
+
+  it('has no first to name with one account', () => {
+    expect(pacingNote([report({ lanes: [weekly(30, NOON + 20 * HOUR)] })], name, NOON)).toBeNull()
+  })
+})
+
+describe('the countdown the Lead is told (#2174)', () => {
+  it('is the Dashboard\'s own formatter, from the protocol, so the host and the UI say the same words', () => {
+    expect(formatCountdown).toBe(protocol.formatCountdown)
+    expect(formatResetCountdown).toBe(protocol.formatResetCountdown)
+    expect(formatCountdownShort).toBe(protocol.formatCountdownShort)
+    expect(formatResetCountdown(21.14 * DAY)).toBe(`in ${protocol.formatResetIn(21.14 * DAY)}`)
   })
 })

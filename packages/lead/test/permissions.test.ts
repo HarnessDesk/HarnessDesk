@@ -502,3 +502,28 @@ test('approved Team scope works before a first run and refuses other Team ids', 
     assert.equal(decide({ ...request(), method, params: other, runId: null }, c).effect, 'deny')
   }
 })
+
+
+test('desk summary is read-only without a selected project; chat listings still need one', () => {
+  const c = { ...context(), project: null, approved: null }
+  const r = { method: 'lead/desk/summary', params: {}, project: null, runId: null, start: null }
+  assert.equal(decide(r, c).effect, 'allow')
+  assert.equal(decide({ ...r, method: 'lead/chat/list' }, c).effect, 'deny')
+})
+
+test('allowance summary is a desk-wide read with no selected project', () => {
+  const c = { ...context(), project: null, approved: null }
+  assert.equal(decide({ method: 'lead/usage/summary', params: {}, project: null, runId: null, start: null }, c).effect, 'allow')
+})
+
+test('the Lead reads its own context use with no selected project, and never the summaries through its client', () => {
+  const c = { ...context(), project: null, approved: null }
+  assert.equal(decide({ method: 'lead/context/use', params: {}, project: null, runId: null, start: null }, c).effect, 'allow')
+  assert.notEqual(decide({ method: 'lead/context/read', params: {}, project: null, runId: null, start: null }, c).effect, 'allow')
+})
+
+test('the Lead sets and cancels a reminder with no selected project', () => {
+  const c = { ...context(), project: null, approved: null }
+  assert.equal(decide({ method: 'lead/reminder/set', params: { text: 'Send the notes', inMinutes: 30 }, project: null, runId: null, start: null }, c).effect, 'allow')
+  assert.equal(decide({ method: 'lead/reminder/cancel', params: { id: 'remind-1' }, project: null, runId: null, start: null }, c).effect, 'allow')
+})

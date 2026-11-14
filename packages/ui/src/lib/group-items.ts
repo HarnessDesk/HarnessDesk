@@ -41,7 +41,6 @@ const STEP_TYPES = new Set<AgentItem['type']>([
   'fileChange',
   'toolCall',
   'webSearch',
-  'subagent',
   'image',
 ])
 
@@ -200,6 +199,17 @@ export type DisplayNode =
       /** True while any member is still running, so the group defaults open. */
       readonly running: boolean
     }
+  | {
+      /**
+       * Every sub-agent call in this stretch, drawn as one card where the
+       * first was made. A spawn, the messages to its children and the wait
+       * on them are one story about the same children, and a card that keeps
+       * their state current says it better than a row per call.
+       */
+      readonly kind: 'agents'
+      readonly id: string
+      readonly items: readonly AgentItem[]
+    }
 
 export const groupItems = (
   items: readonly AgentItem[],
@@ -225,7 +235,34 @@ export const groupItems = (
     run = []
   }
 
+  // Sub-agent calls fold into one card per stretch: a stretch ends where the
+  // agent said something, so a second round of delegation after a reply
+  // gets its own card at the live end of the turn rather than updating one
+  // scrolled far above it.
+  const stretches = new Map<string, AgentItem[]>()
+  let stretch: AgentItem[] | null = null
+  for (const item of items) {
+    if (item.type === 'subagent') {
+      if (!stretch) {
+        stretch = []
+        stretches.set(String(item.id), stretch)
+      }
+      stretch.push(item)
+    } else if (item.type === 'assistantMessage' || item.type === 'userMessage') {
+      stretch = null
+    }
+  }
+
   for (const item of condenseItems(items)) {
+    if (item.type === 'subagent') {
+      // The card stands where its stretch's first call was made; later calls
+      // only update it, and do not break the burst they were made in.
+      const head = stretches.get(String(item.id))
+      if (!head) continue
+      flush()
+      nodes.push({ kind: 'agents', id: `agents-${String(item.id)}`, items: head })
+      continue
+    }
     // A described step breaks the burst and stands alone: the sentence is
     // the thing a reader scrolls back for, and a count would hide it.
     if (STEP_TYPES.has(item.type) && !isDescribed(item)) {

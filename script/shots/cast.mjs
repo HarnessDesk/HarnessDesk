@@ -38,7 +38,7 @@ export const rigRuntimeId = (id) => id === 'codex' ? id : `shots-${id}`
  * you installed*. Three rows read as a demo of three integrations; twelve rows
  * read as a property of the product.
  *
- * `brand` must be a member of `BRANDS` in `packages/ui/src/lib/brands.ts` or
+ * `brand` must be a member of `BRANDS` in `packages/protocol/src/brands.ts` or
  * the row falls back to reading the name, and a fallback mark in a hero image
  * is a bug nobody will report. Every one of these was checked against that
  * list.

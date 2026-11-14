@@ -183,6 +183,7 @@ bottom hairline is additional to its content inset.
 | Activity lines above a composer | row · 12px | `--hd-inset-row` | Each filled line in `ComposerTail` owns all four sides, overriding the unframed live line's smaller rhythm. Faces are content too. |
 | Board column around its cards, inspector group band, tool-pane content aligned with its bar | dense · 8px | `--hd-inset-dense` | The filled inspector band keeps symmetric vertical air and the rows' 12px inline edge; a non-bleeding tool body shares its header's leading edge. |
 | Compact panel section | row · 12px | `--hd-inset-row` | The section owns all four sides. |
+| Right-panel card (`ToolSection`) content | row · 12px | `--hd-inset-row` | The card's body has no inline padding; every child brings the row edge its label stands on. Rows, panel facts and `ToolProse` already do; a group's label is a `ToolGroup`, a muted line `ToolProse variant="note"`, buttons and fields `ToolBodyControls`, small list rows `ListRows surface="panel"`. A bare `Button`, `Text` or `SectionHead` lands on the border (`tool-section-inset.spec.ts`). A group's label sits 4px over its first row and 12px more under the group before it. A list of rows in a card (`ListRows surface="panel"`, Settings rows) carries no hairline between its rows; a summary of facts may rule its items, and any rule inside a card stops at the row edge on both sides. |
 | Modal question or sheet | dialog · 24px | `--hd-inset-dialog` | Header, body and footer; a bare primitive dialog owns the outer inset instead. A flush list body delegates to its rows. A subhead is a bar, keeping the same inline edge. |
 | Pane's reading column | reading · 24px | `PaneColumn inset="reading"` | The pane owns the gutter before the reading measure; scrollbar reservation is additional layout space. A floating composer's bottom reserve is clearance, not a surface inset. |
 | Bar and navigation rail | bar · 8px | `--hd-bar-pad`, `--hd-rail-inset` | The bar owns the control-box edge; `--hd-bar-ink` includes the control's own inset for labels. Native window controls may add clearance. |
@@ -235,7 +236,7 @@ by its line box, because a text Range includes unused font-em space outside it.
 
 ## Named text roles
 
-A head naming a band of a page’s body uses the 16px semibold `section` role; field groups, Settings forms, dialog groups and right-rail card labels stay small (`SectionHead level="label"`).
+A head naming a band of a page’s body uses the 16px semibold `section` role; field groups, Settings forms, dialog groups and right-rail card labels stay small (`SectionHead level="label"`; inside a rail card, `ToolGroup`, which puts that label on the card's row edge).
 
 A size and a weight together name a *role*. A role describes what the words
 are doing; screens do not invent a new spelling for the same job:
@@ -1168,7 +1169,11 @@ group-label role — see "One title, one group label" above, where the design
 audit's `uppercaseLabel` already refuses the capitals in source. Its weight is
 the shared label weight, `--hd-label-weight`: medium in Desk and Studio.
 Studio varies the air above a rail's group, on purpose. Size, ink and case are the same in both. Quiet sidebar bands
-(Pinned, Projects and Other projects) use muted ink; other group labels keep
+(Pinned, Projects and Other projects) use muted ink, and so does a group
+inside a right-panel card (`ToolGroup`: "Needs you · 1", "Rules"), which is
+the same quiet band one level down: the card's own label keeps secondary ink
+above it and the rows' names the foreground below it, so the group reads as a
+label of its rows and not as one more row. Other group labels keep
 secondary ink. `GroupLabel ink="muted"` and `NavigationGroupHeader labelInk="muted"`
 carry that choice without changing the label’s inset.
 
@@ -2490,7 +2495,10 @@ control; an unread recent-folder entry cannot permanently hide that control.
 ## Lead is a conversation
 
 Lead and a session share ConversationShell, ConversationThread, ConversationDock,
-ConversationComposerFrame and the same top-bar registration. LeadMessage uses Items;
+ConversationComposerFrame and the same top-bar registration. The dock floats over
+the thread and the thread reserves its measured height; a thread a screen does
+not follow itself sets `keepEnd`, so a notice joining the dock (the away digest)
+never covers the last message while the reader is at the end. LeadMessage uses Items;
 assistant decision prose uses the same TranscriptAssistantMessage frame as Items.
 The empty state is ConversationEmptyState holding one LeadGreeting: the
 LeadAvatar, a title at the section step (16), one secondary sentence at 14, and
@@ -2499,6 +2507,7 @@ Until settings load the disc is empty and the title is "Hi there". The Lead's
 presence word is drawn in the sidebar row and the bar only when it is not at
 rest; Ready and No folder open stay in the status popover. The chosen name
 occupies the title slot and composer placeholder.
+In a Lead turn, the face's vertical centre meets the centre of the first block's first line box, including paragraphs, bold labels, lists, headings and cards; the working row keeps that same alignment.
 The tools slot holds the rail toggle (`PageRailToggle`) and the settings glyph opening Settings › Lead;
 the rail is LeadDetails, and the allowance lives on its Spend card, not under the composer.
 Active goals outside terminal predecessor waits use ComposerTrack name="send":
@@ -2532,9 +2541,9 @@ that files and worktrees are left as they are. Other active goal phases offer
 Stop in the composer's send track. The composer continues with the person's new instructions;
 once a goal is accepted, declined or stopped it accepts a new one. Both waits have synthetic preview scenes in both themes.
 
-The thread ends with at most one quiet line, TurnWorkLive, so a goal that is working
-or that was stopped is never silent. "Planning…" shows while a request runs and no plan
-is on the table; while the goal runs it names the step, of how many, and the runs it
+A pending reply uses LeadWorking in its LeadTurn: a quiet pulse, the host-observed step (Thinking when none is known), elapsed seconds in muted ink and the composer's Stop action. The first reply replaces that body in place, retaining its face. A plan on the table is not pending work.
+The thread otherwise ends with at most one quiet line, TurnWorkLive, so a goal that is working
+or that was stopped is never silent; while the goal runs it names the step, of how many, and the runs it
 has started ("Step 1 of 2 · Repair the parser · 1 run", "no runs yet" before the first).
 Both come from the window's `progress` and `requestInFlight`, which the host reads from
 the journal. After the person's Stop, which makes no stopped card, the settled form says

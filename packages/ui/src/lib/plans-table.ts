@@ -1,5 +1,5 @@
-import type { UsageLane, UsagePreference, UsageReport } from '@harnessdesk/protocol'
-import { bindingLane } from '@harnessdesk/protocol'
+import type { UsageLane, UsagePlanShape, UsagePreference, UsageReport, UsageShape } from '@harnessdesk/protocol'
+import { answeredWithNothing, bindingLane, isSilentUsage, usageShapeOf } from '@harnessdesk/protocol'
 
 import { paidForAccount, cycleStartFromLanes, periodBounds } from './paid'
 import { paidRatio } from './overview-strip'
@@ -15,12 +15,10 @@ import { paletteTone, type Tone } from './limits'
  */
 
 /** The five shapes `UsageBilling.kinds` names, in the order a primary shape is chosen. */
-export type PlanShape = 'windows' | 'allowance' | 'balance' | 'metered' | 'free'
+export type PlanShape = UsagePlanShape
 
 /** A row's shape, plus the one case no `UsageBilling` value can express. */
-export type RowShape = PlanShape | 'none'
-
-const SHAPE_ORDER: readonly PlanShape[] = ['windows', 'allowance', 'balance', 'metered', 'free']
+export type RowShape = UsageShape
 
 /** A card's own word for each shape — the "Key" body, the "Balance" body. */
 export const SHAPE_LABEL: Readonly<Record<PlanShape, string>> = {
@@ -49,17 +47,10 @@ export const SHAPE_CHIP_LABEL: Readonly<Record<RowShape, string>> = {
  * a shape — a source that predates `billing` reported nothing else — so the
  * fallback reads the same facts `billing.kinds` would have named. Only a
  * report with none of `billing`, `lanes` or a balance is `'none'`: "not
- * reporting."
+ * reporting." The rule is the protocol's `usageShapeOf`, so the phone and the
+ * Lead call the same accounts Not reporting (`answeredWithNothing`).
  */
-export const primaryShapeOf = (report: UsageReport): RowShape => {
-  const kinds = report.billing?.kinds ?? []
-  for (const shape of SHAPE_ORDER) {
-    if (kinds.includes(shape)) return shape
-  }
-  if (report.lanes.length > 0) return 'windows'
-  if (balanceOf(report.credits) !== null) return 'balance'
-  return 'none'
-}
+export const primaryShapeOf = (report: UsageReport): RowShape => usageShapeOf(report)
 
 export interface ShapeCounts {
   readonly all: number
@@ -176,6 +167,7 @@ export const STATUS_LABEL: Readonly<Record<RowStatus, string>> = {
   overdrawn: 'Overdrawn',
   overage: 'On overage',
   unlimited: 'Ready',
+  // A read that failed or came back without usable figures reported something: Unknown, never Not reporting.
   unknown: 'Unknown',
   notReporting: 'Not reporting',
 }
@@ -219,14 +211,17 @@ export const statusOf = (
   view: ReportView,
   now: number,
 ): RowStatus => {
+  // The stand-in for a tracked agent nothing answered for, and an account that answered with nothing to draw: the
+  // phone's Not reporting, the same expression (`phone-workspace.ts`), so the two surfaces never disagree (#2150).
+  if (isSilentUsage(raw) || answeredWithNothing(raw, now)) return 'notReporting'
   const standing = usageStandingOf(raw, now)
-  // A failed read keeps the last good lanes and balance, but nothing in them is current: say Unknown, as the card and the phone do.
+  // Unknown is a read that never answered. A refresh that failed after a good reading keeps that reading's standing,
+  // as the card and the phone do; the row marks it stale (#2094).
   if (standing.status === 'unknown') return 'unknown'
   const balance = shape === 'balance' ? (balanceOf(raw.credits)?.remaining ?? null) : null
   if (balance !== null && balance < 0) return 'overdrawn'
   if (view.blocked || standing.status === 'out' || balance === 0) return 'out'
   if (standing.status === 'overdrawn') return 'overdrawn'
-  if (shape === 'none') return 'notReporting'
   // The card's chip says the same standing, so Short and Low win over overage; the card's note carries the overage.
   if (standing.status === 'short') return 'short'
   if (standing.status === 'low') return 'low'
@@ -389,7 +384,7 @@ export const describeRow = (report: UsageReport, now: number, preference?: Usage
   const view = describeReport(drawn, { now, maxLanes: 3, preference: deciding ? { ...preference, pinLaneId: deciding } : preference })
   const statusView = borrowed ? describeReport(report, { now, maxLanes: 0 }) : view
   const status = statusOf(report, shape, statusView, now)
-  // A failed read's figures are the last ones cached: Unknown draws no percent and sorts on none.
+  // Unknown has no figure to draw and sorts on none; a kept reading draws its last good figure.
   const left = status === 'unknown' ? { percent: null } : leftOf(shape, drawn, view)
   return {
     key: `${report.runtime}:${report.account ?? ''}`,
@@ -425,6 +420,9 @@ export const sortRows = (rows: readonly PlanRow[]): readonly PlanRow[] =>
   [...rows].sort((a, b) => rankOf(a) - rankOf(b) || tiebreak(a, b))
 
 const rankOf = (row: PlanRow): number => {
+  // A kept reading draws its last good figure, marked stale, but sorts with the rows that have none: the order is a
+  // judgement of what needs looking at, and the overview's own order never ranks on a failed read either.
+  if (row.raw.error !== null) return 1_000
   if (row.status === 'out' || row.status === 'overdrawn') return -1
   if (row.left.percent !== null) return row.left.percent
   return row.shape === 'none' ? 1_001 : 1_000

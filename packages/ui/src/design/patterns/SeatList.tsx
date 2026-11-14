@@ -26,7 +26,7 @@ export interface SeatListRow {
   readonly removeRefusal?: string
   readonly mutationRefusal?: string
 }
-export const SeatList = ({ rows }: { rows: readonly SeatListRow[] }) => <ListRows>{rows.map(one => <ListRow
+export const SeatList = ({ rows }: { rows: readonly SeatListRow[] }) => <ListRows surface="panel">{rows.map(one => <ListRow
   key={one.id} size="sm" role="group" aria-label={`${one.context ?? one.name} · ${one.state}`} selected={one.selected} interactive={!one.refusal} onClick={event => {
     if (!one.refusal && !(event.target as Element).closest('button')) one.open()
   }} title={<span title={one.refusal ?? one.context ?? one.name}>{one.name}</span>} wrapSubtitle={Boolean(one.refusal)} subtitle={<Text role="meta">{one.detail}{one.refusal ? ` · ${one.refusal}` : ''}</Text>} lead={one.mark}

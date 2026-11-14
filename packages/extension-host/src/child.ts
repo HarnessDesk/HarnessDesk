@@ -16,6 +16,7 @@ import {
   currentBrowserIdentity,
   setEditorEngine,
   setTeamEngine,
+  setAgentsEngine,
   setForgeEngine,
   setCapabilityBroker,
   capabilityWorkMs,
@@ -25,6 +26,7 @@ import {
   type CapabilityRequest,
   type EditorEngine,
   type TeamEngine,
+  type AgentsEngine,
   type ForgeEngine,
 } from '@harnessdesk/cordis-host'
 import {
@@ -325,6 +327,18 @@ const remoteTeamEngine: TeamEngine = {
 
 setTeamEngine(remoteTeamEngine)
 
+/**
+ * `ctx.agents` for plugins in this process: the question crosses to the
+ * parent, which owns the seats, the Flow gate and the asked conversation. The
+ * scope's `signal` stays behind (it is non-enumerable); the parent cancels the
+ * consult by the invocation it dispatched.
+ */
+const remoteAgentsEngine: AgentsEngine = {
+  ask: (input, scope) => askHost('agents/ask', { scope, agent: input.agent, question: input.question, context: input.context }),
+}
+
+setAgentsEngine(remoteAgentsEngine)
+
 /** `ctx.forge` for plugins in this process: the seat and the record live with the host, so every verb crosses. */
 const remoteForgeEngine: ForgeEngine = {
   push: (args, scope) => askHost('forge/push', { args, scope }),
@@ -339,6 +353,8 @@ const remoteForgeEngine: ForgeEngine = {
   associatedPullRequest: scope => askHost('forge/associatedPullRequest', { args: {}, scope }),
   record: (args, scope) => askHost('forge/record', { args, scope }),
   attribute: (args, scope) => askHost('forge/attribute', { args, scope }),
+  reviewThreads: (args, scope) => askHost('forge/reviewThreads', { args, scope }),
+  settleThread: (args, scope) => askHost('forge/settleThread', { args, scope }),
   seat: (scope) => askHost('forge/seat', { scope }),
   identity: (scope) => askHost('forge/identity', { scope }),
   publish: async (reference, scope) => void (await askHost('forge/publish', { scope, reference })),

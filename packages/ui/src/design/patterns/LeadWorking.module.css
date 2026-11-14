@@ -1,0 +1,2 @@
+.working { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--hd-space-2); }
+.step { display: inline-flex; align-items: center; gap: var(--hd-space-1-5); }

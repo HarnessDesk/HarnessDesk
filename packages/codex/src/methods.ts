@@ -16,6 +16,8 @@ import type {
   ThreadBackgroundTerminalsListResponse,
   ThreadBackgroundTerminalsTerminateParams,
   ThreadBackgroundTerminalsTerminateResponse,
+  ThreadBackgroundTerminalsCleanParams,
+  ThreadBackgroundTerminalsCleanResponse,
   CommandExecResizeParams,
   CommandExecResizeResponse,
   CommandExecResponse,
@@ -181,6 +183,15 @@ export interface CodexMethods {
   'thread/backgroundTerminals/terminate': {
     params: ThreadBackgroundTerminalsTerminateParams
     result: ThreadBackgroundTerminalsTerminateResponse
+  }
+  /**
+   * Ends every background terminal the thread still runs — live ones, not a
+   * reap of finished entries (`Op::CleanBackgroundTerminals` in the server).
+   * `turn/interrupt` leaves them running; Stop calls this for sub-agents.
+   */
+  'thread/backgroundTerminals/clean': {
+    params: ThreadBackgroundTerminalsCleanParams
+    result: ThreadBackgroundTerminalsCleanResponse
   }
 
   'turn/start': { params: TurnStartParams; result: TurnStartResponse }

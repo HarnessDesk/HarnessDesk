@@ -85,6 +85,7 @@ export {
 } from './browser.js'
 export { EditorService, setEditorEngine, type EditorEngine } from './editor.js'
 export { TeamService, setTeamEngine, type TeamEngine, type TeamScope } from './team.js'
+export { AgentsService, setAgentsEngine, type AgentsEngine, type AgentsScope, type AskAnswer, type AskInput } from './agents.js'
 export {
   BrowserInvocations,
   BrowserScopes,
@@ -95,7 +96,7 @@ export {
   withBrowserIdentity,
   type BrowserIdentity,
 } from './browser-scopes.js'
-export { validateForgeArgs, type ForgeVerb, type ForgeAssociatedPullRequest, type ForgePush, type ForgeCreate, type ForgeUpdate, type ForgeMerge, type ForgeReview, type ForgeComment, type ForgeRecordQuery, type ForgeAttribute, type ForgeRequester, type ForgeGitEntry, type ForgeWriteResult, ForgeService, setForgeEngine, type ForgeEngine, type ForgeIdentity, type ForgeScope, type ForgeSeat } from './forge.js'
+export { validateForgeArgs, type ForgeVerb, type ForgeAssociatedPullRequest, type ForgePush, type ForgeCreate, type ForgeUpdate, type ForgeMerge, type ForgeReview, type ForgeComment, type ForgeRecordQuery, type ForgeAttribute, type ForgeRequester, type ForgeGitEntry, type ForgeWriteResult, type ForgeThreadsQuery, type ForgeReviewThreads, type ForgeThreadSettle, type ForgeThreadSettled, FORGE_READS, ForgeService, setForgeEngine, type ForgeEngine, type ForgeIdentity, type ForgeScope, type ForgeSeat } from './forge.js'
 export { IosService, type SimDevice } from './ios.js'
 export type { IosAction, IosAppearance, IosCapability, IosFrame, IosKey, IosOrientation, IosSetup, PixelPoint, TimedPoint } from './ios-types.js'
 export { AndroidService, type AndroidDevice } from './android.js'

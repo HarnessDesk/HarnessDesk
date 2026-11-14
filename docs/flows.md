@@ -638,6 +638,77 @@ wait: 240
 budget: { rounds: 3, without-progress: 2 }
 ```
 
+### Asking another agent (`ask:`)
+
+An agent role may let its seats ask another agent one question, with the
+`ask_agent` tool. It is a consult, not a delegation:
+
+```yaml
+roles:
+  fixer:
+    kind: agent
+    uses: [implementer]
+    grant: edit
+    independentOf: []
+    ask: { seats: [claude, codex=gpt-5/high], times: 2, timeoutSeconds: 300 }
+```
+
+- `seats` names the agents a seat may ask (one to four), in the seat
+  grammar; a named model and effort are the ones the consult opens with.
+- `times` is how many asks each seat gets per run, 1 to 20. The count is
+  kept on the run, so a restarted desk does not refill it.
+- `timeoutSeconds` is how long one answer may take, 30 to 900, 300 when
+  omitted.
+
+The desk opens the asked agent in a conversation no window, Team or search
+shows, in the caller's checkout, ephemeral where the agent can be, and held at
+the `read` ceiling — read back, never assumed — for the consult's whole life,
+desk tools it calls included, and so is every conversation it hands work to,
+however deep; once it has answered, nothing of it is admitted at all. Before
+the question goes, the desk records which seat asked, beside that seat, so a
+crash mid-answer still leaves the work attributed. It sends the question, takes
+the one turn's last message as the answer (control characters stripped, cut
+at 32 KiB with a marker), and deletes the conversation. Any approval the
+asked agent raises is declined by the desk. The asked agent is never offered
+`ask_agent` itself, so asking is one level deep. Its usage counts against the
+caller's run: on a trigger's Goal it is metered as `<seat>/ask/<n>` on that
+Goal's budget, and a Goal at its cap refuses the ask — checked again after the
+consult's turn is on the meter, the last thing before the question goes, so a
+cap that read finds reached sends nothing. The usage is read from
+the live conversation before it is deleted and reconciled with whatever the
+recorded usage already counted — the final reading stands, never the sum, and
+a final reading below one taken earlier (a total that reset) leaves the spend
+unknown; a recorded reading older than one already counted, which the record
+hands back at every read, is nothing when it is at or below that count, and
+leaves the spend unknown when it is above it — the total once stood higher. An agent that reported none leaves the Goal's spend unknown, and the
+next ask is refused with that reason until a recorded reading taken at or
+after the consult's turn ended repairs it — one from part-way through repairs
+nothing; a Goal stopped meanwhile is still read for it — every Goal is read
+until its reservation settles — and one wrapped meanwhile settles then, after
+a restart too. A question withdrawn before it was sent costs nothing, and one
+withdrawn while it is being sent is not sent at all. Insight counts the
+consult under the seat that asked, from that same live reading kept with the
+seat when the last reading on disk is not larger. The consult is closed the
+moment its ask ends, before its deletion is even asked for, and nothing of it
+or of what it handed work to is admitted after; a runtime that hands its id
+out again opens a new consult, not the old one. The deadline
+bounds every step — opening, the read hold, metering and the answer — and
+cleanup has a bound of its own, so a consult that opens after its ask gave up
+is deleted rather than kept, and the agent's other conversations, held back
+while it opens, are let through one cleanup bound after that opening's
+deadline, whatever other openings started since.
+
+Only an agent whose adapter reports a read ceiling can be asked; any other is
+refused by name when asked. Whether each agent's read mode really prevents
+writes is a claim a recorded sitting per agent has to make (rule 7), and that
+sitting is still to come: this section claims nothing beyond the ceiling the
+adapter reports and the desk reads back.
+
+Only a seat whose role says `ask:` is offered the tool. Every other
+conversation — a person's own chat, a seat whose role says nothing about
+asking, the consult itself — is refused at call time even if its list shows
+the tool (a Codex thread keeps the tools it started with).
+
 ### Start from a fetched base
 
 An optional v2 `base` chooses where the Team starts:
@@ -1234,13 +1305,23 @@ flow works. A webhook or an inbound message source is still undecided: Intake
 reads only host-validated facts it polled itself, and any future source enters
 that same boundary rather than a listener of its own.
 
+A project can also take requests in words from its threads: a trigger on
+`issue` or `pull-request` with `events: [mentioned]` and `opens: { lead: true }`
+hands a comment whose first line starts with `@harnessdesk` to the Lead, which
+drafts a plan for the person to approve. It never starts a flow directly —
+a triggered flow receives no outside text, so it could not know what was
+asked. `docs/multi-agent.md` says exactly which comments ask.
+
 ### Every time
 
 *Every time…*, on a shape (from the front door) or an Agent (from its page),
 composes exactly that declaration rather than a person hand-writing YAML: the
 source (pull request, issue or schedule), its finite fields, the Goal grouping
 and dedupe keys, budget, and — for a pull request or an issue — whether a
-later firing continues an open Goal's round or only records the fact. A
+later firing continues an open Goal's round or only records the fact. For
+an issue or a pull request, *When someone asks @harnessdesk* drafts a request
+trigger instead: the Lead is its only target and the other events turn off,
+each saying why on hover, and *Who may ask* picks `from`. A
 schedule draft starts at 60 minutes, visibly editable; nothing here invents a
 field `triggers.yml` cannot already carry. *Save* writes the working tree
 alone, through the same guarded transaction a shape or an Agent field uses,

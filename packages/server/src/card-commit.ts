@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 
+import { DEFAULT_COMMIT_COAUTHOR } from '@harnessdesk/plugins'
 import type { RuntimePresentation } from '@harnessdesk/protocol'
 
 import { HARDENED_GIT_CONFIG, gitFiltersOff } from './git-hardening.js'
@@ -31,8 +32,10 @@ import { HARDENED_GIT_CONFIG, gitFiltersOff } from './git-hardening.js'
  * Paths come from git's own status, never from the agent, and
  * reach git as literal pathspecs through a file, so none can carry magic or
  * reach outside the checkout. The message preserves the agent's text and
- * adds the desk's co-author trailer once, stored from a file — never a
- * command-line argument, never a shell.
+ * adds the desk's co-author trailer once — the Git plugin's Commit co-author
+ * setting, already checked by the host, or none when it is blank — beside the
+ * agent's own native credit, stored from a file — never a command-line
+ * argument, never a shell.
  *
  * The author is the checkout's configured identity as git itself resolves it
  * (`user.name`, `user.email`), passed in explicitly because the commit runs
@@ -45,10 +48,12 @@ const run = promisify(execFile)
 /** The longest message `commit_work` takes. */
 export const COMMIT_MESSAGE_LIMIT = 8_000
 
-/** The desk's attribution; the checkout's configured identity owns the commit. */
-const COAUTHOR_TRAILER = 'Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>'
-
-const attributedMessage = async (cwd: string, message: string, credit: RuntimePresentation['coAuthor']): Promise<string> => {
+const attributedMessage = async (
+  cwd: string,
+  message: string,
+  credit: RuntimePresentation['coAuthor'],
+  deskCredit: string | null,
+): Promise<string> => {
   const comments: string[] = []
   for (const key of ['core.commentChar', 'core.commentString']) {
     const value = await git(cwd, ['config', '--get', key], { env: readEnv() }).catch(() => '')
@@ -62,7 +67,7 @@ const attributedMessage = async (cwd: string, message: string, credit: RuntimePr
     '--git-dir=/dev/null', ...comments, 'interpret-trailers',
     '--where=end', '--if-exists=addIfDifferent', '--if-missing=add',
     ...(credit ? ['--trailer', `Co-authored-by: ${credit.name} <${credit.email}>`] : []),
-    '--trailer', COAUTHOR_TRAILER,
+    ...(deskCredit ? ['--trailer', deskCredit] : []),
   ], message, isolatedEnv())
 }
 
@@ -220,8 +225,19 @@ const zEntries = (out: string): { readonly status: string; readonly path: string
  * Commits the paths in `cwd` that are dirty now and were not in `before`,
  * with `message`, and answers the new commit — or one sentence saying why
  * nothing was committed.
+ *
+ * `credit` is the running agent's own native co-author, added whenever it has
+ * one. `deskCredit` is the desk's line, the attribution the checkout's
+ * configured identity shares the commit with: one well-formed
+ * `Co-authored-by:` line (`commitCoAuthorOf` makes it), or null for none.
  */
-export const commitCardWork = async (cwd: string, before: readonly string[], message: string, credit: RuntimePresentation['coAuthor'] = null): Promise<CardCommit> => {
+export const commitCardWork = async (
+  cwd: string,
+  before: readonly string[],
+  message: string,
+  credit: RuntimePresentation['coAuthor'] = null,
+  deskCredit: string | null = DEFAULT_COMMIT_COAUTHOR,
+): Promise<CardCommit> => {
   if (message.trim() === '') return { refused: 'Refused: a commit needs a message, so nothing was committed.' }
   if (message.length > COMMIT_MESSAGE_LIMIT) {
     return { refused: `Refused: the message is longer than ${COMMIT_MESSAGE_LIMIT} characters, so nothing was committed.` }
@@ -293,7 +309,7 @@ export const commitCardWork = async (cwd: string, before: readonly string[], mes
     const pathspecs = join(scratch, 'paths')
     const text = join(scratch, 'message')
     await writeFile(pathspecs, paths.join('\0') + '\0')
-    await writeFile(text, await attributedMessage(top, message, credit))
+    await writeFile(text, await attributedMessage(top, message, credit, deskCredit))
     const env = isolatedEnv({
       GIT_AUTHOR_NAME: identity.name,
       GIT_AUTHOR_EMAIL: identity.email,

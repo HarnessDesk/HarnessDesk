@@ -7,7 +7,7 @@ import { Serial } from '../goals/assignments.js'
 import { atomicJson } from '../goals/store.js'
 import type { ArmedTrigger } from './consent.js'
 import { acceptsFact } from './definition.js'
-import { pullStatesOf, ForgeReadError, type ForgeSource, type PollBatch, type SourceCursor, type PullWatch } from './forge.js'
+import { pullStatesOf, requestCoverageOf, ForgeReadError, type ForgeSource, type PollBatch, type SourceCursor, type PullWatch } from './forge.js'
 import { dueSlots, scheduleInventory } from './schedule.js'
 
 /**
@@ -84,8 +84,14 @@ export const intakeSources = (forge: ForgeSource): IntakeSources => ({
   },
   poll: async (group, cursor, signal, now) =>
     group.source === 'schedule' ? dueSlots(group.project, group.arms, cursor, now) : forge.poll(group.project, cursor, signal, {
-      // Asked only when an arm on this source lets collaborators' comments fire it.
-      permissions: group.arms.some((arm) => arm.definition.from === 'collaborators'),
+      // Asked for every comment only when an arm on this source lets collaborators' comments fire it.
+      permissions: group.arms.some((arm) => arm.definition.from === 'collaborators' && (arm.definition.on.kind === 'mention' || (arm.definition.on.events as readonly string[]).includes('commented'))),
+      // `@harnessdesk` requests are read only when an arm names them; their authors are asked about only for collaborators.
+      // Each from the earliest arm that asks: an arm added to a source already watched never reaches back before it was armed.
+      ...(requested(group.arms) ? { requests: {
+        permissions: group.arms.some((arm) => asks(arm) && arm.definition.from === 'collaborators'),
+        since: Math.min(...group.arms.filter(asks).map((arm) => arm.baseline)),
+      } } : {}),
       watches: [...(group.watches ?? []), ...group.arms.flatMap((arm) => arm.definition.on.kind !== 'pull-request' ? [] : [{
         since: arm.baseline, checks: arm.definition.on.events.includes('checks-failed'), reviews: arm.definition.on.events.includes('review-commented'),
       }]).filter((watch) => watch.checks || watch.reviews)],
@@ -95,8 +101,11 @@ export const intakeSources = (forge: ForgeSource): IntakeSources => ({
 const isMap = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
+const asks = (arm: ArmedTrigger): boolean => (arm.definition.on.events as readonly string[]).includes('mentioned')
+const requested = (arms: readonly ArmedTrigger[]): boolean => arms.some(asks)
+
 const cursorOf = (value: unknown): SourceCursor | null => {
-  if (!isMap(value) || value['version'] !== 1 || !['pull-request', 'issue', 'schedule'].includes(String(value['source']))) return null
+  if (!isMap(value) || value['version'] !== 1 || !['pull-request', 'issue', 'schedule', 'mention'].includes(String(value['source']))) return null
   const { repository, baseline, observedThrough, continuation, subjects } = value
   if (!(repository === null || typeof repository === 'string') || !Number.isSafeInteger(baseline) || !Number.isSafeInteger(observedThrough) ||
     !(continuation === null || typeof continuation === 'string') || !isMap(subjects)) return null
@@ -107,8 +116,11 @@ const cursorOf = (value: unknown): SourceCursor | null => {
   }
   const pulls = value['pulls'] === undefined ? undefined : pullStatesOf(value['pulls'])
   if (pulls === null || (value['pullNext'] !== undefined && (!Number.isSafeInteger(value['pullNext']) || (value['pullNext'] as number) < 0))) return null
+  const requests = value['requests'] === undefined ? undefined : requestCoverageOf(value['requests'])
+  if (requests === null) return null
   return {
     ...(pulls === undefined ? {} : { pulls }),
+    ...(requests === undefined ? {} : { requests }),
     ...(value['pullNext'] === undefined ? {} : { pullNext: value['pullNext'] as number }),
     version: 1, source: value['source'] as TriggerSource, repository: repository as string | null,
     baseline: baseline as number, observedThrough: observedThrough as number, continuation: continuation as string | null, subjects: clean,

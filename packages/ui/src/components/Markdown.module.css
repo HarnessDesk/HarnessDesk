@@ -65,7 +65,7 @@
   /* A ratio, not a pixel count, so it follows the size. 1.625 is the reading
      ratio the transcript was set at, against 1.5 for the interface: prose
      wraps and a row does not. */
-  --prose-line: 1.625;
+  --prose-line: var(--hd-leading-reading);
   /* Headings set tighter than body, which is what larger type wants. One
      ratio rather than four grid multiples: a multiple of a fixed 4px step
      cannot follow `.chat`'s em-based sizes, and a 32px line on a 15px chat
@@ -76,7 +76,7 @@
   --prose-gap: var(--hd-space-4); /* desk: 12 → 16, see the rhythm note above */
 
   font-size: var(--hd-text); /* desk: 16 → 14, the reading size, and the ladder above follows it */
-  line-height: var(--prose-line, 1.625); /* desk: 26px → 1.625, the same 26px spelled as the ratio it is */
+  line-height: var(--prose-line, var(--hd-leading-reading));
   color: var(--hd-foreground);
   /* `anywhere` rather than `break-word`, and the difference is not what it
      looks like: the two break a too-long word IDENTICALLY, and `anywhere`

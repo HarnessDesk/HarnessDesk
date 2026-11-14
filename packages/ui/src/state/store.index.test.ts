@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import {
-  runtimeId, sessionId, sessionKey, sessionIndexCursorOf,
+  runtimeId, sessionId, sessionKey, sessionIndexCursorOf, turnId,
   type AgentEvent, type HostMethodName, type Session, type SessionSummary, type WireNotification,
 } from '@harnessdesk/protocol'
 import { AppStore } from './store'
@@ -533,4 +533,85 @@ it('Remove updates only its row and offers Undo without a history reload', async
     ['session/remove', { runtime, sessionId: sessionId('one'), removed: true }],
     ['session/remove', { runtime, sessionId: sessionId('one'), removed: false }],
   ])
+})
+
+
+it('writes session pins to the host and receives phone pins through index changes', async () => {
+  change([row('one')])
+  store.toggleSessionPinned(String(sessionKey(runtime, 'one')))
+  expect(request).toHaveBeenCalledWith('session/pin', { runtime, sessionId: 'one', pinned: true })
+  handlers().onNotification({ method: 'session/indexChanged', params: { upserted: [row('one', { pinned: true })], removed: [], pinnedSessions: ['agent:one'] } } as WireNotification)
+  expect(store.getSnapshot().listPrefs.pinnedSessions).toEqual([String(sessionKey(runtime, 'one'))])
+  request.mockClear()
+  store.toggleSessionPinned(String(sessionKey(runtime, 'one')))
+  expect(request).toHaveBeenCalledWith('session/pin', { runtime, sessionId: 'one', pinned: false })
+  request.mockClear()
+  store.setListPrefs({ sort: 'name' })
+  const write = request.mock.calls.find(([method]: readonly unknown[]) => method === 'app/state/set')
+  expect((write?.[1] as any)?.patch.listPrefs).not.toHaveProperty('pinnedSessions')
+})
+
+
+it('marks a turn seen when it finishes in the currently open conversation', () => {
+  const key = sessionKey(runtime, sessionId('one'))
+  Object.assign(store.getSnapshot(), { activeSessionKey: key, layout: { ...store.getSnapshot().layout, root: { kind: 'pane', id: 'visible', view: { kind: 'conversation', session: key } } }, sessions: new Map([[key, session('one')]]) })
+  handlers().onEvent(runtime, { type: 'turn/completed', sessionId: sessionId('one'), turn: { id: turnId('turn'), status: 'completed', items: [], completedAt: 20 } } as AgentEvent)
+  expect(request).toHaveBeenCalledWith('session/opened', { runtime, sessionId: 'one' })
+})
+
+
+it('keeps newer phone pins when the initial pin read arrives late', async () => {
+  const pins = deferred<readonly string[]>()
+  request.mockImplementation((async (method: HostMethodName) => method === 'app/state/get' ? {} : method === 'session/pins' ? pins.promise : null) as never)
+  const loading = store.loadPreferences()
+  await vi.waitFor(() => expect(request).toHaveBeenCalledWith('session/pins', {}))
+  handlers().onNotification({ method: 'session/indexChanged', params: { upserted: [], removed: [], pinnedSessions: ['agent:two'] } } as WireNotification)
+  pins.resolve(['agent:one'])
+  await loading
+  expect(store.getSnapshot().listPrefs.pinnedSessions).toEqual([String(sessionKey(runtime, 'two'))])
+})
+
+it('keeps the current pins and still loads preferences when the host pin list is not a list', async () => {
+  const kept = String(sessionKey(runtime, 'kept'))
+  handlers().onNotification({ method: 'session/indexChanged', params: { upserted: [], removed: [], pinnedSessions: ['agent:kept'] } } as WireNotification)
+  request.mockImplementation((async (method: HostMethodName) =>
+    method === 'app/state/get' ? { listPrefs: { sort: 'name' } } : method === 'session/pins' ? { not: 'a list' } : null) as never)
+  await store.loadPreferences()
+  expect(store.getSnapshot().listPrefs).toMatchObject({ sort: 'name', pinnedSessions: [kept] })
+  handlers().onNotification({ method: 'session/indexChanged', params: { upserted: [], removed: [], pinnedSessions: { not: 'a list' } } } as unknown as WireNotification)
+  expect(store.getSnapshot().listPrefs.pinnedSessions).toEqual([kept])
+})
+
+it('reads the host pin list in the window session key form, splitting at the first colon', async () => {
+  request.mockImplementation((async (method: HostMethodName) => method === 'app/state/get' ? {} : method === 'session/pins' ? ['agent:two', 'agent:one:part'] : null) as never)
+  await store.loadPreferences()
+  expect(store.getSnapshot().listPrefs.pinnedSessions).toEqual([String(sessionKey(runtime, 'two')), String(sessionKey(runtime, 'one:part'))])
+  request.mockClear()
+  store.toggleSessionPinned(String(sessionKey(runtime, 'one:part')))
+  expect(request).toHaveBeenCalledWith('session/pin', { runtime, sessionId: 'one:part', pinned: false })
+})
+
+it('keeps the list preference reference on unchanged pin notifications', () => {
+  const before = store.getSnapshot().listPrefs
+  handlers().onNotification({ method: 'session/indexChanged', params: { upserted: [], removed: [], pinnedSessions: [] } } as WireNotification)
+  expect(store.getSnapshot().listPrefs).toBe(before)
+})
+
+it('marks a completion read in the adjacent reader even when another conversation is focused', () => {
+  const key = sessionKey(runtime, 'one')
+  Object.assign(store.getSnapshot(), { adjacentSession: { key, subject: 'session:agent:other', loading: false, error: null }, sessions: new Map([[key, session('one')]]) })
+  handlers().onEvent(runtime, { type: 'turn/completed', sessionId: sessionId('one'), turn: { id: turnId('turn'), status: 'completed', items: [] } } as AgentEvent)
+  expect(request).toHaveBeenCalledWith('session/opened', { runtime, sessionId: 'one' })
+})
+
+
+it('marks index completions read in any visible pane and leaves off-screen completions unread', () => {
+  const key = sessionKey(runtime, 'one')
+  const snapshot = store.getSnapshot()
+  Object.assign(snapshot, { activeSessionKey: sessionKey(runtime, 'other'), layout: { ...snapshot.layout, root: { kind: 'pane', id: 'visible', view: { kind: 'conversation', session: key } } } })
+  change([row('one', { lastOpenedAt: 10, lastCompletedAt: 20 })])
+  expect(request).toHaveBeenCalledWith('session/opened', { runtime, sessionId: 'one' })
+  request.mockClear()
+  change([row('offscreen', { lastOpenedAt: 10, lastCompletedAt: 20 })])
+  expect(request).not.toHaveBeenCalledWith('session/opened', expect.anything())
 })

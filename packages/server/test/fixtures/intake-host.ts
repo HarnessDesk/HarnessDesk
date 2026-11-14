@@ -6,6 +6,8 @@ import type { RuntimeInfo, WireNotification } from '@harnessdesk/protocol'
 import { Host, StateStore } from '../../src/index.js'
 import type { QuestionTimers } from '../../src/host.js'
 import type { IntakeTimers } from '../../src/intake/plane.js'
+import type { MentionAssessor, WorkItemsPort } from '../../src/intake/mentions.js'
+import type { UsageSample } from '../../src/ledger/insight.js'
 import { makeRepo, type Repo } from './evidence-desk.js'
 import { FakeRuntime } from './fake-runtime.js'
 import { HoldFake } from './hold-runtime.js'
@@ -97,6 +99,17 @@ export const intakeDesk = async (options: {
   /** The timers an unattended Seat's question wait runs on, so a test ends the wait when it says. */
   readonly seatReadDeadlineMs?: number
   readonly questionTimers?: QuestionTimers
+  /** Whether the desk has the Lead turned on, as a person enables it; off by default. */
+  readonly lead?: boolean
+  /** Usage samples the desk's reads find, scripted; none by default. Read on every read, so a test can add one later. */
+  readonly usage?: () => readonly UsageSample[]
+  /** Mention triggers' observer model and the pull requests a Goal's work opened: scripted, never a model or a forge write. */
+  readonly mentions?: {
+    readonly assess?: MentionAssessor | null
+    readonly pullRequests?: (repository: string, goals: readonly string[], firings: readonly string[]) => Promise<readonly number[]>
+    /** Where an accepted thread joins the work ledger, scripted; the host's own ledger otherwise. */
+    readonly workItems?: WorkItemsPort
+  }
 } = {}): Promise<IntakeDesk> => {
   const repo = options.repo ?? await makeRepo('hd-intake-host-')
   if (!options.repo && options.triggers !== null) await commitTriggers(repo, options.triggers ?? TRIGGERS)
@@ -111,6 +124,7 @@ export const intakeDesk = async (options: {
     builtinAgents: tempDir('hd-intake-host-builtins-'),
     builtinFlows: tempDir('hd-intake-host-flows-'),
     catalogRefreshMs: 0,
+    ...(options.lead ? { leadEnabled: true } : {}),
     ...(options.seatReadDeadlineMs !== undefined ? { seatReadDeadlineMs: options.seatReadDeadlineMs } : {}),
     intake: {
       gh: forge.runner,
@@ -118,7 +132,8 @@ export const intakeDesk = async (options: {
       monotonic: () => clocks.mono,
       timers,
       // Every read covers everything and finds nothing yet: a fresh Seat's spend is a known zero.
-      usage: async () => ({ samples: [], complete: true }),
+      usage: async () => ({ samples: options.usage?.() ?? [], complete: true }),
+      ...(options.mentions ? { mentions: options.mentions } : {}),
     },
     ...(options.questionTimers ? { questionTimers: options.questionTimers } : {}),
   })

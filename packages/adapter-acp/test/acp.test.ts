@@ -16,6 +16,9 @@ import {
   deskContextContent,
   recordDeskInput,
   splitContextContent,
+  leadMessageEnvelope,
+  leadMessageSource,
+  leadMessageWords,
 } from '@harnessdesk/protocol'
 
 import { AcpRuntime, type AcpUsageRecord } from '../src/index.js'
@@ -86,6 +89,41 @@ test('a prompt streams chunks, a plan, and completes', async () => {
     assert.ok(message && message.type === 'assistantMessage')
     assert.match(message.text, /hearing: hello there/)
     assert.ok(tape.events.some((event) => event.type === 'turn/plan'))
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a change of message id starts a new item, so two answers in one prompt are not spliced', async () => {
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'two messages by id' }])
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    const items = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn.items
+    const said = items.flatMap((item) =>
+      item.type === 'assistantMessage' ? [`message: ${item.text}`]
+        : item.type === 'reasoning' ? [`thought: ${item.content.join('')}`]
+          : [])
+    assert.deepEqual(said, [
+      'thought: pondering',
+      'message: Started a helper; waiting.',
+      // A chunk that names no message continues the one before it, as before.
+      'message: The helper reported. Done.',
+      'thought: first',
+      'thought: second',
+    ])
+    // Each new item is announced once, and every delta lands on the item it belongs to.
+    const started = tape.events.filter((event) => event.type === 'item/started').map((event) => (event as Extract<AgentEvent, { type: 'item/started' }>).item.id)
+    assert.equal(new Set(started).size, started.length)
+    const ids = items.filter((item) => item.type === 'assistantMessage').map((item) => item.id)
+    const deltas = tape.events.flatMap((event) => event.type === 'item/delta' && event.delta.kind === 'assistantText' ? [[event.itemId, event.delta.text]] : [])
+    assert.deepEqual(deltas, [
+      [ids[0], 'Started a helper; '], [ids[0], 'waiting.'],
+      [ids[1], 'The helper reported.'], [ids[1], ' Done.'],
+    ])
   } finally {
     await runtime.dispose()
   }
@@ -1542,6 +1580,7 @@ test('an agent dying mid-turn fails the turn cleanly — never hangs', async () 
     const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
     assert.equal(turn.status, 'failed')
     assert.ok(turn.error, 'the turn carries why')
+    assert.equal(turn.error?.code, 'runtimeUnavailable', 'and what kind of failure it was')
     assert.equal(typeof turn.durationMs, 'number', 'a failed live turn still carries its wall time')
     assert.equal(runtime.health().state, 'unavailable')
   } finally {
@@ -3064,6 +3103,23 @@ test('a conversation replayed from the agent is called by the first thing a pers
   const read = await runtime.readSession(sessionId('compacted'))
   assert.equal(read.preview, 'Now add the jitter')
   assert.equal(read.turns.length, 2, 'the summary is still in the transcript, as what the agent said it was')
+})
+
+test('a replay that hands back a stop marker ahead of the Lead\'s message still reads the message as the Lead\'s (#2090)', async (t) => {
+  // A peer that replays its stop marker unmarked, as one more user chunk in
+  // front of what the desk sent next: the two chunks merge into one bubble.
+  const envelope = leadMessageEnvelope('Dex', 'Fix the stalled task.')
+  const { runtime } = await storedAgent(t, (dir) => ({
+    interrupted: { cwd: dir, title: '', turns: [['Build a game'], ['[Request interrupted by user]', envelope]] },
+  }))
+  const read = await runtime.readSession(sessionId('interrupted'))
+  const users = read.turns.flatMap((turn) => turn.items).filter((item) => item.type === 'userMessage')
+  const last = users.at(-1)
+  assert.ok(last && last.type === 'userMessage')
+  const split = splitContextContent(last.content)
+  assert.deepEqual(split.injections.map((block) => block.label), [leadMessageSource('Dex')])
+  assert.equal(leadMessageWords(split.injections[0]!.text), 'Fix the stalled task.')
+  assert.equal(split.text, '', 'no envelope or marker is left as text')
 })
 
 test('an unclosed context lookalike remains the person\'s words (review of #231)', async (t) => {

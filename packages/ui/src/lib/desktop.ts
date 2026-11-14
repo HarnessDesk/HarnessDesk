@@ -16,8 +16,12 @@ export interface TrayAgent {
   readonly detail: string
   readonly needsSignIn: boolean
   /**
+   * The agent the next Send goes to — the one whose figure the menu bar shows.
+   */
+  readonly current: boolean
+  /**
    * Whose mark to draw beside the name — a lobe-icons key, the same one
-   * `lib/brands.ts` gives every other surface. The shell keeps a rendered
+   * `brandForRuntime` (`@harnessdesk/protocol`) gives every other surface. The shell keeps a rendered
    * image per key, because a menu item's image is a raster and the shell has
    * no build step of its own. Null when the agent has no mark of ours.
    */
@@ -32,9 +36,22 @@ export interface TrayAgent {
 }
 
 export interface TraySummary {
-  /** The tightest figure of the lot — two characters of menu bar, well spent. */
+  /**
+   * The current agent's figure — what it has left, or when it is back if it is
+   * out. Empty when there is no current agent, no reading, or a sign-in to do.
+   */
   readonly title: string
+  /** Whose figure the title is, in the menu's own words. */
+  readonly tooltip: string
   readonly agents: readonly TrayAgent[]
+}
+
+/** A prompt link as the shell parsed it. Untrusted text, for a draft only. */
+export interface PromptLink {
+  readonly repo: string
+  readonly prompt: string
+  readonly pr: number | null
+  readonly flow: string | null
 }
 
 export interface AppUpdateFact { readonly label: string; readonly enabled: boolean }
@@ -68,6 +85,12 @@ export interface DesktopBridge {
    */
   onOpenSession?(handler: (request: { runtime: string; sessionId: string }) => void): () => void
   onOpenGoal?(handler: (request: { goal: string }) => void): () => void
+  /**
+   * A prompt link the OS opened (`harnessdesk://new`), already parsed and
+   * bounded by the shell. Subscribing takes any link that is waiting; each
+   * link reaches one handler once. It fills a draft and nothing else.
+   */
+  onPromptLink?(handler: (link: PromptLink) => void): () => void
   /**
    * The browser pane's side of the agent-driven browser. The pane reports
    * its `<webview>` by id once the page can be driven, and says when it
@@ -167,6 +190,10 @@ export const onOpenSession = (
 
 export const onOpenGoal = (handler: (request: { goal: string }) => void): (() => void) =>
   desktop()?.onOpenGoal?.(handler) ?? (() => {})
+
+/** A prompt link from the OS, taken once the renderer can act on it. */
+export const onPromptLink = (handler: (link: PromptLink) => void): (() => void) =>
+  desktop()?.onPromptLink?.(handler) ?? (() => {})
 
 /**
  * Whether the window's top-left is occupied by macOS traffic lights. The

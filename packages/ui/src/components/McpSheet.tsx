@@ -7,6 +7,7 @@ import { RuntimeMark } from './BrandIcons'
 import { Markdown } from './Markdown'
 import { shortPath } from '../lib/paths'
 import { REACH_SENTENCE } from '../lib/reach-states'
+import { McpConnectionTest } from './McpConnectionTest'
 import { installSource, type LibraryColumn, type LibraryFlow } from './LibraryActions'
 
 /** MCP keeps its existing reading dialog; skills have their own destination. */
@@ -127,6 +128,7 @@ export const McpSheet = ({ entry, columns, hosts, cwd, home, onFlow, onChanged, 
               <div className="flex min-w-0 items-start gap-1"><Text role="meta" ink="primary" className="min-w-0 flex-1 [overflow-wrap:anywhere]">{shortPath(copy.path, home)}</Text>
                 {!copy.readOnly && <Button variant="ghost" size="icon-sm" className="-mt-0.5 flex-none" aria-label={`Remove ${entry.name} from ${copy.path}`} title="Remove this — previewed first, backed up before it goes" onClick={() => onFlow({ type: 'plan', title: `Remove ${entry.name}`, intents: [{ kind: 'removeMcp', name: entry.name, path: copy.path }] })}><TrashIcon size={12} /></Button>}
               </div><Text role="meta">{copy.hollow ? 'No definition inside — the name lists and nothing loads.' : copy.readBy.length === 0 ? 'No runtime reads this file.' : `Read by ${copy.readBy.map(labelOf).join(', ')}.`}{copy.readOnly && ' Shipped by the runtime.'}</Text>
+              {!copy.hollow && <McpConnectionTest name={entry.name} path={copy.path} cwd={cwd} readBy={copy.readBy} home={home} />}
             </div>)}</div>
           </section>
         </DialogBody>

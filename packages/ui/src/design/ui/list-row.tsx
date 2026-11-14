@@ -339,17 +339,36 @@ const ListRow = ({
  * rounded, selectable rows is the one list where dividers are wrong: the
  * selected row is a filled shape, and a rule cutting across the shape above
  * and below it makes the selection look like a rendering error.
+ *
+ * `surface="panel"` is a list inside a right-panel card (`ToolSection`): its
+ * rows stand on the card's row edge, the 12px its label, its facts and its
+ * prose keep. A default row already does; a `sm` row keeps the navigation
+ * column's 8px everywhere else, and in a card that left its words 4px short
+ * of the label above them. A panel list draws no hairline between its rows:
+ * a card's groups are told apart by their labels and the air above them, and
+ * a rule only between rows of a two-row group, from border to border, read as
+ * the card's edge reaching in. Every row keeps the same air above and below
+ * its words: the trail's 28px control sits inside the row's padding instead
+ * of setting a one-line row's height, so a one-line row and a two-line row
+ * leave the same 8px.
+ *
+ * It is meant for `sm` rows, which are the only rows it re-pads. A default
+ * row in a panel list keeps its own table-edge padding and height and only
+ * loses the rule between rows, as every list in a card does.
  */
 const ListRows = ({
   className,
   size = 'default',
+  surface = 'default',
   ...props
-}: React.ComponentProps<'div'> & { size?: 'sm' | 'default' }) => (
+}: React.ComponentProps<'div'> & { size?: 'sm' | 'default'; surface?: 'default' | 'panel' }) => (
   <div
     data-slot="list-rows"
+    {...(surface === 'panel' ? { 'data-surface': 'panel' } : {})}
     className={cn(
       'flex flex-col',
-      size === 'sm' ? 'gap-0.5' : 'divide-y divide-(--hd-card-divider,var(--hd-border))',
+      size === 'sm' || surface === 'panel' ? 'gap-0.5' : 'divide-y divide-(--hd-card-divider,var(--hd-border))',
+      surface === 'panel' && '[&>[data-slot=list-row][data-size=sm]]:px-(--hd-inset-row) [&>[data-slot=list-row][data-size=sm]]:py-(--hd-space-2) [&>[data-slot=list-row][data-size=sm]_[data-slot=list-row-trail]]:-my-1',
       className,
     )}
     {...props}

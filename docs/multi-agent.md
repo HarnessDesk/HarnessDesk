@@ -620,6 +620,14 @@ to the channel with a status chip:
 - **`stopped`** (muted): turn interrupted or halted without output.
 - **`left the room`** (muted): conversation detached or disowned and pruned from roster.
 
+A seat's `usage limit` notice is also where its carry-on question goes: while
+the desk asks, the member's latest such notice offers Switch, Wait until reset
+and Stop, with an "Always do this" box that makes the answer the rule from then
+on. A switch seats a replacement for the same card rather than moving the
+seat; the round keeps both seats, the stopped one closed with `limit`, and a
+replacement must pass the run's `independentOf` check. While the question is
+open the seat's card is not re-armed. See the decision in `decisions.md`.
+
 Notices represent events happening *to* a member, distinct from words spoken
 by a member. Therefore, notices are never gated by the **Show answers in the
 channel** setting, and they do not count as conversational replies.
@@ -746,7 +754,7 @@ the MCP bridge:
 | `await_member` | `member`, `cycle?`, `block_ms?` | Waits for the named Goal member's currently running turn to finish. It sends nothing, starts nothing and is woken by the host rather than polling. |
 | `check_conflicts` | `paths` (required) | Checks whether specified file paths or globs overlap any active claim on the board. |
 | `complete_claim` | `intent` (required), `note?`, `context?`, `outcome?` | Marks a held intent as done. `note` updates the card; `context` stores the context package for dependent tasks; `outcome` is the one machine-readable word a flow's rules branch on. Free-form here; a card belonging to a flow is held to the outcomes its role declared. |
-| `commit_work` | `intent` (required), `message` (required) | The host commits the caller's card's own work — every path dirty now that was not dirty when this card’s current ownership began — in its Seat's checkout, and answers the new commit. A hand-back to the same conversation in the same checkout retains that earlier snapshot for up to 24 hours after release and names up to 20 committed paths, with a count of the rest, when preserved work predates the new claim; unrelated pre-card changes stay outside the commit. Another card claiming the checkout discards retained ownership, including across boards. A missing earlier snapshot is never treated as an empty one. Only for a flow card whose Seat may commit (`edit` and above), and not while another committing card works in the same checkout; work a git filter (LFS) would touch is refused, and a submodule is never looked into. Git runs with no hook, filesystem monitor, filter, signing or trailer program the repository configures. Messages take up to 8000 characters; Git places and formats the desk's co-author trailer once, including around dividers and scissors cutoffs. Git 2.32 or newer is required, with older versions refused before staging. The checkout's configured author and committer are kept; the agent supplies only its message. Hand commits are untouched. It is how an agent whose sandbox keeps `.git` read-only commits at all. |
+| `commit_work` | `intent` (required), `message` (required) | The host commits the caller's card's own work — every path dirty now that was not dirty when this card’s current ownership began — in its Seat's checkout, and answers the new commit. A hand-back to the same conversation in the same checkout retains that earlier snapshot for up to 24 hours after release and names up to 20 committed paths, with a count of the rest, when preserved work predates the new claim; unrelated pre-card changes stay outside the commit. Another card claiming the checkout discards retained ownership, including across boards. A missing earlier snapshot is never treated as an empty one. Only for a flow card whose Seat may commit (`edit` and above), and not while another committing card works in the same checkout; work a git filter (LFS) would touch is refused, and a submodule is never looked into. Git runs with no hook, filesystem monitor, filter, signing or trailer program the repository configures. Messages take up to 8000 characters; Git places and formats the desk's co-author trailer once, including around dividers and scissors cutoffs; the trailer is Settings › Extensions › Git › Commit co-author, blank for none, and the agent's own native credit is added either way. Git 2.32 or newer is required, with older versions refused before staging. The checkout's configured author and committer are kept; the agent supplies only its message. Hand commits are untouched. It is how an agent whose sandbox keeps `.git` read-only commits at all. |
 | `run_check` | `intent` (required), `name?`, `commit?` | For a Seat whose grant cannot write: the host runs one of the caller's card's flow's checks explicitly marked `onRequest: true` — a `check` role, picked by its name, never a command the agent writes — on the committed change the card was handed, in a fresh detached checkout cut with hooks off and removed afterwards, with the check's own timeout and output cap. Omitted or false leaves a check off; landing, publishing and deployment checks must leave it off. The command receives `HARNESSDESK_FLOW_ADVISORY=1` (`0` for the Flow's own check cards and retries). Answers passed or failed with the last of its output, and records it on the card as advisory evidence (`counted: false`), which no rule's check guard reads. Only the card's holder; refused to a Seat that can write, while the run is paused or not live, past three runs a turn or ten a card, and while another run for the same card is going. `commit` picks one when the card was handed several. It is how an agent whose sandbox refuses a listening socket still verifies a change that starts a server. |
 | `release_claim` | `intent` (required), `reason?`, `blocked?` | Releases a held intent back to the board. If `blocked: true`, marks it `blockedBy: 'hand'`. |
 | `get_context` | `intent` (required) | Fetches the context package left by the completed intent. |
@@ -845,6 +853,46 @@ closed on purpose: nothing in the file names a command, an environment
 variable, or a ceiling, and outside text — a PR title, an issue body, a
 comment — is bounded, untrusted prose that can never become one. It arrives
 with a clone like any other file; nothing runs because it exists.
+
+**Requests.** An issue or pull-request trigger that names the `mentioned`
+event takes requests in words: a comment whose first line starts with
+`@harnessdesk` — the project's own organization name, which notifies nobody —
+ignoring case and leading spaces, and followed by nothing, a space, `:` or `,`.
+A quoted line, a fenced or indented code line, a longer name
+(`@harnessdesktop`, `@harnessdesk-bot`), a team mention (`@harnessdesk/reviewers`),
+the word mid-sentence or on a later line is not a request. A comment asks only as
+first written, on the forge's own edit history, read for every comment that
+asks: one the forge shows as edited — its update differs from its creation, an
+inline comment changed after its review was submitted, or GitHub says it was
+edited even within the same second — never asks, even before the desk first
+read it, because anyone with write access may edit someone else's comment.
+Neither does one whose history could not be read; both are kept in the
+trigger's history as skipped, with the reason. A bot
+(a login ending in `[bot]`, or an account the forge marks as one) never asks
+whatever `from` says, and neither does a post the desk made. `from` applies to
+requests exactly as to comments. On an issue the existing comment read finds
+them. On a pull request the desk reads one repository-wide list of the
+conversation comments updated since its last complete read, however many pull
+requests moved, and the reviews of only those pull requests its list read
+shows as updated — and once more, five minutes later, of one read within five
+minutes of its update, from its last page (the whole list when an older draft
+was submitted since and moved it), twenty a poll: a review is new by when it was
+submitted, so one left pending and submitted later still asks, even within
+the same second. A review's summary never asks — the
+forge does not say whether it was edited — but its inline comments do, as one
+request for the review. More than one read can cover stops at a gap. Each
+conversation comment is one firing, and each review one. A request goes only to the Lead —
+`opens: { lead: true }`; a flow or an Agent target is refused, because a
+triggered flow never receives outside text — and the Lead reads a host-made
+first line built from facts ("Request on pull request #12 from you", "… from
+a collaborator (write access)", "… from someone outside the repository"),
+then the asker's words verbatim inside the untrusted-context fence, then the
+thread's title and links. It drafts a plan for that request alone, and nothing
+starts until the person approves it — the host refuses every chat start or
+send, Team start or other dispatch for that goal until then, at the Lead's
+tool admission and again at dispatch, whatever the policy mode — and the
+request's words are never quoted to a worker as the person's. The desk posts
+nothing back to the thread.
 
 **Arming.** A project's page lists every declared source as a sentence —
 "When a pull request opens or is pushed, review it (review-pr)" — with the

@@ -15,6 +15,7 @@ import {
   type AccountStatus,
   type AuthMethod,
   type LoginStart,
+  type AgentError,
   type AgentEvent,
   type AgentItem,
   type AgentRuntime,
@@ -52,6 +53,7 @@ import {
   type SessionOptions,
   type SessionSettings,
   type SessionDeletion,
+  type SessionStatus,
   type SessionSummary,
   type SessionUsage,
   type SkillInfo,
@@ -119,6 +121,7 @@ import {
 
 import { CliAccount, type AcpAccountCommands, type AcpCommandSpec } from './account.js'
 import { attachmentsMeta, decodeAttachmentCapability, toAttachmentSupport, validateAttachmentReceipt } from './attachments.js'
+import { classifyAcpError, isAuthRefusal } from './errors.js'
 import { AcpExtensions } from './extensions.js'
 import { resolveExecutable, versionAtLeast, type AcpExecutableSpec, type ResolvedExecutable } from './executable.js'
 import { acknowledgeEnvironment, environmentMeta, environmentSupported } from './lane-environment.js'
@@ -279,6 +282,24 @@ export interface AcpAgentConfig {
   readonly tagline?: string
   /** This agent asks for each MCP tool and the host cannot answer on its behalf. */
   readonly perToolMcpApproval?: { readonly permanentApprovalSetting: string }
+  /** Tools whose calls describe children without ACP's delegation extension. */
+  readonly delegationTools?: Readonly<Record<'spawn' | 'send' | 'wait' | 'cancel', readonly string[]>>
+  /**
+   * The agent's `session/cancel` ends the prompt but not the subagents the
+   * prompt started: they run on, and when they finish the agent speaks again
+   * with no prompt open, where nothing here can show it. Only closing the
+   * session ends them. A stop then also closes the session, once the prompt
+   * has settled, and reopens it in place behind the same handle, so the
+   * person sees one stopped turn and a conversation that carries on.
+   * Measured on DeepSeek Harness 0.2.2-rc.2 (`docs/decisions.md`).
+   */
+  readonly cancelLeavesSubagents?: boolean
+  /**
+   * How long a stop under `cancelLeavesSubagents` waits for the cancelled
+   * prompt to settle, and then for the close and reopen to finish, before it
+   * gives up on each. The defaults suit a real agent; tests shorten them.
+   */
+  readonly stopReopenTimings?: { readonly settleMs?: number; readonly reopenMs?: number }
   /** How to install the agent, for the first-run screen. */
   readonly installCommand?: string
   /**
@@ -416,6 +437,14 @@ export interface AcpAgentConfig {
 }
 
 const PROTOCOL_VERSION = 1
+
+/** How long a stop waits for the cancelled prompt to settle before closing the session regardless. */
+const CANCEL_SETTLE_MS = 5_000
+/** How long a stop's close and reopen may take before the conversation is given up as a dead agent's. */
+const REOPEN_DEADLINE_MS = 15_000
+
+/** What a stop's reopen is opening on, so a reopen given up on can end it. */
+interface ReopenTrack { connection?: AcpConnection; abandoned?: boolean }
 
 /**
  * What a start that arrives after the host has finished with the agent says.
@@ -2626,6 +2655,137 @@ export class AcpRuntime implements AgentRuntime {
     }
   }
 
+  get cancelLeavesSubagents(): boolean {
+    return this.#config.cancelLeavesSubagents === true
+  }
+
+  get delegationTools(): AcpAgentConfig['delegationTools'] {
+    return this.#config.delegationTools
+  }
+
+  get cancelSettleMs(): number {
+    return this.#config.stopReopenTimings?.settleMs ?? CANCEL_SETTLE_MS
+  }
+
+  /**
+   * Ends whatever a cancel left running in this conversation and keeps the
+   * conversation: the session is closed — or, when it has a process of its
+   * own, that process is stopped — and opened again in place, on the same
+   * handle, the way a resume would open it. See `cancelLeavesSubagents`.
+   *
+   * A reopen that fails, or does not finish in time, is reported as a dead
+   * agent's conversation is: the handle is detached, and the next message
+   * opens the conversation afresh.
+   */
+  async reopenAfterCancel(session: AcpSession): Promise<boolean> {
+    const id = session.id
+    const verb = this.#reopenVerb(session)
+    // Nothing to reopen it with, or no way to end it short of the process
+    // other conversations share: the cancel is all a stop can do.
+    if (verb === null) return false
+    const connection = this.connectionFor(id)
+    const shared = this.#sharesConnection(id, connection)
+    const opening: ReopenTrack = {}
+    const work = (async () => {
+      if (shared) {
+        await connection.request('session/close', { sessionId: id }, 3_000)
+      } else {
+        this.#sessionConnections.delete(id)
+        await connection.stop()
+        this.#workers.delete(connection)
+      }
+      session.closeFinished()
+      const environment = this.#environments.get(id)
+      const ceiling = this.#readCeiling && this.#readGuardedSessions.has(session) ? { harnessdesk: { ceiling: 'read' } } : null
+      return await this.#openWithTools<AcpNewSessionResult>(verb, {
+        sessionId: id,
+        cwd: session.settings().cwd,
+        ...(environment
+          ? { _meta: environmentMeta(ceiling ?? {}, environment, this.info.capabilities.sessionEnvironment) }
+          : ceiling ? { _meta: ceiling } : {}),
+      }, this.#attachmentInputs.get(id), false, opening)
+    })()
+    const deadlineMs = this.#config.stopReopenTimings?.reopenMs ?? REOPEN_DEADLINE_MS
+    let timer: NodeJS.Timeout | undefined
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`it did not finish within ${deadlineMs / 1000} seconds`)), deadlineMs)
+    })
+    try {
+      const opened = await Promise.race([work, deadline])
+      // Released or shut down while it reopened: what it opened is nobody's.
+      if (this.#disposed || this.#sessions.get(id) !== session || this.#closing.has(id)) {
+        this.#discardReopened(id, this.connectionFor(id), session)
+        return false
+      }
+      session.reopened(opened)
+      return true
+    } catch (error) {
+      // Given up on: a process it was starting is ended now, and an open
+      // that answers later is closed again rather than left behind.
+      opening.abandoned = true
+      if (opening.connection && opening.connection !== this.#connection && this.#workers.has(opening.connection)) {
+        void opening.connection.stop()
+        this.#workers.delete(opening.connection)
+      }
+      void work.then(() => this.#discardReopened(id, this.connectionFor(id), session), () => {})
+      const message = `${this.#config.name} could not reopen this conversation after it was stopped: ${describeAcp(error)}`
+      this.#config.logger?.warn?.('the agent could not reopen a stopped session', { agent: this.#config.id, error: describeAcp(error) })
+      if (this.#disposed || this.#sessions.get(id) !== session) return false
+      session.blockOpening(message)
+      session.agentDied()
+      this.#sessions.delete(id)
+      this.#tasks?.forget(id)
+      if (this.#sessionConnections.get(id) === connection) this.#sessionConnections.delete(id)
+      this.emit({ type: 'error', sessionId: id, error: { message, code: 'runtimeUnavailable' } })
+      this.emit({ type: 'session/detached', sessionId: id })
+      return false
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  /**
+   * Whether a stop can end what this conversation's cancel leaves running:
+   * the verb it would reopen it with, or null where it cannot — no load or
+   * resume, a process other conversations share with no `session/close`, or
+   * a conversation already closing or gone. Asked before a sub-agent is said
+   * to outlast the turn, so the window never offers a Stop that cannot reach it.
+   */
+  #reopenVerb(session: AcpSession): 'session/load' | 'session/resume' | null {
+    const id = session.id
+    if (this.#disposed || this.#sessions.get(id) !== session || this.#closing.has(id)) return null
+    const capabilities = this.#initialized?.agentCapabilities
+    const verb = capabilities?.loadSession ? 'session/load' : capabilities?.sessionCapabilities?.resume ? 'session/resume' : null
+    if (!verb) return null
+    if (this.#sharesConnection(id, this.connectionFor(id)) && !capabilities?.sessionCapabilities?.close) return null
+    return verb
+  }
+
+  /** Whether Stop can reach sub-agents this conversation's turn left running: see `#reopenVerb`. */
+  canStopOutlasting(session: AcpSession): boolean {
+    return this.cancelLeavesSubagents && this.#reopenVerb(session) !== null
+  }
+
+  #sharesConnection(id: SessionId, connection: AcpConnection): boolean {
+    return connection === this.#connection || this.#pendingForks.has(connection) ||
+      [...this.#sessionConnections].some(([other, owner]) => other !== id && owner === connection)
+  }
+
+  /** A reopen that landed for nobody: end what it opened, unless a newer handle holds the conversation now. */
+  #discardReopened(id: SessionId, connection: AcpConnection, session: AcpSession): void {
+    const holder = this.#sessions.get(id)
+    if (holder && holder !== session) return
+    if (this.#sharesConnection(id, connection)) {
+      if (this.#initialized?.agentCapabilities?.sessionCapabilities?.close) {
+        void connection.request('session/close', { sessionId: id }, 3_000).catch(() => {})
+      }
+      return
+    }
+    if (this.#sessionConnections.get(id) === connection) this.#sessionConnections.delete(id)
+    void connection.stop()
+    this.#workers.delete(connection)
+  }
+
   /** Release only this handle; the agent owns the stored conversation. */
   async releaseSession(session: AcpSession): Promise<void> {
     if (this.#sessions.get(session.id) !== session) return
@@ -2642,7 +2802,7 @@ export class AcpRuntime implements AgentRuntime {
           } else {
             // The peer has no release verb. Cancel only this conversation;
             // keep working siblings on their shared process until all handles rest.
-            await session.interrupt()
+            session.cancelOnly()
             if (connection === this.#connection && !this.#isProbe(session.id) && !this.#transientReads.has(session.id)) this.#sharedReleasePending = true
           }
         } else {
@@ -3134,6 +3294,7 @@ export class AcpRuntime implements AgentRuntime {
     params: Record<string, unknown>,
     attachments?: SessionAttachments,
     probe = false,
+    track?: ReopenTrack,
   ): Promise<T> {
     const authGeneration = this.#authGeneration
     if (!probe) this.#sessionOpens++
@@ -3147,7 +3308,7 @@ export class AcpRuntime implements AgentRuntime {
           throw new Error('The agent stopped or restarted before the conversation could open.')
         }
       }
-      return await this.#openSessionWithTools<T>(method, params, attachments, authGeneration)
+      return await this.#openSessionWithTools<T>(method, params, attachments, authGeneration, track)
     } finally {
       if (!probe) this.#sessionOpens--
     }
@@ -3158,6 +3319,7 @@ export class AcpRuntime implements AgentRuntime {
     params: Record<string, unknown>,
     attachments?: SessionAttachments,
     authGeneration = this.#authGeneration,
+    track?: ReopenTrack,
   ): Promise<T> {
     const caller = randomUUID()
     const steeringCaller = randomUUID()
@@ -3171,6 +3333,7 @@ export class AcpRuntime implements AgentRuntime {
       ownsWorker = true
       if (this.#disposed) throw shutDown(this.#config.name)
       connection = this.#makeConnection(true)
+      if (track) track.connection = connection
       if (this.#launch && !('blocked' in this.#launch)) {
         connection.withCommand(this.#launch.command, this.#launch.args)
         if (this.#launch.env) connection.withEnv(this.#launch.env)
@@ -3217,6 +3380,7 @@ export class AcpRuntime implements AgentRuntime {
     // the source handle until claim registers the new branch (or open fails).
     if (forking) this.#pendingForks.set(connection, (this.#pendingForks.get(connection) ?? 0) + 1)
     try {
+      if (track?.abandoned) throw new Error('The reopen was given up.')
       return this.#opened(
         claim(await connection.request<T>(method, extend({ ...params, mcpServers: servers }))),
         authGeneration,
@@ -4317,15 +4481,6 @@ type SignInObservation =
   | { readonly state: 'required'; readonly message: string; readonly signedOut?: true }
 
 /**
- * ACP's own refusal for a session that needs a sign-in first is `-32000
- * auth_required` with the words "Authentication required" — but -32000 is
- * also the head of JSON-RPC's reserved server-error range, and an agent's
- * "internal server error" wears the same number. So the words decide, in
- * the message or in the details the agent attached: Antigravity's
- * server sends the code and the words, a bridge may send the words alone,
- * and a bare -32000 is a failure of some other kind.
- */
-/**
  * What a sign-in method id gets so the desk can tell an ACP method from a
  * CLI's or a stored key's. `#observedAccount` mints them and `login()` reads
  * them back; the agent's own id is whatever follows.
@@ -4348,11 +4503,6 @@ const PACKAGE_RUNNERS: Readonly<Record<string, string>> = {
 /** Said when the key an agent was told to use is taken away (`#authenticateWithStoredKey`). */
 const KEY_REMOVED = 'Its key was removed. Sign in again, or store a key.'
 
-const AUTH_REQUIRED_WORDS =
-  /api key is missing(?: or not configured)?|authentication required|not authenticated|unauthenticated|auth(?:Required|[_ -]required)|login required|sign[- ]?in required|not (?:signed|logged) in|please (?:log|sign) in|(?:log|sign) in to (?:use|continue|access)|authenticate again/i
-const isAuthRefusal = (error: unknown): boolean =>
-  (error instanceof AcpError || error instanceof Error) &&
-  AUTH_REQUIRED_WORDS.test(`${error.message}\n${(error as AcpError).details ?? ''}`)
 
 /** The first sentence of what an agent said, for a line a person reads. */
 export const firstSentence = (text: string): string => {
@@ -4666,6 +4816,17 @@ class AcpSession implements AgentSession {
   #turns: Turn[] = []
   #currentTurn: MutableTurn | null = null
   #turnCompletion: Promise<void> | null = null
+  /**
+   * The delegations the agent's last list called running, or whose declared
+   * spawn tools started them. Keep the source in this one collection: lists
+   * replace their own entries, while tool-derived entries survive only a
+   * cancelled root prompt and are cleared after any Stop attempt.
+   */
+  #runningDelegations: ReadonlyMap<string, 'tool' | 'list'> = new Map()
+  /** Delegations a stop's close ended; a later list naming one running is a replay, not work. */
+  readonly #endedByClose = new Set<string>()
+  /** Whether the conversation was last said to be idle over running delegations. */
+  #saidOutlasting = false
   #goal: SessionGoal | null = null
   #forkedFrom: SessionId | null = null
   #openingProblem: string | null = null
@@ -4692,6 +4853,13 @@ class AcpSession implements AgentSession {
   >()
 
   #replaying = false
+  /** A stop's close and reopen, while it runs; a send waits for it. */
+  #reopening: Promise<boolean> | null = null
+  /**
+   * Where a stop's close and reopen stand: `closing` until the close has
+   * ended, `opening` until the reopen answers. See `applyUpdate`.
+   */
+  #reopenPhase: 'closing' | 'opening' | null = null
 
   constructor(host: AcpRuntime, opened: AcpNewSessionResult, cwd: string) {
     this.#host = host
@@ -4727,6 +4895,13 @@ class AcpSession implements AgentSession {
     this.#openingProblem = message
   }
 
+  /** The same conversation, opened again after a stop: adopt what the open declared, quietly. */
+  reopened(opened: AcpNewSessionResult): void {
+    this.#modes = opened.modes ?? this.#modes
+    this.#models = opened.models ?? this.#models
+    this.#configOptions = opened.configOptions ? flatConfigOptions(opened.configOptions) : this.#configOptions
+  }
+
   /** The draft-options probe: a real session that never says anything. */
   static probe(host: AcpRuntime, opened: AcpNewSessionResult, cwd: string): AcpSession {
     const session = new AcpSession(host, opened, cwd)
@@ -4751,6 +4926,8 @@ class AcpSession implements AgentSession {
     // Close the trailing history turn, then adopt whatever the load declared.
     const open = this.#currentTurn
     if (open) {
+      // History keeps no stop reason, so replayed children read as completed.
+      this.#finishToolDelegations(open, 'end_turn')
       this.#currentTurn = null
       this.#turns.push({
         id: open.id,
@@ -4759,7 +4936,16 @@ class AcpSession implements AgentSession {
         startedAt: open.startedAt,
       })
     }
+    // History says what ran then, not what runs now: the live session's next
+    // list says that (one that arrived before this point was dropped with
+    // the replay, and the next list or turn end corrects it). A child the
+    // history left running is closed with an end nobody can name, still
+    // inside the replay so only the snapshot below carries it; the next list
+    // reopens it if it does still run.
+    this.#strandDelegations()
     this.#replaying = false
+    this.#runningDelegations = new Map()
+    this.#saidOutlasting = false
     this.#modes = loaded.modes ?? this.#modes
     this.#models = loaded.models ?? this.#models
     this.#configOptions = loaded.configOptions ? flatConfigOptions(loaded.configOptions) : this.#configOptions
@@ -4986,11 +5172,15 @@ class AcpSession implements AgentSession {
    * disagree with it. `busy` is false while a loaded session's history is
    * being replayed, which is a turn re-read rather than one in flight.
    */
-  async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief' }): Promise<TurnId> {
+  async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief'; readonly signal?: AbortSignal }): Promise<TurnId> {
     return this.#send(input, opts)
   }
 
-  async #send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief' }, control?: { method: string; params: Record<string, unknown> }): Promise<TurnId> {
+  async #send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice'; readonly noticeKind?: 'agentBrief'; readonly signal?: AbortSignal }, control?: { method: string; params: Record<string, unknown> }): Promise<TurnId> {
+    // A stop still closing and reopening the session: the prompt goes to the reopened one.
+    if (this.#reopening) await this.#reopening
+    // Nothing is awaited from here to the prompt going out: a send withdrawn before it starts sends nothing.
+    if (opts?.signal?.aborted) throw opts.signal.reason
     if (this.#openingProblem) throw new Error(this.#openingProblem)
     if (this.busy) {
       throw new Error(
@@ -5063,7 +5253,7 @@ class AcpSession implements AgentSession {
       })
       .catch((error: unknown) => {
         this.#host.refusedForSignIn(error)
-        this.#failTurn(turn, describeAcp(error))
+        this.#failTurn(turn, describeAcp(error), classifyAcpError(error))
         if (control) throw error
       })
     // A control's result is internal turn bookkeeping, not setter acceptance.
@@ -5149,8 +5339,79 @@ class AcpSession implements AgentSession {
   }
 
   async interrupt(): Promise<void> {
+    // A second stop while the first still closes and reopens: that one is the answer.
+    if (this.#reopening) { await this.#reopening; return }
+    const turn = this.busy ? this.#currentTurn : null
+    // The turn is over and its sub-agents are not: there is no prompt to
+    // cancel, and only the close ends them on an agent whose cancel leaves
+    // them. Where the close cannot run after all, the cancel is sent and the
+    // agent's next list says what still runs.
+    if (!turn && this.#runningDelegations.size > 0 && this.#host.cancelLeavesSubagents) {
+      if (!await this.#reopenAfterCancel(null)) this.cancelOnly()
+      return
+    }
+    this.cancelOnly()
+    if (turn && this.#host.cancelLeavesSubagents) await this.#reopenAfterCancel(turn)
+  }
+
+  /** The cancel, and nothing after it. */
+  cancelOnly(): void {
     if (this.busy && this.#currentTurn) this.#currentTurn.interruptRequested = true
     this.#host.connectionFor(this.id).notify('session/cancel', { sessionId: this.id })
+  }
+
+  /**
+   * What the cancel left running is ended by closing the session, once the
+   * prompt has settled, and the session is opened again in its place. See
+   * `AcpAgentConfig.cancelLeavesSubagents`.
+   */
+  async #reopenAfterCancel(turn: MutableTurn | null): Promise<boolean> {
+    const settled = this.#turnCompletion
+    const reopening = (async (): Promise<boolean> => {
+      // A prompt the agent never settles is ended by the close all the same.
+      // With no turn (sub-agents outlasting it) there is nothing to wait for.
+      let timer: NodeJS.Timeout | undefined
+      if (turn) await Promise.race([
+        settled?.catch(() => {}),
+        new Promise<void>((resolve) => { timer = setTimeout(resolve, this.#host.cancelSettleMs) }),
+      ])
+      clearTimeout(timer)
+      // From here the closing session speaks for nobody: its last words are
+      // dropped, a question it asks is refused, and a prompt it never settled
+      // is the stopped turn — ended here, before the close could fail it.
+      this.#reopenPhase = 'closing'
+      this.#abandonPermissions('The conversation was stopped.')
+      if (turn && this.#currentTurn === turn) this.#finishTurn(turn, 'cancelled')
+      let reopened = false
+      try {
+        reopened = await this.#host.reopenAfterCancel(this)
+      } finally {
+        this.#reopenPhase = null
+        // Only a close that ran ended the children: those it ended are not
+        // taken as running again from a list the reopened session replays,
+        // and a stop that could not close leaves the agent's own list to say.
+        if (reopened) {
+          for (const id of this.#runningDelegations.keys()) this.#endedByClose.add(id)
+          this.#runningDelegations = new Map()
+        } else {
+          // Tool calls cannot tell us whether a failed Stop left children
+          // alive. Do not keep offering an idle Stop that cannot reach them;
+          // list-derived children still follow the agent's next list.
+          this.#clearToolDelegations()
+        }
+        this.#sayOutlasting()
+      }
+      return reopened
+    })()
+    this.#reopening = reopening
+    try { return await reopening } finally {
+      if (this.#reopening === reopening) this.#reopening = null
+    }
+  }
+
+  /** The stop's close has ended: from here the reopen is speaking. */
+  closeFinished(): void {
+    if (this.#reopenPhase === 'closing') this.#reopenPhase = 'opening'
   }
 
   async respondToApproval(id: ApprovalId, decision: ApprovalDecision): Promise<void> {
@@ -5188,6 +5449,8 @@ class AcpSession implements AgentSession {
   }
 
   async close(): Promise<void> {
+    // A stop's reopen finishes first, or the session it opens would outlive this close.
+    if (this.#reopening) await this.#reopening
     // Release the peer's live state, never its durable history.
     await this.#host.releaseSession(this)
   }
@@ -5254,6 +5517,11 @@ class AcpSession implements AgentSession {
   }
 
   applyUpdate(update: AcpSessionUpdate): void {
+    // A stop's close: the closed session's last words are not the
+    // conversation's. Its reopen: a load's replay is already held here, while
+    // what the open says of the session's mode, model and options is kept.
+    if (this.#reopenPhase === 'closing') return
+    if (this.#reopenPhase === 'opening' && !REOPEN_SETTINGS_UPDATES.has(update.sessionUpdate)) return
     if (this.#replaying && update.sessionUpdate === 'user_message_chunk') {
       // Housekeeping the agent has owned up to is never speech, so it neither
       // joins the message beside it nor speaks for the person. It still opens
@@ -5275,6 +5543,8 @@ class AcpSession implements AgentSession {
       }
       // Each stored user message opens the next history turn.
       if (open) {
+        // History keeps no stop reason, so replayed children read as completed.
+        this.#finishToolDelegations(open, 'end_turn')
         this.#currentTurn = null
         this.#turns.push({
           id: open.id,
@@ -5319,7 +5589,7 @@ class AcpSession implements AgentSession {
       }
       case 'agent_message_chunk': {
         if (!turn) return
-        const item = this.#appendText(turn, 'assistantMessage', textOf(update.content))
+        const item = this.#appendText(turn, 'assistantMessage', textOf(update.content), update.messageId)
         this.#emit({
           type: 'item/delta',
           sessionId: this.id,
@@ -5331,7 +5601,7 @@ class AcpSession implements AgentSession {
       }
       case 'agent_thought_chunk': {
         if (!turn) return
-        const item = this.#appendText(turn, 'reasoning', textOf(update.content))
+        const item = this.#appendText(turn, 'reasoning', textOf(update.content), update.messageId)
         this.#emit({
           type: 'item/delta',
           sessionId: this.id,
@@ -5449,11 +5719,11 @@ class AcpSession implements AgentSession {
           this.#emit({ type: 'item/started', sessionId: this.id, turnId: turn.id, item: next })
         } else {
           turn.items[index] = next
-          if (status === 'inProgress') {
+          if (next.status === 'inProgress') {
             this.#emit({ type: 'item/started', sessionId: this.id, turnId: turn.id, item: next })
           }
         }
-        if (status !== 'inProgress') {
+        if (next.status !== 'inProgress') {
           this.#emit({ type: 'item/completed', sessionId: this.id, turnId: turn.id, item: next })
         }
         return
@@ -5558,7 +5828,74 @@ class AcpSession implements AgentSession {
     turn.tools ??= new Map()
     const state = projectToolItem(call, update, turn.tools.get(update.toolCallId), this.#cwd)
     turn.tools.set(update.toolCallId, state)
+    const tools = this.#host.delegationTools
+    if (!tools) return state.item
+    const args = call.args && typeof call.args === 'object' && !Array.isArray(call.args)
+      ? call.args as Record<string, unknown> : {}
+    const text = (value: unknown): string | undefined => typeof value === 'string' && value.trim() ? value : undefined
+    if (tools.spawn.includes(call.tool)) {
+      const result = call.result?.map(part => part.type === 'text' ? part.text : part.type === 'json' && typeof part.value === 'string' ? part.value : '').join('\n') ?? ''
+      const name = text(args['name']) ?? /\bstarted subagent\s+[`"']?([^\s`"']+)/i.exec(result)?.[1]?.replace(/[.,;:!]+$/, '') ?? call.id
+      const prompt = text(args['prompt'])
+      const item = subagentItemOf(call.id, {
+        id: name,
+        label: text(args['description']) ?? text(args['name']) ?? name,
+        ...(prompt ? { prompt } : {}),
+        state: call.status === 'failed' ? 'failed' : 'running',
+        ...(call.status === 'failed' && call.completedAt !== undefined ? { endedAt: call.completedAt } : {}),
+      }, call)
+      turn.tools.set(update.toolCallId, { ...state, item })
+      if (!this.#replaying && this.#reopenPhase === null) {
+        // The call returns at once; the root prompt waits for the tree. Use
+        // the same running collection as lists, keyed by the spawn call.
+        const running = new Map(this.#runningDelegations)
+        if (item.status === 'inProgress') {
+          if (!running.has(call.id)) running.set(call.id, 'tool')
+        } else if (running.get(call.id) === 'tool') running.delete(call.id)
+        this.#runningDelegations = running
+      }
+      return item
+    }
+    if ([...tools.send, ...tools.wait, ...tools.cancel].includes(call.tool)) {
+      const name = text(args['agent']) ?? text(args['name'])
+      if (name) {
+        // Each interaction keeps its own progress, failure and approval
+        // target. Naming a known child never suppresses the call's row.
+        const item = { ...call, tool: `${call.tool}: ${name}` }
+        turn.tools.set(update.toolCallId, { ...state, item })
+        return item
+      }
+    }
     return state.item
+  }
+
+  /** Tool-return status is not child status: only the root settling ends it. */
+  #finishToolDelegations(turn: MutableTurn, reason: string): void {
+    for (const [id, state] of turn.tools ?? []) {
+      if (state.item.type !== 'subagent' || state.item.status !== 'inProgress') continue
+      const previous = state.item
+      const item: typeof previous = {
+        ...previous,
+        status: reason === 'end_turn' ? 'completed' : 'failed',
+        members: previous.members.map(member => ({ ...member, state: reason === 'end_turn' ? 'completed' : reason === 'cancelled' ? 'stopped' : 'failed' })),
+        ...(!this.#replaying ? { completedAt: Date.now() } : {}),
+      }
+      const at = turn.items.findIndex(one => one.id === id)
+      if (at === -1) continue
+      turn.items[at] = item
+      turn.tools?.set(id, { ...state, item })
+      this.#emit({ type: 'item/completed', sessionId: this.id, turnId: turn.id, item })
+    }
+    // Only cancellation is known to leave tool-derived children alive. After
+    // any other ending (a limit, a refusal, an error) the tool calls cannot say
+    // whether children survived, so Stop is withdrawn rather than offered for
+    // ever over children it may not reach.
+    // A later non-cancelled turn also clears children of a prior cancellation.
+    if (reason !== 'cancelled') this.#clearToolDelegations()
+  }
+
+  #clearToolDelegations(): void {
+    this.#runningDelegations = new Map([...this.#runningDelegations].filter(([, source]) => source !== 'tool'))
   }
 
   /**
@@ -5639,6 +5976,24 @@ class AcpSession implements AgentSession {
       const previous = this.#turns[turn]
       if (previous) this.#turns[turn] = { ...previous, items }
     }
+    // What runs now is said by a list the live session pushes, never by one
+    // replayed from history while the session loads, nor by one that arrives
+    // while a stop closes and reopens it (the dying session's last word or the
+    // reopened one's replay) — those still end the rows they name, above.
+    // A child a stop's close ended stays ended, whatever a later list replays
+    // of it; a delegation the agent starts afterwards is new work and counts.
+    // A live list that lands before `finishReplay` is dropped with the
+    // replayed ones, by design: the agent's next list, or the next turn's
+    // end, says what runs.
+    if (!this.#replaying && this.#reopenPhase === null) {
+      const running = new Map([...this.#runningDelegations].filter(([, source]) => source === 'tool'))
+      for (const delegation of delegations) {
+        if (typeof delegation?.id === 'string' && delegation.id.length > 0 && !this.#endedByClose.has(delegation.id) &&
+          (DELEGATION_STATUS[delegation.state ?? 'running'] ?? 'inProgress') === 'inProgress') running.set(delegation.id, 'list')
+      }
+      this.#runningDelegations = running
+      this.#sayOutlasting()
+    }
     // A share of the session's total and never an addition to it — the
     // runtimes that attribute child spend have already folded it into their
     // own counts. Carried so the window can split a figure it must not
@@ -5715,12 +6070,39 @@ class AcpSession implements AgentSession {
     this.#emit({ type: 'usage/updated', sessionId: this.id, usage: this.#usage })
   }
 
+  /**
+   * Closes every finished turn's row of a child still said to be running,
+   * once nothing is left that could say how it ended: the agent exited, this
+   * handle was released, or history was replayed into a fresh one. A
+   * background child's row is the agent's live record of it and outlives its
+   * turn; with the agent's word gone, a row left open would read as working
+   * for ever. `notFound` is an end nobody can name.
+   */
+  #strandDelegations(): void {
+    this.#turns = this.#turns.map((turn) => {
+      if (!turn.items.some((item) => item.type === 'subagent' && item.status === 'inProgress')) return turn
+      const items = turn.items.map((item): AgentItem => {
+        if (item.type !== 'subagent' || item.status !== 'inProgress') return item
+        const closed: AgentItem = {
+          ...item,
+          status: 'completed',
+          members: item.members.map((member) => (member.state === 'running' || !member.state ? { ...member, state: 'notFound' } : member)),
+        }
+        this.#emit({ type: 'item/completed', sessionId: this.id, turnId: turn.id, item: closed })
+        return closed
+      })
+      return { ...turn, items }
+    })
+  }
+
   /** Emits unless this session is replaying stored history. */
   #emit(event: Parameters<AcpRuntime['emit']>[0]): void {
     if (!this.#replaying) this.#host.emit(event)
   }
 
   requestPermission(request: AcpPermissionRequest): Promise<{ outcome: AcpPermissionOutcome }> {
+    // A session a stop is closing and reopening has nobody to ask for.
+    if (this.#reopenPhase) return Promise.resolve({ outcome: { outcome: 'cancelled' } })
     const id = approvalId(`acp-${request.toolCall.toolCallId}-${Date.now().toString(36)}`)
     // A question is not a permission. Our Claude bridge carries Claude Code's
     // `AskUserQuestion` as a permission request whose options are the
@@ -5811,12 +6193,17 @@ class AcpSession implements AgentSession {
   }
 
   agentDied(): void {
+    // Its children went with it, or are no longer this handle's to stop.
+    this.#runningDelegations = new Map()
+    this.#strandDelegations()
     const turn = this.#currentTurn
-    if (turn) this.#failTurn(turn, `${this.#host.agentName} exited mid-turn.`)
+    if (turn) this.#failTurn(turn, `${this.#host.agentName} exited mid-turn.`, 'runtimeUnavailable')
     this.#abandonPermissions('The agent exited.')
   }
 
   released(): void {
+    this.#runningDelegations = new Map()
+    this.#strandDelegations()
     const turn = this.#currentTurn
     if (turn && !this.#replaying) this.#finishTurn(turn, 'cancelled')
     this.#abandonPermissions('The conversation closed.')
@@ -5835,13 +6222,26 @@ class AcpSession implements AgentSession {
     this.#pendingPermissions.clear()
   }
 
+  /**
+   * A chunk continues the item before it when that item is the same kind of
+   * text and, where the agent names its messages, the same message. An agent
+   * that answers twice in one prompt — DeepSeek Harness says it is waiting
+   * on a subagent, then answers again when the subagent reports — sends two
+   * messages back to back with nothing between them but their ids; read
+   * without the ids they were one item, "…waiting.Here is…", spliced with no
+   * separator.
+   */
   #appendText(
     turn: MutableTurn,
     type: 'assistantMessage' | 'reasoning',
     text: string,
+    messageId?: string | null,
   ): AgentItem {
     const last = turn.items[turn.items.length - 1]
-    if (last && last.type === type) {
+    const named = typeof messageId === 'string' && messageId.length > 0 ? messageId : null
+    const sameMessage = named === null || turn.textMessage === undefined || turn.textMessage.itemId !== last?.id || turn.textMessage.messageId === named
+    if (last && last.type === type && sameMessage) {
+      if (named !== null) turn.textMessage = { itemId: last.id, messageId: named }
       const updated: AgentItem =
         type === 'assistantMessage'
           ? { ...(last as Extract<AgentItem, { type: 'assistantMessage' }>), text: (last as Extract<AgentItem, { type: 'assistantMessage' }>).text + text }
@@ -5857,13 +6257,18 @@ class AcpSession implements AgentSession {
         ? { id: itemId(`${turn.id}-a${turn.items.length}`), type, text, startedAt: Date.now() }
         : { id: itemId(`${turn.id}-r${turn.items.length}`), type, summary: [], content: [text], startedAt: Date.now() }
     turn.items.push(item)
+    turn.textMessage = named === null ? undefined : { itemId: item.id, messageId: named }
     // The started item goes out empty: the chunk that created it follows as
     // the first delta, and sending the text both ways doubles it on screen.
     const bare: AgentItem =
       type === 'assistantMessage'
         ? { ...(item as Extract<AgentItem, { type: 'assistantMessage' }>), text: '' }
         : { ...(item as Extract<AgentItem, { type: 'reasoning' }>), content: [] }
-    this.#host.emit({ type: 'item/started', sessionId: this.id, turnId: turn.id, item: bare })
+    // Through the replay guard like every other item event. A replayed answer
+    // announced here reached the host as fresh, empty activity over the
+    // finished reply it had saved under the same id: an idle conversation read
+    // back with every reply blank and its history "still being saved" (#2044).
+    this.#emit({ type: 'item/started', sessionId: this.id, turnId: turn.id, item: bare })
     return item
   }
 
@@ -5871,6 +6276,7 @@ class AcpSession implements AgentSession {
     if (this.#currentTurn?.id !== turn.id) return
     const completedAt = Date.now()
     const reason = typeof stopReason === 'string' ? stopReason : stopReason == null ? 'end_turn' : String(stopReason)
+    this.#finishToolDelegations(turn, reason)
     const status =
       reason === 'cancelled' ? 'interrupted' : reason === 'end_turn' ? 'completed' : 'failed'
     const finished: Turn = {
@@ -5891,35 +6297,64 @@ class AcpSession implements AgentSession {
     this.#currentTurn = null
     this.#turns.push(finished)
     this.#host.emit({ type: 'turn/completed', sessionId: this.id, turn: finished })
-    this.#host.emit({ type: 'session/status', sessionId: this.id, status: { type: 'idle' } })
+    this.#host.emit({ type: 'session/status', sessionId: this.id, status: this.#idleStatus() })
   }
 
-  #failTurn(turn: MutableTurn, message: string): void {
+  /** Idle, and whether counted sub-agents still running outlast the turn. */
+  #idleStatus(): SessionStatus {
+    this.#saidOutlasting = this.#outlasts()
+    return this.#saidOutlasting ? { type: 'idle', subagentsRunning: true } : { type: 'idle' }
+  }
+
+  /**
+   * Whether sub-agents outlast the turn in a way Stop can end: one is counted
+   * running, and a close and reopen can run here. ACP leaves a cancel with
+   * no prompt to cancel undefined, so for any other agent the flag is never
+   * raised — Stop is not offered where it would do nothing known.
+   */
+  #outlasts(): boolean {
+    return this.#runningDelegations.size > 0 && this.#host.canStopOutlasting(this)
+  }
+
+  /** Says the idle status again when what outlasts the turn changed while no turn ran. */
+  #sayOutlasting(): void {
+    if (this.#currentTurn !== null) return
+    if (this.#saidOutlasting === this.#outlasts()) return
+    this.#emit({ type: 'session/status', sessionId: this.id, status: this.#idleStatus() })
+  }
+
+  #failTurn(turn: MutableTurn, message: string, code: AgentError['code']): void {
     if (this.#currentTurn?.id !== turn.id) return
     const completedAt = Date.now()
+    this.#finishToolDelegations(turn, 'failed')
     this.#currentTurn = null
     const finished: Turn = {
       id: turn.id,
       items: [...turn.items],
       status: 'failed',
-      error: { message },
+      // The code goes on the turn as well as the event: the turn is what the
+      // transcript keeps, and what it reads to offer the one fix that helps.
+      error: { message, code },
       startedAt: turn.startedAt,
       completedAt,
       durationMs: turn.startedAt === null ? null : completedAt - turn.startedAt,
     }
     this.#turns.push(finished)
     this.#host.emit({ type: 'turn/completed', sessionId: this.id, turn: finished })
-    this.#host.emit({ type: 'session/status', sessionId: this.id, status: { type: 'idle' } })
+    this.#host.emit({ type: 'session/status', sessionId: this.id, status: this.#idleStatus() })
     this.#host.emit({
       type: 'error',
       sessionId: this.id,
-      error: { message, code: 'runtimeUnavailable' },
+      error: { message, code },
     })
   }
 }
 
 /** `acceptDelegations`' stand-in index for the turn in flight. */
 const OPEN_TURN = -1
+
+/** What a stop's reopen may say that is kept: the session's settings, never its content. */
+const REOPEN_SETTINGS_UPDATES = new Set(['current_mode_update', 'current_model_update', 'config_option_update'])
 
 interface MutableTurn {
   readonly id: TurnId
@@ -5928,6 +6363,8 @@ interface MutableTurn {
   controls?: Set<Promise<unknown>>
   items: AgentItem[]
   tools?: Map<string, ToolItemState>
+  /** The message id the agent gave the text item last written, when it gave one (`#appendText`). */
+  textMessage?: { readonly itemId: ItemId; readonly messageId: string }
   /**
    * `null` only for a turn opened while replaying stored history
    * (`#replaying`): the desk already knows when it really started, and

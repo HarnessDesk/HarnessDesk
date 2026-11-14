@@ -1,6 +1,7 @@
 import type { DispatchAdmission } from '../dispatch-admission.js'
 import type { HarnessDeskAccount } from '../harnessdesk-account.js'
 import type { GitGateway } from '../git-gateway/index.js'
+import type { McpStarts } from '../mcp-starts.js'
 import type { ConversationLoadouts } from '@harnessdesk/protocol'
 import type { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 import type {
@@ -66,6 +67,7 @@ import type { ProvenancePlane } from '../provenance/plane.js'
 import type { ExtensionHost, HostOptions, ModelRouteRecord, OpenedSeat } from '../host.js'
 import type { CorpusSpec, Ledger, RemoteEventsSource } from '../ledger/index.js'
 import type { LibrarySources } from '../library-sources.js'
+import type { McpConnectionTests } from '../mcp-test.js'
 import type { LibraryUpdates } from '../library-updates.js'
 import type { LibraryUsageReader } from '../library-usage.js'
 import type { Logger } from '../log.js'
@@ -114,6 +116,8 @@ export interface HostContext {
   readonly harnessDeskAccount: HarnessDeskAccount
   readonly credentials: CredentialBroker
   readonly audit: AuditLog
+  /** Whether MCP clients may start work, and today's count. The window sets it; the client door admits against it. */
+  readonly mcpStarts: McpStarts
   readonly loadouts: {
     observe(runtime: AgentRuntime, session: SessionId, cwd: string): void
     read(session: string, runtime?: RuntimeId): Promise<ConversationLoadouts>
@@ -126,6 +130,10 @@ export interface HostContext {
     list(params: HostParams<'session/index'>): Page<SessionSummary>
     record(session: Session): void
     reopen(session: Session): void
+    refreshMissingFolder(cwd: string): Promise<void>
+    opened(runtime: RuntimeId, id: SessionId): void
+    pins(): readonly string[]
+    setPinned(runtime: RuntimeId, id: SessionId, pinned: boolean): void
     setTitle(runtime: RuntimeId, id: SessionId, title: string | null): void
     setArchived(runtime: RuntimeId, id: SessionId, archived: boolean): void
     remove(runtime: RuntimeId, id: SessionId): void
@@ -151,7 +159,7 @@ export interface HostContext {
   /** Redacted, phone-sized projections of sessions, Teams and spend; what a paired phone may read of the desk's work. */
   readonly phoneWorkspace: Pick<import('../phone-workspace.js').PhoneWorkspace, 'sessionsList' | 'teamsList' | 'dashboardRead'>
   /** The phone's projected work, ordinary session controls and approval answers. */
-  readonly phoneWork: Pick<import('../phone-work.js').PhoneWork, 'snapshot' | 'sessionsList' | 'sessionStart' | 'sessionSend' | 'stop' | 'threadRead' | 'approvalDecide' | 'teamWrap'>
+  readonly phoneWork: Pick<import('../phone-work.js').PhoneWork, 'snapshot' | 'sessionsList' | 'sessionRename' | 'sessionArchive' | 'sessionPin' | 'sessionDelete' | 'sessionStart' | 'sessionSend' | 'stop' | 'threadRead' | 'approvalDecide' | 'teamWrap'>
   /** Person-owned controls, reachable from the window only. */
   readonly leadChatControl: {
     reset(): Promise<import('@harnessdesk/protocol').LeadChatControlList>
@@ -160,7 +168,29 @@ export interface HostContext {
     handBack(id: string): Promise<import('@harnessdesk/protocol').LeadChatControlList>
   }
   readonly leadChats: Pick<import('../lead/chats.js').LeadChats, 'list' | 'read' | 'start' | 'send' | 'stop'>
+  /** The Lead's work ledger; refuses with `lead-unavailable` while no Lead runs here. */
+  readonly leadWork: Pick<import('../lead/work.js').LeadWorkLedger, 'board' | 'read' | 'note' | 'close' | 'setReminder' | 'cancelReminder' | 'clearReminder'>
+  /**
+   * The person is stopping chat `runtime:session` (from the window or a phone), so the work ledger says the stop was
+   * theirs. Called right before the interrupt is sent; it returns at once and never throws, so a stop is never held up
+   * by the ledger. The returned function takes the record back when the interrupt fails. Does nothing while no Lead runs.
+   */
+  personStopping(chat: string): () => void
+  /**
+   * Conversations stuck at a usage limit: what is live, for a reconnecting window, and the person's answer to one.
+   * `decide` refuses with `CarryOnStaleError` when the incident is no longer asking or the target is no longer offered.
+   */
+  readonly carryOn: {
+    list(): readonly import('@harnessdesk/protocol').CarryOnIncidentView[]
+    decide(input: import('@harnessdesk/protocol').CarryOnDecision): Promise<import('@harnessdesk/protocol').CarryOnIncidentView>
+  }
+  /** Seen marks, the away digest, the morning brief and the state of each ask; refuses while no Lead runs here. */
+  readonly leadPresence: Pick<import('../lead/presence.js').LeadPresenceStore, 'read' | 'dismiss' | 'brief' | 'updateBrief'>
+  /** Autonomy modes, the three rule sections with their versions, and goal deadlines; refuses while no Lead runs here. */
+  readonly leadAutonomy: Pick<import('../lead/autonomy.js').LeadAutonomyStore, 'view' | 'set' | 'rules' | 'updateRules' | 'setDeadline' | 'proposeMode' | 'proposeRules' | 'decide'>
   leadWakesRead(): Promise<HostResult<'lead/wakes/read'>>
+  leadUsageSummary(): Promise<HostResult<'lead/usage/summary'>>
+  leadDeskSummary(params: HostParams<'lead/desk/summary'>): Promise<HostResult<'lead/desk/summary'>>
   leadThreadRead(): Promise<HostResult<'lead/thread/read'>>
   leadThreadSend(params: HostParams<'lead/thread/send'>): Promise<HostResult<'lead/thread/send'>>
   leadCardDecide(params: HostParams<'lead/card/decide'>): Promise<HostResult<'lead/card/decide'>>
@@ -178,6 +208,21 @@ export interface HostContext {
   leadScheduleUpdate(params: HostParams<'lead/schedule/update'>): Promise<HostResult<'lead/schedule/update'>>
   leadMemoryRead(): Promise<HostResult<'lead/memory/read'>>
   leadMemoryUpdate(params: HostParams<'lead/memory/update'>): Promise<HostResult<'lead/memory/update'>>
+  /** The Lead's memory as Settings and the phone show it: Core, Archive, To review and History. */
+  leadMemoryView(): Promise<HostResult<'lead/memory/view'>>
+  /** The person's edits, and Undo; the person's entries change only here. */
+  leadMemoryChange(params: HostParams<'lead/memory/change'>): Promise<HostResult<'lead/memory/change'>>
+  /** A proposal, scanned before it reaches the person's inbox. */
+  leadMemoryPropose(params: HostParams<'lead/memory/propose'>): Promise<HostResult<'lead/memory/propose'>>
+  leadMemorySearch(params: HostParams<'lead/memory/search'>): Promise<HostResult<'lead/memory/search'>>
+  /** How full the Lead's conversation is, how much of it the provider read from its cache, and its checkpoints. */
+  leadContextRead(): Promise<HostResult<'lead/context/read'>>
+  /** The same, as one figure with no summary text: what the Lead reads about itself and a phone shows. */
+  leadContextUse(): Promise<HostResult<'lead/context/use'>>
+  /** The person's inbox, built from the Lead's window, the desk's needs-you work and the kept notices. */
+  leadInbox(): Promise<HostResult<'lead/inbox/read'>>
+  /** The person's "Summarise now": one compaction, refused while the Lead is answering. */
+  leadContextCompact(): Promise<HostResult<'lead/context/compact'>>
   readonly leadStarts?: Pick<import('../lead/budgets.js').LeadBudgets, 'validateStart'>
   readonly flows: Flows
   /** Previews a flow, non-executing, and mints the one token `flow/start-goal` redeems. */
@@ -308,6 +353,8 @@ export interface HostContext {
   libraryUpdates(): LibraryUpdates
   librarySources(): LibrarySources
   libraryUsage(): LibraryUsageReader
+  /** Test connection: starts one declared MCP server, or reaches its URL, once per click. */
+  mcpConnectionTests(): McpConnectionTests
   /** Read-only Insight reports plus the explicitly reviewed local seating action. */
   readonly insight: Pick<InsightPlane, 'goal' | 'goals' | 'usage' | 'agent' | 'compare' | 'previewOrder' | 'applyOrder'>
   /**
@@ -315,7 +362,7 @@ export interface HostContext {
    * and the person's own controls. The only way a handler reaches triggers;
    * every mutation here is a person's, and none is ever an Agent's tool.
    */
-  readonly intake: Pick<IntakePlane, 'list' | 'preview' | 'arm' | 'disarm' | 'rebaseline' | 'preferences' | 'setPreferences' | 'history' | 'goal'>
+  readonly intake: Pick<IntakePlane, 'list' | 'preview' | 'arm' | 'disarm' | 'rebaseline' | 'preferences' | 'setPreferences' | 'history' | 'goal' | 'decisions' | 'reevaluate' | 'setMode' | 'triage' | 'triageTriggers'>
 
   /** The extension kernel, or a refusal that names the build. */
   extensions(): ExtensionHost
@@ -427,6 +474,8 @@ export interface HostContext {
         readonly runtimeServers?: readonly string[]
         /** Phase 12's frozen, isolated skill/server filter, prepared before this call — never computed from the session it opens. */
         readonly attachments?: SessionAttachments
+        /** Plugin tools this conversation is not offered; absent, `ask_agent` is withheld (only a Flow seat whose role may ask is offered it). */
+        readonly withheldTools?: readonly string[]
       },
     ): Promise<OpenedSeat>
     /** Hands a seated conversation its standing order: one message, one turn. */
@@ -606,6 +655,12 @@ export interface HostContext {
     applyTeam(): void
     /** Stored browser preferences into the extension host. */
     applyBrowser(): void
+    /**
+     * Why a plugin's settings may not be saved, in one sentence, or null.
+     * Only the host's own readers of a plugin's settings refuse anything:
+     * the Git plugin's Commit co-author, which the host writes into commits.
+     */
+    pluginConfigProblem(pluginId: string, config: Readonly<Record<string, unknown>>): string | null
   }
 }
 

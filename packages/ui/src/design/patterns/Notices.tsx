@@ -1,13 +1,14 @@
-import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { Fragment, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 
 import { AlertIcon, ArrowLeftIcon, BellIcon, BellOffIcon, ChevronIcon, CheckIcon, CrossIcon, InfoIcon, ShieldAlertIcon, TrashIcon } from '../../components/Icons'
-import { ContextMenu, MenuItem, type MenuPoint } from './Menu'
+import { ContextMenu, MenuAccountGroup, MenuAccountRow, MenuItem, type MenuPoint } from './Menu'
 import { Popover } from './Popover'
 import { InboxMenu } from './InboxMenu'
 import { inlineNoticeTitle } from '../primitives/Notice'
 import { NoticeHost, type BannerTone } from '../primitives/Banner'
 import { cn } from '@/lib/utils'
 import { Button } from '../ui/button'
+import { Checkbox } from '../ui/checkbox'
 import { revealMotion } from '../ui/motion'
 import { toast } from '../ui/toast'
 import { Chip, Text } from './Settings'
@@ -304,6 +305,174 @@ const ComposerNoticeRow = ({ message, secondaryAction, onDismiss, onMute }: { me
   )
 }
 
+/** One answer a `DecisionNotice` offers. */
+export interface DecisionChoice {
+  readonly id: string
+  readonly label: string
+  /** The answer the desk recommends: drawn solid, first. At most one. */
+  readonly primary?: boolean
+  readonly disabled?: boolean
+  /**
+   * Why a choice cannot be taken, when it cannot: the same string on hover
+   * and to a screen reader. It is a fact the card's `detail` already says on
+   * screen, so it costs no line of its own (rule 9).
+   */
+  readonly hint?: string
+}
+
+/** One more place the answer could go, listed behind the card's "other" link. */
+export interface DecisionAlternative {
+  readonly id: string
+  readonly name: ReactNode
+  readonly mark?: ReactNode
+  /** One chip for a state that is not simply available ("Nearly out"); it costs no row height. */
+  readonly chip?: string
+  /**
+   * The kind of place it is ("Accounts", "Agents"), when the menu holds more
+   * than one kind: each kind is listed under its own heading, in the order
+   * it first appears.
+   */
+  readonly group?: string
+}
+
+/** Alternatives by kind, in first-seen order; one kind, or none named, is one unheaded list. */
+const groupsOf = (items: readonly DecisionAlternative[]): [string | null, DecisionAlternative[]][] => {
+  const groups = new Map<string, DecisionAlternative[]>()
+  for (const item of items) groups.set(item.group ?? '', [...(groups.get(item.group ?? '') ?? []), item])
+  if (groups.size < 2) return [[null, [...items]]]
+  return [...groups].map(([group, entries]) => [group || null, entries])
+}
+
+/**
+ * A question about the conversation it sits over, with several answers and
+ * a way to stop being asked: a usage limit reached, where the person picks
+ * Switch, Wait or Stop, once or for good.
+ *
+ * `ComposerNotice` holds at most two actions; a decision needs more, and a
+ * box that turns the answer into the rule. So the sentence leads, as in
+ * every composer notice, and the answers sit under it, recommended first,
+ * with the box after them. Its label states its scope ("Always do this for
+ * Agent") because the rule it writes is the person's to find again in
+ * Settings. Not an overlay — the conversation stays readable and usable, and
+ * using it is an answer too — so it is a `group`, never a `dialog`.
+ *
+ * `alternatives` are the answers that are not the first one: other accounts
+ * or agents, behind a quiet link that opens a menu of them — each kind under
+ * its own heading when the menu holds both.
+ */
+export const DecisionNotice = ({
+  message,
+  detail,
+  tone = 'warning',
+  mark,
+  choices,
+  always,
+  alternatives,
+  busy = false,
+  onChoose,
+  children,
+}: {
+  message: ReactNode
+  /** A fact that varies, said once after the sentence: a reset time, or that there is none. */
+  detail?: ReactNode
+  tone?: NoticeTone
+  /** Who the question is about, in place of the tone's icon. */
+  mark?: ReactNode
+  choices: readonly DecisionChoice[]
+  /** The box that makes the answer the rule from now on. Unticked each time the card is shown. */
+  always?: { readonly label: string }
+  alternatives?: {
+    /** The link's words, naming what the menu holds: "Other account…", "Other agent…", "Choose another…". */
+    readonly label: string
+    readonly items: readonly DecisionAlternative[]
+    readonly onPick: (id: string, always: boolean) => void
+  }
+  /** An answer is on its way: every control waits. */
+  busy?: boolean
+  onChoose: (id: string, always: boolean) => void
+  /** Said under the answers, such as the reason the last one was refused. */
+  children?: ReactNode
+}) => {
+  const [remember, setRemember] = useState(false)
+  const [menuAt, setMenuAt] = useState<MenuPoint | null>(null)
+  const labelId = useId()
+  const hintId = useId()
+  const lead: NoticeMessage = { id: 'decision', tone, title: message, ...(mark ? { mark } : {}) }
+  const hints = choices.filter(choice => choice.disabled && choice.hint)
+  return (
+    <div className={styles.composerFrame}>
+      <div className={cn(styles.composer, styles.decision)} data-slot="decision-notice" data-surface="" data-tone={tone} role="group" aria-labelledby={labelId} aria-busy={busy || undefined}>
+        <Lead message={lead} />
+        <div className={styles.decisionBody}>
+          <span className={styles.lineText} id={labelId}>
+            <span className={styles.lineTitle} data-part="notice-title">{message}</span>
+            {detail ? <span className={styles.lineBody} data-part="notice-detail"> {detail}</span> : null}
+          </span>
+          <div className={styles.decisionActions} data-slot="decision-choices">
+            {[...choices].sort((a, b) => Number(Boolean(b.primary)) - Number(Boolean(a.primary))).map(choice => (
+              <Button
+                key={choice.id}
+                size="sm"
+                variant={choice.primary ? 'default' : 'outline'}
+                type="button"
+                disabled={busy || choice.disabled}
+                title={choice.disabled ? choice.hint : undefined}
+                {...(choice.disabled && choice.hint ? { 'aria-describedby': `${hintId}-${choice.id}` } : {})}
+                onClick={() => onChoose(choice.id, remember)}
+              >
+                {choice.label}
+              </Button>
+            ))}
+            {alternatives && alternatives.items.length > 0 ? (
+              <Button
+                variant="link"
+                size="inline"
+                type="button"
+                disabled={busy}
+                aria-haspopup="menu"
+                aria-expanded={menuAt !== null}
+                onClick={(event) => {
+                  const rect = event.currentTarget.getBoundingClientRect()
+                  setMenuAt({ x: rect.left, y: rect.bottom + 4 })
+                }}
+              >
+                {alternatives.label}
+              </Button>
+            ) : null}
+          </div>
+          {always ? (
+            <Checkbox
+              className={styles.decisionAlways}
+              checked={remember}
+              disabled={busy}
+              onCheckedChange={(next) => setRemember(next === true)}
+              label={<Text role="meta">{always.label}</Text>}
+            />
+          ) : null}
+          {children}
+          {hints.map(choice => <span key={choice.id} id={`${hintId}-${choice.id}`} className="sr-only">{choice.hint}</span>)}
+        </div>
+        {alternatives ? (
+          <ContextMenu at={menuAt} label={alternatives.label} onClose={() => setMenuAt(null)} icons={alternatives.items.some(item => item.mark) ? 'all' : 'none'}>
+            {groupsOf(alternatives.items).map(([group, items]) => {
+              const rows = items.map(item => (
+                <MenuAccountRow
+                  key={item.id}
+                  mark={item.mark}
+                  name={item.name}
+                  tag={item.chip ? <Chip tone="neutral" size="sm">{item.chip}</Chip> : undefined}
+                  onSelect={() => alternatives.onPick(item.id, remember)}
+                />
+              ))
+              return group ? <MenuAccountGroup key={group} label={group} mark={null}>{rows}</MenuAccountGroup> : <Fragment key="">{rows}</Fragment>
+            })}
+          </ContextMenu>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 /**
  * The composer notices and decision controls, stacked over the composer they
  * are about. Sessions and Lead share this gap; an empty stack takes no space.
@@ -371,6 +540,19 @@ export type InboxMessage = NoticeMessage & {
   /** Where the message is about, when it has a place: its conversation. Pressing the row goes there. */
   readonly go?: () => void
   readonly goLabel?: string
+}
+
+/**
+ * Something waiting on the person, listed above the kept messages: the Lead, its question, or a chat or Team the
+ * desk says needs them. It is the desk's (`lead/inbox/read`), so the phone lists the same rows; it is never read or
+ * cleared here, only opened, and it leaves when the desk stops listing it.
+ */
+export interface InboxWaiting {
+  readonly id: string
+  readonly title: string
+  /** Where it is: a project's name. */
+  readonly place?: string
+  readonly onOpen?: () => void
 }
 
 /**
@@ -498,18 +680,22 @@ export const InboxPanel = ({
   side = 'right',
   size = 'icon-sm',
   ...list
-}: Parameters<typeof InboxList>[0] & { side?: 'top' | 'right' | 'bottom' | 'left'; size?: 'icon-sm' | 'icon-xs' }) => {
-  const unread = list.messages.filter((message) => !message.read).length
+}: Parameters<typeof InboxList>[0] & { side?: 'top' | 'right' | 'bottom' | 'left'; size?: 'icon-sm' | 'icon-xs'; waiting?: readonly InboxWaiting[]
+  /** How many things need the person, as the desk counts them; a row can stand for more than one. Defaults to the rows. */
+  needs?: number }) => {
+  const unread = list.messages.filter((message) => !message.read).length, needs = list.needs ?? list.waiting?.length ?? 0
+  const said = [needs ? `${needs} need${needs === 1 ? 's' : ''} you` : '', unread ? `${unread} unread` : ''].filter(Boolean).join(', ')
+  const name = said ? `Inbox, ${said}` : 'Inbox'
   return (
     <Popover
-      title={unread > 0 ? `Inbox, ${unread} unread` : 'Inbox'}
+      title={name}
       side={side}
       sideAlign="end"
       triggerVariant={{ variant: 'ghost', size }}
       label={
-        <span className={styles.bell} data-slot="inbox-button" data-size={size} {...(unread > 0 ? { 'data-unread': '' } : {})}>
-          <span className="sr-only">{unread > 0 ? `Inbox, ${unread} unread` : 'Inbox'}</span><BellIcon size={14} />
-          {unread > 0 ? <span className={styles.bellCount} data-slot="inbox-dot" aria-hidden /> : null}
+        <span className={styles.bell} data-slot="inbox-button" data-size={size} {...(unread + needs > 0 ? { 'data-unread': '' } : {})}>
+          <span className="sr-only">{name}</span><BellIcon size={14} />
+          {unread + needs > 0 ? <span className={styles.bellCount} data-slot="inbox-dot" aria-hidden /> : null}
         </span>
       }
       panelWidth="wide" icons="none">

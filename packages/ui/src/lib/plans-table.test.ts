@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { runtimeId, type UsageBilling, type UsageLane, type UsageReport } from '@harnessdesk/protocol'
+import { answeredWithNothing, isSilentUsage, runtimeId, type UsageBilling, type UsageLane, type UsageReport } from '@harnessdesk/protocol'
 
 import {
   approxTurnsOf,
@@ -18,6 +18,7 @@ import {
   shapeCountsOf,
   sortRows,
   statusOf,
+  statusPresentation,
   type PlanRow,
 } from './plans-table'
 import { describeReport } from './usage'
@@ -505,6 +506,36 @@ describe('statusOf', () => {
     expect(statusOf(subject, 'none', describeReport(subject, { now: NOON }), NOON)).toBe('notReporting')
   })
 
+  // Not reporting is the word for an agent nothing answered for; a read that failed, or came back with nothing usable,
+  // reported, and says Unknown beside its error (#2111 review).
+  it('says Not reporting only for the stand-in of a silent agent, and Unknown for a read that failed', () => {
+    const failed = report({ lanes: [lane({ id: 'weekly', usedPercent: 10, usageKnown: false })], error: { message: 'HTTP 503' } as never })
+    expect(statusPresentation(statusOf(failed, 'windows', describeReport(failed, { now: NOON }), NOON)).label).toBe('Unknown')
+    const silent = report({ notReporting: true })
+    expect(statusPresentation(statusOf(silent, 'none', describeReport(silent, { now: NOON }), NOON)).label).toBe('Not reporting')
+  })
+
+  // The phone says Not reporting for exactly `isSilentUsage || answeredWithNothing`; the Plans row says it for the same
+  // accounts and no others, whatever else the report carries (#2150).
+  it('says Not reporting for exactly the accounts the phone does', () => {
+    const unverified = { whose: 'its other sign-in', lanes: [lane({ id: 'weekly', usedPercent: 30 })], reached: null, fetchedAt: NOON, staleAfterMs: 5 * MINUTE }
+    const cases: Record<string, UsageReport> = {
+      silent: report({ notReporting: true }),
+      empty: report({}),
+      'empty with a plan': report({ plan: 'Pro' }),
+      'empty, a limit reached it cannot name': report({ reached: 'session' }),
+      'empty, an overage on': report({ billing: billing(['allowance'], { overage: { enabled: true, spent: 0, currency: 'USD' } }) }),
+      'empty, another sign-in\'s figures': report({ unverified }),
+      'empty, a failed read': report({ error: { message: 'HTTP 503' } as never }),
+      'empty, unlimited credits': report({ credits: { remaining: null, unit: 'USD', unlimited: true } as never }),
+      figures: report({ lanes: [lane({ id: 'weekly', usedPercent: 10 })] }),
+      'a spent lane': report({ lanes: [lane({ id: 'weekly', usedPercent: 100 })] }),
+      'a balance': report({ credits: { remaining: 4, unit: 'USD' } as never }),
+    }
+    for (const [name, subject] of Object.entries(cases))
+      expect([name, describeRow(subject, NOON).status === 'notReporting']).toEqual([name, isSilentUsage(subject) || answeredWithNothing(subject, NOON)])
+  })
+
   it('otherwise reads "ready"', () => {
     const subject = report({ lanes: [lane({ id: 'weekly', usedPercent: 10 })] })
     expect(statusOf(subject, 'windows', describeReport(subject, { now: NOON }), NOON)).toBe('ready')
@@ -512,9 +543,9 @@ describe('statusOf', () => {
 
   // The four cases `reportNeedsAttention` (`lib/usage.ts`) already caught
   // that the card's own tone check missed — review of #1069, B2.
-  it('is "unknown" for a report carrying its own error, even with a fine-looking view', () => {
+  it('is "unknown" for a read that never answered, whatever its view', () => {
     const subject = report({
-      lanes: [lane({ id: 'weekly', usedPercent: 10 })],
+      lanes: [lane({ id: 'weekly', usedPercent: 10, usageKnown: false })],
       error: { message: 'Could not reach the account' },
     })
     expect(statusOf(subject, 'windows', describeReport(subject, { now: NOON }), NOON)).toBe('unknown')
@@ -546,20 +577,20 @@ describe('statusOf', () => {
     expect(statusOf(subject, 'windows', view, NOON)).toBe('low')
   })
 
-  // A failed refresh keeps the last good figures; the card and the phone say Unknown, so Plans does too.
-  it('is "unknown" for a failed read, even with a cached balance below zero or a spent lane', () => {
+  // A failed refresh keeps the last good figures, and the card and the phone show them marked stale, so Plans does too (#2094).
+  it('keeps the last standing of a failed refresh — a cached balance below zero, a spent lane', () => {
     const owing = report({ credits: { remaining: -2, unit: 'USD' }, error: { message: 'Could not reach the account' } })
-    expect(statusOf(owing, 'balance', describeReport(owing, { now: NOON }), NOON)).toBe('unknown')
+    expect(statusOf(owing, 'balance', describeReport(owing, { now: NOON }), NOON)).toBe('overdrawn')
     const spent = report({ lanes: [lane({ id: 'weekly', usedPercent: 100 })], error: { message: 'Could not reach the account' } })
-    expect(statusOf(spent, 'windows', describeReport(spent, { now: NOON }), NOON)).toBe('unknown')
+    expect(statusOf(spent, 'windows', describeReport(spent, { now: NOON }), NOON)).toBe('out')
   })
 
-  it('draws no percent for an Unknown row, and sorts it on none', () => {
+  it('draws the last figure of a kept reading but sorts it after every row that answered', () => {
     const failed = describeRow(report({ lanes: [lane({ id: 'weekly', usedPercent: 95 })], error: { message: 'Could not reach the account' } }), NOON)
     const fine = describeRow(report({ runtime: runtimeId('b'), lanes: [lane({ id: 'weekly', usedPercent: 40 })] }), NOON)
-    expect(failed.status).toBe('unknown')
-    expect(failed.left.percent).toBeNull()
-    expect(sortRows([failed, fine]).map((row) => row.status)).toEqual(['ready', 'unknown'])
+    expect(failed.status).toBe('low')
+    expect(failed.left.percent).toBe(5)
+    expect(sortRows([failed, fine]).map((row) => row.raw.runtime)).toEqual([runtimeId('b'), failed.raw.runtime])
   })
 })
 

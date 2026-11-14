@@ -1,5 +1,5 @@
 import type { IosCapability, IosInvocationAuthority } from '@harnessdesk/protocol'
-import type { ForgeAssociatedPullRequest, ForgePush, ForgeCreate, ForgeUpdate, ForgeMerge, ForgeReview, ForgeComment, ForgeRecordQuery, ForgeAttribute, ForgeRequester, ForgeGitEntry, ForgeWriteResult } from '@harnessdesk/protocol'
+import type { ForgeAssociatedPullRequest, ForgePush, ForgeCreate, ForgeUpdate, ForgeMerge, ForgeReview, ForgeComment, ForgeRecordQuery, ForgeAttribute, ForgeRequester, ForgeGitEntry, ForgeWriteResult, ForgeThreadsQuery, ForgeReviewThreads, ForgeThreadSettle, ForgeThreadSettled } from '@harnessdesk/protocol'
 import type {
   CapabilityContribution,
   DecideFindingInput,
@@ -85,7 +85,9 @@ import type {
 //    belongs to: the plugin's own process is held to no disk, network or
 //    program of its own. A confined process says so in `host/hello` and
 //    asks the parent for every browser placement, and for `browser/handoff`.
-export const EXTENSION_PROTOCOL_VERSION = 17
+// 18 adds `agents/ask` — `{ scope, agent, question, context }` — one
+//    read-only question to another agent, answered once (`ctx.agents`).
+export const EXTENSION_PROTOCOL_VERSION = 18
 
 /** What `plugin/inspect` reports, for the consent dialog; nothing is imported. */
 export interface InspectedPlugin {
@@ -396,6 +398,8 @@ export interface ChildToHostMethods {
   'forge/repository': { params: { readonly scope: TeamCallScope; readonly args: Record<string, never> }; result: string | null }
   'forge/record': { params: { readonly scope: TeamCallScope; readonly args: ForgeRecordQuery }; result: readonly ForgeGitEntry[] }
   'forge/attribute': { params: { readonly scope: TeamCallScope; readonly args: ForgeAttribute }; result: ForgeRequester | 'outside' }
+  'forge/reviewThreads': { params: { readonly scope: TeamCallScope; readonly args: ForgeThreadsQuery }; result: ForgeReviewThreads }
+  'forge/settleThread': { params: { readonly scope: TeamCallScope; readonly args: ForgeThreadSettle }; result: ForgeThreadSettled }
   'forge/seat': { params: { readonly scope: TeamCallScope }; result: ForgeSeatInfo | null }
   'forge/identity': { params: { readonly scope: TeamCallScope }; result: ForgeIdentityInfo }
   'forge/publish': {
@@ -405,6 +409,15 @@ export interface ChildToHostMethods {
   'forge/publicationAllowed': {
     params: { readonly scope: TeamCallScope }
     result: { readonly ok: true } | { readonly ok: false; readonly reason: string }
+  }
+  /**
+   * `ctx.agents` — one read-only question to another agent. Host-owned for
+   * the team plane's reason: only the host knows the calling seat, its Flow's
+   * `ask` and what it has spent. The answer is the asked agent's, untrusted.
+   */
+  'agents/ask': {
+    params: { readonly scope: TeamCallScope; readonly agent: string; readonly question: string; readonly context: string | null }
+    result: { readonly text: string; readonly agentName: string; readonly truncated: boolean }
   }
   'team/board': { params: { readonly scope: TeamCallScope }; result: string }
   'team/addIntent': {

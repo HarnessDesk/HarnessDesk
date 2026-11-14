@@ -12,9 +12,13 @@
 .choice { display: flex; flex-direction: column; align-items: center; gap: var(--hd-space-2); height: auto; }
 
 /* A Lead line's face column, its status head, a note under the person's line. */
-.turn { display: flex; align-items: flex-start; gap: var(--hd-space-2); }
-.turnFace { flex: none; width: calc(var(--hd-space-5) + var(--hd-space-0-5)); }
+.turn { --turn-face-size: calc(var(--hd-space-5) + var(--hd-space-0-5)); --turn-reading-line: calc(var(--hd-text) * var(--hd-leading-reading)); display: flex; align-items: flex-start; gap: var(--hd-space-2); }
+.turnFace { display: flex; flex: none; width: var(--turn-face-size); margin-top: calc(var(--turn-first-line-inset, 0px) + (var(--turn-first-line-height, var(--hd-line)) - var(--turn-face-size)) / 2); }
 .turnBody { flex: 1; min-width: 0; }
+/* Pending prose uses the same leading as the Markdown it will become. */
+.turnBody [data-slot='lead-working'] { line-height: var(--turn-reading-line); }
+.turnBody [data-slot='lead-working'] [data-role='prose'] { line-height: inherit; }
+.turnBody > :first-child, .turnBody [data-slot='markdown'] > :first-child { margin-top: 0; }
 .identity { display: flex; align-items: center; gap: var(--hd-space-3); }
 .identityName { display: flex; flex-direction: column; min-width: 0; }
 .lineNote { display: flex; justify-content: flex-end; margin-top: var(--hd-space-1); }

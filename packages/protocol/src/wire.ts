@@ -1,14 +1,15 @@
 import type { LeadStage } from './lead-stage.js'
+import type { CarryOnDecision, CarryOnIncidentView, CarryOnKey } from './carry-on.js'
 import type { ForgeGitEntry, ForgeRequester } from './forge.js'
 import type {
   PhoneDashboard, PhoneLinkState, PhonePairing, PhoneRange, PhoneSessionsList, PhoneSessionState, PhoneTeamsList, PhoneTier,
   PhoneWorkItem, PhoneWorkSnapshot, PhoneWorkThread,
 } from './phone.js'
-import type { LeadChatControlList, LeadRepeatControl, LeadBudgetRaise, LeadSpendLimitSet, LeadWakeLog, LeadActionInput, LeadCardDecision, LeadWindowProjection, LeadNameReceipt, LeadSettingsUpdate, LeadThreadSend, LeadSendReceipt, LeadChanged, LeadSchedule, LeadMemory } from './lead.js'
+import type { LeadChatControlList, LeadRepeatControl, LeadBudgetRaise, LeadSpendLimitSet, LeadWakeLog, LeadActionInput, LeadCardDecision, LeadWindowProjection, LeadNameReceipt, LeadSettingsUpdate, LeadThreadSend, LeadSendReceipt, LeadChanged, LeadSchedule, LeadMemory, LeadContextFacts, LeadContextUse } from './lead.js'
 import type { ConversationLoadouts } from './loadout.js'
 import type { RuntimeInboxEntry } from './notices.js'
 import type { SeatDoing, SeatActivityState } from './tool-activity.js'
-import type { ClientTier, ClientTopic, FlowExecutionSummary } from './client-surface.js'
+import type { ClientTier, ClientTopic, FlowExecutionSummary, McpStartsView } from './client-surface.js'
 import type { AgentEntry, AgentOrigin, CeilingUpdate, MachineSeating, SeatPlan } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
 import type {
@@ -84,6 +85,7 @@ import type {
   LibraryPlan,
   LibraryPlannedOp,
   LibraryUsage,
+  McpTestResult,
   LibrarySourceResult,
   LibrarySkillUpdate,
 } from './library.js'
@@ -126,6 +128,8 @@ import type {
   SessionSummary,
 } from './session.js'
 import type { Intent, PersonNotice, Plan, TeamInbound, TeamPeerInfo, TeamState } from './team.js'
+import type { TriggerDecision, TriggerDecisionsPage, TriggerMode } from './intake.js'
+import type { PhoneTriageList } from './phone.js'
 import type {
   LedgerQuery,
   LedgerReport,
@@ -814,6 +818,10 @@ export interface HostMethods {
   /** Start with the desk's ordinary runtime and settings; a project is a displayed, admitted name. */
   'workspace/session/start': { params: { readonly text: string; readonly project?: string; readonly agent?: string; readonly model?: string; readonly effort?: 'low' | 'medium' | 'high' | 'extra' }; result: { readonly id: string; readonly problem?: string } }
   'workspace/session/send': { params: { readonly id: string; readonly text: string }; result: { readonly queued?: boolean } }
+  'workspace/session/rename': { params: { readonly id: string; readonly title: string }; result: HostMethods['session/setTitle']['result'] }
+  'workspace/session/archive': { params: { readonly id: string; readonly archived: boolean }; result: HostMethods['session/archive']['result'] }
+  'workspace/session/pin': { params: { readonly id: string; readonly pinned: boolean }; result: null }
+  'workspace/session/delete': { params: { readonly id: string }; result: HostMethods['session/delete']['result'] }
   'workspace/stop': { params: { readonly id: string }; result: { readonly queued?: boolean } }
   /** One session's conversation for the phone: its words scrubbed, no command output, no lines of a change. */
   'workspace/thread/read': { params: { readonly id: string }; result: PhoneWorkThread }
@@ -830,14 +838,23 @@ export interface HostMethods {
    * The desk writes the receipt from the cards; anything that needs a choice is refused and stays on the desk.
    */
   'workspace/team/wrap': { params: { readonly team: string }; result: Record<string, never> }
-  /** Ordinary sessions in the host-selected Lead project. Transcripts are untrusted observations. */
+  /** Cached account allowance without identities or vendor refreshes. */
+  'lead/usage/summary': { params: Record<string, never>; result: import('./lead.js').LeadUsageSummary }
+  /** Desk-wide titles and host states only; never grants cross-project transcript access. */
+  'lead/desk/summary': {
+    params: { readonly limit?: number }
+    result: import('./lead.js').LeadDeskSummary
+  }
+  /** Ordinary sessions in the host-selected Lead project. Transcripts are untrusted observations. A chat's `handle` is
+   * the short name the host gave it for the Lead (`web-opus-2`): unique on the desk, never moved, never given again. Every
+   * `lead/chat/*` call takes it where it takes the id; the host turns it into the id before anything is decided. */
   'lead/chat/list': {
     params: { readonly cursor?: string; readonly limit?: number }
-    result: { readonly items: readonly { readonly id: string; readonly title: string; readonly state: 'running' | 'waiting' | 'idle'; readonly stage?: LeadStage; readonly updatedAt: number }[]; readonly nextCursor: string | null }
+    result: { readonly items: readonly { readonly id: string; readonly handle?: string; readonly title: string; readonly state: 'running' | 'waiting' | 'idle'; readonly stage?: LeadStage; readonly updatedAt: number }[]; readonly nextCursor: string | null }
   }
-  'lead/chat/read': { params: { readonly id: string }; result: PhoneWorkThread & { readonly omittedSourceTurns: number; readonly omittedPhoneEntries: number; readonly truncated: boolean } }
-  'lead/chat/start': { params: { readonly text: string; readonly quote?: readonly string[]; readonly effectId?: string; readonly agent?: string; readonly moveFrom?: string }; result: { readonly id: string; readonly problem?: string } }
-  'lead/chat/send': { params: { readonly id: string; readonly text: string; readonly effectId?: string; readonly retryAt?: 'reset' }; result: { readonly queued?: boolean } }
+  'lead/chat/read': { params: { readonly id: string }; result: PhoneWorkThread & { readonly handle?: string; readonly omittedSourceTurns: number; readonly omittedPhoneEntries: number; readonly truncated: boolean } }
+  'lead/chat/start': { params: { readonly text: string; readonly quote?: readonly string[]; readonly effectId?: string; readonly cause?: 'person' | 'automatic'; readonly agent?: string; readonly moveFrom?: string; readonly ledgerItem?: string }; result: { readonly id: string; readonly handle?: string; readonly problem?: string; readonly ledgerItem?: string; readonly account?: string } }
+  'lead/chat/send': { params: { readonly id: string; readonly text: string; readonly effectId?: string; readonly cause?: 'person' | 'automatic'; readonly retryAt?: 'reset' }; result: { readonly queued?: boolean } }
   /** Window only. Which Lead-touched chats the person holds, and the keys of what the Lead sent. */
   'lead/chats/resetControl': { params: Record<string, never>; result: LeadChatControlList }
   'lead/chats/control': { params: Record<string, never>; result: LeadChatControlList }
@@ -868,8 +885,15 @@ export interface HostMethods {
   /** What the Lead keeps between goals, the person's lines and its own suggestions. */
   'lead/memory/read': { params: Record<string, never>; result: LeadMemory }
   'lead/memory/update': { params: { readonly memory: LeadMemory }; result: LeadMemory }
+  /** How full the Lead's conversation is, its cache hit rate, and the summaries of its earlier parts. */
+  'lead/context/read': { params: Record<string, never>; result: LeadContextFacts }
+  /** Window only. Summarise the earlier conversation now, instead of when it fills; refused while the Lead is busy. */
+  'lead/context/compact': { params: Record<string, never>; result: LeadContextFacts }
+  /** How full the Lead's conversation is, as one figure: read by the Lead about itself and by a phone. */
+  'lead/context/use': { params: Record<string, never>; result: LeadContextUse }
   'client/hello': {
-    params: { readonly client: { readonly name: string; readonly version: string }; readonly protocol: number; readonly pid?: number }
+    /** `surface` is stated, like `client`: `mcp` says the caller is serving an MCP client, which the desk gates starting work on. */
+    params: { readonly client: { readonly name: string; readonly version: string }; readonly protocol: number; readonly pid?: number; readonly surface?: 'mcp' }
     result: {
       readonly protocolVersion: number
       readonly hostVersion: string
@@ -1005,6 +1029,12 @@ export interface HostMethods {
   'trigger/history': { params: { readonly root: string; readonly id: string; readonly cursor?: string }; result: TriggerHistoryPage }
   /** A trigger Goal's origin, budget and named waits; null for any other Goal. */
   'trigger/goal': { params: { readonly goal: GoalId }; result: TriggerGoalStatus | null }
+  /** A mention trigger's triage decisions, newest first, its mode on this machine, and its threads of work. */
+  'trigger/decisions': { params: { readonly root: string; readonly id: string }; result: TriggerDecisionsPage }
+  /** Judges one decision again, on the comment as the forge holds it now. */
+  'trigger/decision/reevaluate': { params: { readonly root: string; readonly id: string; readonly decision: string }; result: TriggerDecision }
+  /** Switches an armed mention trigger between observing and acting, on this machine, until it is armed again. */
+  'trigger/mode': { params: { readonly root: string; readonly id: string; readonly mode: TriggerMode }; result: TriggerDecisionsPage }
 
   'host/hello': {
     params: { readonly clientVersion: string }
@@ -1108,6 +1138,20 @@ export interface HostMethods {
    * `SettingsAgents.tsx`/`PlanCard.tsx`), not a rule enforced here.
    */
   'usage/plan/set': { params: PlanSetInput; result: PlanEntry }
+  /**
+   * Every carry-on incident still live — asked, waiting for a reset, or being
+   * sent — for a window that connected late. Changes after that arrive as
+   * `carryOn/changed`.
+   */
+  'carryOn/list': { params: Record<string, never>; result: { readonly incidents: readonly CarryOnIncidentView[] } }
+  /**
+   * The person's answer to an `asked` incident: switch (to `target`, or the
+   * top candidate), wait for the reset, or stop. `always` writes the choice
+   * as the rule at the incident's `alwaysScope`. Refused with `carryOnStale`
+   * when the incident is no longer asking or the target is no longer a
+   * candidate; nothing is done then.
+   */
+  'carryOn/decide': { params: CarryOnDecision; result: { readonly incident: CarryOnIncidentView } }
   /** Source-qualified historical usage. These reads never mutate a receipt, Goal, or source corpus. */
   'insight/goal': { params: { readonly goal: GoalId }; result: InsightReport }
   /**
@@ -1252,6 +1296,20 @@ export interface HostMethods {
   'library/apply': {
     params: { readonly cwd?: string; readonly ops: readonly LibraryPlannedOp[] }
     result: readonly LibraryOpResult[]
+  }
+  /**
+   * Start one declared MCP server, or reach its URL, and ask it
+   * `initialize` and `tools/list`; then stop it. Only on a person's click.
+   * The renderer names a declaration (`path` is a copy's file, re-checked
+   * against the location table), never a command: the host reads the
+   * command, variables, URL and headers from that file itself. A server
+   * declared in a project's own file answers `confirm` until `confirmed`
+   * carries the keyed digest of the target and every desk environment name
+   * the person was shown. Reference values stay in the host.
+   */
+  'library/mcp/test': {
+    params: { readonly name: string; readonly path: string; readonly cwd?: string; readonly confirmed?: string }
+    result: McpTestResult
   }
   'runtime/hooks': {
     params: { readonly runtime: RuntimeId; readonly cwd?: string }
@@ -1538,6 +1596,9 @@ export interface HostMethods {
     }
     result: Session
   }
+  'session/opened': { params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }; result: null }
+  'session/pins': { params: Record<string, never>; result: readonly string[] }
+  'session/pin': { params: { readonly runtime: RuntimeId; readonly sessionId: string; readonly pinned: boolean }; result: null }
   'session/archive': {
     params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly archived: boolean }
     result: { readonly warning?: string } | null
@@ -2909,6 +2970,61 @@ export interface HostMethods {
    * installs Brave the week after they chose Chrome.
    */
   'app/browsers': { params: Record<string, never>; result: readonly InstalledBrowser[] }
+  /** Window only. Whether MCP clients may start work, and today's count; never on the client surface. */
+  'app/mcpStarts/get': { params: Record<string, never>; result: McpStartsView }
+  /** Window only. Turns starting work from MCP clients on or off, or sets the daily number; a stale revision is refused. */
+  'app/mcpStarts/set': {
+    params: { readonly revision: number; readonly mayStart?: boolean; readonly dailyStarts?: number }
+    result: McpStartsView
+  }
+  /** What a paired phone reads of mention triage: every decision, newest first, read only. */
+  'phone/triage/list': { params: { readonly limit?: number }; result: PhoneTriageList }
+
+  /** The Lead's work ledger, grouped Needs you first. The window, the phone and the Lead read this one projection. */
+  'lead/work/list': { params: { readonly state?: 'open' | 'all' }; result: import('./lead-work.js').LeadWorkBoard }
+  /** One item with its origin and timeline. Titles, notes and facts are untrusted prose. */
+  'lead/work/read': { params: { readonly id: string }; result: import('./lead-work.js').LeadWorkDetail }
+  /** The Lead's only write: a note, what the item waits for, and when to remind it. Never a stage. */
+  'lead/work/note': { params: import('./lead-work.js').LeadWorkNote; result: import('./lead-work.js').LeadWorkCard }
+  /** The person's Done or Drop, from the window or the phone. */
+  'lead/work/close': { params: import('./lead-work.js').LeadWorkClose; result: import('./lead-work.js').LeadWorkBoard }
+  /** What waits on the person and the notices kept for them: the one inbox the desktop's bell and the phone list. */
+  'lead/inbox/read': { params: Record<string, never>; result: import('./lead-inbox.js').LeadInbox }
+  /** What changed while this device was away, and what became of each question: the same answer on every surface. */
+  'lead/presence/read': { params: import('./lead-presence.js').LeadPresenceRead; result: import('./lead-presence.js').LeadPresenceView }
+  /** This device has read its digest. It marks only this device's own copy. */
+  'lead/presence/dismiss': { params: import('./lead-presence.js').LeadPresenceDismiss; result: import('./lead-presence.js').LeadPresenceView }
+  /** The morning brief setting: whether it runs and at what time. Quiet hours come from the Lead's schedule. */
+  'lead/brief/read': { params: Record<string, never>; result: import('./lead-presence.js').LeadBriefSettings }
+  'lead/brief/update': { params: import('./lead-presence.js').LeadBriefUpdate; result: import('./lead-presence.js').LeadBriefSettings }
+  /** Off, Observe or Act for each thing the Lead does unasked; Observe only records. Read on the phone too. */
+  'lead/autonomy/read': { params: Record<string, never>; result: import('./lead-autonomy.js').LeadAutonomyView }
+  'lead/autonomy/set': { params: import('./lead-autonomy.js').LeadAutonomySet; result: import('./lead-autonomy.js').LeadAutonomyView }
+  /** The three sections the person writes, with versions; an edit reaches the model at its next epoch. */
+  'lead/rules/read': { params: Record<string, never>; result: import('./lead-autonomy.js').LeadRulesView }
+  'lead/rules/update': { params: import('./lead-autonomy.js').LeadRulesUpdate; result: import('./lead-autonomy.js').LeadRulesView }
+  /** A goal's deadline, or none: the Lead reports at 80% of the time and starts no new round at 100%. */
+  'lead/deadline/set': { params: import('./lead-autonomy.js').LeadDeadlineSet; result: import('./lead-autonomy.js').LeadAutonomyView }
+  /** The Lead's memory: Core, Archive, the proposals waiting for the person and the versions Undo can restore. */
+  'lead/memory/view': { params: Record<string, never>; result: import('./lead-memory.js').LeadMemoryView }
+  /** The person's change, from Settings or a Keep chip. Every change is a version; Forget erases the text from them too. */
+  'lead/memory/change': { params: import('./lead-memory.js').LeadMemoryChange; result: import('./lead-memory.js').LeadMemoryView }
+  /** The Lead's proposal. The desk scans it before it reaches the inbox; it is never kept without the person unless they said so. */
+  'lead/memory/propose': { params: import('./lead-memory.js').LeadMemoryProposal; result: import('./lead-memory.js').LeadMemoryProposalResult }
+  /** The Lead's search over Archive and its own past conversation, summarised parts included. */
+  'lead/memory/search': { params: import('./lead-memory.js').LeadMemorySearch; result: import('./lead-memory.js').LeadMemorySearchResult }
+  /** The Lead sets a reminder the person asked for. The created entry is the only proof it is set; it is listed on the work board. */
+  'lead/reminder/set': { params: import('./lead-work.js').LeadReminderSet; result: import('./lead-work.js').LeadReminder }
+  /** Cancels a reminder that has not fired, from the Lead, the window or the phone. */
+  'lead/reminder/cancel': { params: { readonly id: string }; result: import('./lead-work.js').LeadWorkBoard }
+  /** The person clears a reminder that fired or was cancelled, from the window or the phone; never the Lead's (#2144). */
+  'lead/reminder/clear': { params: { readonly id: string }; result: import('./lead-work.js').LeadWorkBoard }
+  /** The Lead proposes a mode for one kind of unasked work. A card for the person; nothing changes until they Apply. */
+  'lead/autonomy/propose': { params: import('./lead-autonomy.js').LeadAutonomyPropose; result: import('./lead-autonomy.js').LeadSettingsProposeResult }
+  /** The Lead proposes words for a rule section. A card for the person; nothing changes until they Apply. */
+  'lead/rules/propose': { params: import('./lead-autonomy.js').LeadRulesPropose; result: import('./lead-autonomy.js').LeadSettingsProposeResult }
+  /** The person's Apply or No on a proposal card, from the window or a phone. Never on the Lead's door. */
+  'lead/settings/decide': { params: import('./lead-autonomy.js').LeadSettingsDecide; result: import('./lead-autonomy.js').LeadAutonomyView }
 }
 
 /** One browser HarnessDesk found, and can start with remote debugging. */
@@ -2978,7 +3094,7 @@ export type WireNotification =
   | {
       /** A tracked ordinary chat changed state; transcript content stays behind read. */
       readonly method: 'lead/chat/changed'
-      readonly params: { readonly id: string; readonly project: string; readonly state: 'running' | 'waiting' | 'idle'; readonly stage?: LeadStage; readonly incident?: import('./lead.js').LeadChatIncidentObservation }
+      readonly params: { readonly id: string; readonly handle?: string; readonly project: string; readonly state: 'running' | 'waiting' | 'idle'; readonly stage?: LeadStage; readonly incident?: import('./lead.js').LeadChatIncidentObservation }
     }
   | { readonly method: 'account/changed'; readonly params: { readonly status: HarnessDeskAccountStatus } }
   | { readonly method: 'phone/changed'; readonly params: PhoneLinkState }
@@ -3110,6 +3226,8 @@ export type WireNotification =
       readonly params: {
         readonly upserted: readonly SessionSummary[]
         readonly removed: readonly { readonly runtime: RuntimeId; readonly id: SessionId }[]
+        /** Ordered host-owned pins shared by every window and phone. */
+        readonly pinnedSessions?: readonly string[]
         /** Continues the current first page while an upgrade fills an initially empty index. */
         readonly firstPageCursor?: string | null
       }
@@ -3152,6 +3270,14 @@ export type WireNotification =
       readonly params: { readonly runtime: RuntimeId; readonly account: string | null }
     }
   | { readonly method: 'usage/scanProgress'; readonly params: { readonly progress: ScanProgress } }
+  | {
+      /**
+       * One conversation's carry-on incident changed state. Sent whole on
+       * every change; `incident: null` means it is over and its card goes.
+       */
+      readonly method: 'carryOn/changed'
+      readonly params: { readonly incident: CarryOnIncidentView | null; readonly key: CarryOnKey }
+    }
   | {
       /**
        * The editor plane, whole.
@@ -3222,6 +3348,14 @@ export type WireNotification =
       readonly params: { readonly notice: PersonNotice }
     }
   | { readonly method: 'host/shutdown'; readonly params: { readonly reason: string } }
+  /** The Lead's work board moved: a stage, a link, a note or a close. The whole board, which is small. */
+  | { readonly method: 'lead/work/changed'; readonly params: import('./lead-work.js').LeadWorkBoard }
+  /** A digest was made for the devices (the morning brief), or an ask's state moved. Clients read `lead/presence/read` again. */
+  | { readonly method: 'lead/presence/changed'; readonly params: { readonly notice?: import('./lead-presence.js').LeadPushNotice } }
+  /** The Lead's memory changed: an entry, a proposal or a version. Clients read `lead/memory/view` again. */
+  | { readonly method: 'lead/memory/changed'; readonly params: { readonly revision: number } }
+  /** The Lead's settings moved: a mode, a rule section, a deadline, or a proposal the Lead made or the person answered. Clients read `lead/autonomy/read` again. */
+  | { readonly method: 'lead/autonomy/changed'; readonly params: Record<string, never> }
 
 export type ClientToHost = WireRequest
 export type HostToClient = WireResponse | WireNotification

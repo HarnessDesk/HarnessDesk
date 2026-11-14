@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  deskContextContent, leadMessageEnvelope, leadMessageKey, approvalId, itemId, runtimeId, sessionId, turnId, type Approval, type ApprovalOption, type PhoneWorkSnapshot, type Session, type SessionSummary, type Turn,
+  deskContextContent, leadMessageEnvelope, leadTeamKey, leadWorkOpenCount, leadWorkWaiting, type LeadInbox, type LeadWorkBoard, type LeadWorkCard, leadMessageKey, approvalId, itemId, runtimeId, sessionId, turnId, type Approval, type ApprovalOption, type PhoneWorkSnapshot, type Session, type SessionSummary, type Turn,
 } from '@harnessdesk/protocol'
 import { PhoneWork, phoneSessionValues, WorkspaceFeed, type PhoneWorkPorts } from '../src/phone-work.js'
 import { boundLeadChatRead } from '../src/lead/chat-read.js'
@@ -132,11 +132,71 @@ test('a change is high risk when it deletes, leaves the project, touches code th
   assert.equal(assessApproval({ id: approvalId('ap-4'), sessionId: SID, requestedAt: 1, type: 'userInput', tool: 'Ask', questions: [] }, CWD, ctx), null)
 })
 
+test('the snapshot carries the autonomy table for the phone, and leaves it out while no Lead runs', async () => {
+  const view = { version: 1 as const, modes: { 'desk-change': 'act', stuck: 'observe', repeat: 'off', mention: 'act', brief: 'act' } as const, observed: [], rules: [], deadline: null }
+  assert.deepEqual((await rig({ leadAutonomy: async () => view }).work.snapshot()).autonomy, view)
+  assert.equal(Object.hasOwn(await rig({ leadAutonomy: async () => null }).work.snapshot(), 'autonomy'), false)
+  assert.equal(Object.hasOwn(await rig().work.snapshot(), 'autonomy'), false)
+})
+
+test('the snapshot carries the history the phone draws for autonomy and rules: every change, a proposal\'s and a restore\'s included (#2152)', async () => {
+  const changes = [
+    { at: 5, by: 'person' as const, what: 'rules' as const, section: 'talk' as const, version: 3, how: 'rollback' as const },
+    { at: 4, by: 'person' as const, what: 'rules' as const, section: 'talk' as const, version: 2, how: 'reset' as const },
+    { at: 3, by: 'person' as const, what: 'rules' as const, section: 'talk' as const, version: 1, how: 'edit' as const, proposal: 's2' },
+    { at: 2, by: 'person' as const, what: 'mode' as const, kind: 'desk-change' as const, from: 'act' as const, to: 'observe' as const, proposal: 's1' },
+    { at: 1, by: 'person' as const, what: 'deadline' as const, deadlineAt: null },
+  ]
+  const view = { version: 1 as const, modes: { 'desk-change': 'observe', stuck: 'act', repeat: 'act', mention: 'act', brief: 'act' } as const, observed: [], deadline: null, changes,
+    rules: [{ id: 'talk' as const, title: 'How to talk to me', text: 'Plain words.', custom: true, version: 3, changedAt: 5, shipped: 'Shipped words.', versions: [
+      { version: 3, text: 'Plain words.', at: 5, how: 'rollback' as const, from: 1 }, { version: 2, text: 'Shipped words.', at: 4, how: 'reset' as const },
+      { version: 1, text: 'Plain words.', at: 3, how: 'edit' as const }] }] }
+  const autonomy = (await rig({ leadAutonomy: async () => view }).work.snapshot()).autonomy!
+  assert.deepEqual(autonomy.changes, changes, 'newest first, as the desktop ledger lists them')
+  assert.deepEqual(autonomy.rules.map(one => [one.version, one.changedAt]), [[3, 5]])
+  // The earlier words and the shipped words ride along: the phone's wording, diff and Restore preview need no desk-only read.
+  assert.deepEqual(autonomy.rules[0]!.versions, view.rules[0]!.versions)
+  assert.equal(autonomy.rules[0]!.shipped, 'Shipped words.')
+})
+
+test('the phone Work list names the Teams and chats its Inbox counts that no work item holds (#2110)', async () => {
+  const board = { version: 1 as const, more: 0, items: [] }
+  const inbox = { version: 1 as const, needsYou: 1, items: [{ id: 'team:goal-game', kind: 'team' as const, title: 'build a game', project: 'acme-api', at: 8, needsYou: true, target: 'goal-game' }] }
+  const snapshot = await rig({ leadWork: async () => board, leadInbox: async () => inbox }).work.snapshot()
+  assert.deepEqual(snapshot.workWaiting, [{ kind: 'team', id: 'goal-game', title: 'build a game', project: 'acme-api', at: 8 }])
+  // Nothing waits, or no Lead runs: the field is left out.
+  assert.equal(Object.hasOwn(await rig({ leadWork: async () => board, leadInbox: async () => ({ version: 1 as const, needsYou: 0, items: [] }) }).work.snapshot(), 'workWaiting'), false)
+  assert.equal(Object.hasOwn(await rig({ leadInbox: async () => inbox }).work.snapshot(), 'workWaiting'), false)
+})
+
+test('the phone counts the Work list as the desktop does, and a Team its board names by room is one Team (#2110)', async () => {
+  const card = (id: string, patch: Partial<LeadWorkCard>): LeadWorkCard => ({ id, title: id, project: 'acme-api', stage: 'working', group: 'working',
+    links: { chats: [], teams: [], prs: [], issues: [] }, createdAt: 1, updatedAt: 2, ...patch })
+  const board: LeadWorkBoard = { version: 1, more: 0, items: [
+    card('w1', { stage: 'needs-you', group: 'needs-you', links: { chats: [], teams: ['room-game'], prs: [], issues: [] } }),
+    card('w2', { stage: 'stopped', group: 'done' }),
+    card('w3', { stage: 'done', group: 'done', closedAt: 3 }),
+  ] }
+  const inbox: LeadInbox = { version: 1, needsYou: 2, items: [
+    { id: 'team:goal-game', kind: 'team', title: 'build a game', at: 8, needsYou: true, target: 'goal-game' },
+    { id: 'chat:codex:loose', kind: 'chat', title: 'Tidy the README', at: 6, needsYou: true, target: 'codex:loose' },
+  ] }
+  const teams = [{ goal: 'goal-game', room: 'room-game' }]
+  const snapshot = await rig({ leadWork: async () => board, leadInbox: async () => inbox, leadTeams: async () => teams }).work.snapshot()
+  // The Team the open item holds by its room is not listed again under its goal id.
+  assert.deepEqual(snapshot.workWaiting?.map(entry => entry.id), ['codex:loose'])
+  // What the phone counts (its board's open items and its waiting rows) is the desktop's count for the same desk.
+  const desktop = leadWorkOpenCount(board, leadWorkWaiting(board, inbox, leadTeamKey(teams)))
+  const phone = snapshot.work!.items.filter(item => item.closedAt === undefined).length + (snapshot.workWaiting?.length ?? 0)
+  assert.equal(phone, desktop)
+  assert.equal(phone, 3)
+})
+
 test('the snapshot says what the desk honours, in micro-dollars, with usage left out until there is some', async () => {
   const empty = await rig().work.snapshot()
   assert.deepEqual(empty, {
     deskName: 'Studio Mac', items: [], projects: [], models: [], agents: [{ id: String(RT), name: 'Agent A', models: [], default: true }], flows: [], commands: [], threads: [],
-    capabilities: { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false, chooseAgent: false, choosePermissions: false, attach: false, undo: false, decide: true },
+    capabilities: { startSession: true, startTeam: false, reply: true, stop: true, delete: false, rename: true, archive: true, pin: true, chooseModel: false, chooseAgent: false, choosePermissions: false, attach: false, undo: false, decide: true },
   })
   assert.ok(!('usage' in empty))
   const usage = { spentToday: { micros: 1_250_000 } } as never
@@ -441,6 +501,50 @@ test('phone starts resolve model selectors before dependent recommendations', as
 })
 
 
+test('a chat the Lead starts never inherits a high-risk permission the person saved for their own chats', async () => {
+  const resolve = async (params: { values?: Record<string, unknown> }) => [
+    { id: 'mode', type: 'select' as const, category: 'mode' as const, label: 'Mode', currentValue: (params.values?.['mode'] ?? 'default') as string,
+      choices: [{ value: 'default', label: 'Default' }, { value: 'acceptEdits', label: 'Accept edits' }, { value: 'bypassPermissions', label: 'Bypass permissions', risk: 'high' as const }],
+      recommendedValue: 'acceptEdits' },
+  ]
+  const preferences = { draftValues: { [RT]: { mode: 'bypassPermissions' } } }
+  assert.deepEqual(await phoneSessionValues(RT, undefined, preferences, resolve), { mode: 'bypassPermissions' }, 'the person’s own start keeps their pick')
+  assert.deepEqual(await phoneSessionValues(RT, undefined, preferences, resolve, {}, true), { mode: 'acceptEdits' }, 'the Lead’s start takes the recommendation')
+  // A runtime that would start on the high-risk choice is held to the first safe one.
+  const risky = async (params: { values?: Record<string, unknown> }) => (await resolve(params)).map(option => ({ ...option, recommendedValue: 'bypassPermissions' }))
+  assert.deepEqual(await phoneSessionValues(RT, undefined, {}, risky, {}, true), { mode: 'default' })
+})
+
+test('a chat the Lead starts never turns on an auto-approve switch, saved or recommended', async () => {
+  const resolve = async (params: { values?: Record<string, unknown> }) => [
+    { id: 'autoApprove', type: 'boolean' as const, category: '_permissions' as const, label: 'Approve everything', currentValue: (params.values?.['autoApprove'] ?? true) as boolean, recommendedValue: true },
+    { id: 'notify', type: 'boolean' as const, category: 'other' as const, label: 'Notify', currentValue: (params.values?.['notify'] ?? true) as boolean },
+  ]
+  const preferences = { draftValues: { [RT]: { autoApprove: true, notify: true } } }
+  assert.deepEqual(await phoneSessionValues(RT, undefined, preferences, resolve), { autoApprove: true, notify: true }, 'the person’s own start keeps their switch')
+  const lead = await phoneSessionValues(RT, undefined, preferences, resolve, {}, true)
+  assert.equal(lead['autoApprove'], false, 'the Lead’s start turns it off, even though the runtime would start on')
+  assert.equal(lead['notify'], true, 'a switch that grants nothing is kept')
+})
+
+test('a high-risk value a model only declares once it is chosen is not carried into a chat the Lead starts', async () => {
+  // The saved mode is not high risk on the base read; the chosen model declares it as such.
+  const resolve = async (params: { values?: Record<string, unknown> }) => {
+    const model = (params.values?.['model'] ?? 'one') as string
+    return [
+      { id: 'model', type: 'select' as const, category: 'model' as const, label: 'Model', currentValue: model,
+        choices: [{ value: 'one', label: 'One' }, { value: 'two', label: 'Two' }], recommendedValue: 'two' },
+      { id: 'mode', type: 'select' as const, category: 'mode' as const, label: 'Mode', currentValue: (params.values?.['mode'] ?? 'default') as string,
+        choices: [{ value: 'default', label: 'Default' }, { value: 'yolo', label: 'Yolo', ...(model === 'two' ? { risk: 'high' as const } : {}) }] },
+    ]
+  }
+  const preferences = { draftValues: { [RT]: { mode: 'yolo' } } }
+  assert.deepEqual(await phoneSessionValues(RT, undefined, preferences, resolve), { model: 'two', mode: 'yolo' })
+  const lead = await phoneSessionValues(RT, undefined, preferences, resolve, {}, true)
+  assert.notEqual(lead['mode'], 'yolo')
+  assert.equal(lead['model'], 'two')
+})
+
 test('a saved profile keeps its implicit model while its dependent choices are validated', async () => {
   const values = await phoneSessionValues(RT, undefined, { draftValues: { [RT]: { profile: 'two', effort: 'low' } } }, async params => {
     const profile = params.values?.['profile'] ?? ''
@@ -613,6 +717,12 @@ const agentsRig = (over: Partial<PhoneWorkPorts> = {}) => {
   return { ...r, created, choices }
 }
 
+test('each agent a phone can start on carries its mark\'s key, as the desktop draws it, and only a key of the wire\'s shape (#2150)', async () => {
+  const brands = { [String(RT)]: 'codex', [String(RT2)]: 'Not A Key' } as Record<string, string>
+  const snapshot = await agentsRig({ seatBrand: runtime => brands[String(runtime)] ?? null }).work.snapshot()
+  assert.deepEqual(snapshot.agents?.map(agent => [agent.id, agent.brand]), [[String(RT), 'codex'], [String(RT2), undefined]])
+})
+
 test('the snapshot lists each ready agent with its own models, the default first, and keeps the default models for older phones', async () => {
   const snapshot = await agentsRig().work.snapshot()
   assert.deepEqual(snapshot.agents, [
@@ -759,4 +869,30 @@ test('phone model presentation is scrubbed and bounded while ids stay exact', as
   assert.equal(choice.id, model.id)
   assert.ok(choice.name.length <= 60 && choice.hint.length <= 200)
   assert.ok(!/dev@example|\/Users|placeholder/.test(choice.name + choice.hint))
+})
+
+for (const verb of ['rename', 'archive', 'pin', 'delete'] as const) test(`phone ${verb} scrubs desk failures`, async () => {
+  const { work } = rig()
+  const fail = async () => { throw new Error('Cannot write /home/dev/private/conversation.json for dev@example.com') }
+  const action = { rename: () => work.sessionRename({ id: key, title: 'Title' }, fail), archive: () => work.sessionArchive({ id: key, archived: true }, fail),
+    pin: () => work.sessionPin({ id: key, pinned: true }, fail), delete: () => work.sessionDelete({ id: key }, fail) }[verb]
+  await assert.rejects(action, error => error instanceof Error && !error.message.includes('/home/') && !error.message.includes('@'))
+})
+
+test('archived phone ids admit only unarchive and delete', async () => {
+  const { work } = rig({ isOwn: (_runtime, _id, archived) => archived === true })
+  let calls = 0
+  const done = async () => { calls++; return null }
+  await assert.rejects(() => work.sessionRename({ id: key, title: 'Title' }, done), /not a session/)
+  await assert.rejects(() => work.sessionPin({ id: key, pinned: true }, done), /not a session/)
+  await assert.rejects(() => work.sessionArchive({ id: key, archived: true }, done), /not a session/)
+  await work.sessionArchive({ id: key, archived: false }, done)
+  await work.sessionDelete({ id: key }, async () => { calls++; return { disposition: 'trash', removed: 1 } })
+  assert.equal(calls, 2)
+})
+
+test('phone delete capability follows the ready agents', async () => {
+  assert.equal((await rig({ canDelete: () => false }).work.snapshot()).capabilities.delete, false)
+  assert.equal((await rig({ canDelete: () => true }).work.snapshot()).capabilities.delete, true)
+  assert.equal((await rig({ readyRuntimes: () => [], canDelete: () => true }).work.snapshot()).capabilities.delete, false, 'an unavailable default agent does not advertise delete')
 })

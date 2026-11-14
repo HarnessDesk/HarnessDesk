@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import type { TriggerAction, TriggerCheck, TriggerFact, TriggerReview, TriggerSource } from '@harnessdesk/protocol'
 
 import { spawnGh, type GhApiRunner } from '../findings/forge.js'
-import { isDeskPost } from '../findings/publication.js'
+import { isDeskPost, summonsOf } from '../findings/publication.js'
 import { labelName } from './definition.js'
 import { eventKey } from './keys.js'
 import { factOf } from './store.js'
@@ -15,7 +15,9 @@ import { factOf } from './store.js'
  *
  * Everything the forge answers is untrusted. Reads are only fixed
  * `gh api --method GET` endpoints assembled from the repository the arm was
- * bound to and validated integers; a `Link` header or an address inside a
+ * bound to and validated integers — and one fixed GraphQL query, the edit
+ * history of a comment that asks, by the node id its REST answer named,
+ * which reads and never writes; a `Link` header or an address inside a
  * payload is never followed, and pagination is the desk's own page numbers.
  * Every read is bounded — 100 items a page, 10 pages a list, 4 MiB an answer,
  * 30 seconds a source's whole read — and a read that hits a bound is a gap,
@@ -46,6 +48,50 @@ export interface SourceCursor {
   readonly pulls?: Readonly<Record<string, PullWatchState>>
   /** The next watched PR, so a source deadline cannot starve later PRs. */
   readonly pullNext?: number
+  /**
+   * Optional in version 1: what the `@harnessdesk` request read has handled
+   * inside its overlap window, so reading that window again never asks twice.
+   */
+  readonly requests?: RequestCoverage
+}
+
+/**
+ * The request read's coverage. It reads by time, so it keeps no
+ * per-pull-request mark that could be forgotten: only what it handled inside
+ * its windows, each by the time it was read under — `c<id>` a conversation
+ * comment by its update, `r<id>` a review by its submission, `p<n>` a pull
+ * request whose reviews were read at that update, and `u<n>` one read at an
+ * update so recent that a review could still be submitted within that same
+ * second: its reviews are read once more, a whole overlap later, from the
+ * page that held the last of the `t<n>` reviews it listed then. `through` is the newest comment update a complete comment read
+ * covered: the comment window moves with it, whether or not any pull request
+ * moved. Entries older than their window are dropped; more than the windows
+ * may hold is a gap, never a forgotten mark.
+ */
+export interface RequestCoverage { readonly seen: Readonly<Record<string, number>>; readonly through?: number }
+
+/** Closed parser for the optional request coverage; older cursors omit it. */
+export const requestCoverageOf = (value: unknown): RequestCoverage | null => {
+  if (!isMap(value) || !isMap(value['seen']) || Object.keys(value).some((key) => key !== 'seen' && key !== 'through')) return null
+  const through = value['through']
+  if (through !== undefined && (!Number.isSafeInteger(through) || (through as number) < 0)) return null
+  const entries = Object.entries(value['seen'])
+  if (entries.length > SEEN_LIMIT) return null
+  for (const [key, at] of entries) {
+    if (!/^[clprtu][1-9][0-9]{0,15}$/.test(key) || !Number.isSafeInteger(at) || (at as number) < 0) return null
+  }
+  return { seen: Object.fromEntries(entries) as Record<string, number>, ...(through === undefined ? {} : { through: through as number }) }
+}
+
+/**
+ * What a poll reads for `@harnessdesk` requests, present only when an arm on
+ * the source names `mentioned`: `permissions` when one of those lets
+ * collaborators ask, so a command comment's author is asked about once.
+ */
+export interface RequestReading {
+  readonly permissions: boolean
+  /** The earliest instant an arm that asks was armed: nothing written before it is a request, and no read reaches back past it. */
+  readonly since?: number
 }
 
 /** Omit number for every open PR; explicit numbers also observe closed/merged PRs. */
@@ -178,9 +224,23 @@ class PullWatchOverflow extends ForgeReadError {
   constructor(message: string) { super('unreadable', message) }
 }
 
+/** More pull requests named by request comments than one read may look up. */
+class RequestBurst extends Error {}
+
 const BATCH_BYTES = 2 * 1024 * 1024
 const ISSUE_LIMIT = 100
 const SUBJECT_LIMIT = 5000
+/** What the request read may hold as handled inside one overlap window; more is a gap. */
+const SEEN_LIMIT = 2000
+/** The once-more review reads one poll makes, a whole overlap after a pull request's update; the rest wait for the next poll, never dropped. */
+const SETTLE_LIMIT = 20
+/** A request's edit history, read for every comment that asks — and only those — in reads of at most 100. */
+const PROVENANCE = 'query($ids:[ID!]!){nodes(ids:$ids){__typename id ...on IssueComment{lastEditedAt includesCreatedEdit} ...on PullRequestReviewComment{lastEditedAt includesCreatedEdit}}}'
+/** A forge node id as a REST answer names it: opaque, short, URL-safe. */
+const NODE_ID = /^[A-Za-z0-9_=-]{1,128}$/
+type Commented = 'IssueComment' | 'PullRequestReviewComment'
+/** A request's edit history: never edited, edited, or not readable. */
+type Provenance = true | false | null
 const CLIPPED = '\n[clipped by HarnessDesk]'
 const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 /** A forge login as the permission read may spell it into a path: letters, digits and single dashes, or an app's `name[bot]`. */
@@ -412,6 +472,51 @@ export class ForgeSource {
     return answer
   }
 
+  /**
+   * Whether each comment that asks is exactly as its author first wrote it,
+   * on the forge's own edit history: one fixed GraphQL query, by node id, for
+   * at most 100 comments a read — never a mutation, and never a comment that
+   * does not ask. True only when the forge says it was never edited
+   * (`lastEditedAt` null, `includesCreatedEdit` false); false when it was;
+   * null when that cannot be read — any failure, any error the answer
+   * carries, a node of another kind or a missing field — which never asks
+   * either. Never throws but for a stopped read.
+   */
+  async #unedited(project: string, nodes: readonly { readonly id: string | null; readonly kind: Commented }[], deadline: number, signal: AbortSignal): Promise<Provenance[]> {
+    const answers: Provenance[] = nodes.map(() => null)
+    for (let start = 0; start < nodes.length; start += PER_PAGE) {
+      const batch = nodes.slice(start, start + PER_PAGE)
+      const ids = batch.flatMap((node) => node.id === null ? [] : [node.id])
+      if (ids.length === 0) continue
+      let answer: unknown
+      try {
+        if (signal.aborted) throw new ForgeReadError('offline', 'The read was stopped.')
+        const left = deadline - Date.now()
+        if (left <= 0) throw outOfTime()
+        const result = await this.#run(['api', '--method', 'POST', '-H', 'Accept: application/vnd.github+json', '--input', '-', 'graphql'],
+          JSON.stringify({ query: PROVENANCE, variables: { ids } }), { cwd: project, timeoutMs: left, maxBytes: this.#maxBytes })
+        if (signal.aborted) throw new ForgeReadError('offline', 'The read was stopped.')
+        if (result.timedOut || result.overflow || result.exitCode !== 0 || Date.now() > deadline) continue
+        answer = JSON.parse(result.stdout) as unknown
+      } catch (error) {
+        if (signal.aborted) throw error
+        continue
+      }
+      if (!isMap(answer) || answer['errors'] !== undefined || !isMap(answer['data']) || !Array.isArray(answer['data']['nodes']) || answer['data']['nodes'].length !== ids.length) continue
+      const read = answer['data']['nodes'] as readonly unknown[]
+      let at = 0
+      for (const [index, node] of batch.entries()) {
+        if (node.id === null) continue
+        const one = read[at++]
+        if (!isMap(one) || one['id'] !== node.id || one['__typename'] !== node.kind) continue
+        const edited = one['lastEditedAt'], created = one['includesCreatedEdit']
+        if (edited === null && created === false) answers[start + index] = true
+        else if ((typeof edited === 'string' && edited !== '') || created === true) answers[start + index] = false
+      }
+    }
+    return answers
+  }
+
   #pull(raw: unknown): PullRow {
     if (!isMap(raw) || !isMap(raw['head'])) throw unreadable()
     // A deleted fork answers with no head repository: known unknown, refused per pull request, not a broken read.
@@ -457,12 +562,14 @@ export class ForgeSource {
    * or nothing for issues, and the instant it was taken. Nothing is offered.
    * More than ten pages of open pull requests refuses the arm with a reason.
    */
-  async inventory(project: string, source: 'pull-request' | 'issue', repository: string, signal: AbortSignal): Promise<SourceCursor> {
+  async inventory(project: string, source: 'pull-request' | 'issue' | 'mention', repository: string, signal: AbortSignal): Promise<SourceCursor> {
     if (!validRepo(repository)) throw unreadable()
     const now = this.#now()
     const deadline = Date.now() + this.#timeoutMs
     const subjects: Record<string, { head: string | null; event: string }> = {}
-    if (source === 'issue') {
+    if (source === 'mention') {
+      await this.#page(project, `repos/${repository}/issues/comments?sort=updated&direction=desc&per_page=${PER_PAGE}&page=1`, deadline, signal)
+    } else if (source === 'issue') {
       await this.#page(project, `repos/${repository}/issues?state=all&sort=updated&direction=desc&per_page=${PER_PAGE}&page=1`, deadline, signal)
     } else {
       for (let page = 1; ; page += 1) {
@@ -483,8 +590,8 @@ export class ForgeSource {
   /** Proves a watched source still reads, for a second arm on it: one page, nothing kept. */
   async probe(project: string, cursor: SourceCursor, signal: AbortSignal): Promise<void> {
     const repository = this.#repo(cursor)
-    const list = cursor.source === 'issue' ? 'issues?state=all' : 'pulls?state=open'
-    await this.#page(project, `repos/${repository}/${list}&sort=updated&direction=desc&per_page=${PER_PAGE}&page=1`, Date.now() + this.#timeoutMs, signal)
+    const list = cursor.source === 'mention' ? 'issues/comments?sort=updated' : cursor.source === 'issue' ? 'issues?state=all' : 'pulls?state=open'
+    await this.#page(project, `repos/${repository}/${list}${cursor.source === 'mention' ? '' : '&sort=updated'}&direction=desc&per_page=${PER_PAGE}&page=1`, Date.now() + this.#timeoutMs, signal)
   }
 
   /**
@@ -493,10 +600,91 @@ export class ForgeSource {
    * read per comment, never for a desk post or an unreadable author. PR
    * `watches` opt into supplemental reads and always verify review authors.
    */
-  async poll(project: string, cursor: SourceCursor, signal: AbortSignal, options: { readonly permissions?: boolean; readonly watches?: readonly PullWatch[] } = {}): Promise<PollBatch> {
-    if (cursor.source === 'pull-request') return this.#pulls(project, cursor, signal, options.watches ?? [])
-    if (cursor.source === 'issue') return this.#issues(project, cursor, signal, options.permissions === true)
+  async poll(project: string, cursor: SourceCursor, signal: AbortSignal, options: {
+    readonly permissions?: boolean; readonly watches?: readonly PullWatch[]; readonly requests?: RequestReading
+  } = {}): Promise<PollBatch> {
+    if (cursor.source === 'pull-request') return this.#pulls(project, cursor, signal, options.watches ?? [], options.requests ?? null)
+    if (cursor.source === 'issue') return this.#issues(project, cursor, signal, options.permissions === true, options.requests ?? null)
+    if (cursor.source === 'mention') return this.#mentions(project, cursor, signal)
     throw unreadable()
+  }
+
+  /**
+   * Whether an account can write to a repository, for a mention's gate: the
+   * same bounded read as a comment trigger's, its answer's account compared
+   * with the author's by digest. A read that fails throws, so the comment is
+   * kept and judged again later.
+   */
+  async writes(project: string, repository: string, login: string, author: string, signal: AbortSignal): Promise<boolean> {
+    if (!validRepo(repository) || !LOGIN.test(login)) return false
+    let answer: unknown
+    try {
+      answer = await this.#get(project, `repos/${repository}/collaborators/${login}/permission`, Date.now() + this.#timeoutMs, signal)
+    } catch (error) {
+      if (!signal.aborted && error instanceof ForgeReadError && error.notFound) return false
+      throw error
+    }
+    if (!isMap(answer) || !isMap(answer['user']) || !Number.isSafeInteger(answer['user']['id']) || typeof answer['permission'] !== 'string') return false
+    if (accountDigest(answer['user']['id'] as number) !== author) return false
+    return WRITES.has(answer['permission']) || (typeof answer['role_name'] === 'string' && WRITES.has(answer['role_name']))
+  }
+
+  /**
+   * One issue or pull request as a mention's gate reads it: whether it is a
+   * pull request, its state, its labels as validated names and its title as
+   * clipped prose. Nothing else of the answer survives.
+   */
+  async thread(project: string, repository: string, number: number, signal: AbortSignal): Promise<MentionThread> {
+    if (!validRepo(repository) || !Number.isSafeInteger(number) || number < 1) throw unreadable()
+    const raw = await this.#get(project, `repos/${repository}/issues/${number}`, Date.now() + this.#timeoutMs, signal)
+    if (!isMap(raw) || raw['number'] !== number || (raw['state'] !== 'open' && raw['state'] !== 'closed')) throw unreadable()
+    const title = raw['title']
+    if (typeof title !== 'string' || Buffer.byteLength(title, 'utf8') > TITLE_LIMIT) throw unreadable()
+    const labels = Array.isArray(raw['labels'])
+      ? raw['labels'].slice(0, 100).flatMap((one) => {
+        const name = labelName(isMap(one) ? one['name'] : one)
+        return name === null ? [] : [name]
+      })
+      : []
+    return { number, pull: 'pull_request' in raw, state: raw['state'], labels, title: title.replace(/[\u0000-\u001f\u007f]/g, ' ') }
+  }
+
+  /**
+   * Whether a login a trigger names is the account that wrote a comment: the
+   * forge's account for that login, read by name, compared by stable id —
+   * and, for a bot, the forge's own word that it is one. False when the forge
+   * has no such account; any other failure throws, so the comment is judged
+   * again later.
+   */
+  async isAccount(project: string, login: string, bot: boolean, author: string, signal: AbortSignal): Promise<boolean> {
+    const name = bot ? `${login}[bot]` : login
+    if (!LOGIN.test(name)) return false
+    let answer: unknown
+    try {
+      answer = await this.#get(project, `users/${encodeURIComponent(name)}`, Date.now() + this.#timeoutMs, signal)
+    } catch (error) {
+      if (!signal.aborted && error instanceof ForgeReadError && error.notFound) return false
+      throw error
+    }
+    if (!isMap(answer) || !Number.isSafeInteger(answer['id']) || (answer['id'] as number) < 1) throw unreadable()
+    if (bot && answer['type'] !== 'Bot') return false
+    return accountDigest(answer['id'] as number) === author
+  }
+
+  /** One comment as the forge holds it now, read again by id: what Re-evaluate judges. */
+  async comment(project: string, repository: string, id: number, signal: AbortSignal): Promise<TriggerFact> {
+    if (!validRepo(repository) || !Number.isSafeInteger(id) || id < 1) throw unreadable()
+    const raw = await this.#get(project, `repos/${repository}/issues/comments/${id}`, Date.now() + this.#timeoutMs, signal)
+    if (!isMap(raw) || raw['id'] !== id) throw unreadable()
+    return mentionFact(project, repository, raw, id, time(raw['created_at']))
+  }
+
+  /** A pull request's lifecycle, for a thread of work that follows it: open, merged or closed. */
+  async pullState(project: string, repository: string, number: number, signal: AbortSignal): Promise<'open' | 'merged' | 'closed'> {
+    if (!validRepo(repository) || !Number.isSafeInteger(number) || number < 1) throw unreadable()
+    const row = this.#pull(await this.#get(project, `repos/${repository}/pulls/${number}`, Date.now() + this.#timeoutMs, signal))
+    if (row.number !== number) throw unreadable()
+    return row.state === 'open' ? 'open' : row.merged ? 'merged' : 'closed'
   }
 
   /**
@@ -535,7 +723,7 @@ export class ForgeSource {
     return { facts, next, complete: true, problem: null, skipped }
   }
 
-  async #pulls(project: string, cursor: SourceCursor, signal: AbortSignal, watches: readonly PullWatch[]): Promise<PollBatch> {
+  async #pulls(project: string, cursor: SourceCursor, signal: AbortSignal, watches: readonly PullWatch[], requests: RequestReading | null): Promise<PollBatch> {
     const repository = this.#repo(cursor)
     const deadline = Date.now() + this.#timeoutMs
     const floor = cursor.observedThrough - OVERLAP_MS
@@ -594,7 +782,26 @@ export class ForgeSource {
     for (const observation of watched.observations) {
       if (observation.state !== 'open') delete subjects[String(observation.number)]
     }
-    const next = { ...cursor, observedThrough: through, continuation: null, subjects, pulls: watched.pulls, pullNext: watched.next }
+    let coverage = cursor.requests
+    if (requests !== null) {
+      const asked = await this.#requests(project, repository, cursor, rows, requests, deadline, signal)
+      if (typeof asked === 'string') return this.#gap(cursor, asked)
+      if (asked === null) {
+        // Out of time before the requests were read: this window is read again, and no request in it is lost.
+        through = cursor.observedThrough
+      } else {
+        facts.push(...asked.facts)
+        // Only what the next windows can return again is kept; windows that hold more than that are a gap.
+        const comments = Math.max(cursor.baseline, Math.max(through, asked.through) - OVERLAP_MS)
+        const reviews = Math.max(cursor.baseline, through - OVERLAP_MS)
+        const settling = Object.entries(asked.seen).filter(([key]) => key.startsWith('u')).map(([, at]) => at)
+        const floors: Record<string, number> = { c: comments, l: 0, p: reviews, r: Math.min(reviews, ...settling), t: 0, u: 0 }
+        const seen = Object.fromEntries(Object.entries(asked.seen).filter(([key, at]) => at >= floors[key[0]!]!))
+        if (Object.keys(seen).length > SEEN_LIMIT) return this.#gap(cursor, 'More pull request comments changed than one read can cover.')
+        coverage = { seen, through: asked.through }
+      }
+    }
+    const next = { ...cursor, observedThrough: through, continuation: null, subjects, pulls: watched.pulls, pullNext: watched.next, ...(coverage === undefined ? {} : { requests: coverage }) }
     if (Buffer.byteLength(JSON.stringify([facts, watched.observations, watched.pulls]), 'utf8') > BATCH_BYTES) return this.#gap(cursor, 'More changed than one read can hold.')
     const batch = this.#bounded(cursor, facts, next, skipped)
     return batch.complete ? { ...batch, observations: watched.observations } : batch
@@ -824,10 +1031,237 @@ export class ForgeSource {
     return { pulls, observations, next }
   }
 
-  /** Every page of one issue's list, or a gap: never a short list read as the whole. */
-  async #all(project: string, path: string, deadline: number, signal: AbortSignal): Promise<readonly unknown[] | null> {
+  /**
+   * `@harnessdesk` requests on pull requests, read by time — never a mark per
+   * pull request, so nothing can be forgotten into looking new.
+   *
+   * Conversation comments come from one repository-wide list, by update, from
+   * the comment window's start: one paged read however many pull requests
+   * moved, each comment routed to its pull request by `issue_url` (an issue's
+   * comments are the issue source's). The window moves with the newest
+   * comment a complete read covered, whether or not a pull request moved.
+   *
+   * Reviews are read per pull request: every page for one the list read
+   * shows as updated, and once more for one read so soon after its update
+   * that a review could still be submitted within that same second — a whole
+   * overlap later, never on the polls between, and only from the page that
+   * held the last review it listed, so old reviews are never read again. At
+   * most twenty of those a poll, counted with the pull requests that moved
+   * against the hundred one read may cover: the rest wait for the next poll,
+   * and are never dropped. A review is new by its submission time and its id,
+   * never by the highest id read: a review left pending and submitted later
+   * is still new. Its summary never asks, because the forge says nothing of
+   * whether it was edited; its inline comments are read once it is submitted,
+   * from that review alone — they carry the time they were drafted, so a read
+   * by time would miss a review drafted before the window — and every inline
+   * comment that starts with the word makes one request for the review.
+   *
+   * A request asks only as first written. A comment whose update differs from
+   * its creation was edited, and is refused without another read; every other
+   * one is asked about on the forge's edit history — one GraphQL read for
+   * every request a poll finds — since an edit within the same second leaves
+   * the two times equal. The answer rides on the fact as `unedited`, and
+   * admission refuses anything but a clean one, by name.
+   *
+   * A list longer than one read may cover is a gap; running out of time
+   * returns null, so the caller reads the same window again.
+   */
+  async #requests(
+    project: string, repository: string, cursor: SourceCursor, rows: readonly PullRow[], requests: RequestReading,
+    deadline: number, signal: AbortSignal,
+  ): Promise<{ facts: TriggerFact[]; seen: Record<string, number>; through: number } | string | null> {
+    const burst = 'More pull request comments changed than one read can cover.'
+    // An arm that asks may be newer than the source: nothing from before it was armed is a request, and no read reaches back past it.
+    const armed = Math.max(cursor.baseline, requests.since ?? cursor.baseline)
+    const commentsFrom = Math.max(cursor.observedThrough, cursor.requests?.through ?? 0)
+    const commentSince = Math.max(armed, commentsFrom - OVERLAP_MS)
+    const reviewSince = Math.max(armed, cursor.observedThrough - OVERLAP_MS)
+    const now = this.#now()
+    const seen: Record<string, number> = { ...cursor.requests?.seen }
+    let through = commentsFrom
+    const listed = new Map(rows.map((row) => [row.number, row]))
+    const extra = new Map<number, PullRow>()
+    // One permission answer per author within one read.
+    const writers = new Map<string, boolean | null>()
+    const repo = repository.replace(/[.]/g, '\\.')
+    const issueUrl = new RegExp(`^https://api\\.github\\.com/repos/${repo}/issues/([1-9][0-9]{0,15})$`)
+    const author = (user: Record<string, unknown> | null): { id: number | null; login: string | null } => ({
+      id: user && Number.isSafeInteger(user['id']) && (user['id'] as number) >= 1 ? user['id'] as number : null,
+      login: user && typeof user['login'] === 'string' ? user['login'] : null,
+    })
+    const writes = async (who: { id: number | null; login: string | null }): Promise<boolean | null> => {
+      if (!requests.permissions || who.id === null || who.login === null) return null
+      const cached = `${who.login}\u0000${who.id}`
+      if (!writers.has(cached)) writers.set(cached, await this.#writes(project, repository, who.login, who.id, deadline, signal))
+      return writers.get(cached) ?? null
+    }
+    // A pull request the list did not show (it moved before the window, its comment inside it): read once by number.
+    const pull = async (number: number): Promise<PullRow> => {
+      const known = listed.get(number) ?? extra.get(number)
+      if (known) return known
+      if (extra.size >= ISSUE_LIMIT) throw new RequestBurst(burst)
+      const raw = await this.#get(project, `repos/${repository}/pulls/${number}`, deadline, signal)
+      const row = { ...this.#pull(raw), url: confined(isMap(raw) ? raw['html_url'] : null, `/${repository}/pull/${number}`) }
+      if (row.number !== number) throw unreadable()
+      extra.set(number, row)
+      return row
+    }
+    /** A request found, its comments' edit history still to be read: `nodes` empty when the times already say it was edited. */
+    interface Asked {
+      readonly row: PullRow; readonly key: readonly (string | number)[]; readonly at: number; readonly words: string; readonly url: string | null
+      readonly who: { id: number | null; login: string | null }; readonly nodes: readonly { readonly id: string | null; readonly kind: Commented }[]; readonly edited: boolean
+    }
+    const asked: Asked[] = []
+    const facts: TriggerFact[] = []
+    const node = (raw: Record<string, unknown>): string | null => typeof raw['node_id'] === 'string' && NODE_ID.test(raw['node_id']) ? raw['node_id'] : null
+    try {
+      const comments = await this.#all(project, `repos/${repository}/issues/comments?sort=updated&direction=asc&since=${new Date(commentSince).toISOString()}`, deadline, signal)
+      if (comments === null) return burst
+      for (const raw of comments) {
+        if (!isMap(raw)) throw unreadable()
+        const id = positive(raw['id'])
+        const created = time(raw['created_at'])
+        const updated = time(raw['updated_at'])
+        through = Math.max(through, updated)
+        const key = `c${id}`
+        if (seen[key] !== undefined) continue
+        const routed = typeof raw['issue_url'] === 'string' ? issueUrl.exec(raw['issue_url']) : null
+        if (!routed) throw unreadable()
+        const number = Number(routed[1])
+        const url = confined(raw['html_url'], `/${repository}/pull/${number}`, `#issuecomment-${id}`)
+        // An issue's comment, which the issue source reads.
+        if (url === null) continue
+        seen[key] = updated
+        // From before an arm asked for requests: never a request.
+        if (created <= armed) continue
+        const user = isMap(raw['user']) ? raw['user'] : null
+        const words = typeof raw['body'] === 'string' && !isBot(user) ? summonsOf(raw['body']) : null
+        if (words === null) continue
+        const row = await pull(number)
+        if (row.baseRepo !== repository) continue
+        const edited = updated !== created
+        asked.push({ row, key: [id], at: created, words, url, who: author(user), edited, nodes: edited ? [] : [{ id: node(raw), kind: 'IssueComment' }] })
+      }
+      // Reviews: every page of each pull request that moved; and once more, a whole overlap later, the last pages of each read too soon after its update to be sure of that second.
+      const settle = (number: number): number | null => seen[`u${number}`] ?? null
+      const reading = new Map<number, { settling: number | null; from: number }>()
+      for (const row of rows) {
+        if (row.baseRepo === repository && row.updated > armed && seen[`p${row.number}`] !== row.updated) reading.set(row.number, { settling: settle(row.number), from: 1 })
+      }
+      if (reading.size > ISSUE_LIMIT) return burst
+      const due = Object.entries(seen).flatMap(([key, at]) => {
+        const number = Number(key.slice(1))
+        return key.startsWith('u') && now >= at + OVERLAP_MS && !reading.has(number) ? [{ number, at }] : []
+      }).sort((a, b) => a.at - b.at || a.number - b.number)
+      for (const one of due.slice(0, Math.min(SETTLE_LIMIT, ISSUE_LIMIT - reading.size))) {
+        // The page that held the last review listed then: a review appended since is on it or after it. Without that
+        // review's id to check the page against, the whole list.
+        const last = seen[`l${one.number}`]
+        reading.set(one.number, { settling: one.at, from: last === undefined ? 1 : Math.max(1, Math.ceil((seen[`t${one.number}`] ?? 0) / PER_PAGE)) })
+      }
+      const order: { row: PullRow; settling: number | null; from: number }[] = []
+      for (const [number, how] of reading) order.push({ row: await pull(number), ...how })
+      let opened = 0
+      for (const { row, settling: since, from: tail } of order.sort((a, b) => a.row.updated - b.row.updated || a.row.number - b.row.number)) {
+        // A review submitted after the read before is never older than that read's update.
+        const floor = since === null ? reviewSince : Math.min(reviewSince, since)
+        const path = `repos/${repository}/pulls/${row.number}/reviews`
+        let from = tail
+        let reviews = await this.#all(project, path, deadline, signal, from)
+        if (reviews === null) return 'A pull request has more reviews than one read can cover.'
+        if (from > 1) {
+          // Reviews are listed in the order they were created, so one created as a draft long before and submitted
+          // since lands earlier in the list, not on its tail; and only a pending review — on this list, only the
+          // desk's own — can be deleted. Either moves the review last listed then off the place it held: then the
+          // whole list, once.
+          const held = reviews[(seen[`t${row.number}`] ?? 0) - 1 - (from - 1) * PER_PAGE]
+          if (!isMap(held) || held['id'] !== seen[`l${row.number}`]) {
+            from = 1
+            reviews = await this.#all(project, path, deadline, signal)
+            if (reviews === null) return 'A pull request has more reviews than one read can cover.'
+          }
+        }
+        let pending = false
+        for (const raw of reviews) {
+          if (!isMap(raw)) throw unreadable()
+          const id = positive(raw['id'])
+          // A pending review has not been submitted: nobody has said it yet, and it stays new until it is.
+          if (raw['submitted_at'] === null || raw['submitted_at'] === undefined || raw['state'] === 'PENDING') { pending = true; continue }
+          const submitted = time(raw['submitted_at'])
+          const key = `r${id}`
+          if (seen[key] !== undefined || submitted < floor || submitted <= armed) continue
+          seen[key] = submitted
+          if (row.baseRepo !== repository) continue
+          const user = isMap(raw['user']) ? raw['user'] : null
+          if (isBot(user)) continue
+          const who = author(user)
+          if (who.id === null) continue
+          opened += 1
+          if (opened > ISSUE_LIMIT) return burst
+          const inline = await this.#all(project, `repos/${repository}/pulls/${row.number}/reviews/${id}/comments`, deadline, signal)
+          if (inline === null) return 'A review has more comments than one read can cover.'
+          const words: string[] = []
+          const nodes: { id: string | null; kind: Commented }[] = []
+          let edited = false
+          for (const one of inline) {
+            if (!isMap(one)) throw unreadable()
+            positive(one['id'])
+            time(one['created_at'])
+            const written = isMap(one['user']) ? one['user'] : null
+            // Only the review's own words.
+            if (one['pull_request_review_id'] !== id || written?.['id'] !== who.id) continue
+            const said = typeof one['body'] === 'string' ? summonsOf(one['body']) : null
+            if (said === null) continue
+            words.push(said)
+            // Edited since it was submitted: a later edit may be anyone's who can write.
+            if (time(one['updated_at']) > submitted) edited = true
+            nodes.push({ id: node(one), kind: 'PullRequestReviewComment' })
+          }
+          if (words.length === 0) continue
+          const url = confined(raw['html_url'], `/${repository}/pull/${row.number}`, `#pullrequestreview-${id}`)
+          asked.push({ row, key: ['review', id], at: submitted, words: words.join('\n\n'), url, who, edited, nodes: edited ? [] : nodes })
+        }
+        seen[`p${row.number}`] = row.updated
+        // Read within an overlap of its update: a review may yet be submitted within that same second, so read it once more, an overlap later, from where this read ended.
+        if (now < row.updated + OVERLAP_MS) {
+          seen[`u${row.number}`] = row.updated
+          seen[`t${row.number}`] = (from - 1) * PER_PAGE + reviews.length
+          // The id the next read checks its tail against — only from a whole list with no draft on it to be deleted.
+          const last = reviews.length > 0 && from === 1 && !pending ? reviews[reviews.length - 1] : null
+          if (isMap(last)) seen[`l${row.number}`] = positive(last['id'])
+          else delete seen[`l${row.number}`]
+        } else {
+          delete seen[`u${row.number}`]
+          delete seen[`t${row.number}`]
+          delete seen[`l${row.number}`]
+        }
+      }
+      if (asked.reduce((sum, one) => sum + one.nodes.length, 0) > ISSUE_LIMIT) return burst
+      // Every request's edit history, in one read; only the ones it calls clean ask.
+      const histories = await this.#unedited(project, asked.flatMap((one) => one.nodes), deadline, signal)
+      let next = 0
+      for (const one of asked) {
+        const answers = histories.slice(next, next += one.nodes.length)
+        const unedited: Provenance = one.edited || answers.includes(false) ? false : answers.length > 0 && answers.every((answer) => answer === true) ? true : null
+        const { row, who } = one
+        facts.push({
+          source: 'pull-request', project, repository, subject: String(row.number), event: eventKey([repository, row.number, 'mentioned', ...one.key]),
+          action: 'mentioned', at: one.at, head: row.head, fork: row.headRepo !== repository, title: row.title, body: prose(one.words), url: one.url, trigger: null,
+          author: who.id === null ? null : accountDigest(who.id), authorWrites: unedited === true ? await writes(who) : null, desk: false, unedited,
+        })
+      }
+    } catch (error) {
+      if (error instanceof RequestBurst) return error.message
+      if (!(error instanceof ForgeReadError) || !error.budget || signal.aborted) throw error
+      return null
+    }
+    return { facts, seen, through }
+  }
+
+  /** Every page of one issue's list from `from`, or a gap: never a short list read as the whole. */
+  async #all(project: string, path: string, deadline: number, signal: AbortSignal, from = 1): Promise<readonly unknown[] | null> {
     const all: unknown[] = []
-    for (let page = 1; page <= this.#maxPages; page += 1) {
+    for (let page = from; page < from + this.#maxPages; page += 1) {
       const rows = await this.#page(project, `${path}${path.includes('?') ? '&' : '?'}per_page=${PER_PAGE}&page=${page}`, deadline, signal)
       all.push(...rows)
       if (rows.length < PER_PAGE) return all
@@ -844,7 +1278,7 @@ export class ForgeSource {
    * from there. Only a read that could cover nothing at all, or a burst
    * past what one read may ever hold, is a gap a person resumes from now.
    */
-  async #issues(project: string, cursor: SourceCursor, signal: AbortSignal, permissions: boolean): Promise<PollBatch> {
+  async #issues(project: string, cursor: SourceCursor, signal: AbortSignal, permissions: boolean, requests: RequestReading | null): Promise<PollBatch> {
     const repository = this.#repo(cursor)
     const deadline = Date.now() + this.#timeoutMs
     const floor = cursor.observedThrough - OVERLAP_MS
@@ -889,6 +1323,7 @@ export class ForgeSource {
       // Read already at this very update: nothing new on it since.
       if (known !== null && known.u === issue.updated) continue
       const found: TriggerFact[] = []
+      const asks: { readonly node: string | null; readonly edited: boolean; readonly writes: () => Promise<boolean | null>; readonly fact: TriggerFact }[] = []
       let events = known?.e ?? 0
       let comments = known?.c ?? 0
       const fresh = (id: number, created: number, mark: number): boolean => created > cursor.baseline && (known === null || id > mark)
@@ -928,20 +1363,46 @@ export class ForgeSource {
             const authorId = user && Number.isSafeInteger(user['id']) && (user['id'] as number) >= 1 ? user['id'] as number : null
             const desk = typeof raw['body'] === 'string' && isDeskPost(raw['body'])
             const login = user && typeof user['login'] === 'string' ? user['login'] : null
-            let writes: boolean | null = null
-            if (permissions && !desk && authorId !== null && login !== null) {
+            // A request is a comment that starts with the command word, from a person: a bot never asks. Whether it is
+            // as first written is the forge's edit history's to say, below; differing times already say it was edited.
+            // Nothing written before an arm asked for requests is one.
+            const words = requests !== null && created > Math.max(cursor.baseline, requests.since ?? cursor.baseline) && typeof raw['body'] === 'string' && !isBot(user)
+              ? summonsOf(raw['body']) : null
+            const edited = time(raw['updated_at']) !== created
+            const writesOf = async (): Promise<boolean | null> => {
+              if (desk || authorId === null || login === null) return null
               const cached = `${login}\u0000${authorId}`
               if (!writers.has(cached)) writers.set(cached, await this.#writes(project, repository, login, authorId, deadline, signal))
-              writes = writers.get(cached) ?? null
+              return writers.get(cached) ?? null
             }
+            // A comment arm's own question; a request's waits for its edit history, below.
+            const writes = permissions ? await writesOf() : null
             found.push({
               source: 'issue', project, repository, subject, event: eventKey([repository, issue.number, 'commented', id]), action: 'commented',
               at: created, head: null, fork: false, title: issue.title, body: prose(raw['body']),
               url: confined(raw['html_url'], `/${repository}/issues/${issue.number}`, `#issuecomment-${id}`), trigger: null,
               author: authorId === null ? null : accountDigest(authorId), authorWrites: writes, desk,
             })
+            // The same comment as a request, under its own key: the two dedupe apart.
+            if (words !== null) {
+              asks.push({ node: edited ? null : typeof raw['node_id'] === 'string' && NODE_ID.test(raw['node_id']) ? raw['node_id'] : null, edited, writes: writesOf, fact: {
+                source: 'issue', project, repository, subject, event: eventKey([repository, issue.number, 'mentioned', id]), action: 'mentioned',
+                at: created, head: null, fork: false, title: issue.title, body: prose(words),
+                url: confined(raw['html_url'], `/${repository}/issues/${issue.number}`, `#issuecomment-${id}`), trigger: null,
+                author: authorId === null ? null : accountDigest(authorId), authorWrites: null, desk,
+              } })
+            }
           }
           comments = Math.max(comments, id)
+        }
+        // The requests' edit history, in one read for this issue: only one the forge calls never edited asks.
+        const histories = await this.#unedited(project, asks.flatMap((ask) => ask.edited ? [] : [{ id: ask.node, kind: 'IssueComment' as const }]), deadline, signal)
+        let next = 0
+        for (const ask of asks) {
+          const unedited: Provenance = ask.edited ? false : histories[next++] ?? null
+          // Whether its author can write is asked only of a request the forge calls never edited: an edited one never costs that read.
+          const authorWrites = unedited === true && (permissions || requests?.permissions === true) ? await ask.writes() : null
+          found.push({ ...ask.fact, authorWrites, unedited })
         }
       } catch (error) {
         if (!(error instanceof ForgeReadError) || !error.budget || signal.aborted) throw error
@@ -955,7 +1416,85 @@ export class ForgeSource {
     }
     return this.#bounded(cursor, facts, { ...cursor, observedThrough: through, continuation: null, subjects: prune(subjects) }, [])
   }
+
+  /**
+   * Every new comment on the repository's issues and pull request
+   * conversations, oldest first, from one bounded repository-wide list: each
+   * an untrusted fact with its author by stable id, its login as validated,
+   * whether the forge says it is a bot, and whether the desk posted it. A
+   * comment is new once: its id above the highest one read. Whether it
+   * addresses anyone is the gate's question, never this reader's.
+   */
+  async #mentions(project: string, cursor: SourceCursor, signal: AbortSignal): Promise<PollBatch> {
+    const repository = this.#repo(cursor)
+    const deadline = Date.now() + this.#timeoutMs
+    const mark = Number(cursor.subjects[MENTION_MARK]?.event ?? '0')
+    const seen = Number.isSafeInteger(mark) && mark >= 0 ? mark : 0
+    const since = new Date(Math.max(cursor.baseline, cursor.observedThrough - OVERLAP_MS)).toISOString()
+    const burst = 'More comments changed than one read can cover.'
+    const facts: TriggerFact[] = []
+    let through = cursor.observedThrough
+    let highest = seen
+    let complete = false
+    try {
+      for (let page = 1; page <= this.#maxPages && !complete; page += 1) {
+        const answer = await this.#page(project, `repos/${repository}/issues/comments?sort=updated&direction=asc&since=${since}&per_page=${PER_PAGE}&page=${page}`, deadline, signal)
+        for (const raw of answer) {
+          if (!isMap(raw)) throw unreadable()
+          const id = positive(raw['id'])
+          const created = time(raw['created_at'])
+          through = Math.max(through, time(raw['updated_at']))
+          highest = Math.max(highest, id)
+          // Edited, or from before this source began watching: read once already, or never this source's.
+          if (id <= seen || created <= cursor.baseline) continue
+          facts.push(mentionFact(project, repository, raw, id, created))
+        }
+        if (answer.length < PER_PAGE) complete = true
+      }
+    } catch (error) {
+      if (error instanceof ForgeReadError && error.budget && !signal.aborted) return this.#gap(cursor, burst)
+      throw error
+    }
+    if (!complete) return this.#gap(cursor, burst)
+    return this.#bounded(cursor, facts, {
+      ...cursor, observedThrough: through, continuation: null, subjects: { [MENTION_MARK]: { head: null, event: String(highest) } },
+    }, [])
+  }
 }
+
+/** One comment, as a mention fact: untrusted prose, its author by stable id and validated login, and where it was made. */
+const mentionFact = (project: string, repository: string, raw: Record<string, unknown>, id: number, created: number): TriggerFact => {
+  const where = typeof raw['html_url'] === 'string'
+    ? new RegExp(`^https://github\\.com/${repository.replace(/[.]/g, '\\.')}/(issues|pull)/([1-9][0-9]{0,15})#issuecomment-${id}$`).exec(raw['html_url'])
+    : null
+  if (!where) throw unreadable()
+  const number = Number(where[2])
+  const thread = where[1] === 'pull' ? 'pull-request' as const : 'issue' as const
+  const user = isMap(raw['user']) ? raw['user'] : null
+  const authorId = user && Number.isSafeInteger(user['id']) && (user['id'] as number) >= 1 ? user['id'] as number : null
+  const rawLogin = user && typeof user['login'] === 'string' && LOGIN.test(user['login']) ? user['login'] : null
+  const bot = user?.['type'] === 'Bot' || (rawLogin?.endsWith('[bot]') ?? false)
+  return {
+    source: 'mention', project, repository, subject: String(number), event: eventKey([repository, number, 'mention', id]), action: 'commented',
+    at: created, head: null, fork: false, title: '', body: prose(raw['body']),
+    url: confined(raw['html_url'], `/${repository}/${where[1]}/${number}`, `#issuecomment-${id}`), trigger: null,
+    author: authorId === null ? null : accountDigest(authorId),
+    authorWrites: null, desk: typeof raw['body'] === 'string' && isDeskPost(raw['body']),
+    thread, login: rawLogin === null ? null : rawLogin.replace(/\[bot\]$/, '').toLowerCase(), bot,
+  }
+}
+
+/** One issue or pull request as a mention's gate reads it. */
+export interface MentionThread {
+  readonly number: number
+  readonly pull: boolean
+  readonly state: 'open' | 'closed'
+  readonly labels: readonly string[]
+  readonly title: string
+}
+
+/** The cursor entry a mention source keeps its highest comment id under. */
+const MENTION_MARK = '_comments'
 
 /** An issue's watermarks, as its cursor entry keeps them; null when the issue has not been read. */
 const marksOf = (event: string | undefined): { readonly e: number; readonly c: number; readonly u: number } | null => {
@@ -968,6 +1507,10 @@ const marksOf = (event: string | undefined): { readonly e: number; readonly c: n
     return null
   }
 }
+
+/** The forge says an account is a bot: by its type, or an app's `name[bot]` login. */
+const isBot = (user: Record<string, unknown> | null): boolean =>
+  user?.['type'] === 'Bot' || (typeof user?.['login'] === 'string' && user['login'].endsWith('[bot]'))
 
 /** At most 5,000 issues are remembered: the least recently updated are forgotten, and read by time if they return. */
 const prune = (subjects: Record<string, { head: string | null; event: string }>): Record<string, { head: string | null; event: string }> => {

@@ -997,6 +997,8 @@ const admitRestored =
       )
       return kept ? 'refused' : 'add'
     }
+    // A consult link comes only beside the opening of the Seat that asked.
+    if (line.type === 'seat-consult') return opened.has(line.consult.seat) ? 'add' : 'refused'
     if (line.type === 'seat-closed') {
       if (!opened.has(line.closing.seat)) return 'refused'
       const opening = all.find((one) => one.type === 'seat' && one.record.id === line.closing.seat)

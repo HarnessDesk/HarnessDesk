@@ -44,7 +44,7 @@ const LibraryPage = ({ page, visit, libraryImportIntent }: MainPageInput) => {
     : <LibrarySection id={page.id} section={page.section} onSection={section => visit({ kind: 'library', section })} importIntent={libraryImportIntent} />}</Page>
 }
 export const MAIN_PAGE_ENTRIES: Partial<Record<PageDestination['kind'], (input: MainPageInput) => ReactNode>> = {
-  lead: ({page}) => <LeadPage focus={page.kind === 'lead' ? page.focus : null} />,
+  lead: ({page}) => <LeadPage focus={page.kind === 'lead' ? page.focus : null} nonce={page.kind === 'lead' ? page.nonce : undefined} />,
   flows: ({page,visit}) => page.kind === 'flows'
     ? page.root === null
       ? <FlowsWindow onNew={root => visit({kind:'flows',root,id:null,origin:null})} onOpen={(root,id,origin) => visit({kind:'flows',root,id,origin})} />

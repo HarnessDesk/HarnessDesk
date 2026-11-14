@@ -37,3 +37,12 @@ test('bounded Lead reads preserve the host holder and verified sender', () => {
   assert.equal(result.leadChatHolder, 'person')
   assert.deepEqual(result.turns, original.turns)
 })
+
+test('a read of text clipped through a surrogate pair reaches the model well-formed', () => {
+  const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+  const result = boundLeadChatRead({ ...thread([{ type: 'agent', id: 'm1', markdown: 'Printed the config and stopped \ud83d' },
+    { type: 'you', id: 'm2', text: '\ude00 then stop', attachments: [] }]), title: 'Loader 😀 fix \ud83d' })
+  assert.ok(!lone.test(JSON.stringify(result.turns)) && !lone.test(result.title), 'no lone surrogate survives the read')
+  assert.equal((result.turns[0] as { markdown: string }).markdown, 'Printed the config and stopped �')
+  assert.equal(result.title, 'Loader 😀 fix �')
+})

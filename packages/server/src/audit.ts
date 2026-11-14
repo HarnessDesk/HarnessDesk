@@ -34,6 +34,8 @@ export interface SessionAuditEntry {
     | 'library/write'
     /** An Agent told the person something; `decision` is where it went, or why not. */
     | 'person/notice'
+    /** A seat asked another agent with `ask_agent`: whom, how it ended, and the sizes — never the words. */
+    | 'consult'
   /** turn/completed; for library writes, the op's outcome. */
   readonly status?: string
   readonly steps?: number
@@ -54,6 +56,11 @@ export interface SessionAuditEntry {
   readonly backupPath?: string
   /** Why a library write failed, when it did. */
   readonly detail?: string
+  /** consult: the runtime asked, how the ask ended (`answered`, `truncated` or a refusal code), and its sizes in bytes. */
+  readonly agent?: string
+  readonly outcome?: string
+  readonly bytesIn?: number
+  readonly bytesOut?: number
 }
 
 export interface ClientAuditEntry {
@@ -66,6 +73,8 @@ export interface ClientAuditEntry {
   readonly tier?: ClientTier
   readonly outcome?: 'ok' | 'refused' | 'failed'
   readonly code?: string
+  /** What the connection stated it serves on its hello: `mcp` for an MCP client. Stated, never proof. */
+  readonly surface?: 'mcp'
 }
 
 export type AuditEntry = SessionAuditEntry | ClientAuditEntry

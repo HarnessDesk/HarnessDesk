@@ -113,7 +113,9 @@ export const archiveConversation = async (ctx: HostContext, params: { runtime: R
 }
 
 /** Shared allocation path; the optional receipt is host-only and marks the runtime effect. */
-export async function createConversation(ctx: HostContext, params: HostParams<'session/create'>, effectStarted?: () => void): Promise<HostResult<'session/create'>> {
+export async function createConversation(ctx: HostContext, params: HostParams<'session/create'>, effectStarted?: () => void,
+  /** The handle the creation attached, handed over the moment it is attached, before any later await. */
+  attached?: (live: AgentSession) => void): Promise<HostResult<'session/create'>> {
   // Before any runtime is handed it, here and in a reopen or a fork. The
   // adapters pass a cwd on as given, and an agent reads a relative one
   // against its own working directory, which it has from this process:
@@ -129,12 +131,13 @@ export async function createConversation(ctx: HostContext, params: HostParams<'s
   // gateway address reaches the adapter.
   // `attachments` is the host's own, like `route`: a Seat's approved filter
   // is set by `agent/seat` alone, never by whoever calls this.
-  const { route: _clientRoute, attachments: _clientAttachments, runtimeServers: _clientRuntimeServers, knownCwd: _clientKnownCwd, routeId, ...rest } = params.options as typeof params.options & {
+  const { route: _clientRoute, attachments: _clientAttachments, runtimeServers: _clientRuntimeServers, knownCwd: _clientKnownCwd, withheldTools: _clientWithheld, routeId, ...rest } = params.options as typeof params.options & {
     routeId?: string
   }
   const route = typeof routeId === 'string' ? await ctx.routes.resolve(runtime, routeId) : undefined
   const allocated = rest.cwd === undefined ? await createChatFolder(ctx.state) : null
-  const options: SessionOptions = { ...rest, cwd: rest.cwd ?? allocated!, ...(route ? { route } : {}) }
+  // A person's own chat is not a Flow seat, so it is never offered `ask_agent` (Q5).
+  const options: SessionOptions = { ...rest, cwd: rest.cwd ?? allocated!, ...(route ? { route } : {}), withheldTools: ['ask_agent'] }
   // A lane's checkout is its cwd, which every runtime takes; its variables
   // go only to a runtime that can take them per session (`laneEnvironmentFor`).
   let live: AgentSession
@@ -149,7 +152,9 @@ export async function createConversation(ctx: HostContext, params: HostParams<'s
     throw error
   }
   if (allocated) await rememberChatFolder(ctx.state, allocated)
-  const session = await ctx.sessions.attach(runtime, live.id, live)
+  const attaching = ctx.sessions.attach(runtime, live.id, live)
+  attached?.(live)
+  const session = await attaching
   await announceUnavailableTools(ctx, runtime, session)
   return session
 }
@@ -196,9 +201,12 @@ export const sessionMethods = {
     const runtime = ctx.runtimes.resolve(params)
     const session = await ctx.sessions.read(runtime, makeSessionId(params.sessionId))
     ctx.sessionIndex.reopen(session)
-    const record = ctx.registry.upsert(session, ctx.registry.get(session.runtime, session.id)?.live ?? null)
+    // The pending mark describes this client view, not a new writable fact.
+    // Folding it into the record would change the snapshot a protected retry owns.
+    const { historyPending, ...facts } = session
+    const record = ctx.registry.upsert(historyPending ? facts : session, ctx.registry.get(session.runtime, session.id)?.live ?? null)
     ctx.sessions.noteReconciled(record, session)
-    const read = record.session
+    const read = historyPending ? { ...record.session, historyPending: true } : record.session
     if (!record.live) await ctx.sessions.releaseBody({ runtime: read.runtime, sessionId: read.id })
     return read
   },
@@ -244,42 +252,49 @@ export const sessionMethods = {
       return resumeSeatSession(runtime, sessionId, { ...options, ...(environment ? { environment } : {}) },
         ctx.evidence.seats.latestOf(runtime.info.id, params.sessionId)?.checkout.cwd)
     }
-    let live: AgentSession
+    // Every resume is an open of its own, though the adapter may hand back a handle another caller holds too; the
+    // scoped path is counted where the host reopens.
+    const release = scoped ? undefined : ctx.registry.opening(runtime.info.id, sessionId)
     try {
-      live = await resolve()
-    } catch (error) {
-      // The scoped path reopens through the host, which has already worded the
-      // refusal and kept its code; wording it again says the sentence twice.
-      if (scoped) throw error
-      // A conversation held by another writer is not a failure to explain
-      // but a place to be sent; it keeps its own sentence and its code.
-      if (isSessionBusy(error)) {
-        throw await ctx.sessions.busyElsewhere(runtime, makeSessionId(params.sessionId), error)
+      let live: AgentSession
+      try {
+        live = await resolve()
+      } catch (error) {
+        // The scoped path reopens through the host, which has already worded the
+        // refusal and kept its code; wording it again says the sentence twice.
+        if (scoped) throw error
+        // A conversation held by another writer is not a failure to explain
+        // but a place to be sent; it keeps its own sentence and its code.
+        if (isSessionBusy(error)) {
+          throw await ctx.sessions.busyElsewhere(runtime, makeSessionId(params.sessionId), error)
+        }
+        const sentence = ctx.sessions.cannotReopen(runtime, error)
+        throw isFolderGone(error)
+          ? new SessionFolderGoneError(sentence, folderGoneOf(error))
+          : isSessionGone(error)
+            ? new SessionGoneError(sentence)
+            : new Error(sentence)
       }
-      const sentence = ctx.sessions.cannotReopen(runtime, error)
-      throw isFolderGone(error)
-        ? new SessionFolderGoneError(sentence, folderGoneOf(error))
-        : isSessionGone(error)
-          ? new SessionGoneError(sentence)
-          : new Error(sentence)
-    }
-    // Resume returns metadata only; the transcript comes from a full read so
-    // the user sees their history immediately rather than an empty pane.
-    // The read has no settings or options, though — those live on the
-    // handle — so both are carried across, or the composer has nothing to
-    // render.
-    const transcript = await ctx.sessions.read(runtime, live.id)
-    const session: Session = { ...transcript, settings: live.settings(), options: live.options() }
-    ctx.sessionIndex.reopen(session)
-    const resumedRecord = ctx.registry.upsert(session, live)
-    ctx.sessions.noteReconciled(resumedRecord, transcript)
-    const resumed = resumedRecord.session
-    ctx.sessionIndex.record(resumed)
-    // Ordinary history resumes register directly above rather than through
-    // create/fork's attach; observe that handle without changing admission.
-    ctx.loadouts.observe(runtime, live.id, resumed.cwd)
-    await announceUnavailableTools(ctx, runtime, resumed)
-    return resumed
+      // Resume returns metadata only; the transcript comes from a full read so
+      // the user sees their history immediately rather than an empty pane.
+      // The read has no settings or options, though — those live on the
+      // handle — so both are carried across, or the composer has nothing to
+      // render.
+      const transcript = await ctx.sessions.read(runtime, live.id)
+      const session: Session = { ...transcript, settings: live.settings(), options: live.options() }
+      ctx.sessionIndex.reopen(session)
+      const resumedRecord = ctx.registry.upsert(session, live)
+      ctx.sessions.noteReconciled(resumedRecord, transcript)
+      const resumed = resumedRecord.session
+      ctx.sessionIndex.record(resumed)
+      // A prior index miss is only retired by a new filesystem measurement.
+      await ctx.sessionIndex.refreshMissingFolder(resumed.cwd)
+      // Ordinary history resumes register directly above rather than through
+      // create/fork's attach; observe that handle without changing admission.
+      ctx.loadouts.observe(runtime, live.id, resumed.cwd)
+      await announceUnavailableTools(ctx, runtime, resumed)
+      return resumed
+    } finally { release?.() }
   },
 
   'session/fork': async (ctx, params) => {
@@ -306,6 +321,12 @@ export const sessionMethods = {
     return ctx.sessions.attach(runtime, live.id, live)
   },
 
+  'session/opened': (ctx, params) => { ctx.sessionIndex.opened(params.runtime, params.sessionId); return null },
+  'session/pins': ctx => ctx.sessionIndex.pins(),
+  'session/pin': (ctx, params) => {
+    ctx.sessionIndex.setPinned(params.runtime, makeSessionId(params.sessionId), params.pinned)
+    return null
+  },
   'session/archive': archiveConversation,
   'session/worktreePreview': (ctx, params) => ctx.sessionWorktrees.preview(params.runtime, makeSessionId(params.sessionId)),
   'session/discardWorktree': async (ctx, params) => {
@@ -335,7 +356,9 @@ export const sessionMethods = {
     const id = makeSessionId(params.sessionId)
     await ctx.runtimes.ensureStarted(runtime)
     if (runtime.info.capabilities.deleteHistory !== 'trash') {
-      throw new Error(`${runtime.info.presentation.name} cannot move a stored conversation to the Trash.`)
+      throw new Error(runtime.info.capabilities.deleteHistory === 'erase'
+        ? `${runtime.info.presentation.name} erases conversations for good, so delete it on the computer.`
+        : `${runtime.info.presentation.name} cannot move a stored conversation to the Trash.`)
     }
     await closeSession(ctx, { runtime: runtime.info.id, sessionId: id })
     // The agent's copy first: if it refuses, the stopped conversation's

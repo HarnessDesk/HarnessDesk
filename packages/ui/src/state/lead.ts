@@ -1,5 +1,5 @@
 import type {
-  LeadChatControl, LeadSavedApproval, LeadChatControlList, LeadWakeRecord, HostMethodName, HostParams, HostResult, LeadAction, LeadActionInput, LeadCardDecision, LeadChanged, LeadMemory, LeadPresence, LeadSchedule, LeadProgress, LeadSteer, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
+  LeadAutonomySet, LeadAutonomyView, LeadSettingsDecide, LeadDeadlineSet, LeadRulesUpdate, LeadRulesView, LeadBriefSettings, LeadDeviceRef, LeadPresenceView, LeadChatControl, LeadWorkBoard, LeadWorkOutcome, LeadSavedApproval, LeadChatControlList, LeadWakeRecord, HostMethodName, HostParams, HostResult, LeadAction, LeadActionInput, LeadCardDecision, LeadChanged, LeadMemory, LeadMemoryChange, LeadMemoryView, LeadPresence, LeadSchedule, LeadProgress, LeadSteer, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
 } from '@harnessdesk/protocol'
 
 interface LeadTransport {
@@ -10,6 +10,14 @@ export interface LeadState {
   readonly chats: readonly LeadChatControl[]
   readonly chatControlProblem: LeadChatControlList['problem'] | null
   readonly wakes?: readonly LeadWakeRecord[]
+  /** The host's work board, the same projection the phone lists; null until it has been read. */
+  readonly work?: LeadWorkBoard | null
+  /** What the host says changed while this window was away and what became of each ask; null until read. */
+  readonly away?: LeadPresenceView | null
+  /** The Lead's memory: Core, Archive, the proposals waiting and the history; null until read. */
+  readonly memory?: LeadMemoryView | null
+  /** The Lead's settings as the desk holds them, with the proposals the Lead made; null until read. */
+  readonly autonomy?: LeadAutonomyView | null
   readonly savedApprovals?: readonly LeadSavedApproval[]
   readonly revokedApprovals?: readonly LeadSavedApproval[]
   readonly personActions: readonly LeadAction[]
@@ -19,6 +27,7 @@ export interface LeadState {
   readonly thread: LeadThread | null
   readonly settings: LeadSettingsProjection | null
   readonly requestInFlight: boolean
+  readonly activity?: LeadWindowProjection['activity']
   readonly wayOut: 'resume' | 'decide-plan' | null
   readonly waitReason: LeadWindowProjection['waitReason']
   readonly planConsentExpiresAt: number | null
@@ -63,19 +72,56 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
       // Worker approvals are live host relays. Their cards may change while
       // the journal revision used by settings and Resume stays unchanged.
       const approvals = (thread: LeadThread | null) => thread?.cards.filter(card => card.type === 'waiting' && card.kind === 'worker-approval') ?? []
-      if (projection.stage === state.stage && projection.stageReason === state.stageReason && JSON.stringify(approvals(projection.thread)) === JSON.stringify(approvals(state.thread)) && JSON.stringify(projection.personActions ?? []) === JSON.stringify(state.personActions)) return
+      if (JSON.stringify(projection.activity) === JSON.stringify(state.activity) && projection.requestInFlight === state.requestInFlight && projection.stage === state.stage && projection.stageReason === state.stageReason && JSON.stringify(approvals(projection.thread)) === JSON.stringify(approvals(state.thread)) && JSON.stringify(projection.personActions ?? []) === JSON.stringify(state.personActions)) return
     }
     state = 'error' in projection
       ? { ...state, revision: projection.revision, wayOut: null, error: projection.error }
-      : structuredClone({ chats: state.chats, chatControlProblem: state.chatControlProblem, wakes: state.wakes ?? [], savedApprovals: projection.savedApprovals ?? [], revokedApprovals: projection.revokedApprovals ?? [], personActions: projection.personActions ?? [], stage: projection.stage, stageReason: projection.stageReason, revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
-        requestInFlight: projection.requestInFlight, waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt, progress: projection.progress ?? null, team: projection.team ?? null, presence: projection.presence ?? null, steers: projection.steers ?? null, error: null })
+      : structuredClone({ chats: state.chats, chatControlProblem: state.chatControlProblem, wakes: state.wakes ?? [], work: state.work ?? null, memory: state.memory ?? null, autonomy: state.autonomy ?? null, savedApprovals: projection.savedApprovals ?? [], revokedApprovals: projection.revokedApprovals ?? [], personActions: projection.personActions ?? [], stage: projection.stage, stageReason: projection.stageReason, revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
+        requestInFlight: projection.requestInFlight, activity: projection.activity, waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt, progress: projection.progress ?? null, team: projection.team ?? null, presence: projection.presence ?? null, steers: projection.steers ?? null, error: null })
     for (const listener of listeners) listener()
   }
+  // Every board the host sends is whole, so the latest one simply replaces the last.
+  const applyWork = (board: LeadWorkBoard) => {
+    if (!available() || !Array.isArray(board?.items)) return
+    state = { ...state, work: board }
+    for (const listener of listeners) listener()
+  }
+  // Each view is whole; one older than what is shown never replaces it.
+  const applyMemory = (view: LeadMemoryView) => {
+    if (!available() || !Array.isArray(view?.core) || (state.memory && view.revision < state.memory.revision)) return
+    state = { ...state, memory: view }
+    for (const listener of listeners) listener()
+  }
+  const readMemoryView = async () => { check(); const view = await transport.request('lead/memory/view', {}); applyMemory(view); return view }
+  // The settings view carries no revision, so the answer to the latest read or decision is the one shown.
+  let autonomyVersion = 0
+  const applyAutonomy = (view: LeadAutonomyView, version: number) => {
+    if (!available() || version !== autonomyVersion || !view?.modes) return
+    state = { ...state, autonomy: view }
+    for (const listener of listeners) listener()
+  }
+  const settled = async (read: Promise<LeadAutonomyView>) => { const version = ++autonomyVersion; const view = await read; applyAutonomy(view, version); return view }
   let controlVersion = 0
   const retriedControl = new Set<'transient' | 'escalated'>()
   let controlRetry: ReturnType<typeof setTimeout> | undefined
   let controlRetryKind: 'transient' | 'escalated' | undefined
   const cancelControlRetry = () => { clearTimeout(controlRetry); controlRetry = undefined; controlRetryKind = undefined }
+  const applyAway = (view: LeadPresenceView) => {
+    if (!available()) return
+    state = { ...state, away: view }
+    for (const listener of listeners) listener()
+  }
+  // This window's name to the host, kept across restarts so its seen mark is its own. Storage can be unavailable.
+  const device = (): LeadDeviceRef => {
+    const key = 'hd-lead-device-v1'
+    let id = ''
+    try { id = localStorage.getItem(key) ?? '' } catch { /* A fresh id per launch is the fallback. */ }
+    if (!/^[A-Za-z0-9._-]{8,48}$/.test(id)) {
+      id = Array.from(crypto.getRandomValues(new Uint8Array(12)), byte => byte.toString(16).padStart(2, '0')).join('')
+      try { localStorage.setItem(key, id) } catch { /* See above. */ }
+    }
+    return { id: `window:${id}`, label: 'Desktop' }
+  }
   const applyChats = (list: LeadChatControlList) => {
     if (!available()) return
     ++controlVersion
@@ -117,6 +163,10 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
       if (!available()) return
       if (notification.method === 'lead/changed') apply(notification.params)
       else if (notification.method === 'lead/chats/controlChanged') applyChats(notification.params)
+      else if (notification.method === 'lead/work/changed') applyWork(notification.params)
+      else if (notification.method === 'lead/presence/changed') void transport.request('lead/presence/read', { device: device() }).then(applyAway, () => {})
+      else if (notification.method === 'lead/memory/changed' && notification.params.revision > (state.memory?.revision ?? -1)) void readMemoryView().catch(() => {})
+      else if (notification.method === 'lead/autonomy/changed') void settled(transport.request('lead/autonomy/read', {})).catch(() => {})
     },
     readChatControl,
     async resetChatControl() { check(); applyChats(await transport.request('lead/chats/resetControl', {})) },
@@ -130,10 +180,29 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
       }
       return result
     },
+    /** Looking at the Lead marks this window as seen; after a long absence the host hands back one digest of what changed. */
+    async readAway(options: { readonly active?: boolean; readonly recap?: boolean } = {}) { check(); const view = await transport.request('lead/presence/read', { device: device(), ...options }); applyAway(view); return view },
+    async dismissDigest(digest: string) { check(); const view = await transport.request('lead/presence/dismiss', { device: device(), digest }); applyAway(view); return view },
+    async readBrief(): Promise<LeadBriefSettings> { check(); return transport.request('lead/brief/read', {}) },
+    async updateBrief(update: { readonly enabled?: boolean; readonly at?: string }): Promise<LeadBriefSettings> { check(); return transport.request('lead/brief/update', update) },
+    async readAutonomy(): Promise<LeadAutonomyView> { check(); return settled(transport.request('lead/autonomy/read', {})) },
+    async setAutonomy(set: LeadAutonomySet): Promise<LeadAutonomyView> { check(); return settled(transport.request('lead/autonomy/set', set)) },
+    /** The person's Apply or No on a settings proposal the Lead made. Apply makes exactly the change the card shows. */
+    async decideSettings(decision: LeadSettingsDecide): Promise<LeadAutonomyView> { check(); return settled(transport.request('lead/settings/decide', decision)) },
+    async readRules(): Promise<LeadRulesView> { check(); return transport.request('lead/rules/read', {}) },
+    async updateRules(update: LeadRulesUpdate): Promise<LeadRulesView> { check(); return transport.request('lead/rules/update', update) },
+    async setDeadline(set: LeadDeadlineSet): Promise<LeadAutonomyView> { check(); return transport.request('lead/deadline/set', set) },
+    async readWork() { check(); const board = await transport.request('lead/work/list', {}); applyWork(board); return board },
+    /** The person's Done or Drop. It closes the record only; chats, Teams and pull requests are left as they are. */
+    async closeWork(id: string, outcome: LeadWorkOutcome) { check(); const board = await transport.request('lead/work/close', { id, outcome }); applyWork(board); return board },
+    /** The person's cancel of a reminder that has not fired; the board comes back with it marked cancelled. */
+    async cancelReminder(id: string) { check(); const board = await transport.request('lead/reminder/cancel', { id }); applyWork(board); return board },
+    /** The person's clear of a reminder that fired: it leaves the board and the Lead's notes, and is never said again (#2144). */
+    async clearReminder(id: string) { check(); const board = await transport.request('lead/reminder/clear', { id }); applyWork(board); return board },
     async readThread() { check(); const before = state; const result = await transport.request('lead/thread/read', {}).catch(refusedRead); apply(result, before); return result.thread },
     async readSettings() { check(); const before = state; const result = await transport.request('lead/settings/read', {}).catch(refusedRead); apply(result, before); return result.settings },
-    async send(text: string, idempotencyKey: string) {
-      check(); const receipt = await transport.request('lead/thread/send', { text, idempotencyKey })
+    async send(text: string, idempotencyKey: string, ask?: string) {
+      check(); const receipt = await transport.request('lead/thread/send', { text, idempotencyKey, device: device(), ...(ask ? { ask } : {}) })
       check()
       const before = state, result = await transport.request('lead/thread/read', {}); apply(result, before); return receipt
     },
@@ -182,7 +251,14 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
       apply(result, before); return result
     },
     async readMemory() { check(); return transport.request('lead/memory/read', {}) },
+    readMemoryView,
+    /** Keep, Edit, No, Forget, Undo and the rest: the host answers with the whole view. */
+    async changeMemory(change: LeadMemoryChange) { check(); const view = await transport.request('lead/memory/change', change); applyMemory(view); return view },
     async updateMemory(memory: LeadMemory) { check(); return transport.request('lead/memory/update', { memory }) },
     async resume() { checkRead(); const before = state, result = await transport.request('lead/resume', { expectedRevision: state.revision }); apply(result, before); return result },
+    /** How full the conversation is, the cache's share and the checkpoints kept: facts, read when shown. */
+    async readContext() { check(); return transport.request('lead/context/read', {}) },
+    /** The person's "Summarise now". Refused while the Lead is answering. */
+    async compactContext() { check(); return transport.request('lead/context/compact', {}) },
   }
 }

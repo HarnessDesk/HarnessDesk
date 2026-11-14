@@ -10,6 +10,8 @@ export class LeadRepeats {
   constructor(private readonly port: {
     planner: LeadPlanner; journal: LeadJournal; now(): number
     start(task: LeadScheduledTask, slot: number): Promise<{ logicalGoalId: string; approved: boolean; reason?: string }>
+    /** Autonomy for scheduled goals: `off` and `observed` both mean the slot is consumed and nothing starts. */
+    gate?(): Promise<'act' | 'off' | 'observed'>
   }) {}
   #queue<T>(operation: () => Promise<T>): Promise<T> {
     const next = this.#tail.then(operation); this.#tail = next.catch(() => {}); return next
@@ -23,6 +25,11 @@ export class LeadRepeats {
     if (!due) return
     const reason = due.task.paused ? 'Paused' : !this.#idle() ? 'The previous goal is still open' : null
     if (reason) { await this.port.planner.recordRun(due.task.id, { slot: due.slot, at: now, state: 'skipped', reason }); return }
+    const gate = await this.port.gate?.() ?? 'act'
+    if (gate !== 'act') {
+      await this.port.planner.recordRun(due.task.id, { slot: due.slot, at: now, state: 'skipped', reason: gate === 'off' ? 'Scheduled goals are off in Lead settings' : 'Scheduled goals are set to Observe in Lead settings' })
+      return
+    }
     let result: Awaited<ReturnType<typeof this.port.start>>
     try { result = await this.port.start(due.task, due.slot) }
     catch {

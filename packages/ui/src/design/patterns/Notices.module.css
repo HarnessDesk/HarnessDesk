@@ -134,13 +134,23 @@
 
 /* --- composer: fastened to the top of the composer it blocks -------------- */
 
+/* The stack scrolls inside itself past its ceiling, and a scroll box clips at
+   its padding edge on both axes. So the box reaches one focus ring's width past
+   the column on every side but the composer's, and gives that back as padding:
+   the notices stand on the composer's edges, and a ring or an edge button's
+   ring around them is drawn whole. */
 .composerStack {
+  --composer-notices-bleed: calc(var(--hd-ring-width) + var(--hd-ring-offset));
+  /* A pinned card head (ToolSection's pinHead) stops at the box's edge, over the bleed, so nothing scrolls past above it. */
+  --tool-pin-top: calc(-1 * var(--composer-notices-bleed));
   display: flex;
   flex-direction: column;
   gap: var(--hd-space-1-5);
-  max-width: var(--hd-column);
-  margin: 0 auto;
-  padding-bottom: var(--hd-space-1-5);
+  max-height: var(--hd-composer-notices-max-height);
+  overflow-y: auto;
+  margin-top: calc(-1 * var(--composer-notices-bleed));
+  margin-inline: max(calc(-1 * var(--composer-notices-bleed)), calc((100% - var(--hd-column)) / 2 - var(--composer-notices-bleed)));
+  padding: var(--composer-notices-bleed) var(--composer-notices-bleed) max(var(--hd-space-1-5), var(--composer-notices-bleed));
 }
 
 /* Nothing to say: no room taken. */
@@ -259,6 +269,38 @@
     display: flex;
     justify-content: flex-end;
   }
+}
+
+/* --- decision: a composer notice with several answers and a rule box ------ */
+
+/* The sentence leads on the tile's line; the answers and the box follow under
+   it, on the sentence's own edge, so the card reads top to bottom. */
+.decision {
+  align-items: flex-start;
+}
+
+.decision > [data-slot='notice-lead'] {
+  align-self: flex-start;
+}
+
+.decisionBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--hd-space-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.decisionActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hd-space-2);
+}
+
+.decisionAlways {
+  align-self: flex-start;
 }
 
 /* --- strip: one slim line above a pane ------------------------------------ */

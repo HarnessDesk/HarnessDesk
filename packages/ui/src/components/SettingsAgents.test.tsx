@@ -435,6 +435,8 @@ const mountList = async (
     newSessionDefaultsFor: async () => ({}),
     optionsFor: async () => [],
     listModels: async () => [],
+    loadCarryOnPolicy: async () => ({ onLimit: 'ask', otherAgents: true }),
+    readCarryOnRules: async () => true,
     readPlan: async () => ({ entry: null, suggestion: null, refusal: null }),
     ...(over.store ?? {}),
   } as unknown as AppStore
@@ -1197,6 +1199,8 @@ it('opened on a second account\u2019s runtime, the page answers for the agent', 
     newSessionDefaultsFor: async () => ({}),
     optionsFor: async () => [],
     listModels: async () => [],
+    loadCarryOnPolicy: async () => ({ onLimit: 'ask', otherAgents: true }),
+    readCarryOnRules: async () => true,
   } as unknown as AppStore
   await act(async () => {
     root.render(
@@ -1247,7 +1251,8 @@ it('accounts, gateways and unanswered slots share one unwrapped face slot', asyn
   await mountList({ runtimes: [...ROSTER.runtimes, gateway], accountsByRuntime: accounts })
   const alpha = [...container.querySelectorAll<HTMLElement>('[data-slot="agent-row"]')].find(row => row.querySelector('[data-slot="row-title"]')?.textContent?.startsWith('Alpha'))!
   await act(async () => alpha.click())
-  const records = [...container.querySelectorAll('[data-kind="record"]')]
+  // The account rows; the Dashboard's cards under Usage are a section of their own.
+  const records = [...container.querySelectorAll('[data-kind="record"]')].filter(row => !row.closest('[aria-label="Usage by account"]'))
   expect(records).toHaveLength(3)
   for (const row of records) {
     expect(row.querySelectorAll('[data-slot="row-face"]')).toHaveLength(1)
@@ -1434,7 +1439,7 @@ it.each(['apiKey','browser'] as const)('a deferred %s account add keeps its appr
   const pending=new Promise<string|null>(yes=>{resolve=yes}),onSignIn=vi.fn(),signInAgent=vi.fn(async()=>{})
   const info=runtime({id:'synthetic',name:'Synthetic',presentation:{name:'Synthetic'},slot:{agent:'synthetic',canAdd:true}})
   const snapshot={...emptySnapshot(),status:'open',activeRuntime:'synthetic',runtimes:[info],accountsByRuntime:{synthetic:signedIn([{email:'dev@example.com'}], [flow])}} as unknown as AppSnapshot
-  const store={subscribe:()=>()=>{},getSnapshot:()=>snapshot,transport:{request:vi.fn(async()=>null)},loadAccounts:async()=>{},healthFor:async()=>null,installsFor:async()=>null,optionsFor:async()=>[],newSessionDefaultsFor:async()=>({}),listModels:async()=>[],readPlan:async()=>({entry:null,suggestion:null,refusal:null}),addAccount:vi.fn(()=>pending),signInAgent} as unknown as AppStore
+  const store={subscribe:()=>()=>{},getSnapshot:()=>snapshot,transport:{request:vi.fn(async()=>null)},loadAccounts:async()=>{},healthFor:async()=>null,installsFor:async()=>null,optionsFor:async()=>[],newSessionDefaultsFor:async()=>({}),listModels:async()=>[],loadCarryOnPolicy:async()=>({onLimit:'ask',otherAgents:true}),readCarryOnRules:async()=>true,readPlan:async()=>({entry:null,suggestion:null,refusal:null}),addAccount:vi.fn(()=>pending),signInAgent} as unknown as AppStore
   await act(async()=>root.render(<StoreProvider store={store}><RuntimesSection onSignIn={onSignIn}/></StoreProvider>));await act(async()=>line('Synthetic').click())
   act(()=>button('Add account')!.click());act(()=>root.render(<div>Work</div>));await act(async()=>resolve('synthetic-extra'))
   expect(store.addAccount).toHaveBeenCalledTimes(1);expect(onSignIn).not.toHaveBeenCalled()
@@ -1589,22 +1594,105 @@ it('an agent with two accounts keeps them in an order, with a rule for running o
   expect(setAccountPool).toHaveBeenCalledWith('alpha', { order: ['alpha', 'alpha#2'] })
 
   const rule = container.querySelector<HTMLSelectElement>('select[aria-label="When an account runs out"]')!
-  expect(rule.value).toBe('ask')
+  // An agent with no rule of its own follows the desk's (Settings › Permissions).
+  expect(rule.value).toBe('desk')
+  expect([...rule.options].map((option) => option.textContent)).toEqual(['Follow the desk setting', 'Use the next account', 'Ask me', 'Wait until it resets', 'Stop'])
   await act(async () => {
     rule.value = 'next'
     rule.dispatchEvent(new Event('change', { bubbles: true }))
   })
   expect(setAccountPool).toHaveBeenLastCalledWith('alpha', { whenOut: 'next' })
+  await act(async () => {
+    rule.value = 'desk'
+    rule.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  expect(setAccountPool).toHaveBeenLastCalledWith('alpha', { whenOut: undefined })
 })
 
-it('an agent with one account has no order and no rule to set', async () => {
-  await mountList()
+it('prefers the account that resets soonest, hides the hand moves, and says which to use first', async () => {
+  const setAccountPool = vi.fn()
+  const now = Date.now()
+  const lane = (usedPercent: number, resetsIn: number) => ({ id: 'session', label: '5h', usedPercent, windowMinutes: 300, resetsAt: now + resetsIn })
+  const fresh = { fetchedAt: now, staleAfterMs: 900_000, error: null }
+  await mountList({
+    accountPools: { alpha: { pace: 'soonest' } },
+    usage: [
+      { runtime: 'alpha', account: 'ada@example.com', plan: 'Pro', lanes: [lane(30, 4 * 3_600_000)], reached: null, ...fresh },
+      { runtime: 'alpha#2', account: 'grace@example.com', plan: 'Team', lanes: [lane(20, 3_600_000)], reached: null, ...fresh },
+    ] as never,
+    store: { setAccountPool },
+  })
+  await act(async () => line('Alpha').click())
+  const titles = [...container.querySelectorAll('[data-kind="record"] [data-slot="row-title"]')].map((node) => node.textContent ?? '')
+  expect(titles.slice(0, 2).map((title) => title.replace('Default', ''))).toEqual(['grace', 'ada'])
+  expect(container.querySelector('[aria-label="grace actions"]')).toBeNull()
+  // Only the account that refills in an hour with 80% unused is flagged: ada's reset is four hours off.
+  expect([...container.querySelectorAll('*')].filter((node) => node.children.length === 0 && node.textContent === 'Use it first')).toHaveLength(1)
+
+  const order = container.querySelector<HTMLSelectElement>('select[aria-label="Order"]')!
+  expect(order.value).toBe('soonest')
+  await act(async () => {
+    order.value = 'mine'
+    order.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  expect(setAccountPool).toHaveBeenLastCalledWith('alpha', { pace: undefined })
+})
+
+it('an agent with one account has no order, and keeps its rule for running out', async () => {
+  const setAccountPool = vi.fn()
+  // A rule set while there were two accounts still applies with one, so it is still here to change.
+  await mountList({ accountPools: { beta: { whenOut: 'stop' } }, store: { setAccountPool } })
   await act(async () => line('Beta').click())
-  expect(container.querySelector('select[aria-label="When an account runs out"]')).toBeNull()
+  expect(container.querySelector('select[aria-label="Order"]')).toBeNull()
+  const rule = container.querySelector<HTMLSelectElement>('select[aria-label="When an account runs out"]')!
+  expect(rule.value).toBe('stop')
+  await act(async () => {
+    rule.value = 'desk'
+    rule.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  expect(setAccountPool).toHaveBeenLastCalledWith('beta', { whenOut: undefined })
   expect(container.querySelector('[aria-label="API key actions"]')).toBeNull()
 })
 
-it('two identities one runtime reports are one place in the queue, with no order or rule to set', async () => {
+it('an agent page reads the rules again each time it is shown, so a host-written "Always" is not undone', async () => {
+  const readCarryOnRules = vi.fn(async () => true)
+  await mountList({ store: { readCarryOnRules } })
+  await act(async () => line('Beta').click())
+  expect(readCarryOnRules).toHaveBeenCalled()
+})
+
+it('holds every edit to the pools until the rules read on entry is in', async () => {
+  const setAccountPool = vi.fn()
+  let finish!: () => void
+  const readCarryOnRules = vi.fn(() => new Promise<boolean>((resolve) => { finish = () => resolve(true) }))
+  await mountList({ accountPools: { alpha: { order: ['alpha#2', 'alpha'] } }, store: { setAccountPool, readCarryOnRules } })
+  await act(async () => line('Alpha').click())
+  // A move made against the map this page holds would write it back over an "Always" the read is bringing.
+  expect(container.querySelector<HTMLSelectElement>('select[aria-label="Order"]')!.disabled).toBe(true)
+  expect(container.querySelector<HTMLSelectElement>('select[aria-label="When an account runs out"]')!.disabled).toBe(true)
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="ada actions"]')!.click())
+  const held = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+  expect(held.map((item) => item.getAttribute('aria-disabled'))).toEqual(['true', 'true'])
+  await act(async () => held[0]!.click())
+  expect(setAccountPool).not.toHaveBeenCalled()
+  await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+
+  await act(async () => finish())
+  expect(container.querySelector<HTMLSelectElement>('select[aria-label="Order"]')!.disabled).toBe(false)
+  expect(container.querySelector<HTMLSelectElement>('select[aria-label="When an account runs out"]')!.disabled).toBe(false)
+})
+
+it('stays held, and says why, when the rules could not be read', async () => {
+  const setAccountPool = vi.fn()
+  await mountList({ accountPools: { alpha: { order: ['alpha#2', 'alpha'] } }, store: { setAccountPool, readCarryOnRules: async () => false } })
+  await act(async () => line('Alpha').click())
+  expect(container.querySelector<HTMLSelectElement>('select[aria-label="Order"]')!.disabled).toBe(true)
+  expect(container.querySelector<HTMLSelectElement>('select[aria-label="When an account runs out"]')!.disabled).toBe(true)
+  expect(container.textContent).toContain('could not be read, so they cannot be changed here')
+  expect(container.textContent).not.toContain('New sessions follow the order above.')
+})
+
+it('two identities one runtime reports are one place in the queue, with no order to set', async () => {
   await mountList({
     accountsByRuntime: {
       ...ROSTER.accountsByRuntime,
@@ -1612,7 +1700,7 @@ it('two identities one runtime reports are one place in the queue, with no order
     },
   })
   await act(async () => line('Beta').click())
-  expect(container.querySelector('select[aria-label="When an account runs out"]')).toBeNull()
+  expect(container.querySelector('select[aria-label="Order"]')).toBeNull()
   expect(document.body.textContent).not.toContain('Move up')
 })
 
@@ -1636,7 +1724,8 @@ it('a runtime page reads in the order it is used: accounts first, the build afte
   const heads = [...container.querySelectorAll('[data-slot="section-name"]')].map((node) => node.textContent ?? '')
   const at = (name: string) => heads.findIndex((head) => head.startsWith(name))
   // New sessions draws nothing for an agent with no defaults to offer, as here.
-  expect(heads).toEqual(['Accounts', 'Update', 'Process resources'])
+  // Usage sits with the accounts it is about: the Dashboard's own cards, pacing and all.
+  expect(heads).toEqual(['Accounts', 'Usage', 'Update', 'Process resources'])
   expect(at('Accounts')).toBe(0)
 })
 

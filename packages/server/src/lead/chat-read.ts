@@ -4,6 +4,13 @@ import { threadProjection } from '../phone-thread.js'
 const MAX_BYTES = 12_000
 const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value))
 const excerpt = (text: string, characters: number) => Array.from(text).slice(-characters).join('')
+/** A transcript clipped upstream can end inside a surrogate pair. The model reads U+FFFD there, never a lone half. */
+const wellFormed = <T>(value: T): T => {
+  if (typeof value === 'string') return value.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '\uFFFD') as T
+  if (Array.isArray(value)) return value.map(wellFormed) as T
+  if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, wellFormed(child)])) as T
+  return value
+}
 
 const shorten = (turn: PhoneWorkTurn, length: number): PhoneWorkTurn => {
   switch (turn.type) {
@@ -21,8 +28,10 @@ const shorten = (turn: PhoneWorkTurn, length: number): PhoneWorkTurn => {
  * explicitly partial recent view to the model, rather than losing the whole
  * successful read at the provider's per-tool-result ceiling. Full text stays
  * available in the ordinary chat on the desk and phone. */
-export const boundLeadChatRead = (thread: PhoneWorkThread): PhoneWorkThread & { readonly omittedSourceTurns: number; readonly omittedPhoneEntries: number; readonly truncated: boolean } => {
-  const projection = threadProjection(thread), omittedSourceTurns = projection?.omittedSourceTurns ?? 0
+export const boundLeadChatRead = (source: PhoneWorkThread): PhoneWorkThread & { readonly omittedSourceTurns: number; readonly omittedPhoneEntries: number; readonly truncated: boolean } => {
+  const thread = wellFormed(source)
+  // The projection facts are held against the object the phone projection returned, not a copy.
+  const projection = threadProjection(source), omittedSourceTurns = projection?.omittedSourceTurns ?? 0
   const result = { ...(thread.leadChatHolder ? { leadChatHolder: thread.leadChatHolder } : {}), id: thread.id, title: excerpt(thread.title, 160), agent: { name: excerpt(thread.agent.name, 80),
     ...(thread.agent.model ? { model: excerpt(thread.agent.model, 100) } : {}) },
     ...(thread.project ? { project: excerpt(thread.project, 120) } : {}), status: thread.status,

@@ -21,6 +21,7 @@ import type {
   FlowBasePin,
   FlowCheck,
   FlowCheckContext,
+  FlowAsk,
   FlowExecution,
   FlowExecutionEnd,
   FlowDocument,
@@ -106,6 +107,13 @@ export type StoredFlowExecution = FlowExecution & {
   publication?: StoredPublication
   /** Repository of the journaled pre-adoption fetch, retained for aborted-start cleanup. */
   baseRoot?: string
+  /**
+   * A carry-on replacement under way (§9.2), by the seating operation it moves: journaled before the port moves the
+   * card's claim, so a restart in between finishes it from the claim instead of leaving the run on a closed Seat.
+   */
+  replacing?: Readonly<Record<string, { readonly from: string; readonly card: number | null; readonly lane?: string | null }>>
+  /** Each replacement Seat, to the Seat it replaced: work its predecessor was handed counts as handed to it. */
+  replaced?: Readonly<Record<string, string>>
 }
 
 const cardFinishedAnswer = (card: number): string => `Card #${card} is already finished, so there is nothing to hand this answer to.`
@@ -211,6 +219,8 @@ export interface FlowStartRequest {
   readonly goal?: { readonly id: string; readonly revision: number }
   /** From a strict preview token only: what the run works on, as the host resolved it. A head pins every Seat to it. */
   readonly target?: FlowStartTarget
+  /** Host-stamped for a start that came through the client door; never a request field. */
+  readonly startedBy?: NonNullable<FlowExecution['startedBy']>
 }
 
 /**
@@ -351,6 +361,19 @@ export interface FlowExecutionPort {
   holdLeadSeat?(seat: SeatRecord, level: CeilingLevel): Promise<boolean>
   /** Puts a Seat back on the model and effort it was opened on and says what it is running. */
   reseat(seat: SeatRecord): Promise<string>
+  /**
+   * Carry-on (piece D): a replacement Seat for the same card, on another
+   * account or agent, never a mutation of `seat`. Same thread when `mode` is
+   * `sameThread` (a sibling account reopens it), else a new conversation in
+   * the same checkout. The old Seat is closed with `limit`, its lane and its
+   * card's claim pass to the new one. Absent, a Seat is never replaced.
+   */
+  replaceSeat?(seat: SeatRecord, target: SeatReplacement): Promise<SeatRecord | { readonly refused: string }>
+  /**
+   * Whether a carry-on incident holds this conversation (asked, waiting for a reset, or being decided): no
+   * recovery hands its card back while one does, whichever path asks — a turn ending, a release, or a restart.
+   */
+  carryOnHolds?(runtime: string, sessionId: string): Promise<boolean>
   changed(goal: string, runs: readonly FlowExecution[]): void
   /** A publication journal changed durably; reads and unsuccessful writes never announce it. */
   publicationChanged?(goal: string): void
@@ -402,6 +425,23 @@ export interface FlowExecutionPort {
   ): Promise<{ readonly result: { readonly exit: number | null; readonly timedOut: boolean; readonly tail: string }; readonly evidence: string | null; readonly problem: string | null }>
   /** Admission checks only the host's verified recorded process identity, never the checkout. */
   assertCheckCleanup?(goal: string, card: number): void
+}
+
+/** Where a replacement Seat goes, and what it keeps: the role and card of the Seat it replaces. */
+export interface SeatReplacement {
+  readonly runtime: string
+  readonly mode: 'sameThread' | 'handoff'
+  readonly model?: string
+  readonly role: string
+  readonly card: number | null
+}
+
+/** What carry-on reads of a v2 Seat before it decides. */
+export interface SeatCarry {
+  /** The role's siblings are blind to each other: a handoff carries the request and the instruction only. */
+  readonly blind: boolean
+  /** The run is at or over its budget: no switch. */
+  readonly overBudget: boolean
 }
 
 /** A person decision's actions on one run, each run inside the run's queue a `withDecision` step already holds. */
@@ -529,12 +569,14 @@ export const projectExecution = (run: StoredFlowExecution): FlowExecution => ({
   operations: run.operations,
   legacyRun: run.legacyRun,
   reason: run.reason,
+  ...(run.asks ? { asks: run.asks } : {}),
   ...(run.keptAnswer ? { keptAnswer: run.keptAnswer } : {}),
   ...(run.findings ? { findings: run.findings } : {}),
   ...(run.intake ? { intake: run.intake } : {}),
   ...(run.requireHeld ? { requireHeld: true as const } : {}),
   ...(run.target ? { target: run.target } : {}),
   ...(run.base ? { base: run.base } : {}),
+  ...(run.startedBy ? { startedBy: run.startedBy } : {}),
 })
 
 /** A new-format run's findings bookkeeping, frozen at its start: the budget its file named, or the default. */
@@ -869,6 +911,13 @@ export interface PersonReviewBinding {
   readonly subjects: readonly FlowSubject[]
   readonly unsettled: readonly { readonly card: number; readonly why: string }[]
   readonly refusal?: string
+}
+
+/** How many providers a subset of them names. */
+function bits(mask: number): number {
+  let count = 0
+  for (let rest = mask; rest !== 0; rest &= rest - 1) count += 1
+  return count
 }
 
 export class FlowExecutions {
@@ -1579,6 +1628,74 @@ export class FlowExecutions {
     })
   }
 
+  /**
+   * The Flow seat a conversation holds on a running run, and what its role
+   * lets it ask with `ask_agent` — the gate the consult engine reads before
+   * anything opens. Null for a conversation no running run seats; `ask` is
+   * null for a seat whose role says nothing about asking.
+   */
+  askingSeat(runtime: string, sessionId: string): {
+    readonly run: string
+    readonly goal: string
+    readonly seat: string
+    readonly ask: FlowAsk | null
+    readonly trigger: boolean
+    readonly used: number
+  } | null {
+    for (const run of this.#runs.values()) {
+      if (run.state !== 'running') continue
+      const seating = this.#seatingOf(run, runtime, sessionId)
+      if (!seating?.seat || this.#port.seatOf(seating.seat)?.closed !== null) continue
+      const roleId = this.#port.seatOf(seating.seat)?.role ??
+        (run.rounds.find((one) => one.seats.includes(seating.seat!)) ?? run.rounds.find((one) => one.cards.includes(seating.card)))?.role
+      const role = roleId && run.document.format === 'agents' ? run.document.flow.roles.find((one) => one.id === roleId) : undefined
+      return {
+        run: run.id, goal: run.goal, seat: seating.seat,
+        ask: role?.kind === 'agent' && role.ask ? role.ask : null,
+        trigger: run.intake !== undefined,
+        used: run.asks?.[seating.seat] ?? 0,
+      }
+    }
+    return null
+  }
+
+  /**
+   * Spends one of a seat's asks on its run, durably, before the consult opens:
+   * the count lives on the run so a restarted desk keeps it. Answers which ask
+   * this is (1-based), or null when the seat has none left or the run is no
+   * longer running.
+   */
+  async spendAsk(runId: string, seat: string, times: number): Promise<number | null> {
+    return this.#queue.within(runId, async () => {
+      const run = this.#runs.get(runId)
+      if (!run || run.state !== 'running') return null
+      const used = run.asks?.[seat] ?? 0
+      if (used >= times) return null
+      await this.#put({ ...run, asks: { ...run.asks, [seat]: used + 1 } })
+      return used + 1
+    })
+  }
+
+  /**
+   * Whether a seat about to open on this Goal for this role is offered
+   * `ask_agent`: a running run on the Goal whose role says `ask:`. Only the
+   * list is decided here; the call is checked again when it is made.
+   */
+  offersAsk(goal: string, roleId: string | null): boolean {
+    if (roleId === null) return false
+    for (const run of this.#runs.values()) {
+      if (run.state !== 'running' || run.goal !== goal || run.document.format !== 'agents') continue
+      const role = run.document.flow.roles.find((one) => one.id === roleId)
+      if (role?.kind === 'agent' && role.ask) return true
+    }
+    return false
+  }
+
+  /** Whether a run is still running — the consult engine's "the caller's run ended" race. */
+  running(runId: string): boolean {
+    return this.#runs.get(runId)?.state === 'running'
+  }
+
   // ------------------------------------------------------------- reading
 
   runs(goal?: string): FlowExecution[] {
@@ -1662,7 +1779,7 @@ export class FlowExecutions {
     if (round.evidence.some(id => facts.filter(one => one.record.id === id && !one.record.restored && one.freshness.state === 'fresh').length !== 1)) return null
     const selected = facts.filter(one => round.evidence.includes(one.record.id) && one.record.fact.kind === 'review')
     if (selected.length === 0 || answers.some(answer => !selected.some(one => one.record.fact.kind === 'review' && one.record.fact.verdict === answer))) return null
-    if (previous.seats.some(seat => !selected.some(one => one.record.fact.kind === 'review' && one.record.fact.by === seat))) return null
+    if (this.#answerable(run, previous).some(seat => !selected.some(one => one.record.fact.kind === 'review' && one.record.fact.by === seat))) return null
     for (const view of selected) {
       const fact = view.record.fact
       if (fact.kind !== 'review' || view.record.restored || view.freshness.state !== 'fresh' || !answers.includes(fact.verdict) ||
@@ -1857,7 +1974,7 @@ export class FlowExecutions {
       subjects: closure.subjects,
       unsettled: closure.unsettled,
       cards: closure.cards,
-      reviewers: round.seats,
+      reviewers: this.#answerable(run, round),
       facts,
       outcomes: round.cards.map((id) => board.intents.find((one) => one.id === id)?.outcome ?? null),
     }
@@ -2823,6 +2940,7 @@ export class FlowExecutions {
       ...(request.requireHeld ? { requireHeld: true as const } : {}),
       ...(request.goal ? { reserving: { goal: request.goal.id, revision: request.goal.revision } } : {}),
       ...(request.target ? { target: request.target } : {}),
+      ...(request.startedBy ? { startedBy: { via: request.startedBy.via, client: request.startedBy.client } } : {}),
     }
     try {
       if (policy.base) run = await this.#fetchBase(run, request.cwd ?? request.root, policy.base)
@@ -3699,7 +3817,9 @@ export class FlowExecutions {
       let prior = run.operations.find((one) => one.key === key)
       if (!prior && run.lead && round.role === 'implement' && run.rounds.some(one => one.n <= round.n && one.cause.startsWith('cause:lead:'))) {
         const earlier = run.rounds.filter(one => one.n < round.n && one.role === 'implement').at(-1)
-        const seat = earlier?.seats[index] && this.#port.seatOf(earlier.seats[index]!)
+        // The slot's own Seat, from its operation: a Seat replaced at a usage limit appends to the round, so its index moves.
+        const slot = earlier && (run.operations.find(one => one.key === `seat:${earlier.n}:${index}`)?.seat ?? earlier.seats[index])
+        const seat = slot && this.#port.seatOf(slot)
         if (!seat || !await this.#sameSeat(id, seat, card, round.role, 'released')) return false
         run = await this.#put(this.#operation(this.#get(id), key, { kind: 'seat', state: 'finished', card, seat: String(seat.id) }))
         prior = run.operations.find(one => one.key === key)
@@ -3842,13 +3962,20 @@ export class FlowExecutions {
       await turn('finished')
       return null
     }
+    // A Seat whose usage limit carry-on is still answering is carry-on's (§9.3), on every path that hands work out —
+    // a re-arm, a round a restart finishes seating, a release: the order waits, prepared, for carry-on to let go.
+    if (!seat.closed && await this.#port.carryOnHolds?.(seat.session.runtime, seat.session.sessionId)) {
+      await turn('prepared')
+      return null
+    }
     const run = this.#get(id)
     if (run.lead && !await this.#port.holdLeadSeat?.(seat, binding.grant)) return 'lead-worker-ceiling-not-held'
     const found = cardId === null ? null : this.#cardOf(run.goal, cardId)
     const plan = found?.run.id === id ? run.seatPlans?.[String(found.round.n)] : undefined
     // Recovery can resume directly from a journaled Seat, before seating completed.
     // Prove its initial commit before its first order, but let later turns keep its work.
-    const handed = run.operations.some((one) => one.kind === 'turn' && one.card === cardId && one.seat === String(seat.id) && one.state === 'finished')
+    const lineage = this.#lineage(run, String(seat.id))
+    const handed = run.operations.some((one) => one.kind === 'turn' && one.card === cardId && one.seat !== null && lineage.has(one.seat) && one.state === 'finished')
     if (!handed && plan?.base != null) {
       const lane = this.#port.laneOf(seat)
       const reason = !lane || lane.cwd !== seat.checkout.cwd || lane.ports.end < lane.ports.start || lane.state === 'released' || lane.state === 'reserved'
@@ -4465,6 +4592,336 @@ export class FlowExecutions {
     return false
   }
 
+  // ---------------------------------------------------------------- carry-on
+
+  /**
+   * The running v2 run whose open Seat holds this conversation, with the
+   * operation that seated it, its round and role. Null for a legacy Seat, a
+   * Seat already let go, or a run that is not running.
+   */
+  #carried(runtime: string, sessionId: string): {
+    readonly run: StoredFlowExecution; readonly operation: FlowOperation; readonly seat: SeatRecord
+    readonly round: FlowRoundState; readonly role: Extract<FlowPolicy['roles'][number], { readonly kind: 'agent' }>
+  } | null {
+    for (const run of this.#runs.values()) {
+      if (run.state !== 'running' || run.document.format !== 'agents') continue
+      for (const operation of run.operations) {
+        if (operation.kind !== 'seat' || !operation.seat) continue
+        const seat = this.#port.seatOf(operation.seat)
+        if (!seat || seat.closed || seat.session.runtime !== runtime || seat.session.sessionId !== sessionId) continue
+        const round = [...run.rounds].reverse().find((one) => one.seats.includes(operation.seat!))
+        const role = round && policyOf(run).roles.find((one) => one.id === round.role)
+        if (!round || role?.kind !== 'agent') return null
+        return { run, operation, seat, round, role }
+      }
+    }
+    return null
+  }
+
+  /** What carry-on reads of a Seat before deciding; null when no running v2 run holds it, so it is not carried on. */
+  async seatCarry(runtime: string, sessionId: string): Promise<SeatCarry | null> {
+    const found = this.#carried(runtime, sessionId)
+    if (!found) return null
+    const { run, round, role } = found
+    return { blind: role.blind === true || blindRound(run, round), overBudget: await this.#overBudget(run.id) }
+  }
+
+  /**
+   * A run at or over its budget gets no switch (§9.4): read from the same
+   * gates a dispatch passes, without holding or stalling the run — the
+   * stopped Seat's own path does that once carry-on lets it go.
+   */
+  async #overBudget(id: string): Promise<boolean> {
+    const run = this.#get(id)
+    if (run.lead && !(await this.#leadGate(id)).ok) return true
+    if (!run.intake) return false
+    const verdict = await this.#gateOf(id)
+    return !verdict.ok && verdict.pending !== true
+  }
+
+  /**
+   * Why `target` may not take this Seat, in both directions of
+   * `independentOf` (§9.2), or null when it may. Upstream: a Seat whose role
+   * must be independent of others cannot move onto a provider they used.
+   * Downstream: a Seat others must be independent of cannot move onto a
+   * provider one of them reads as, or leave a role not yet seated with no
+   * independent candidate at all.
+   */
+  async refuseSeatTarget(runtime: string, sessionId: string, target: string): Promise<string | null> {
+    const found = this.#carried(runtime, sessionId)
+    if (!found) return 'This seat no longer belongs to a running run.'
+    return this.#refuseTarget(found.run, found.seat, found.role, target)
+  }
+
+  async #refuseTarget(run: StoredFlowExecution, seat: SeatRecord, role: { readonly id: string; readonly independentOf: readonly string[] }, target: string): Promise<string | null> {
+    const provider = await this.#port.providerOf(target, seat.checkout.cwd)
+    const unknown = 'its provider cannot be read, so its independence cannot be shown'
+    if (role.independentOf.length > 0) {
+      const reason = independentProviderReason(provider, await this.#writers(run, role.independentOf))
+      if (reason) return reason.kind === 'sameProvider' ? 'it shares a provider with the work this seat must be independent of' : unknown
+    }
+    const policy = policyOf(run)
+    const board = this.#team.stateFor(run.goal)
+    const agents = policy.roles.filter((one): one is Extract<FlowPolicy['roles'][number], { readonly kind: 'agent' }> => one.kind === 'agent')
+    const seated = (id: string): boolean => run.rounds.some((one) => one.role === id)
+    for (const other of agents) {
+      if (other.id === role.id || !other.independentOf.includes(role.id) || !seated(other.id)) continue
+      for (const id of new Set(run.rounds.filter((one) => one.role === other.id).flatMap((one) => one.seats))) {
+        const reviewer = this.#port.seatOf(id)
+        if (!reviewer) continue
+        const reason = independentProviderReason(await this.#port.providerOf(reviewer.session.runtime, reviewer.checkout.cwd), new Set([provider]))
+        if (reason) return reason.kind === 'sameProvider' ? 'it shares a provider with a seat that must be independent of this one' : unknown
+      }
+    }
+    /* Roles not seated yet that must be independent of this one, directly or
+       through another such role: every binding of each must still find a
+       candidate once this move, and each choice made before it in that
+       chain, is counted. Never "one binding somewhere can": a role seats all
+       of its bindings, and a later role reads the providers an earlier one
+       ends up on. */
+    const affected: typeof agents = []
+    for (let grew = true; grew;) {
+      grew = false
+      for (const other of agents) {
+        if (other.id === role.id || seated(other.id) || affected.includes(other)) continue
+        if (other.independentOf.some((dependency) => dependency === role.id || affected.some((one) => one.id === dependency))) { affected.push(other); grew = true }
+      }
+    }
+    const ordered: typeof agents = []
+    while (ordered.length < affected.length) {
+      const next = affected.find((one) => !ordered.includes(one) &&
+        one.independentOf.every((dependency) => !affected.some((other) => other.id === dependency) || ordered.some((other) => other.id === dependency)))
+      if (!next) return 'it would leave a later step with no independent provider'
+      ordered.push(next)
+    }
+    // Per role: its own writers, and each binding's distinct candidate providers, the same set kept once.
+    const slots: { readonly role: (typeof agents)[number]; readonly writers: ReadonlySet<string | null>; readonly bindings: readonly (readonly (string | null)[])[] }[] = []
+    for (const other of ordered) {
+      const writers = await this.#writers(run, other.independentOf)
+      if (other.independentOf.includes(role.id)) writers.add(provider)
+      const bindings = new Map<string, (string | null)[]>()
+      for (const binding of bindingsFor(run, other.id)) {
+        const offered = binding.seats.length > 0 ? binding.seats : binding.agent.prefer
+        const providers = new Set<string | null>()
+        for (const candidate of offered) providers.add(await this.#port.providerOf(candidate.runtime, board.cwd ?? board.root))
+        bindings.set(JSON.stringify([...providers].sort()), [...providers])
+      }
+      slots.push({ role: other, writers, bindings: [...bindings.values()] })
+    }
+    // What a role passes on is only the set of providers its bindings took, and a smaller set never refuses more
+    // downstream: so each role tries the smallest sets that give every binding a provider, not every way of
+    // choosing one per binding. That is bounded by the providers on offer, never by how many bindings there are;
+    // and the whole search has a ceiling, past which the move is refused rather than the host kept waiting.
+    let budget = 20_000
+    const chosen = new Map<string, ReadonlySet<string | null>>()
+    const fits = (index: number): boolean | 'exhausted' => {
+      const slot = slots[index]
+      if (!slot) return true
+      const writers = new Set(slot.writers)
+      for (const dependency of slot.role.independentOf) for (const one of chosen.get(dependency) ?? []) writers.add(one)
+      const allowed = slot.bindings.map((providers) => providers.filter((candidate) => !independentProviderReason(candidate, writers)))
+      if (allowed.some((providers) => providers.length === 0)) return false
+      const universe = [...new Set(allowed.flat())]
+      if (universe.length > 16) return 'exhausted'
+      const masks = allowed.map((providers) => providers.reduce((mask, one) => mask | (1 << universe.indexOf(one)), 0))
+      const subsets = Array.from({ length: (1 << universe.length) - 1 }, (_, at) => at + 1)
+        .sort((x, y) => bits(x) - bits(y) || x - y)
+      const taken: number[] = []
+      for (const subset of subsets) {
+        if ((budget -= 1) < 0) return 'exhausted'
+        if (taken.some((smaller) => (smaller & subset) === smaller)) continue
+        if (!masks.every((mask) => (mask & subset) !== 0)) continue
+        taken.push(subset)
+        chosen.set(slot.role.id, new Set(universe.filter((_, at) => (subset & (1 << at)) !== 0)))
+        const rest = fits(index + 1)
+        if (rest !== false) return rest
+      }
+      chosen.delete(slot.role.id)
+      return false
+    }
+    const verdict = fits(0)
+    if (verdict === 'exhausted') return 'its later steps’ independence could not be worked out in time'
+    if (!verdict) return 'it would leave a later step with no independent provider'
+    return null
+  }
+
+  /**
+   * A replacement Seat for the card this conversation holds (§9.2): the
+   * independence check again, inside the run's queue, then the port opens it
+   * and the run's journal moves the card to it. The round keeps both Seats, in
+   * order; the old one is closed with `limit`, so a review guard asks only the
+   * Seat that is working now.
+   */
+  async replaceSeat(runtime: string, sessionId: string, target: { readonly runtime: string; readonly mode: 'sameThread' | 'handoff'; readonly model?: string }): Promise<SeatRecord | { readonly refused: string }> {
+    const found = this.#carried(runtime, sessionId)
+    if (!found) return { refused: 'This seat no longer belongs to a running run.' }
+    if (!this.#port.replaceSeat) return { refused: 'This desk cannot replace a seat.' }
+    return this.#queue.within(found.run.id, async () => {
+      const current = this.#carried(runtime, sessionId)
+      if (!current || current.run.id !== found.run.id) return { refused: 'This seat no longer belongs to a running run.' }
+      const { operation, seat, round, role } = current
+      const id = current.run.id
+      if (await this.#overBudget(id)) return { refused: 'Run budget reached' }
+      const refused = await this.#refuseTarget(current.run, seat, role, target.runtime)
+      if (refused) return { refused }
+      // The independence reads awaited: spend that landed meanwhile still refuses, right before anything moves.
+      if (this.#stopRequests.has(id) || this.#get(id).state !== 'running') return { refused: 'This seat no longer belongs to a running run.' }
+      if (await this.#overBudget(id)) return { refused: 'Run budget reached' }
+      const from = String(seat.id)
+      // Journaled before the port moves the claim: a restart in between finishes it from the claim (`resume`).
+      const journaled = this.#get(id)
+      await this.#put({ ...journaled, replacing: { ...journaled.replacing, [operation.key]: { from, card: operation.card, lane: this.#port.laneOf(seat)?.id ?? null } } })
+      const opened = await this.#port.replaceSeat!(seat, { ...target, role: round.role, card: operation.card })
+        .catch((error: unknown) => ({ refused: error instanceof Error ? error.message : String(error) }))
+      if ('refused' in opened) {
+        // A failure after the lane or the card already passed to the new Seat is not a refusal the run can walk away
+        // from: the journal stays, and the move is finished from the claim now, or by a restart.
+        if (!this.#ownershipMoved(this.#get(id), seat, this.#get(id).replacing?.[operation.key])) {
+          await this.#put(this.#unjournal(this.#get(id), operation.key))
+          return opened
+        }
+        this.#port.log('a Seat replacement failed after its card or lane moved; finishing it from where they went', { run: id, from, reason: opened.refused })
+        const finished = await this.#reconcileReplacements(id, operation.key)
+        if (!finished) return opened
+        try { this.#team.setRole(this.#get(id).goal, finished.session.runtime, finished.session.sessionId, round.role) } catch { /* logged on the main path */ }
+        return finished
+      }
+      const to = String(opened.id)
+      const run = await this.#put(this.#replaced(this.#get(id), operation.key, from, to))
+      try {
+        this.#team.setRole(run.goal, opened.session.runtime, opened.session.sessionId, round.role)
+      } catch (error) {
+        this.#port.log('a replacement Seat’s role could not be set', { run: run.id, seat: to, error: error instanceof Error ? error.message : String(error) })
+      }
+      return opened
+    })
+  }
+
+  /** The run with this seating operation's Seat moved to its replacement: the round keeps both, the lineage records it. */
+  #replaced(run: StoredFlowExecution, key: string, from: string, to: string): StoredFlowExecution {
+    return {
+      ...this.#unjournal(run, key),
+      operations: run.operations.map((one) => one.key === key ? { ...one, seat: to } : one),
+      rounds: run.rounds.map((one) => one.seats.includes(from) && !one.seats.includes(to) ? { ...one, seats: [...one.seats, to] } : one),
+      replaced: { ...run.replaced, [to]: from },
+    }
+  }
+
+  #unjournal(run: StoredFlowExecution, key: string): StoredFlowExecution {
+    const { [key]: _done, ...rest } = run.replacing ?? {}
+    const { replacing: _all, ...kept } = run
+    return Object.keys(rest).length > 0 ? { ...kept, replacing: rest } : kept
+  }
+
+  /** A Seat and every Seat it replaced, newest first. */
+  #lineage(run: StoredFlowExecution, seat: string): ReadonlySet<string> {
+    const out = new Set<string>()
+    for (let at: string | undefined = seat; at !== undefined && !out.has(at); at = run.replaced?.[at]) out.add(at)
+    return out
+  }
+
+  /**
+   * A replacement cut short (`replacing`) — by a restart, or by a failure
+   * after the port had already moved something: finished when an open Seat
+   * other than the replaced one now holds the card's claim or the lane, let go
+   * when nothing left the replaced Seat, and otherwise the run is stalled,
+   * saying so, rather than left on a Seat that no longer has its work.
+   */
+  async #reconcileReplacements(id: string, only?: string): Promise<SeatRecord | null> {
+    let finished: SeatRecord | null = null
+    for (const [key, entry] of Object.entries(this.#get(id).replacing ?? {})) {
+      if (only !== undefined && key !== only) continue
+      const run = this.#get(id)
+      const claim = entry.card === null ? null : this.#team.stateFor(run.goal).intents.find((one) => one.id === entry.card)?.claim ?? null
+      const to = this.#port.seatsOn(run.goal).find((seat) => !seat.closed && String(seat.id) !== entry.from && (claim
+        ? seat.session.runtime === claim.runtime && seat.session.sessionId === claim.sessionId
+        : typeof entry.lane === 'string' && this.#port.laneOf(seat)?.id === entry.lane))
+      if (to) {
+        await this.#put(this.#replaced(run, key, entry.from, String(to.id)))
+        this.#port.log('a Seat replacement cut short was finished from where its card or lane went', { run: id, from: entry.from, to: String(to.id) })
+        finished = to
+        continue
+      }
+      const old = this.#port.seatOf(entry.from)
+      if (old && !this.#ownershipMoved(run, old, entry)) {
+        // Nothing passed: the run stays on the Seat it had.
+        await this.#put(this.#unjournal(run, key))
+        continue
+      }
+      // The card or lane passed to a Seat that is gone: neither finished nor rolled back, said as such.
+      await this.#put(this.#unjournal(run, key))
+      if (this.#get(id).state === 'running') {
+        await this.#stall(id, `A Seat replacement for ${entry.card === null ? 'its step' : `card #${entry.card}`} was cut short after its work moved to a Seat that is gone. This run cannot continue; start a new one to pick up the work.`)
+      }
+    }
+    return finished
+  }
+
+  /** Whether the card's claim or the Seat's lane has already left `seat`: a replacement past the point of rolling back by itself. */
+  #ownershipMoved(run: StoredFlowExecution, seat: SeatRecord, entry: { readonly card: number | null; readonly lane?: string | null } | undefined): boolean {
+    if (!entry) return false
+    const claim = entry.card === null ? null : this.#team.stateFor(run.goal).intents.find((one) => one.id === entry.card)?.claim ?? null
+    if (claim && (claim.runtime !== seat.session.runtime || claim.sessionId !== seat.session.sessionId)) return true
+    return typeof entry.lane === 'string' && this.#port.laneOf(seat)?.id !== entry.lane
+  }
+
+  /**
+   * What a carry-on send into this Seat passes at its effect boundary (§9.4):
+   * the run's own dispatch gate, read when the send actually goes — a packet
+   * queued behind a brief reads it when it drains — and the run's stop, read
+   * synchronously at the boundary itself. Null when no running v2 run holds
+   * the conversation — unless the send is still a Seat's (`seat`): then a run
+   * that once seated it and has stopped handing out work gives a closed gate.
+   * A conversation a person took back as a chat is never held to a run it left.
+   */
+  carriedAdmission(runtime: string, sessionId: string, seat = false): { readonly admit: () => Promise<void>; readonly assert: () => void } | null {
+    const found = this.#carried(runtime, sessionId)
+    if (!found) {
+      // A Seat of a run that has stalled, stopped or finished still has a gate: a closed one.
+      if (!seat || !this.#seatOfAnyRun(runtime, sessionId)) return null
+      const refuse = (): never => { throw new Error('This run is no longer handing out work.') }
+      return { admit: async () => refuse(), assert: refuse }
+    }
+    const id = found.run.id
+    const stopped = (): boolean => this.#stopRequests.has(id) || this.#runs.get(id)?.state !== 'running' || this.#runs.get(id)?.intake?.dispatchHeld === true
+    return {
+      admit: async () => {
+        if (stopped()) throw new Error('This run is no longer handing out work.')
+        // The run's own gate, read without its queue: a send drains inside the host's dispatch, which a run turn may be
+        // waiting on. Refused, the run is then held or stalled in its own queue, as any dispatch it refused would.
+        if (!await this.#overBudget(id)) return
+        void this.#queue.within(id, async () => { if (this.#get(id).state === 'running') await this.#mayDispatch(id) })
+          .catch((error: unknown) => this.#port.log('a carried send was refused, and its run could not be held', { run: id, error: error instanceof Error ? error.message : String(error) }))
+        throw new Error('Run budget reached')
+      },
+      assert: () => { if (stopped()) throw new Error('This run is no longer handing out work.') },
+    }
+  }
+
+  /** Whether any v2 run, in any state, ever seated this conversation. */
+  #seatOfAnyRun(runtime: string, sessionId: string): boolean {
+    for (const run of this.#runs.values()) {
+      if (run.document.format !== 'agents') continue
+      for (const operation of run.operations) {
+        if (operation.kind !== 'seat' || !operation.seat) continue
+        for (const id of this.#lineage(run, operation.seat)) {
+          const seat = this.#port.seatOf(id)
+          if (seat && seat.session.runtime === runtime && seat.session.sessionId === sessionId) return true
+        }
+      }
+    }
+    return false
+  }
+
+  /**
+   * The Seats of a round still answerable for it: one replaced at a usage limit hands that duty to its replacement —
+   * by the run's own lineage, so a restart that finished the move before the old Seat was closed counts it the same.
+   */
+  #answerable(run: StoredFlowExecution, round: FlowRoundState): readonly string[] {
+    const predecessors = new Set(Object.values(run.replaced ?? {}))
+    return round.seats.filter((id) => !predecessors.has(id) && this.#port.seatOf(id)?.closed?.why !== 'limit')
+  }
+
   /**
    * `why` is what ended the Seat's last turn: the Seat itself (`turn-ended`,
    * budgeted), a pause or the cap a trigger's release lifted (`released`),
@@ -4475,6 +4932,9 @@ export class FlowExecutions {
     const run = this.#get(id)
     if (run.state !== 'running' || this.#continued(run)) return
     if (operation.card !== null && run.rounds.some((round) => round.n <= (run.intake?.supersededThrough ?? 0) && round.cards.includes(operation.card!))) return
+    // A Seat whose usage limit carry-on is still answering is carry-on's: its card waits for that answer (§9.3).
+    const holder = operation.seat ? this.#port.seatOf(operation.seat) : null
+    if (holder && !holder.closed && await this.#port.carryOnHolds?.(holder.session.runtime, holder.session.sessionId)) return
     const held = { pending: false }
     if ((run.intake || run.lead) && !await this.#mayDispatch(id, held)) {
       await this.#noteHeld(id, operation, held.pending)
@@ -4837,6 +5297,7 @@ export class FlowExecutions {
       if (which !== 'all' && (which === 'triggered') !== Boolean(run.intake)) continue
       await this.#queue.within(run.id, async () => {
         if (this.#get(run.id).state !== 'running' || this.#continued(this.#get(run.id))) return
+        await this.#reconcileReplacements(run.id)
         /* Read before advancing: a card the advance itself hands out — a
            round it opens, an order a crash left unsent — is handed out by
            it, never a second time here. */

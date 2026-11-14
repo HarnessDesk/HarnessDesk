@@ -1,7 +1,7 @@
 import { OutsideHeadBanner } from './GitRecord'
 import { useRef, useState, type MutableRefObject } from 'react'
-import type { LeadSavedApproval, LeadProactive, LeadAcceptanceContract, LeadAction, LeadActionInput, LeadBudgetState, LeadCard, LeadCardDecision, LeadDecisionMessage, LeadPullRequest } from '@harnessdesk/protocol'
-import { LEAD_LIMITS, leadNoSpendLimit, type LeadCaps } from '@harnessdesk/protocol'
+import type { LeadSavedApproval, LeadProactive, LeadAskState, LeadAcceptanceContract, LeadAction, LeadActionInput, LeadBudgetState, LeadCard, LeadCardDecision, LeadDecisionMessage, LeadPullRequest } from '@harnessdesk/protocol'
+import { formatLeadDollars, LEAD_LIMITS, leadNoSpendLimit, type LeadCaps } from '@harnessdesk/protocol'
 import { Banner, Button, Chip, CodeText, Dialog, FormStack, Input, Row, Rows, LeadAskOptions, LeadContract, LeadPlanFlow, Text } from '../design'
 import { leadRepeatWords } from '../lib/lead-repeat'
 import { folderName } from '../lib/projects'
@@ -11,8 +11,6 @@ import { PERMISSION_LABELS } from './lead-permission-labels'
 import { Markdown } from './Markdown'
 import { sanitizeText } from '../lib/sanitize'
 
-const cents = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
-/** Money the way a person reads it, in whole cents. An amount above zero that would round to $0.00 is said in words, because $0.00 means none. */
 /** Only what changes is asked about: an allowance whose rounds stay put is a question about dollars alone. */
 export const budgetQuestion = (from: { readonly usdMicros: number; readonly rounds: number }, to: { readonly usdMicros: number; readonly rounds: number }): string => {
   const parts = [
@@ -22,10 +20,8 @@ export const budgetQuestion = (from: { readonly usdMicros: number; readonly roun
   return parts.length === 0 ? 'Keep the allowance as it is?' : `Raise the allowance ${parts.join(' and ')}?`
 }
 
-export const leadDollars = (micros: number) => {
-  const text = cents.format(micros / 1000000)
-  return micros > 0 && text === '$0.00' ? 'less than $0.01' : text
-}
+/** Money the way a person reads it, said by the one rule the host's notes use too (protocol's `formatLeadDollars`). */
+export const leadDollars = formatLeadDollars
 /** A dollar cap at the portable ceiling is the person's spending limit turned Off: said as no limit, never as a figure. */
 export const leadLimitDollars = (micros: number) => leadNoSpendLimit(micros) ? 'no limit' : leadDollars(micros)
 export const leadSpendCap = (micros: number) => leadNoSpendLimit(micros) ? 'No spending limit' : `Up to ${leadDollars(micros)}`
@@ -208,11 +204,11 @@ const LeadAllowanceWarning = ({ card, currentCaps, onRaise }: {
 }
 
 /** A single host-shaped finding, qualification and next step; navigation never answers a decision. */
-export const LeadProactiveCard = ({ report, onAction, onAnswer, disabled, picked }: { readonly onAnswer?: (label: string) => void; readonly disabled?: boolean; readonly picked?: string; readonly report: LeadProactive; readonly onAction?: (action: NonNullable<LeadProactive['action']>) => void }) => <LeadContract>
+export const LeadProactiveCard = ({ report, onAction, onAnswer, disabled, picked, settled }: { readonly onAnswer?: (label: string) => void; readonly disabled?: boolean; readonly picked?: string; readonly settled?: LeadAskState; readonly report: LeadProactive; readonly onAction?: (action: NonNullable<LeadProactive['action']>) => void }) => <LeadContract>
   <Text as="p" role="prose" data-proactive-part="finding">{sanitizeText(report.finding)}</Text>
   <Text as="p" role="muted" data-proactive-part="caveat">{sanitizeText(report.caveat)}</Text>
   <div data-proactive-part="ask">{report.options && report.recommended
-    ? <LeadAskOptions ask={{ question: report.ask, options: report.options, recommended: report.recommended }} onAnswer={onAnswer} disabled={disabled} picked={picked} />
+    ? <LeadAskOptions ask={{ question: report.ask, options: report.options, recommended: report.recommended }} onAnswer={onAnswer} disabled={disabled} picked={picked} settled={settled} />
     : report.action && onAction
     ? <Button variant="outline" onClick={() => onAction(report.action!)}>{sanitizeText(report.ask)}</Button>
     : <Text as="p" role="prose">{sanitizeText(report.ask)}</Text>}</div>

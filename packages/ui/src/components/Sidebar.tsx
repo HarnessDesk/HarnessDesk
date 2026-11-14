@@ -53,9 +53,10 @@ import { ProfileFace } from './ProfileFace'
 import { HarnessDeskSignInPending, HarnessDeskSignOut, useHarnessDeskAccountAction } from './HarnessDeskAccount'
 import { Clipped, EmptyState } from '../design'
 import type { Section } from './Settings'
-import { describeReport, describeLane, formatAge, formatMoney, reportNeedsAttention, workingAccount } from '../lib/usage'
+import { describeReport, describeLane, formatAge, formatMoney, reportNeedsYou, workingAccount } from '../lib/usage'
 import { usageReadingTone } from '../lib/limits'
 import { usageAccount } from '../lib/usage-alerts'
+import { useInboxWaiting } from './use-inbox-waiting'
 import styles from './Sidebar.module.css'
 
 /**
@@ -110,7 +111,7 @@ export const Sidebar = ({
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const inbox = useInboxMessages()
+  const inbox = useInboxMessages(), waiting = useInboxWaiting()
   const destination = snapshot.workbench.navigation.current
   const explorerSession = effectiveWindowMode(snapshot.windowMode, snapshot.workbench) === 'editor' && destination.kind === 'work' && destination.view.kind === 'conversation' ? destination.view.session : null
   const explorerShown = explorerSession !== null && !settings
@@ -126,8 +127,8 @@ export const Sidebar = ({
   const [starting, setStarting] = useState<boolean>(false)
   const listRef = useRef<HTMLDivElement>(null)
   const now = Date.now()
-  // Only the ones a person would want to know about — the same rule as the Dashboard's own count.
-  const lowAgents = snapshot.usage.filter((report) => reportNeedsAttention(report, now)).length
+  // Only accounts the person has to act on; low and short are notes the Dashboard shows, not needs.
+  const lowAgents = snapshot.usage.filter((report) => reportNeedsYou(report, now)).length
 
   // Debounced so typing does not fire a search per keystroke against the runtime.
   useEffect(() => {
@@ -211,7 +212,7 @@ export const Sidebar = ({
     body={<>{sessionsBody}{explorerShown && <Explorer session={explorerSession} />}<LeftColumnBody hidden={!settings}>
       {settings && <SettingsNavigation section={settings.section} onSection={settings.onSection} onBack={settings.onBack} />}
     </LeftColumnBody></>}
-    footer={<><Slot name="sidebar.panel" />{!settings && <SidebarNotices />}<SidebarUpdate /><AccountFooter notifications={<InboxPanel side="top" size="icon-sm" messages={inbox}
+    footer={<><Slot name="sidebar.panel" />{!settings && <SidebarNotices />}<SidebarUpdate /><AccountFooter notifications={<InboxPanel side="top" size="icon-sm" messages={inbox} waiting={waiting.rows} needs={waiting.needs}
       onOpen={id => store.markInboxRead(id)} onMarkAllRead={() => store.markInboxRead(null)}
       onClear={() => store.clearInbox()} />}
       onOpenSettings={onOpenSettings}

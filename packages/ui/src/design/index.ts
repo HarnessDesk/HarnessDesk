@@ -128,13 +128,17 @@ export {
   ComposerNotice,
   ComposerNoticeStack,
   ComposerTail,
+  DecisionNotice,
   InboxList,
   InboxPanel,
   NoticeCard,
   NoticeStrip,
   showProgress,
   showToast,
+  type DecisionAlternative,
+  type DecisionChoice,
   type InboxMessage,
+  type InboxWaiting,
   type NoticeAct,
   type NoticeMessage,
   type NoticeSurface,
@@ -150,6 +154,7 @@ export { FlowCard, FlowMiniGraph, FlowCardGrid, SelectedFlow, type FlowCardProps
 export { FlowCanvasToolbar } from './patterns/FlowCanvasToolbar'
 export { FlowCanvasWorkspace, FlowCanvasSurface, FlowCanvasContent } from './patterns/FlowCanvasWorkspace'
 export { FlowStepRow, RunStateChip } from './patterns/FlowStepRow'
+export { AgentFlowCard, AgentLanes, AGENT_FLOW_TONE, type AgentFlowChild, type AgentFlowPhase, type AgentLane } from './patterns/AgentFlow'
 export { CopyButton, copyButtonIconMarkup } from './patterns/CopyButton'
 export { ActionError } from './patterns/ActionError'
 export * from './patterns/InspectorPanel'
@@ -224,6 +229,7 @@ export {
   ChannelNotice,
   ChannelSignal,
   type ChannelMessageProps,
+  type ChannelNoticeChoice,
   type ChannelState,
 } from './patterns/ChannelMessage'
 export { AgentCard, MemberName, CardBand, CardCrest, CardCrestBody, CardShell, type AgentCardAction, type AgentCardCaution, type AgentCardSubject } from './patterns/AgentCard'
@@ -247,11 +253,11 @@ export { MergeDialog, DiffRangeDialog } from './patterns/GitComparisonDialogs'
 
 export { TopBar, TopBarToolButton, type TopBarProps, type TopBarAction, type TopBarTab } from './patterns/TopBar'
 
-export { ToolBody, ToolBodySections, ToolBodyControls, ToolSection, ToolProse, ToolFold } from './patterns/ToolBody'
+export { ToolBody, ToolBodySections, ToolBodyControls, ToolSection, ToolGroup, ToolProse, ToolFold } from './patterns/ToolBody'
 export { ToolFooterProvider, ToolFooterScope, ToolFooterPublisher, ToolFooterOutlet, ToolFooterSuppressed, type ToolFoot } from './patterns/ToolFooter'
 
 export { SeatList, type SeatListRow } from './patterns/SeatList'
-export { LeftColumn, LeftColumnBody, LeftColumnGroup, LeftColumnHead, LeftColumnRow, LeftColumnSeat, LeftColumnTop,
+export { LeftColumnBulkBar, LeftColumn, LeftColumnBody, LeftColumnGroup, LeftColumnHead, LeftColumnRow, LeftColumnSeat, LeftColumnTop,
   type LeftColumnRowProps, type LeftColumnTrail, type LeftColumnAction, type LeftColumnTopProps } from './patterns/LeftColumn'
 
 export type { LeftColumnMenu } from './patterns/LeftColumn'
@@ -298,7 +304,9 @@ export { CustomizeTabs, type CustomizeSection } from './patterns/CustomizeTabs'
 export { LeadContract } from './patterns/lead-contract'
 export { LeadPlanFlow, leadRoleWord } from './patterns/LeadPlanFlow'
 
-export { ConversationShell, ConversationThread, ConversationDock, ConversationComposerFrame, TranscriptAssistantMessage } from './patterns/ConversationShell'
+export { ConversationShell, ConversationThread, ConversationDock, ConversationComposerFrame, TranscriptAssistantMessage, scrollThreadToEnd, threadFollowsEnd } from './patterns/ConversationShell'
 export { LeadAvatar, LeadGreeting, LeadIdentity, LeadLineNote, LeadNameChoice, LeadSlot, LeadTurn } from './patterns/LeadAvatar'
 
 export { LeadAskOptions } from './patterns/LeadAskOptions'
+
+export { LeadWorking } from './patterns/LeadWorking'

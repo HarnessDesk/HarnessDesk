@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { decideLeadPermission, leadBudgetProjection, leadWorkerDispatchBlockedByOpenPr, leadReviewedResultSourceFor, type LeadJournal, type LeadAcceptanceResult } from '@harnessdesk/lead'
+import { decideLeadPermission, leadBudgetProjection, leadRequestFenced, leadWorkerDispatchBlockedByOpenPr, leadReviewedResultSourceFor, type LeadJournal, type LeadAcceptanceResult } from '@harnessdesk/lead'
 import { LEAD_LIMITS, type LeadBudgetEvent, type LeadProject, type SeatRecord } from '@harnessdesk/protocol'
 import { attributeSample, goalSpend, meterSample, meterTurn, openMeter } from '../intake/spend.js'
 import { seatWindowOf } from '../insight/attribution.js'
@@ -18,6 +18,8 @@ export interface LeadBudgetPort {
   acceptance?(run: StoredFlowExecution, journal: LeadJournal): Promise<LeadAcceptanceResult>
   canRerunChecks?(run: StoredFlowExecution, journal: LeadJournal): Promise<boolean>
   now(): number
+  /** Whether the goal's deadline has passed: no new round starts for it, as for a spending cap. */
+  deadlinePassed?(logicalGoalId: string): boolean | Promise<boolean>
   runs(): readonly StoredFlowExecution[]
   /** Re-check the canonical project is still admitted, before every effect. */
   member(project: LeadProject): Promise<boolean>
@@ -98,6 +100,8 @@ export class LeadBudgets implements FlowLeadGuard {
     return leadBudgetProjection({ ...budget, rounds: budget.rounds.filter(round => round.startId !== startId || round.executionId !== null) }, this.port.now())
   }
   prepared(startId: string): boolean { return this.#pending.has(startId) }
+  /** Starts that are prepared but have not become a run yet. */
+  preparedStartIds(): readonly string[] { return [...this.#pending.keys()] }
   prepare(startId: string, journal: LeadJournal, stepId: string, params: unknown, project: LeadProject): void {
     if (this.#journals.get(journal.state.budget!.logicalGoalId) !== journal || this.#pending.has(startId)) throw new Error('lead-budget-owner')
     this.#pending.set(startId, { journal, stepId, params: structuredClone(params), project: structuredClone(project) })
@@ -149,7 +153,7 @@ export class LeadBudgets implements FlowLeadGuard {
     if (!contract || contract.digest !== binding.contractDigest || !step || admitted?.state !== 'admitted' ||
       !attempt || attempt.correlationId !== binding.startId || attempt.phase !== 'started' || !attempt.dispatched || attempt.method !== 'flow/start-goal' ||
       state.runs.some(run => run.correlationId === binding.startId) ||
-      state.recoveryBlocked || leadWorkerDispatchBlockedByOpenPr(state) || ['stopped', 'accepted', 'declined', 'waiting-for-user', 'awaiting-plan'].includes(state.phase) ||
+      state.recoveryBlocked || leadWorkerDispatchBlockedByOpenPr(state) || leadRequestFenced(state, this.port.now()) || ['stopped', 'accepted', 'declined', 'waiting-for-user', 'awaiting-plan'].includes(state.phase) ||
       !await this.port.member(contract.project)) throw new Error('lead-start-not-approved')
     const current = journal.state
     const decision = decideLeadPermission({ method: 'flow/start-goal', params: pending.params, project: pending.project, runId: null, start: step },
@@ -190,6 +194,9 @@ export class LeadBudgets implements FlowLeadGuard {
       // Read again after membership awaits: a latch may have landed meanwhile.
       const current = journal.state, budget = leadBudgetProjection(current.budget!, this.port.now())
       if (budget.stop || leadWorkerDispatchBlockedByOpenPr(current, run.id) || ['stopped', 'accepted', 'declined'].includes(current.phase) || current.recoveryBlocked) throw new Error('lead-budget-stopped')
+      // A request from an issue or pull request dispatches nothing while its plan waits for the person — a renewal
+      // offered after its consent ran out included, on a reopened journal too — nor once that consent has run out.
+      if (leadRequestFenced(current, this.port.now())) throw new Error('lead-plan-not-approved')
       if (current.pr?.state === 'open' && (!current.consent || current.consent.expiresAt <= this.port.now() || current.phase !== 'running' || current.consent.renewalCardRevision !== undefined)) throw new Error('lead-repair-consent')
       // A brand-new execution has no worker turn to meter. Once work exists,
       // missing or stale attribution stops it rather than inferring zero.
@@ -288,6 +295,10 @@ export class LeadBudgets implements FlowLeadGuard {
   async round(run: StoredFlowExecution, roundId: string): Promise<void> {
     const journal = this.#journal(run)
     if (journal.state.budget!.rounds.some(item => item.executionId === run.id && item.roundId === roundId)) return
+    if (await this.port.deadlinePassed?.(journal.state.budget!.logicalGoalId)) {
+      if (!journal.state.budget!.stop) await journal.updateBudget({ version: 1, type: 'stop', now: this.port.now(), reason: 'deadline' })
+      throw new Error('lead-round-refused')
+    }
     try { await journal.updateBudget({ version: 1, type: 'round', now: this.port.now(), executionId: run.id, roundId }) }
     catch {
       const view = leadBudgetProjection(journal.state.budget!, this.port.now())

@@ -361,3 +361,99 @@ test('bridge invocation forwards the host-recorded checkout, never a tool argume
     {},
   ])
 })
+
+test('bridge invocation forwards the turn the host has running, read at each call, never a tool argument', async () => {
+  const seen: ScopeQuery[] = []
+  const tools = {
+    list: () => [{ id: 'git-status', namespace: 'git', name: 'git_status' }],
+    invokeTool: async (_id: unknown, _args: unknown, scope: ScopeQuery) => {
+      seen.push(scope)
+      return { ok: true, content: [] }
+    },
+  } as unknown as CapabilityRegistry
+  let turn: string | undefined = 'turn-1'
+  const callers = new Map([['seat-token', { runtime: 'fake', sessionId: 'seat', get turnId() { return turn } }]])
+  const call = { namespace: 'git', name: 'git_status', args: { turnId: 'forged' }, caller: 'seat-token' }
+  await invokeForBridge(tools, callers, call)
+  turn = 'turn-2'
+  await invokeForBridge(tools, callers, call)
+  turn = undefined
+  await invokeForBridge(tools, callers, call)
+  assert.deepEqual(seen, [
+    { runtime: 'fake', sessionId: 'seat', turnId: 'turn-1' },
+    { runtime: 'fake', sessionId: 'seat', turnId: 'turn-2' },
+    { runtime: 'fake', sessionId: 'seat' },
+  ])
+})
+
+test('toolsChanged pushes one coalesced id-less tools/changed to every connected bridge, never to a git/steer caller, and nothing after stop', async () => {
+  const dir = await mkdtemp(join(socketHome(), 'hd-gateway-'))
+  const socketPath = join(dir, 'tools.sock')
+  let approve: (() => void) | undefined
+  const gateway = new ToolGateway(socketPath, {
+    listTools: () => [],
+    invokeByName: async (): Promise<ToolResult> => ({ ok: true, content: [] }),
+    // An approval the person has not answered yet: the steer reply is pending while the push goes out.
+    steerGit: () => new Promise((resolve) => { approve = () => resolve({ action: 'own' }) }),
+  })
+  gateway.start()
+  const open = async () => {
+    const lines: string[] = []
+    const socket = connect(socketPath)
+    let buffer = ''
+    socket.on('data', (chunk) => {
+      buffer += chunk.toString()
+      for (let i = buffer.indexOf('\n'); i !== -1; i = buffer.indexOf('\n')) {
+        lines.push(buffer.slice(0, i))
+        buffer = buffer.slice(i + 1)
+      }
+    })
+    socket.on('error', () => {})
+    await new Promise<void>((resolve, reject) => {
+      socket.once('connect', resolve)
+      socket.once('error', reject)
+    })
+    return { socket, lines }
+  }
+  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+  try {
+    const a = await open()
+    const b = await open()
+    const steer = await open()
+    // A bridge's first call is `server/info`; the git stand-in sends only `git/steer`.
+    a.socket.write(`${JSON.stringify({ id: 1, method: 'server/info', params: {} })}\n`)
+    b.socket.write(`${JSON.stringify({ id: 1, method: 'tools/list', params: {} })}\n`)
+    steer.socket.write(`${JSON.stringify({ id: 1, method: 'git/steer', params: {} })}\n`)
+    await wait(50)
+    // Control: each bridge has its reply and nothing more until the tool set changes.
+    assert.equal(a.lines.length, 1)
+    assert.equal(b.lines.length, 1)
+    assert.deepEqual(steer.lines, [])
+    a.lines.length = 0
+    b.lines.length = 0
+
+    // A burst of registry events is one push.
+    for (let i = 0; i < 5; i += 1) gateway.toolsChanged()
+    await wait(500)
+    const pushed = [JSON.stringify({ method: 'tools/changed' })]
+    assert.deepEqual(a.lines, pushed)
+    assert.deepEqual(b.lines, pushed)
+    assert.equal('id' in JSON.parse(a.lines[0]!), false, 'a push carries no id, so it cannot pass for a reply')
+    // The steer caller reads its first line as the answer: the only line it gets is that answer.
+    assert.deepEqual(steer.lines, [], 'a git/steer caller is never pushed to')
+    approve!()
+    await wait(50)
+    assert.deepEqual(steer.lines.map((line) => JSON.parse(line)), [{ id: 1, result: { action: 'own' } }])
+
+    // A change queued and then a stop: the pending push is dropped.
+    gateway.toolsChanged()
+    await gateway.stop()
+    gateway.toolsChanged()
+    await wait(400)
+    assert.equal(a.lines.length, 1)
+    assert.equal(b.lines.length, 1)
+  } finally {
+    await gateway.stop()
+    await rm(dir, { recursive: true, force: true })
+  }
+})

@@ -1,4 +1,5 @@
-import { splitSessionKey } from '@harnessdesk/protocol'
+import { carryOnMarker, splitSessionKey } from '@harnessdesk/protocol'
+import { ReadOnlyTranscriptContext } from '../lib/read-only-transcript'
 import {
   Fragment,
   createContext,
@@ -15,6 +16,7 @@ import {
 import type {
   AgentItem,
   AssistantMessageItem,
+  CarryOnItem,
   CommandItem,
   CompactionItem,
   ErrorItem,
@@ -74,6 +76,7 @@ import {
 } from '../design'
 import { instant } from '../lib/clock'
 import { sanitizeText } from '../lib/sanitize'
+import { formatReset } from '../lib/limits'
 import { openExternal } from '../lib/desktop'
 import { formatTokensWithFloor } from '../lib/context-usage'
 import { countFileChange, wholeFileOf, DiffView } from '../editor'
@@ -104,6 +107,7 @@ import {
   type ToolSentenceDetail,
 } from '../lib/tool-names'
 import {
+  AskAgentIcon,
   SubagentIcon,
   AlertIcon,
   BrainIcon,
@@ -111,6 +115,8 @@ import {
   DiffIcon,
   ExternalIcon,
   FileIcon,
+  HandoffIcon,
+  ClockIcon,
   GlobeIcon,
   ImageIcon,
   InfoIcon,
@@ -129,6 +135,9 @@ import { drawsAsImage, isRenderableImageUrl, unshownImage } from '../lib/images'
 import { Markdown } from './Markdown'
 import { Publication } from './Publication'
 import styles from './Items.module.css'
+
+/** A secondary transcript may disclose and copy, but cannot direct the desk. */
+export const ReadOnlyTranscript = ({ children }: { children: ReactNode }) => <ReadOnlyTranscriptContext.Provider value>{children}</ReadOnlyTranscriptContext.Provider>
 
 /**
  * Transcript item views.
@@ -377,6 +386,7 @@ const useCopyFailed = () => {
 }
 
 const UserMessageFooter = ({ text, at }: { text: string; at: number | undefined }) => {
+  const readOnly = useContext(ReadOnlyTranscriptContext)
   const when = sentAt(at)
   const unavailable = sessionUnavailable(useSnapshot(), useActiveSession())
   const copyFailed = useCopyFailed()
@@ -385,7 +395,7 @@ const UserMessageFooter = ({ text, at }: { text: string; at: number | undefined 
       {when && <Text as="span" role="meta" numeric>{when}</Text>}
       <span data-message-actions="user" className={styles.actions}>
         <CopyButton text={text} label="Copy this message" onError={copyFailed} />
-        {!unavailable && <Button
+        {!readOnly && !unavailable && <Button
           variant="quiet" size="icon-xs" edge="end" edgeGlyph={13}
           title="Edit — puts this message in the composer"
           aria-label="Edit this message"
@@ -510,8 +520,10 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
   const leadKeys = useLeadSentKeys(id)
   const isLead = (block: { label: string; text: string }) =>
     isLeadMessageSource(block.label) && leadKeys.has(leadMessageKey(id ?? '', wrapContext(block.label, block.text)))
-  const leadBlocks = injections.filter(isLead)
+  // An adapter that peels the desk's envelope off a runtime's history leaves the block in `context`.
+  const leadBlocks = [...injections, ...(item.context ?? [])].filter(isLead)
   const folded = injections.filter(block => !isLead(block))
+  const agentContext = (item.context ?? []).filter(block => !isLead(block))
   const attachments = item.content.filter((part) => part.type !== 'text')
   const images = imagesOf(item)
   const singleImage = images.length === 1
@@ -522,14 +534,14 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
        option rather than something `align="end"` did silently, since the
        room's `ChannelMessage` also aligns "start" and keeps a different look. */
     <Message align="end" rhythm="transcript">
-      {(folded.length > 0 || (item.context?.length ?? 0) > 0) && (
+      {(folded.length > 0 || agentContext.length > 0) && (
         <div style={{ alignSelf: 'stretch' }}>
           {folded.map((injection, index) => (
             <ContextInjection key={index} label={injection.label} text={injection.text} />
           ))}
           {/* Peeled off by the adapter, because the shape of the wrapper is
               the agent's, not ours. See `peelContext`. */}
-          {item.context?.map((block, index) => (
+          {agentContext.map((block, index) => (
             <ContextInjection
               key={`agent-${index}`}
               label={block.label}
@@ -1093,6 +1105,57 @@ const resultPartView = (part: ToolResultContent, key: string): ReactNode => {
   return <CodeBlock key={key} output={JSON.stringify(part.value, null, 2)} />
 }
 
+/** A string argument with words in it, or null. */
+const wordsOf = (value: unknown): string | null => (typeof value === 'string' && value.trim() !== '' ? value : null)
+
+/**
+ * `ask_agent`, the desk's own tool: one question this agent put to another.
+ * It is not drawn as a tool call — no wire name, no server, no argument
+ * names — but as the exchange it was: "Asked <agent>", by the desk's own name
+ * for that agent (never a brand or a runtime id written here), opening onto
+ * the question, the context sent with it, and the answer. Every one of them
+ * is agent text, so each goes through `sanitizeText` before it is drawn.
+ */
+const AskAgentCall = ({ item }: { item: ToolCallItem }) => {
+  const snapshot = useSnapshot()
+  const key = useSessionKey()
+  const waiting = item.status === 'inProgress' && waitsForApproval(snapshot.approvals, key, [item])
+  const sentences = useMemo(() => toolSentences(snapshot.contributions), [snapshot.contributions])
+  const record = typeof item.args === 'object' && item.args !== null && !Array.isArray(item.args) ? (item.args as Record<string, unknown>) : null
+  const agent = snapshot.runtimes.find((runtime) => runtime.id === record?.['agent'])?.presentation.name ?? null
+  const said = toolSentence(item.tool, sentences, { kind: 'ask', agent, ...(item.status === 'inProgress' ? { running: true } : {}) })
+  const question = wordsOf(record?.['question'])
+  const context = wordsOf(record?.['context'])
+  const answer = wordsOf((item.result ?? []).flatMap((part) =>
+    part.type === 'text' ? [part.text] : part.type === 'json' && typeof part.value === 'string' ? [part.value] : []).join('\n\n'))
+  const pairs: readonly (readonly [string, string])[] = [
+    ...(question ? [['Question', question] as const] : []),
+    ...(context ? [['Context', context] as const] : []),
+    ...(item.error ? [['Error', item.error] as const] : answer ? [['Answer', answer] as const] : []),
+  ]
+  return (
+    <Row
+      icon={<AskAgentIcon size={14} />}
+      title={waiting ? `Waiting for approval · ${said}` : said}
+      meta={formatDuration(item.durationMs)}
+      status={waiting ? undefined : effectiveItemStatus(item)}
+      defaultOpen={item.status === 'inProgress'}
+    >
+      {pairs.length === 0 ? null : (
+        <KeyValue variant="panel" data-role="ask">
+          {pairs.map(([label, text]) => (
+            <KeyValueRow key={label} variant="panel" label={label}>
+              <CardViewport size="lines" maxHeight={132}>
+                <Text as="div" role="prose" className="whitespace-pre-wrap break-words">{sanitizeText(text)}</Text>
+              </CardViewport>
+            </KeyValueRow>
+          ))}
+        </KeyValue>
+      )}
+    </Row>
+  )
+}
+
 /** The glyph for what a tool call was, not which tool it went through. */
 const VERB_ICON: Record<ToolCallVerb, typeof ToolIcon> = {
   command: TerminalIcon,
@@ -1294,6 +1357,12 @@ const ACTION_LABEL: Record<string, string> = {
 
 const Subagent = ({ item }: { item: SubagentItem }) => {
   const store = useStore()
+  const readOnly = useContext(ReadOnlyTranscriptContext)
+  // Names and descriptions are agent output, including when an ordinary
+  // delegation tool supplied them. Keep the handle raw only for identity.
+  const members = item.members.map(member => ({
+    ...member, nickname: sanitizeText(member.nickname ?? member.sessionId.slice(0, 8)),
+  }))
   // The sub-agent is the same agent's conversation; opening it needs that
   // runtime named, not the active one (see AppStore.openSession).
   const session = useActiveSession()
@@ -1305,9 +1374,9 @@ const Subagent = ({ item }: { item: SubagentItem }) => {
     <Row
       icon={<SubagentIcon size={14} />}
       title={
-        item.members.length === 1
-          ? `${title}: ${item.members[0]?.nickname ?? 'agent'}`
-          : `${title} · ${item.members.length}`
+        members.length === 1
+          ? `${title}: ${members[0]?.nickname ?? 'agent'}`
+          : `${title} · ${members.length}`
       }
       // What it ran on and what it cost, where the runtime says. A delegation
       // has its own model and its own bill; those are the two facts that make
@@ -1320,10 +1389,11 @@ const Subagent = ({ item }: { item: SubagentItem }) => {
       status={item.status}
       defaultOpen={item.status === 'inProgress'}
     >
-      {item.prompt && <CodeBlock output={item.prompt} />}
+      {item.prompt && <CodeBlock output={sanitizeText(item.prompt)} />}
       {item.members.length > 0 && (
         <div className={styles.fileList}>
-          {item.members.map((member) => {
+          {members.map((member) => {
+            if (readOnly) return <Text key={member.sessionId} role="muted">{member.nickname ?? member.sessionId.slice(0, 8)}</Text>
             // A child with a conversation of its own can be opened; one whose
             // id is only the handle of the call that spawned it cannot, and a
             // button that fails after the press is worse than a row.
@@ -1403,13 +1473,59 @@ const Plan = ({ item }: { item: PlanItem }) => {
  * summarised, where a review began or ended. The rules are the system's
  * separator, the one the work fold's own head runs out to.
  */
-const Marker = ({ children }: { children: ReactNode }) => (
+const Marker = ({ children, icon, strong = false }: { children: ReactNode; icon?: ReactNode; strong?: boolean }) => (
   <div className={styles.marker}>
     <Separator className={styles.markerLine} />
-    <Text role="meta">{children}</Text>
+    {icon}
+    {strong ? <Text role="row" align="center">{children}</Text> : <Text role="meta">{children}</Text>}
     <Separator className={styles.markerLine} />
   </div>
 )
+
+/**
+ * Where a conversation carried on past a usage limit — or stopped at one.
+ *
+ * The same divider as a summary or a review, said at the row's step rather
+ * than the meta one, because a change of account, agent or model has to read
+ * as an event in the conversation and never as housekeeping. The line names
+ * both sides; under it, why (the account that ran out) and when its limit
+ * resets, and the link to the other conversation of a handoff. The words are
+ * `CARRY_ON_MARKER`'s, which the phone says too.
+ */
+const CarryOn = ({ item }: { item: CarryOnItem }) => {
+  const store = useStore()
+  const readOnly = useContext(ReadOnlyTranscriptContext)
+  const text = carryOnMarker(item, (at) => formatReset(at) ?? '')
+  const link = item.link && text.link && !readOnly ? item.link : null
+  const icon = item.phase === 'waiting' || item.phase === 'resumed'
+    ? <ClockIcon size={14} />
+    : item.phase === 'stopped' || item.phase === 'exhausted'
+      ? <AlertIcon size={14} />
+      : <HandoffIcon size={14} />
+  return (
+    <div data-carry-on={item.phase}>
+      <Marker icon={icon} strong>{sanitizeText(text.headline)}</Marker>
+      {(text.detail || link) && (
+        <Text as="div" role="meta" align="center">
+          {text.detail && sanitizeText(text.detail)}
+          {text.detail && link && ' '}
+          {link && (
+            <Button
+              variant="link"
+              size="inline-link"
+              title={item.phase === 'arrived' ? 'Open the conversation this one continued from'
+                : item.phase === 'stopped' ? 'Open the conversation where it is also open'
+                  : 'Open the conversation this one continued in'}
+              onClick={() => void store.openSession(link.sessionId, { runtime: link.runtime })}
+            >
+              {text.link}
+            </Button>
+          )}
+        </Text>
+      )}
+    </div>
+  )
+}
 
 const Compaction = (_: { item: CompactionItem }) => (
   <Marker>Earlier messages were summarised to free up context</Marker>
@@ -1486,6 +1602,7 @@ export const ItemView = ({
   /** The compact turn-work register passes its density explicitly. */
   register?: 'light'
 }) => {
+  const readOnly = useContext(ReadOnlyTranscriptContext)
   const body = ((): ReactNode => {
     switch (item.type) {
       case 'userMessage':
@@ -1499,7 +1616,7 @@ export const ItemView = ({
       case 'fileChange':
         return <FileChange item={item} root={root} />
       case 'toolCall':
-        return <ToolCall item={item} root={root} />
+        return bareToolName(item.tool) === 'ask_agent' ? <AskAgentCall item={item} /> : <ToolCall item={item} root={root} />
       case 'subagent':
         return <Subagent item={item} />
       case 'webSearch':
@@ -1515,7 +1632,9 @@ export const ItemView = ({
       case 'review':
         return <Review item={item} />
       case 'publication':
-        return <Publication item={item as PublicationItem} root={root} />
+        return <Publication item={item as PublicationItem} root={readOnly ? undefined : root} />
+      case 'carryOn':
+        return <CarryOn item={item} />
       case 'error':
         return <ErrorRow item={item} />
     }

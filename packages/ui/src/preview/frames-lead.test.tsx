@@ -130,7 +130,7 @@ it.each(['light', 'dark'])('previews the one quiet line while the Lead plans, wh
   const frame = (scene: 'planning' | 'running' | 'stopped') => act(async () => root.render(<StoreProvider store={previewStore()}><LeadFrame scene={scene} /></StoreProvider>))
   try {
     await frame('planning')
-    expect(line()?.textContent).toBe('Thinking…')
+    expect(box.querySelector('[data-slot="lead-working"]')?.textContent).toContain('Thinking')
     await frame('running')
     expect(line()?.textContent).toBe('Step 1 of 1 · Implement and review · 1 run')
     // Stop through the synthetic facade: what was reported as running is no longer reported, and the thread says why.

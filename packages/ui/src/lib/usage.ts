@@ -1,9 +1,15 @@
 import {
+  formatCountdown,
+  formatCountdownShort,
+  formatElapsed,
+  formatResetCountdown,
   type AccountActivity,
   bindingLane,
   isBlocked,
   isLaneKnown,
+  pacingAdvice,
   reachedLaneOf,
+  type RuntimeId,
   remainingOf,
   type SpendSummary,
   type UsageLane,
@@ -194,53 +200,8 @@ export { bindingLane, isBlocked, reachedLaneOf, remainingOf, type UsagePreferenc
 const clamp = (value: number, low: number, high: number): number =>
   value < low ? low : value > high ? high : value
 
-/**
- * Rounds to the nearest whole unit rather than truncating: 47h59m reads as two
- * days to a person, not the one day flooring produces.
- */
-export const formatCountdown = (ms: number): string | null => {
-  if (!Number.isFinite(ms) || ms <= 0) return null
-  if (ms < HOUR) {
-    // Rounding can carry into the next unit at every boundary — 59½ minutes
-    // is 60, 23 hours and 59½ minutes is 24 — and each carry is said in the
-    // unit above it, never as "60m" or "24h".
-    const minutes = Math.max(1, Math.round(ms / MINUTE))
-    return minutes === 60 ? '1h' : `${minutes}m`
-  }
-  if (ms < DAY) {
-    const hours = Math.floor(ms / HOUR)
-    const minutes = Math.round((ms % HOUR) / MINUTE)
-    if (minutes === 60) {
-      const nextHours = hours + 1
-      return nextHours === 24 ? '1d' : `${nextHours}h`
-    }
-    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`
-  }
-  const days = Math.floor(ms / DAY)
-  const hours = Math.round((ms % DAY) / HOUR)
-  if (hours === 24) return `${days + 1}d`
-  return hours > 0 ? `${days}d ${hours}h` : `${days}d`
-}
-
-/** The reset reading shared by every usage meter list. */
-export const formatResetCountdown = (ms: number | null): string => {
-  const value = ms === null ? null : formatCountdown(ms)
-  return value === null ? '—' : `in ${value.replace(/(\d)([dhm])/g, '$1 $2')}`
-}
-
-/** One unit only, for a row that has no space for two. */
-export const formatCountdownShort = (ms: number): string | null => {
-  if (!Number.isFinite(ms) || ms <= 0) return null
-  if (ms < HOUR) {
-    const minutes = Math.max(1, Math.round(ms / MINUTE))
-    return minutes === 60 ? '1h' : `${minutes}m`
-  }
-  if (ms < DAY) {
-    const hours = Math.round(ms / HOUR)
-    return hours >= 24 ? '1d' : `${Math.max(1, hours)}h`
-  }
-  return `${Math.max(1, Math.round(ms / DAY))}d`
-}
+/** The Dashboard's countdown words live in the protocol, so the Lead is told a reset in the same words (#2174). */
+export { formatCountdown, formatCountdownShort, formatResetCountdown }
 
 export const toneForRemaining = (remaining: number | null): Tone => {
   if (remaining === null) return 'good'
@@ -370,13 +331,11 @@ export const pace = (lane: UsageLane, now: number): PaceView | null => {
   }
 }
 
-/** How old a reading is, in words: "just now", "2m ago", "1h ago". */
-export const formatAge = (fetchedAt: number, now: number): string => {
-  const ms = Math.max(0, now - fetchedAt)
-  if (ms < 45_000) return 'just now'
-  const unit = formatCountdownShort(ms)
-  return unit === null ? 'just now' : `${unit} ago`
-}
+/**
+ * How old a reading is, in words: "just now", "2m ago", "14h ago". Rounded down by the protocol's one rule
+ * (`formatElapsed`), as the phone and the Lead are given it: an age never reads longer than it is (#2150).
+ */
+export const formatAge = (fetchedAt: number, now: number): string => formatElapsed(fetchedAt, now)
 
 /**
  * What the Dashboard draws for a report — and only the Dashboard.
@@ -545,11 +504,13 @@ const STANDING_ORDER: Readonly<Record<UsageStandingStatus, number>> = {
 
 const rank = (report: UsageReport, now: number): number => {
   const standing = usageStandingOf(report, now)
-  // An unknown standing's `left` is the cached figure: never sort on it.
-  const left = standing.status === 'unknown' ? null : standing.left
+  // A failed refresh keeps its last figures for the card to show, marked stale; the order never sorts on them.
+  const failed = report.error !== null
+  const status = failed ? 'unknown' : standing.status
+  const left = status === 'unknown' ? null : standing.left
   // No measurable lane: after every metered account in its standing, but before an empty one.
   const within = left ?? (report.spend ? 1_000 : 1_001)
-  return STANDING_ORDER[standing.status] * 10_000 + within
+  return STANDING_ORDER[status] * 10_000 + within
 }
 
 /** A prepaid balance a card can actually print: every figure in it nameable. */
@@ -604,6 +565,16 @@ export const balanceOf = (credits: UsageReport['credits']): Balance | null => {
 export const reportNeedsAttention = (report: UsageReport, now: number): boolean =>
   usageStandingOf(report, now).status !== 'ready'
 
+/**
+ * An account the person has to act on: out of allowance, overdrawn, or signed out. Low, short and an unread figure are
+ * notes the Dashboard shows; they move with every refresh and ask nothing of the person, so no badge counts them.
+ */
+export const reportNeedsYou = (report: UsageReport, now: number): boolean => {
+  if (report.error) return report.error.needsSignIn === true
+  const status = usageStandingOf(report, now).status
+  return status === 'out' || status === 'overdrawn'
+}
+
 /*
  * Where an account stands, in one word every surface shares — decided in
  * `@harnessdesk/protocol` (`usageStandingOf`), because the host sends the same
@@ -617,8 +588,19 @@ export const STANDING_LABEL: Readonly<Record<UsageStandingStatus, string>> = {
   short: 'Short',
   out: 'Out',
   overdrawn: 'Overdrawn',
+  // A read that answered without figures it could use, or failed: it reported, so it is not "Not reporting".
   unknown: 'Unknown',
 }
+
+/** The word for a tracked agent nothing answered for (`isSilentUsage`): the same on every surface, the phone's included. */
+export const NOT_REPORTING_LABEL = 'Not reporting'
+
+/**
+ * Whether a usage read has finished for this agent, from the snapshot's `usageAsked`: only such an agent with no
+ * reading is Not reporting. An absent list is a fixture's snapshot, where every agent counts as asked.
+ */
+export const usageAskedOf = (asked: readonly RuntimeId[] | undefined) => (runtime: RuntimeId): boolean =>
+  asked === undefined || asked.includes(runtime)
 
 export const STANDING_TONE: Readonly<Record<UsageStandingStatus, 'success' | 'warning' | 'danger' | 'neutral'>> = {
   ready: 'success',
@@ -858,6 +840,31 @@ export const rightNow = (
   if (!firstOut || ambiguous(firstOut.report)) return lead
   const more = out.length > 1 ? ` (and ${out.length - 1} more)` : ''
   return `${lead} ${label(firstOut.report)}${more} is out until ${formatWhen(firstOut.standing.backAt ?? now, now)}.`
+}
+
+/**
+ * The pacing note: which account to use first because its window is about to refill with most of it unspent, and
+ * when. "Use Agent A (team@acme.dev) first — its Weekly has 70% left and resets Sun 8:00 AM." The same answer the
+ * Lead gives (`pacingAdvice`, `@harnessdesk/protocol`), so the desk and the Lead never name different accounts.
+ *
+ * Only the use-first case is a note: "the one that refills soonest" is an order, not news, and `rightNow` already
+ * says where to start. A failed or stale reading never decides it, and with one account there is no "first".
+ */
+export const pacingNote = (
+  reports: readonly UsageReport[],
+  nameFor: (report: UsageReport) => string,
+  now: number,
+): string | null => {
+  if (reports.length < 2) return null
+  const advice = pacingAdvice(reports.map((report, at) => ({ id: String(at), report })), now)
+  if (!advice || advice.reason !== 'use-first') return null
+  const chosen = reports[Number(advice.id)]
+  if (!chosen) return null
+  const sameName = reports.filter((other) => nameFor(other) === nameFor(chosen)).length
+  // Two of one name with no account to tell them apart would not say which.
+  if (sameName > 1 && !chosen.account) return null
+  const label = sameName > 1 ? `${nameFor(chosen)} (${chosen.account})` : nameFor(chosen)
+  return `Use ${label} first — its ${advice.laneLabel} has ${advice.remainingPercent}% left and resets ${formatWhen(advice.resetsAt, now)}.`
 }
 
 /** "$2.92", "$373", "$4,639" — cents only where they carry information. */

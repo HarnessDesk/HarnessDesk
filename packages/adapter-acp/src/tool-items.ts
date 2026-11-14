@@ -9,7 +9,7 @@ export interface ToolItemState {
   readonly title?: string
   readonly diffContent?: AcpToolCallUpdate['content']
   readonly locations?: AcpToolCallUpdate['locations']
-  readonly item: Extract<AgentItem, { type: 'toolCall' | 'fileChange' | 'command' }>
+  readonly item: Extract<AgentItem, { type: 'toolCall' | 'fileChange' | 'command' | 'subagent' }>
 }
 
 const objectOf = (value: unknown): Record<string, unknown> | null =>

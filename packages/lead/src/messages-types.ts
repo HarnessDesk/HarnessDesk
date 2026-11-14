@@ -27,6 +27,20 @@ export interface LeadMessagesRequest {
    * Those proposals are validated and returned without offering or executing them. */
   readonly system?: string
   readonly maxTokens: number
+  /** Where the stored part of `messages` ends: block `blocks - 1` of turn `turns - 1`. The rolling cache mark goes
+   * there; every user text block after it (or after `kept`) is desk context of this moment, stubbed when stored. */
+  readonly stable?: { readonly turns: number; readonly blocks: number }
+  /** A checkpoint request: words only, no tool is dispatched, nothing is said to the person. */
+  readonly compaction?: true
+  /** The stored conversation's epoch `messages` came from. The child keeps its standing instructions for the epoch,
+   * and reads the stored conversation again when the desk has moved to another. Never sent to the provider. */
+  readonly epoch?: number
+  /** Where the part of `messages` the desk already stores ends; what follows is this step's to record. Absent, it is
+   * `stable`. Never sent to the provider. */
+  readonly base?: { readonly turns: number; readonly blocks: number }
+  /** Where the host's own turns that follow `stable` end (the approved plan): stored as they are. Every user text block
+   * after it is desk context of this moment. Absent, it is `stable`. Never sent to the provider. */
+  readonly kept?: { readonly turns: number; readonly blocks: number }
 }
 export interface MessagesUsage {
   readonly inputTokens: number
@@ -43,6 +57,8 @@ export interface MessagesHttpRequest {
   readonly body: string
   readonly maxResponseBytes: number
   readonly signal: AbortSignal
+  /** Counts of what the child withheld from this body, on its first send only; never content. */
+  readonly withheld?: readonly import('./credential-screen.js').LeadWithheldPiece[]
 }
 export interface MessagesHttpResponse {
   readonly status: number
@@ -71,6 +87,9 @@ export interface MessagesToolScope {
   readonly context: LeadPermissionContext
   readonly predecessor?: { readonly runId: string; readonly ready: boolean; readonly terminal?: true; readonly reason?: 'lead-predecessor-unavailable' | 'lead-predecessor-unverifiable' }
   readonly stepId?: string | null
+  /** The call as the host resolved it, only when it named a chat by its handle: the same call with the chat's id. The
+   * child sends this call on, never its own, so everything the host decides and dispatches sees the id. */
+  readonly call?: LeadPermissionCall
 }
 export interface LeadMessagesOptions {
   readonly apiKey: string
@@ -94,6 +113,8 @@ export interface LeadMessagesOptions {
 export type LeadMessagesStatus = 'completed' | 'max-tokens' | 'refused' | 'cancelled' | 'uncertain' | 'rate-limited' | 'failed' | 'invalid-response'
 export interface LeadMessagesResult {
   readonly ask?: import('@harnessdesk/protocol').LeadAsk
+  /** Work items the reply names, from its envelope. */
+  readonly refs?: readonly import('@harnessdesk/protocol').LeadMessageRef[]
   readonly proactive?: import('@harnessdesk/protocol').LeadProactive
   readonly status: LeadMessagesStatus
   /** Static code only. Raw transport errors, provider bodies and abort reasons never escape. */
@@ -110,6 +131,9 @@ export interface LeadMessagesResult {
   readonly deskActivityTools?: readonly string[]
   /** Dispatch successes, including results that could not fit the continuation. */
   readonly succeededTools?: readonly string[]
+  /** Calls that changed the desk, or may have: a start, a send, a stop, a note, a reminder or a proposal whose dispatch
+   * succeeded or is uncertain. The step that follows reads the work ledger and memory again. */
+  readonly deskChangedTools?: readonly string[]
   readonly toolResults?: readonly MessagesToolResult[]
   /** Validated continuation with one ordered result for every tool use. Still untrusted
    * content: the renderer must use its transcript sanitizer. */

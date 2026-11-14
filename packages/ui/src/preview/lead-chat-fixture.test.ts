@@ -37,3 +37,13 @@ it('previews a replayed envelope without a receipt in that chat', () => {
   const block = splitContextContent(message.content).injections[0]!
   expect(store.lead.state.chats.find(chat => chat.id === id)!.sent).not.toContain(leadMessageKey(id, wrapContext(block.label, block.text)))
 })
+
+it('previews a Lead message merged with a stop marker as the Lead\'s words (#2090)', () => {
+  const { store, id, session } = createLeadChatFixture('lead', 'light', 'interrupted')
+  const message = session.turns[1]!.items[0]!
+  if (message.type !== 'userMessage') throw new Error('Expected a user turn')
+  const split = splitContextContent(message.content)
+  expect(split.text).toBe('')
+  const block = split.injections[0]!
+  expect(store.lead.state.chats.find(chat => chat.id === id)!.sent).toContain(leadMessageKey(id, wrapContext(block.label, block.text)))
+})

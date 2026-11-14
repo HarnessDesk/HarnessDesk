@@ -1,8 +1,10 @@
-import { parseLeadWorkerApprovalRule, leadWorkerRuleInProject, boundLeadApprovalEntries, LEAD_APPROVAL_HISTORY_BYTES, LEAD_LIMITS, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
+import { parseLeadAutonomyRecord, parseLeadAutonomyRules, parseLeadWorkerApprovalRule, leadWorkerRuleInProject, boundLeadApprovalEntries, LEAD_APPROVAL_HISTORY_BYTES, LEAD_LIMITS, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
 import { parseLeadDecisionMessage, parseLeadWakeLog, parseLeadOrigin, parseLeadHandback, parseLeadFollowPreferences, parseLeadPullRequest, parseLeadMessage, parseLeadThreadSend, parseLeadAcceptanceContract, parseLeadCard, parseLeadPermissionPolicy, parseLeadCaps } from '@harnessdesk/protocol'
 import { parseLeadOwnedPush, parseLeadPublicationOperation, parseLeadJournalRecord, parseLeadRunIdentity, parseLeadRunEvidence } from './journal.js'
-import { LEAD_ACCEPTED_TEAMS, initialLeadState, removedWorkerApprovalNotice, retireLeadWorkerApprovals, fenceLeadWorkerDispatch, type LeadState, type LeadAttemptState } from './state.js'
+import { LEAD_ACCEPTED_TEAMS, initialLeadState, initialLeadContext, removedWorkerApprovalNotice, retireLeadWorkerApprovals, fenceLeadWorkerDispatch, type LeadState, type LeadAttemptState } from './state.js'
 import { parseLeadBudgetLedger } from './budget.js'
+import { initialLeadMemoryCore, parseLeadMemoryCore } from './memory.js'
+import { initialLeadChatHandles, parseLeadChatHandles } from './chat-handles.js'
 
 export interface LeadJournalCheckpoint {
   readonly type: 'checkpoint'; readonly version: 1; readonly seq: number; readonly head: string
@@ -31,8 +33,30 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   const positioned = repairSource && !Object.hasOwn(repairSource, 'cardPositions')
     ? { ...repairSource, cardPositions: Object.fromEntries(threadSource.cards.map(card => [card.id, Math.max(1, ...threadSource.messages.map(message => message.revision))])) } : repairSource
   // Checkpoints before accepted Teams were kept across goals carry none.
-  const source = positioned && { ...positioned, acceptedTeams: Object.hasOwn(positioned, 'acceptedTeams') ? positioned.acceptedTeams : [] }
+  const accepted = positioned && { ...positioned, acceptedTeams: Object.hasOwn(positioned, 'acceptedTeams') ? positioned.acceptedTeams : [] }
+  // Checkpoints before autonomy and rules carry none: the defaults.
+  const ruled = accepted && { ...accepted, autonomy: Object.hasOwn(accepted, 'autonomy') ? accepted.autonomy : null }
+  // Checkpoints before the context engine carry no epoch: the stored conversation starts at the first.
+  const contextual = ruled && { ...ruled, context: Object.hasOwn(ruled, 'context') ? accepted.context : initialLeadContext() }
+  // Checkpoints before the memory store carry no Core: the host journals it again when it opens.
+  const remembered = contextual && { ...contextual, memory: Object.hasOwn(contextual, 'memory') ? contextual.memory : initialLeadMemoryCore() }
+  // Checkpoints before epoch snapshots carry none: the next build records one.
+  const epoched = remembered && { ...remembered, memoryEpoch: Object.hasOwn(remembered, 'memoryEpoch') ? remembered.memoryEpoch : null }
+  // Checkpoints before chat handles carry none: the next chat the Lead sees is the first named.
+  const source = epoched && { ...epoched, chatHandles: Object.hasOwn(epoched, 'chatHandles') ? epoched.chatHandles : initialLeadChatHandles() }
   assert(source && Object.keys(source).sort().join() === Object.keys(initialLeadState()).sort().join())
+  const context = source.context
+  assert(context && typeof context === 'object' && Object.keys(context).sort().join() === 'epoch,failures,last,pending' &&
+    Number.isSafeInteger(context.epoch) && context.epoch >= 0 && Number.isSafeInteger(context.failures) && context.failures >= 0 &&
+    (context.pending === null || typeof context.pending === 'object' && /^[A-Za-z0-9._:/@-]{1,256}$/.test(context.pending.id) && ['soft', 'hard', 'manual', 'overflow'].includes(context.pending.trigger)) &&
+    (context.last === null || typeof context.last === 'object' && /^[A-Za-z0-9._:/@-]{1,256}$/.test(context.last.id)))
+  parseLeadMemoryCore(source.memory)
+  try { parseLeadChatHandles(source.chatHandles) } catch { assert(false) }
+  const frozen = source.memoryEpoch
+  assert(frozen === null || typeof frozen === 'object' && ['epoch,goal,memory', 'epoch,goal,memory,rules'].includes(Object.keys(frozen).sort().join()) && Number.isSafeInteger(frozen.epoch) && frozen.epoch >= 0 &&
+    typeof frozen.goal === 'string' && (frozen.goal === '' || /^[A-Za-z0-9._:/@-]{1,256}$/.test(frozen.goal)))
+  if (frozen) parseLeadMemoryCore(frozen.memory)
+  if (frozen && Object.hasOwn(frozen, 'rules')) try { parseLeadAutonomyRules(frozen.rules) } catch { assert(false) }
   assert(Number.isSafeInteger(source.decisionRevision) && source.decisionRevision >= 0 && source.decisionRevision <= source.seq)
   assert(Number.isSafeInteger(source.goalStartedSeq) && source.goalStartedSeq >= 0 && source.goalStartedSeq <= source.seq)
   const effects = source.chatEffectsSinceReply
@@ -124,6 +148,7 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
     assert(limit && typeof limit === 'object' && Object.keys(limit).join() === 'usdMicros' && (limit.usdMicros === null ||
       Number.isSafeInteger(limit.usdMicros) && limit.usdMicros >= 0 && limit.usdMicros <= LEAD_LIMITS.maxUsdMicros))
   }
+  if (source.autonomy !== null) assert(JSON.stringify(parseLeadAutonomyRecord(source.autonomy)) === JSON.stringify(source.autonomy))
   assert(!budget?.stop || ['stopped', 'accepted', 'declined'].includes(source.phase))
   assert(typeof source.chatEffectsAcknowledged === 'boolean')
   assert(source.stopEffectsPending === null || Number.isSafeInteger(source.stopEffectsPending) && source.stopEffectsPending > 0 && source.stopEffectsPending <= source.seq && (budget?.stop || source.phase === 'stopped'))

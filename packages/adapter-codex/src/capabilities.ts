@@ -34,7 +34,7 @@ export class ToolProjection {
   #revision = new Map<string, number>()
 
   /** Rebuilds the projection for a scope and returns what Codex should be told. */
-  build(registry: CapabilityRegistry, scope: ScopeQuery): DynamicToolSpec[] {
+  build(registry: CapabilityRegistry, scope: ScopeQuery, withheld: readonly string[] = []): DynamicToolSpec[] {
     this.#byKey.clear()
     this.#revision.clear()
     // 0.149.0 replaced the flat `{ namespace, name }` spec with a tagged union:
@@ -43,6 +43,9 @@ export class ToolProjection {
     const namespaces = new Map<string, { origin: string; tools: DynamicToolNamespaceTool[] }>()
 
     for (const tool of registry.list('tool', scope)) {
+      // A tool the host withholds from this conversation (`ask_agent` off a
+      // seat that may not ask) is never offered; its call-time refusal holds anyway.
+      if (withheld.includes(tool.name)) continue
       const namespace = `${NAMESPACE_PREFIX}${sanitise(tool.namespace)}`
       const name = sanitise(tool.name)
       const key = `${namespace}/${name}`

@@ -128,6 +128,12 @@ export interface GoalPlanePort extends GoalOperationPort {
    * opened seats under the unattended ceiling policy.
    */
   seatAgent(input: GoalSeatRequest, goal: Goal, policy: { readonly unattended: boolean; readonly requireHeld?: true; readonly role: string | null }): Promise<SeatRecord>
+  /**
+   * Carry-on (piece D): a card's claim passes from a Seat to its replacement
+   * in the same checkout, keeping the claim's own snapshot. Not a new claim:
+   * the flow still binds the card to the Seat being replaced while this runs.
+   */
+  moveClaim?(goal: string, card: number, from: SeatRecord, to: SeatRecord): Promise<void>
   /** Whether a trigger firing is being recorded into this Goal now: a wrap waits for it to land. Absent, never. */
   /** A trigger firing still landing on this Goal: true, or the sentence that says why it waits and what clears it. */
   intakeHeld?(goal: string): boolean | string
@@ -166,6 +172,14 @@ export const TRIGGER_GOAL_ID = /^goal-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
  * turn-ended signal, #1027) can tell this apart from every other reason
  * `release` refuses, none of which lift on their own.
  */
+/** A replacement whose lane and card already passed to `record`, but whose old Seat could not then be closed. */
+export class SeatMovedError extends Error {
+  constructor(readonly record: SeatRecord, cause: unknown) {
+    super(`The seat moved, but the old one could not be closed: ${cause instanceof Error ? cause.message : String(cause)}`)
+    this.name = 'SeatMovedError'
+  }
+}
+
 export class SeatBusyRefusal extends Error {
   constructor() {
     super("Stop this Seat's current turn before releasing it")
@@ -919,6 +933,47 @@ export class GoalPlane {
         }
       }
       await this.refresh(input.goal)
+      return record
+    })
+  }
+
+  /**
+   * A replacement for a Seat that reached a usage limit (carry-on, §9.2), in
+   * this plane's queue like any seating: opened by `open` in the old Seat's own
+   * checkout, then the lane and the card's claim pass to it, and only then is
+   * the old Seat closed, with `limit`. A failure on the way closes the new Seat
+   * and leaves the old one as it was.
+   */
+  replaceSeat(old: SeatRecord, card: number | null, open: (where: Goal) => Promise<SeatRecord>): Promise<SeatRecord> {
+    return this.serial.run(async () => {
+      if (!old.board) throw new Error('This seat is not on a Team.')
+      if (old.closed) throw new Error('This seat was already let go.')
+      this.#dispatch(old.board)
+      const goal = this.store.read(old.board).goal
+      const record = await open({ ...goal, cwd: old.checkout.cwd })
+      const lane = this.#lanes?.forSeat(String(old.id)) ?? null
+      let moved = false
+      try {
+        if (record.board !== old.board || record.checkout.cwd !== old.checkout.cwd) throw new Error('The replacement did not open in its seat’s checkout.')
+        if (lane) { await this.#lanes!.rebind(lane.id, String(old.id), String(record.id)); moved = true }
+        if (card !== null) {
+          if (!this.port.moveClaim) throw new Error('This desk cannot move a card to another seat.')
+          await this.port.moveClaim(old.board, card, old, record)
+        }
+      } catch (error) {
+        if (moved && lane) await this.#lanes!.rebind(lane.id, String(record.id), String(old.id)).catch(() => {})
+        await this.port.closeId(record.id, 'released').catch(() => {})
+        throw error
+      }
+      try {
+        await this.port.closeId(old.id, 'limit')
+      } catch (error) {
+        // The lane and the card already belong to the replacement: it stays open, and the caller is told the move
+        // went through even though the old Seat could not be closed.
+        await this.refresh(old.board).catch(() => {})
+        throw new SeatMovedError(record, error)
+      }
+      await this.refresh(old.board)
       return record
     })
   }

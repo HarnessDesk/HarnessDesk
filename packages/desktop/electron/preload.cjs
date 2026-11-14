@@ -61,11 +61,13 @@ contextBridge.exposeInMainWorld('harnessdesk', {
       typeof value === 'number' && Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : null
     ipcRenderer.send('harnessdesk:tray-summary', {
       title: typeof summary.title === 'string' ? summary.title.slice(0, 12) : '',
+      tooltip: typeof summary.tooltip === 'string' ? summary.tooltip.slice(0, 160) : '',
       agents: agents.slice(0, 12).map((agent) => ({
         id: String(agent?.id ?? '').slice(0, 64),
         name: String(agent?.name ?? '').slice(0, 60),
         detail: String(agent?.detail ?? '').slice(0, 80),
         needsSignIn: agent?.needsSignIn === true,
+        current: agent?.current === true,
         // A key, never a path: the shell looks it up among the images it has.
         brand: typeof agent?.brand === 'string' && /^[a-z0-9-]{1,32}$/.test(agent.brand) ? agent.brand : null,
         left: percent(agent?.left),
@@ -93,6 +95,34 @@ contextBridge.exposeInMainWorld('harnessdesk', {
     }
     ipcRenderer.on('harnessdesk:open-goal', listener)
     return () => ipcRenderer.removeListener('harnessdesk:open-goal', listener)
+  },
+
+  /**
+   * A prompt link the OS opened (`harnessdesk://new`), for a draft and
+   * nothing else. Main keeps it until it is taken; subscribing takes once
+   * at once, and again on every nudge, so a link that arrived before the
+   * renderer was ready is delivered the moment it asks, and only once.
+   */
+  onPromptLink: (handler) => {
+    if (typeof handler !== 'function') return () => {}
+    // A link taken is handed on even if this subscription has ended since:
+    // main has already emptied its slot, so dropping it here would lose it.
+    const take = () => {
+      void ipcRenderer.invoke('harnessdesk:prompt-link-take').then((link) => {
+        if (!link || typeof link !== 'object') return
+        if (typeof link.repo !== 'string' || typeof link.prompt !== 'string') return
+        handler({
+          repo: link.repo,
+          prompt: link.prompt,
+          pr: Number.isSafeInteger(link.pr) && link.pr > 0 ? link.pr : null,
+          flow: typeof link.flow === 'string' ? link.flow : null,
+        })
+      }, () => {})
+    }
+    const listener = () => take()
+    ipcRenderer.on('harnessdesk:prompt-link', listener)
+    take()
+    return () => ipcRenderer.removeListener('harnessdesk:prompt-link', listener)
   },
 
   /** Menu items dispatch here so the renderer owns one implementation of each action. */

@@ -49,8 +49,19 @@ const decision = (effect: LeadPermissionEffect, reason: string, rule: LeadPermis
 const deny = (reason: string, floor: LeadPermissionFloor): LeadPermissionDecision => ({ ...decision('deny', reason), floor })
 const record = (value: unknown): Readonly<Record<string, unknown>> =>
   typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
-// These two reads expose no project/run data. Collection reads must always be filtered.
-const deskWideReads = new Set(['client/hello', 'library/usage'])
+// Read-only desk context: titles/states, skill counts and cached allowance, never transcripts or account identities.
+// Detailed collection reads remain filtered to the selected project.
+const deskWideReads = new Set(['client/hello', 'library/usage', 'lead/desk/summary', 'lead/usage/summary',
+  // The Lead's own ledger: titles, host stages and its notes, kept by the host, never transcripts.
+  'lead/work/list', 'lead/work/read', 'lead/work/note',
+  // Its own memory: a proposal waits for the person in their inbox; a search reads its own notes and conversation.
+  'lead/memory/propose', 'lead/memory/search',
+  // How full its own conversation is: a figure, never the conversation.
+  'lead/context/use',
+  // A reminder the person asked for, kept on the same board; it starts, sends and spends nothing.
+  'lead/reminder/set', 'lead/reminder/cancel',
+  // A proposal to change its own settings: a card the person applies or declines; it changes nothing by itself.
+  'lead/autonomy/propose', 'lead/rules/propose'])
 const actionOf = (method: string, params: unknown): string | null =>
   Object.hasOwn(CLIENT_ACTION_TIERS, method) && typeof record(params).action === 'string' ? record(params).action as string : null
 // Canonical structural equality: property insertion order never changes authority.
@@ -127,7 +138,7 @@ const decideParsedPermission = (request: LeadPermissionRequest, context: LeadPer
       return deny('Team is outside the approved contract', 'scope')
     if (request.runId !== null && (context.approved === null || !context.approved.runIds.includes(request.runId)))
       return deny('Run is outside the approved contract', 'run')
-    // Listings are scoped to the selected project; single-run reads to the approved contract, intentionally.
+    // Detailed listings stay project-scoped; desk reads expose titles/states, skill counts and cached allowance, never transcripts or account identities.
     if (request.method === 'flow/preview' && (params.retry !== undefined || params.continues !== undefined))
       return deny('Lead previews cannot retry or continue another run', 'scope')
     if (tier === 'read') {

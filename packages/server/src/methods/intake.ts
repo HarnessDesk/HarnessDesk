@@ -19,4 +19,7 @@ export const intakeMethods = {
   'trigger/preferences/set': (ctx, params) => ctx.intake.setPreferences(params.revision, params.paused, params.dailyUsd),
   'trigger/history': (ctx, params) => ctx.intake.history(params.root, params.id, params.cursor),
   'trigger/goal': (ctx, params) => ctx.intake.goal(params.goal),
+  'trigger/decisions': (ctx, params) => ctx.intake.decisions(params.root, params.id),
+  'trigger/decision/reevaluate': (ctx, params) => ctx.intake.reevaluate(params.root, params.id, params.decision),
+  'trigger/mode': (ctx, params) => ctx.intake.setMode(params.root, params.id, params.mode),
 } satisfies MethodsUnder<'trigger/'>

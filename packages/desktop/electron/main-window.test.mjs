@@ -3,8 +3,9 @@ import { EventEmitter } from 'node:events'
 import { test } from 'node:test'
 import { attachAppUpdateBridge } from './app-updates.mjs'
 import { attachAppProtocol, loadMainWindow } from './main-window.mjs'
+import { createPromptLinkInbox } from './prompt-link.mjs'
 
-const protocolRig = ({ packaged = true, lock = true, platform = 'darwin' } = {}) => {
+const protocolRig = ({ packaged = true, lock = true, platform = 'darwin', argv = [] } = {}) => {
   const app = new EventEmitter(), calls = []
   let current = null
   app.isPackaged = packaged
@@ -12,18 +13,30 @@ const protocolRig = ({ packaged = true, lock = true, platform = 'darwin' } = {})
   app.quit = () => calls.push('quit')
   app.setAsDefaultProtocolClient = scheme => calls.push(['protocol', scheme])
   app.focus = options => calls.push(['app-focus', options])
-  const attached = attachAppProtocol({ app, platform, currentWindow: () => current })
-  const window = ({ destroyed = false, minimized = false } = {}) => ({
-    isDestroyed: () => destroyed,
-    isMinimized: () => minimized,
-    restore: () => calls.push('restore'),
-    show: () => calls.push('show'),
-    focus: () => calls.push('window-focus'),
-    loadURL: () => assert.fail('protocol URLs must not navigate the renderer'),
-    webContents: { send: () => assert.fail('protocol URLs must not reach the renderer') },
-  })
-  return { app, calls, attached, window, setWindow: value => { current = value } }
+  const promptLinks = createPromptLinkInbox({ currentWindow: () => current })
+  const attached = attachAppProtocol({ app, platform, argv, promptLinks, currentWindow: () => current })
+  const window = ({ destroyed = false, minimized = false } = {}) => {
+    const nudges = []
+    return {
+      nudges,
+      isDestroyed: () => destroyed,
+      isMinimized: () => minimized,
+      restore: () => calls.push('restore'),
+      show: () => calls.push('show'),
+      focus: () => calls.push('window-focus'),
+      loadURL: () => assert.fail('protocol URLs must not navigate the renderer'),
+      // Only a prompt link may nudge the renderer, and the nudge carries no data.
+      webContents: { send: (channel, payload) => {
+        assert.equal(channel, 'harnessdesk:prompt-link')
+        assert.equal(payload, null)
+        nudges.push(channel)
+      } },
+    }
+  }
+  return { app, calls, attached, window, promptLinks, setWindow: value => { current = value } }
 }
+
+const NEW = 'harnessdesk://new?repo=acme.dev%2Fwidgets&prompt=Fix+the+build'
 
 test('the primary packaged app registers its protocol; development leaves the installed handler alone', () => {
   const packaged = protocolRig()
@@ -65,6 +78,7 @@ test('second-instance arguments are ignored and focus follows the current window
   rig.setWindow(rig.window())
   rig.app.emit('second-instance', {}, ['harnessdesk://return?token=ignored'])
   assert.deepEqual(rig.calls, [['app-focus', { steal: true }], 'show', 'window-focus'])
+  assert.equal(rig.promptLinks.pending, null, 'a return URL never reaches the prompt-link inbox')
 })
 
 test('an early macOS protocol URL is consumed without creating a window; other platforms use second-instance', () => {
@@ -137,4 +151,62 @@ test('a failed current load releases only its own authority', async () => {
   one.fail(new Error('load failed'))
   await assert.rejects(loading, /load failed/)
   assert.equal(host.current(), null)
+})
+
+test('a macOS prompt link is queued for the renderer and still only focuses the window', () => {
+  const rig = protocolRig()
+  const window = rig.window()
+  rig.setWindow(window)
+  rig.calls.length = 0
+  let prevented = 0
+  rig.app.emit('open-url', { preventDefault: () => { prevented += 1 } }, NEW)
+  assert.equal(prevented, 1)
+  assert.deepEqual(rig.calls, [['app-focus', { steal: true }], 'show', 'window-focus'])
+  assert.deepEqual(window.nudges, ['harnessdesk:prompt-link'])
+  assert.deepEqual({ ...rig.promptLinks.take(window.webContents) },
+    { repo: 'acme.dev/widgets', prompt: 'Fix the build', pr: null, flow: null })
+  assert.equal(rig.promptLinks.take(window.webContents), null)
+})
+
+test('every other protocol URL stays a focus hint, even next to a prompt link', () => {
+  const rig = protocolRig()
+  const window = rig.window()
+  rig.setWindow(window)
+  for (const url of ['harnessdesk://return?token=t&code=c', 'harnessdesk://new/send?repo=a/b&prompt=x',
+    'harnessdesk://NEW?repo=a/b&prompt=x', 'harnessdesk://new?repo=a/b&prompt=x&prompt=y']) {
+    rig.app.emit('open-url', { preventDefault: () => {} }, url)
+  }
+  rig.app.emit('second-instance', {}, ['app', 'harnessdesk://return?token=ignored'])
+  assert.deepEqual(window.nudges, [])
+  assert.equal(rig.promptLinks.pending, null)
+})
+
+test('a cold-start prompt link waits for the window and is delivered once', () => {
+  const rig = protocolRig()
+  rig.calls.length = 0
+  rig.app.emit('open-url', { preventDefault: () => {} }, NEW)
+  assert.deepEqual(rig.calls, [], 'no window yet: nothing to focus, nothing to nudge')
+  assert.ok(rig.promptLinks.pending, 'kept until the renderer asks')
+  const window = rig.window()
+  assert.equal(rig.promptLinks.take(window.webContents), null, 'a window that is not the app window cannot take it')
+  rig.setWindow(window)
+  assert.equal(rig.promptLinks.take(window.webContents)?.prompt, 'Fix the build')
+  assert.equal(rig.promptLinks.take(window.webContents), null, 'a reload does not deliver it again')
+})
+
+test('Windows: the first instance reads its own argv, a second instance its argv, each once', () => {
+  const rig = protocolRig({ platform: 'win32', argv: ['HarnessDesk.exe', NEW] })
+  assert.equal(rig.app.listenerCount('open-url'), 0)
+  assert.equal(rig.promptLinks.pending?.prompt, 'Fix the build', 'the cold-start argv is queued')
+  const window = rig.window()
+  rig.setWindow(window)
+  assert.equal(rig.promptLinks.take(window.webContents)?.prompt, 'Fix the build')
+  rig.calls.length = 0
+  const again = 'harnessdesk://new?repo=acme.dev%2Fwidgets&prompt=Second'
+  rig.app.emit('second-instance', {}, ['HarnessDesk.exe', again, again])
+  assert.deepEqual(window.nudges, ['harnessdesk:prompt-link'], 'one launch, one link, one nudge')
+  assert.deepEqual(rig.calls, [['app-focus', { steal: true }], 'show', 'window-focus'])
+  assert.equal(rig.promptLinks.take(window.webContents)?.prompt, 'Second')
+  assert.equal(rig.promptLinks.take(window.webContents), null)
+  assert.equal(rig.promptLinks.pending, null, 'the first instance argv is never read again')
 })

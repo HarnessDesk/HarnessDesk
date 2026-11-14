@@ -1,4 +1,5 @@
 import { isRecordConversation, RECORD_REASON } from '../lib/team-record'
+import { PromptLinkMarker } from './PromptLinkMarker'
 import {
   useCallback,
   useContext,
@@ -12,7 +13,7 @@ import {
   type ReactNode,
 } from 'react'
 
-import { currentTurn, isBusy, sessionKey, type ContextChipIcon, type FileMatch, type RuntimeId, type UserContent } from '@harnessdesk/protocol'
+import { currentTurn, isBusy, isStoppable, sessionKey, type ContextChipIcon, type FileMatch, type RuntimeId, type UserContent } from '@harnessdesk/protocol'
 
 import {
   Attachment as AttachmentTile,
@@ -40,7 +41,9 @@ import {
   Text,
 } from '../design'
 import { LeadChatNotice } from './LeadChatNotice'
+import { CarryOnNotice } from './CarryOnNotice'
 import { ComposerNotices, NoticeStripOutlet } from './Notices'
+import { SubagentStrip } from './SubagentFlow'
 import { HoldingMessagesChip, RoomMessagesHeld } from './RoomMessaging'
 import { ComposerNoticeStack } from '../design'
 import { mainNoticeHost } from '../state/workbench'
@@ -193,6 +196,8 @@ interface ComposeDetail {
   readonly paneId?: string
   readonly sessionKey?: string
   readonly replace?: boolean
+  /** Only a new chat's draft takes it, and it replaces the whole draft — see `lib/compose`. */
+  readonly newDraft?: boolean
   readonly attachments?: readonly {
     readonly name: string
     readonly path: string
@@ -277,6 +282,10 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
   const [active, setActive] = useState(0)
 
   const busy = session ? isBusy(session) : false
+  /* Stop outlives the turn when sub-agents it started are still working: the
+     host says so on the session's own status, and only Stop follows it —
+     sending, queueing and the placeholder still read the turn as over. */
+  const stoppable = session ? isStoppable(session) : false
   // Messages already waiting change what Enter means even when nothing is
   // running: they go first, so this one joins the back of the line rather
   // than starting a turn. Saying so beats a keystroke that appears to do
@@ -1028,9 +1037,22 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
       if (!detail || typeof detail.text !== 'string') return
       if (detail.paneId !== undefined && detail.paneId !== pane?.paneId) return
       if (detail.sessionKey !== undefined && detail.sessionKey !== key) return
+      // A conversation's composer still drawn while its pane turns into a
+      // new draft must not take the draft's words: its switch to the draft
+      // would then clear them.
+      if (detail.newDraft === true && key !== null) return
       // The receipt, first: a sender retrying each frame stops the moment
       // this composer says it has the message.
       detail.onReceived?.()
+      if (detail.newDraft === true) {
+        // The whole draft, at once: chips left from before must not ride
+        // along with words they were never attached to.
+        setText(detail.text)
+        setAttachments((detail.attachments ?? []).map((entry) => ({ id: nextAttachmentId(), ...entry })))
+        setImageReloadWarning(false)
+        textarea.current?.focus()
+        return
+      }
       // An empty detail is only a request for focus — a new draft pane
       // handing over the keyboard — and must not disturb a typed draft.
       // "Edit" on a sent message replaces the draft: that message is the draft.
@@ -1117,6 +1139,9 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
         <NoticeStripOutlet host={isNoticeHost} area="main" hostId={`composer:${mount?.id ?? 'unmounted'}`} />
         <ComposerNotices />
         {session && key && <LeadChatNotice runtime={session.runtime} sessionId={session.id} />}
+        {session && key && <CarryOnNotice runtime={session.runtime} sessionId={session.id} />}
+        {session && key && <SubagentStrip />}
+        {!key && <PromptLinkMarker text={text} />}
         {storedRecoverable.map(({ key: ownerKey, item }) => (
           <ComposerNotice
             key={`stored-${ownerKey}-${item.id}`}
@@ -1357,11 +1382,11 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
               buttons, which is what this replaces. */}
           <ComposerTrack name="send">
           {/* A wrapped Team's conversation draws its refused send only while
-              nothing is running. The corner is one coin wide and clips a
-              second, so beside a running turn the refused send would hide
-              the Stop that works; the placeholder already says why nothing
-              can be sent. */}
-          {(!busy || canSend) && (
+              nothing is running: beside a running turn a dead coin would sit
+              next to the Stop that works, and the placeholder already says
+              why nothing can be sent. Two coins widen the corner
+              (`ComposerTrack`), with Stop outboard. */}
+          {(!stoppable || canSend) && (
             <ComposerSend
               type="button"
               data-when={!canSend ? 'nothing' : deferred ? 'later' : 'now'}
@@ -1377,13 +1402,14 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
               wrapped Team's conversation, and the host leaves
               `turn/interrupt` open for it, so Stop stays enabled whenever a
               turn is running; only what would add to the conversation is
-              turned off — and it is not drawn beside Stop. */}
-          {busy && (
+              turned off — and it is not drawn beside Stop. Sub-agents
+              still working after the turn ended are stopped the same way. */}
+          {stoppable && (
             <ComposerSend
               type="button"
               onClick={() => void store.interrupt(key)}
               aria-label="Stop"
-              title="Stop this turn"
+              title={busy ? 'Stop this turn' : 'Stop the sub-agents still working'}
             >
               <StopIcon size={12} />
             </ComposerSend>

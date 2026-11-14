@@ -8,8 +8,10 @@ import { lanePreferences } from './goal.js'
 import { TRIGGER_DAILY_USD_MAX, TRIGGER_ID } from './intake.js'
 import type { TriggerBudget, TriggerCommentFrom, TriggerDefinition, TriggerField, TriggerOn, TriggerSource } from './intake.js'
 import { QUESTION_WAIT_PREFERENCE, QUESTION_WAITS } from './question-wait.js'
+import { CARRY_ON_CHOICES, CARRY_ON_DECISIONS, CARRY_ON_PREFERENCE, type CarryOnDecision } from './carry-on.js'
 import { CEILING_LEVELS } from './ceiling.js'
 import { INSIGHT_GOALS_LIMIT } from './insight.js'
+import { MCP_DAILY_STARTS_MAX } from './client-surface.js'
 import type {
   ClientToHost,
   GitWorktreeCheckout,
@@ -42,6 +44,11 @@ import type { UserContent } from './items.js'
 import type { LibraryIntent, LibraryPlannedOp } from './library.js'
 import { runtimeId, type RuntimeId, type SessionId } from './ids.js'
 import type { ReviewRequest } from './runtime.js'
+import { parseLeadWorkClose, parseLeadWorkList, parseLeadWorkNote, parseLeadWorkRead, parseLeadReminderSet, parseLeadReminderCancel } from './lead-work.js'
+import { parseLeadAutonomySet, parseLeadDeadlineSet, parseLeadRulesUpdate } from './lead-autonomy.js'
+import { parseLeadAutonomyPropose, parseLeadRulesPropose, parseLeadSettingsDecide } from './lead-autonomy.js'
+import { parseLeadBriefUpdate, parseLeadPresenceDismiss, parseLeadPresenceRead } from './lead-presence.js'
+import { parseLeadMemoryChange, parseLeadMemoryProposal, parseLeadMemorySearch } from './lead-memory.js'
 
 /**
  * Validators for messages the host accepts from a renderer.
@@ -351,7 +358,7 @@ const flowSeatOverrides: Validator<Record<string, FlowSeat[]>> = (value, path = 
 
 const withoutHostOnly = <T>(read: Validator<T>): Validator<T> => (value: unknown, path = '') => {
   const object = isObject(value, path)
-  for (const key of ['attachments', 'knownCwd', 'runtimeServers']) {
+  for (const key of ['attachments', 'knownCwd', 'runtimeServers', 'withheldTools']) {
     if (Object.hasOwn(object, key)) throw new ValidationError(`${path}.${key}`, 'set by the host only')
   }
   return read(value, path)
@@ -410,7 +417,7 @@ const goalCitation = goalShape({
 })
 
 const goalValidators = {
-  'client/hello': goalShape({ client: goalShape({ name: atMost(64, isFilled), version: atMost(64, isFilled) }), protocol: isNumber, pid: optional(isNumber) }),
+  'client/hello': goalShape({ client: goalShape({ name: atMost(64, isFilled), version: atMost(64, isFilled) }), protocol: isNumber, pid: optional(isNumber), surface: optional(literalUnion('mcp')) }),
   'client/subscribe': goalShape({ topics: arrayOf(literalUnion('runs', 'cards', 'teams', 'waiting', 'notices', 'seats', 'reviews', 'chats')), scope: optional(goalShape({ team: optional(goalId), run: optional(isFilled), project: optional(atMost(4096, isFilled)) })) }),
   'flow/executions': goalShape({ team: optional(goalId), project: optional(atMost(4096, isFilled)), active: optional(isBoolean) }),
   'goal/list': goalShape({ root: optional(atMost(4096, isFilled)) }),
@@ -551,6 +558,11 @@ const triggerUsd: Validator<number> = (value, path = '') => {
   }
   return number
 }
+const triggerDecisionId: Validator<string> = (value, path = '') => {
+  const text = isString(value, path)
+  if (!/^d-[0-9a-f]{20}$/.test(text)) throw new ValidationError(path, 'expected a triage decision id')
+  return text
+}
 const triggerValidators = {
   'trigger/list': goalShape({ root: triggerRoot }),
   'trigger/preview': goalShape({ root: triggerRoot, id: triggerId }),
@@ -561,6 +573,9 @@ const triggerValidators = {
   'trigger/preferences/set': goalShape({ revision: goalInteger(0), paused: isBoolean, dailyUsd: triggerUsd }),
   'trigger/history': goalShape({ root: triggerRoot, id: triggerId, cursor: optional(triggerOpaque) }),
   'trigger/goal': goalShape({ goal: triggerGoal }),
+  'trigger/decisions': goalShape({ root: triggerRoot, id: triggerId }),
+  'trigger/decision/reevaluate': goalShape({ root: triggerRoot, id: triggerId, decision: triggerDecisionId }),
+  'trigger/mode': goalShape({ root: triggerRoot, id: triggerId, mode: literalUnion('observe', 'act') }),
 }
 
 /**
@@ -695,6 +710,14 @@ const flowCheckValidator = goalShape({
   exits: recordOf(atMost(200, isFilled)),
   otherwise: atMost(200, isFilled),
 })
+/** A role's `ask`, held to the bounds the file's parser reports (`FLOW_ASK_LIMITS`). */
+const flowAskValidator: Validator<NonNullable<FlowAgentRole['ask']>> = (value, path = '') => {
+  const ask = goalShape({ seats: seatListValidator, times: goalInteger(1), timeoutSeconds: optional(goalInteger(30)) })(value, path)
+  if (ask.seats.length < 1 || ask.seats.length > 4) throw new ValidationError(`${path}.seats`, 'expected 1 to 4 seats')
+  if (ask.times > 20) throw new ValidationError(`${path}.times`, 'expected at most 20')
+  if (ask.timeoutSeconds !== undefined && ask.timeoutSeconds > 900) throw new ValidationError(`${path}.timeoutSeconds`, 'expected at most 900')
+  return ask as NonNullable<FlowAgentRole['ask']>
+}
 const flowPolicyRoleValidator: Validator<FlowPolicyRole> = (value, path = '') => {
   const record = isObject(value, path)
   const id = flowRoleId(record['id'], `${path}.id`)
@@ -710,6 +733,7 @@ const flowPolicyRoleValidator: Validator<FlowPolicyRole> = (value, path = '') =>
       grant: ceilingValidator,
       independentOf: flowWordList(32, flowRoleId),
       blind: optional(isBoolean),
+      ask: optional(flowAskValidator),
     })(record, path) as FlowAgentRole
     return { ...role, id }
   }
@@ -791,8 +815,8 @@ const flowPolicyValidator: Validator<FlowPolicy> = goalShape({
  * field, `again` reads only phase-8's fixed title) are `parseTriggers`'s,
  * re-checked by `writeTriggers`'s own round-trip on the host.
  */
-const triggerSourceValidator: Validator<TriggerSource> = literalUnion('pull-request', 'issue', 'schedule')
-const triggerFieldValidator: Validator<TriggerField> = literalUnion('pr', 'head', 'event', 'issue', 'slot')
+const triggerSourceValidator: Validator<TriggerSource> = literalUnion('pull-request', 'issue', 'schedule', 'mention')
+const triggerFieldValidator: Validator<TriggerField> = literalUnion('pr', 'head', 'event', 'issue', 'slot', 'thread')
 const triggerFieldListValidator = flowWordList(5, triggerFieldValidator) as unknown as Validator<TriggerField[]>
 const triggerSlug: Validator<string> = (value, path = '') => {
   const text = isString(value, path)
@@ -819,12 +843,16 @@ const triggerOnValidator: Validator<TriggerOn> = (value, path = '') => {
     return { kind: 'schedule', events: ['tick'] as const, everyMinutes }
   }
   if (kind === 'pull-request') {
-    return { kind: 'pull-request', events: flowWordList(4, literalUnion('opened', 'pushed', 'checks-failed', 'review-commented'))(record['events'], `${path}.events`) }
+    return { kind: 'pull-request', events: flowWordList(5, literalUnion('opened', 'pushed', 'checks-failed', 'review-commented', 'mentioned'))(record['events'], `${path}.events`) }
   }
   if (kind === 'issue') {
-    return { kind: 'issue', events: flowWordList(3, literalUnion('labelled', 'closed', 'commented'))(record['events'], `${path}.events`) }
+    return { kind: 'issue', events: flowWordList(4, literalUnion('labelled', 'closed', 'commented', 'mentioned'))(record['events'], `${path}.events`) }
   }
-  throw new ValidationError(`${path}.kind`, 'expected pull-request, issue or schedule')
+  if (kind === 'mention') {
+    flowWordList(1, literalUnion('commented'))(record['events'], `${path}.events`)
+    return { kind: 'mention', events: ['commented'] as const }
+  }
+  throw new ValidationError(`${path}.kind`, 'expected pull-request, issue, schedule or mention')
 }
 const triggerBudgetValidator: Validator<TriggerBudget> = goalShape({
   usd: ((value: unknown, path = '') => {
@@ -841,6 +869,12 @@ const triggerBudgetValidator: Validator<TriggerBudget> = goalShape({
   withoutProgress: goalInteger(1),
 }) as Validator<TriggerBudget>
 const triggerCommentFromValidator: Validator<TriggerCommentFrom> = literalUnion('me', 'collaborators', 'anyone')
+/** A forge login: what a mention trigger's handle, people and bots name. */
+const triggerLogin: Validator<string> = (value, path = '') => {
+  const text = isString(value, path)
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/.test(text)) throw new ValidationError(path, 'expected a forge login')
+  return text
+}
 const triggerDefinitionValidator: Validator<TriggerDefinition> = goalShape({
   id: triggerSlug,
   on: triggerOnValidator,
@@ -853,6 +887,9 @@ const triggerDefinitionValidator: Validator<TriggerDefinition> = goalShape({
   budget: triggerBudgetValidator,
   label: optional(flowWordList(5, atMost(50, isFilled))),
   from: optional(triggerCommentFromValidator),
+  handle: optional(triggerLogin),
+  people: optional(flowWordList(10, triggerLogin)),
+  bots: optional(flowWordList(10, triggerLogin)),
 }) as Validator<TriggerDefinition>
 const triggerDefinitionsValidator: Validator<TriggerDefinition[]> = (value, path = '') => {
   const definitions = arrayOf(triggerDefinitionValidator)(value, path)
@@ -896,6 +933,12 @@ const authoringValidators = {
   'authoring/triggers/render': goalShape({ definitions: triggerDefinitionsValidator }),
 }
 
+/** The carry-on rule, whole: both fields, nothing else. */
+const carryOnPolicyValidator = goalShape({
+  onLimit: literalUnion(...CARRY_ON_CHOICES),
+  otherAgents: isBoolean,
+})
+
 /**
  * A window's own preferences. Intake's machine state — its arms, its pause
  * and its cap — is never one of them: it has its own person-only methods,
@@ -907,11 +950,20 @@ const windowPreferences: Validator<Record<string, unknown>> = (value, path = '')
     if (/^trigger/i.test(key) || /^intake/i.test(key)) {
       throw new ValidationError(`${path}.${key}`, 'trigger arms, pause and daily cap are set through their own controls')
     }
+    if (/^mcp/i.test(key)) throw new ValidationError(`${path}.${key}`, 'MCP client starts are set through their own control')
     if (key === QUESTION_WAIT_PREFERENCE && !(QUESTION_WAITS as readonly unknown[]).includes(patch[key])) {
       throw new ValidationError(`${path}.${key}`, `expected one of: ${QUESTION_WAITS.join(', ')}`)
     }
+    if (key === CARRY_ON_PREFERENCE) carryOnPolicyValidator(patch[key], `${path}.${key}`)
   }
   return patch
+}
+
+/** How many starts a day an MCP client may be allowed: a whole number, 1 through the cap. */
+const mcpDailyStarts: Validator<number> = (value, path = '') => {
+  const number = goalInteger(1)(value, path)
+  if (number > MCP_DAILY_STARTS_MAX) throw new ValidationError(path, `expected at most ${MCP_DAILY_STARTS_MAX}`)
+  return number
 }
 
 /** Read-only Insight accepts selectors, never values the host is responsible for measuring. */
@@ -1001,6 +1053,11 @@ const planBudgetInputValidator = shape({
 })
 
 const phoneTier = literalUnion('read', 'run', 'answer')
+const phoneTriageLimit: Validator<number> = (value, path = '') => {
+  const number = isNumber(value, path)
+  if (!Number.isSafeInteger(number) || number < 1 || number > 100) throw new ValidationError(path, 'expected a whole number from 1 to 100')
+  return number
+}
 const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'account/status': shape({}),
   'account/signIn': shape({}),
@@ -1032,10 +1089,21 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'workspace/sessions/list': phoneShape({ archived: optional(isBoolean), cursor: optional(phoneText(2048)), limit: optional(phonePageLimit) }),
   'workspace/session/start': phoneShape({ text: phoneText(32_000), project: optional(phoneText(120)), agent: optional(phoneText(120)), model: optional(phoneText(300)), effort: optional(literalUnion('low', 'medium', 'high', 'extra')) }),
   'workspace/session/send': phoneShape({ id: phoneText(300), text: phoneText(32_000) }),
+  'workspace/session/rename': phoneShape({ id: phoneText(300), title: (value, path) => phoneText(200)(value, path).trim() }),
+  'workspace/session/archive': phoneShape({ id: phoneText(300), archived: isBoolean }),
+  'workspace/session/pin': phoneShape({ id: phoneText(300), pinned: isBoolean }),
+  'workspace/session/delete': phoneShape({ id: phoneText(300) }),
   'workspace/stop': phoneShape({ id: phoneText(300) }),
   'workspace/thread/read': shape({ id: isString }),
   'workspace/team/wrap': phoneShape({ team: phoneText(300) }),
   'workspace/approval/decide': shape({ id: isString, session: isString, allow: isBoolean, scope: optional(literalUnion('once', 'session')) }),
+  'lead/usage/summary': phoneShape({}),
+  'lead/desk/summary': phoneShape({ limit: (value, path = '') => {
+    if (value === undefined) return undefined
+    const limit = isNumber(value, path)
+    if (!Number.isInteger(limit) || limit < 1 || limit > 20) throw new ValidationError(path, 'expected an integer from 1 to 20')
+    return limit
+  } }),
   'lead/chat/list': phoneShape({ cursor: optional(phoneText(2048)), limit: optional((value, path = '') => {
     const limit = isNumber(value, path)
     if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new ValidationError(path, 'expected an integer from 1 to 50')
@@ -1050,8 +1118,12 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     })(value, path)
     if (ids.length < 1 || ids.length > 3 || new Set(ids).size !== ids.length) throw new ValidationError(path, 'expected 1 to 3 unique message ids')
     return ids
-  }), effectId: optional(phoneText(256)) }),
-  'lead/chat/send': phoneShape({ id: phoneText(300), text: phoneText(16_384), retryAt: optional(literalUnion('reset')), effectId: optional(phoneText(256)) }),
+  }), effectId: optional(phoneText(256)), cause: optional(literalUnion('person', 'automatic')), ledgerItem: optional((value, path = '') => {
+    const id = phoneText(64)(value, path)
+    if (!/^work-[1-9][0-9]{0,8}$/.test(id)) throw new ValidationError(path, 'expected a work id such as work-3')
+    return id
+  }) }),
+  'lead/chat/send': phoneShape({ id: phoneText(300), text: phoneText(16_384), retryAt: optional(literalUnion('reset')), effectId: optional(phoneText(256)), cause: optional(literalUnion('person', 'automatic')) }),
   'lead/chats/resetControl': parseLeadEmpty,
   'lead/chats/control': parseLeadEmpty,
   'lead/chat/takeOver': phoneShape({ id: phoneText(300) }),
@@ -1077,6 +1149,10 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'lead/schedule/update': parseLeadScheduleUpdate,
   'lead/memory/read': parseLeadEmpty,
   'lead/memory/update': parseLeadMemoryUpdate,
+  'lead/context/read': parseLeadEmpty,
+  'lead/context/compact': parseLeadEmpty,
+  'lead/context/use': parseLeadEmpty,
+  'lead/inbox/read': parseLeadEmpty,
   'provenance/commits': shape({ root: provenanceRoot, shas: provenanceShas }),
   'provenance/status': shape({ root: provenanceOptionalRoot }),
   'provenance/capture': shape({ root: provenanceRoot, enabled: isBoolean }),
@@ -1115,6 +1191,13 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   }),
   'usage/scan': shape({ full: optional(isBoolean) }),
   'usage/plan/read': shape({ runtime: planRuntime, account: planAccount, plan: optionalNullable(isString) }),
+  'carryOn/list': goalShape({}),
+  'carryOn/decide': goalShape({
+    incidentId: atMost(300, isFilled),
+    choice: literalUnion(...CARRY_ON_DECISIONS),
+    target: optional(atMost(300, isFilled)),
+    always: isBoolean,
+  }) as Validator<CarryOnDecision>,
   'usage/plan/set': shape({
     runtime: planRuntime,
     account: planAccount,
@@ -1155,6 +1238,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'library/usage': shape({}),
   'library/plan': shape({ cwd: optional(isString), intents: arrayOf(libraryIntentValidator) }),
   'library/apply': shape({ cwd: optional(isString), ops: arrayOf(libraryPlannedOpValidator) }),
+  'library/mcp/test': shape({ name: atMost(512), path: atMost(4096), cwd: optional(isString), confirmed: optional(atMost(128)) }),
   // `null` is how a goal is cleared. `optional` turns it into undefined, and
   // the adapter clears only on null, so a clear arrived as nothing (#25).
   'session/goal': shape({ runtime: isString, sessionId: isString, objective: nullableString }),
@@ -1234,6 +1318,9 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'session/fork': shape({ runtime: isString, sessionId: isString, options: optional(withoutHostOnly(isObject)) }),
   'session/worktreePreview': shape({ runtime: isString, sessionId: isString }),
   'session/discardWorktree': shape({ runtime: isString, sessionId: isString, stamp: isString }),
+  'session/opened': shape({ runtime: isString, sessionId: isString }),
+  'session/pins': shape({}),
+  'session/pin': shape({ runtime: isString, sessionId: isString, pinned: isBoolean }),
   'session/archive': shape({ runtime: isString, sessionId: isString, archived: isBoolean }),
   'session/remove': shape({ runtime: isString, sessionId: isString, removed: isBoolean }),
   'session/delete': shape({ runtime: isString, sessionId: isString }),
@@ -1459,6 +1546,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     vars: optional(recordOf(isString)),
     continues: optionalNullable(isFilled),
     goal: optional(startGoal),
+    cause: optional(literalUnion('person', 'automatic')),
   }),
   'flow/execution': goalShape({ run: isFilled }),
   'flow/execution/stop': goalShape({ run: isFilled, reason: atMost(4096, isFilled) }),
@@ -1699,6 +1787,32 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   }),
   'app/state/set': shape({ patch: windowPreferences, noticeBase: optional(shape({ inbox: optional(arrayOf(isObject)), noticePolicy: optional(isObject) })) }),
   'app/browsers': isObject,
+  'app/mcpStarts/get': isObject,
+  'app/mcpStarts/set': goalShape({ revision: goalInteger(0), mayStart: optional(isBoolean), dailyStarts: optional(mcpDailyStarts) }),
+  'phone/triage/list': phoneShape({ limit: optional(phoneTriageLimit) }),
+  'lead/work/list': parseLeadWorkList,
+  'lead/work/read': parseLeadWorkRead,
+  'lead/work/note': parseLeadWorkNote,
+  'lead/work/close': parseLeadWorkClose,
+  'lead/presence/read': parseLeadPresenceRead,
+  'lead/presence/dismiss': parseLeadPresenceDismiss,
+  'lead/brief/read': parseLeadEmpty,
+  'lead/brief/update': parseLeadBriefUpdate,
+  'lead/autonomy/read': parseLeadEmpty,
+  'lead/autonomy/set': parseLeadAutonomySet,
+  'lead/rules/read': parseLeadEmpty,
+  'lead/rules/update': parseLeadRulesUpdate,
+  'lead/deadline/set': parseLeadDeadlineSet,
+  'lead/memory/view': parseLeadEmpty,
+  'lead/memory/change': parseLeadMemoryChange,
+  'lead/memory/propose': parseLeadMemoryProposal,
+  'lead/memory/search': parseLeadMemorySearch,
+  'lead/reminder/set': parseLeadReminderSet,
+  'lead/reminder/cancel': parseLeadReminderCancel,
+  'lead/reminder/clear': parseLeadReminderCancel,
+  'lead/autonomy/propose': parseLeadAutonomyPropose,
+  'lead/rules/propose': parseLeadRulesPropose,
+  'lead/settings/decide': parseLeadSettingsDecide,
 }
 
 export const knownMethods = Object.keys(paramsValidators) as HostMethodName[]
@@ -1713,15 +1827,21 @@ const incidentObservation: Validator<import('./lead.js').LeadChatIncidentObserva
     if (list.length > 8) throw new ValidationError(p ?? '', 'too many recovery candidates')
     return list },
 })
+/** A chat's handle for the Lead: a short lowercase name, never `lead`. */
+const leadChatHandle: Validator<string> = (v, p) => {
+  const text = isString(v, p)
+  if (!/^[a-z][a-z0-9-]{0,31}$/.test(text) || text === 'lead') throw new ValidationError(p ?? '', 'expected a chat handle')
+  return text
+}
 const leadChatChangedParamsValidator: Validator<Extract<WireNotification, { method: 'lead/chat/changed' }>['params']> =
-  shape({ id: atMost(300, isFilled), project: atMost(4096, isFilled), state: literalUnion('running', 'waiting', 'idle'), stage: optional(literalUnion(...LEAD_STAGES)), incident: optional(incidentObservation) })
+  shape({ id: atMost(300, isFilled), handle: optional(leadChatHandle), project: atMost(4096, isFilled), state: literalUnion('running', 'waiting', 'idle'), stage: optional(literalUnion(...LEAD_STAGES)), incident: optional(incidentObservation) })
 
 /** State-only wake signal; never accepts transcript content as an event. */
 export const parseLeadChatChangedParams = (
   raw: unknown,
 ): Extract<WireNotification, { method: 'lead/chat/changed' }>['params'] => {
-  const { id, project, state, stage, incident } = leadChatChangedParamsValidator(raw, 'notification.params')
-  return { id, project, state, stage, ...(incident ? { incident } : {}) }
+  const { id, handle, project, state, stage, incident } = leadChatChangedParamsValidator(raw, 'notification.params')
+  return { id, ...(handle ? { handle } : {}), project, state, stage, ...(incident ? { incident } : {}) }
 }
 
 const sessionRemovedParamsValidator: Validator<Extract<WireNotification, { method: 'session/removed' }>['params']> =

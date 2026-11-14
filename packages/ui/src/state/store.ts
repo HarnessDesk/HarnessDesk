@@ -1,8 +1,11 @@
+import { sessionVisible } from './session-visible'
+import { AdjacentReadChanges, preserveAdjacentLocal, reconcileAdjacentRead } from './adjacent-read'
 import { isChatFolder, readChatsPreferences, recentWorkspace } from '../lib/chats'
 import { canIsolateDraft, keepsWorkspacePlace } from '../lib/draft-isolation'
-import { browserProfileSession, isBrowserProfile, sessionBrowserProfile, recommendedOptionValues, refuseOptionValue } from '@harnessdesk/protocol'
+import { browserProfileSession, isBrowserProfile, sessionBrowserProfile, recommendedOptionValues, refuseOptionValue, supersededUsageNotices, USAGE_CROSSING_KIND } from '@harnessdesk/protocol'
 import { createLeadState } from './lead'
 import { createPhoneState } from './phone'
+import { createSeatCarryOnState } from './seat-carry-on'
 import { readDiffPrefs } from '../editor'
 import { effectiveWindowMode, sameFileDocument, isDirtyDocument, type FileTransfer, type EditorLineTarget } from '../editor'
 import { filePathInRoot } from '../lib/file-link'
@@ -19,6 +22,13 @@ import { transcriptFingerprint, transcriptSessionFingerprint } from './transcrip
 import { teamsInput } from '../lib/teams-snapshot'
 import { roomFoldersGone } from '../lib/room-folders'
 import {
+  CARRY_ON_PREFERENCE,
+  carryOnPolicyOf,
+  whenOutForChoice,
+  type CarryOnDecision,
+  type CarryOnIncidentView,
+  type CarryOnKey,
+  type CarryOnPolicy,
   DEFAULT_QUESTION_WAIT,
   QUESTION_WAIT_PREFERENCE,
   questionWaitOf,
@@ -96,9 +106,13 @@ import {
   type TeamPeerInfo,
   type TeamState,
   type TriggerArmPreview,
+  type TriggerDecision,
+  type TriggerDecisionsPage,
   type TriggerGoalStatus,
+  type TriggerMode,
   type TriggerHistoryPage,
   type TriggerPreferences,
+  type McpStartsView,
   type TriggerProjectView,
   type TriggerView,
   type FlowDryRun,
@@ -166,12 +180,15 @@ import {
 import { staleDefaults, type StaleDefault } from '../lib/composer-slots'
 import { accountKey, accountName, agentKeyOf, type AccountPrefs, type AccountPrefsMap } from '../lib/accounts'
 import { canTakeTurn, inPoolOrder, nextInPool, readAccountPools, runtimeOut, whenOutOf, type AccountPool } from '../lib/account-pool'
+import { carryOnInboxTitle } from '../lib/carry-on'
 import type { ApprovalResponseResult } from '../lib/needs-you'
 import { isAvatarId } from '../lib/avatars'
 import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
 import { coalesce } from '../lib/coalesce'
 import { acceptedFindingEvidence, emptyFindingsState, type FindingFilter, type FindingsListState } from '../lib/findings'
-import { openExternal, setDockIcon } from '../lib/desktop'
+import { openExternal, setDockIcon, type PromptLink } from '../lib/desktop'
+import { handOverToComposer } from '../lib/compose'
+import { matchPromptLinkProject, promptLinkContext, promptLinkRepoText } from '../lib/prompt-link'
 import { openingOfContent, splitContext, wrapContext } from '../lib/context-envelope'
 import {
   readEditorPrefs, editorConversation, updateEditorConversation, openEditorTab, keepEditorTab,
@@ -362,7 +379,7 @@ export type {
   SeatRefusal,
   StoredCredential,
 } from './snapshot'
-import { Drafts, UNSCOPED_RECOVERY_KEY, type NewRecoverableDraft, type RecoverableDraft } from './drafts'
+import { Drafts, NEW_SESSION_DRAFT_KEY, UNSCOPED_RECOVERY_KEY, type NewRecoverableDraft, type RecoverableDraft } from './drafts'
 export type { RecoverableDraft } from './drafts'
 export { emptySnapshot } from './snapshot'
 
@@ -554,6 +571,21 @@ export class AppStore {
     return this.transport.request('trigger/goal', { goal: goal as GoalId })
   }
 
+  /** A mention trigger's triage decisions on this machine, its mode, and the work threads it opened. */
+  triggerDecisions(root: string, id: string): Promise<TriggerDecisionsPage> {
+    return this.transport.request('trigger/decisions', { root, id })
+  }
+
+  /** Judge one decision's comment again, as it reads now; an accept in act mode opens work at most once. */
+  reevaluateTriggerDecision(root: string, id: string, decision: string): Promise<TriggerDecision> {
+    return this.transport.request('trigger/decision/reevaluate', { root, id, decision })
+  }
+
+  /** Switch a mention trigger between recording what it would do and acting on it. */
+  setTriggerMode(root: string, id: string, mode: TriggerMode): Promise<TriggerDecisionsPage> {
+    return this.transport.request('trigger/mode', { root, id, mode })
+  }
+
   /** How long an agent's question waits when nobody is here, before its run stops for you. */
   async loadQuestionWait(): Promise<QuestionWait> {
     try {
@@ -565,6 +597,242 @@ export class AppStore {
 
   async setQuestionWait(value: QuestionWait): Promise<boolean> {
     return this.#writePreference({ [QUESTION_WAIT_PREFERENCE]: value }, 'How long a question waits when nobody is here')
+  }
+
+  /**
+   * The carry-on rules, read again from the host: the desk's and every
+   * agent's own (`accountPools`). An "Always do this" answered in another
+   * window, or answered here just before the link dropped, is written by the
+   * host, and this window hears no push for a preference — so Settings asks
+   * when it is shown, and a reconnect reads it too. A read that a write from
+   * this window overtook is dropped: the write is newer.
+   */
+  async loadCarryOnPolicy(): Promise<CarryOnPolicy> {
+    await this.readCarryOnRules()
+    return this.#snapshot.carryOnPolicy
+  }
+
+  /**
+   * Reads both levels of the rule until a read is applied, and says whether
+   * one was. A read never starts while a write of the rules is in flight — it
+   * waits for the write to settle — and one a write overtook is asked again,
+   * three times at most. False means this window still holds only its own
+   * copy: a page that writes the whole map must not write it from that.
+   */
+  async readCarryOnRules(): Promise<boolean> {
+    for (let tries = 0; tries < 3; tries++) {
+      if (this.#carryOnWrites > 0) await this.#carryOnRulesIdle()
+      const revision = this.#carryOnRulesRevision
+      let preferences: Readonly<Record<string, unknown>> | undefined
+      try {
+        preferences = await this.transport.request('app/state/get', {})
+      } catch {
+        // The rule this window holds is the best it has.
+        return false
+      }
+      const result = this.#applyCarryOnRules(preferences, revision, false)
+      if (result === 'applied') return true
+      if (result === 'empty') return false
+    }
+    return false
+  }
+
+  /** Settles once no write of the rules is in flight. */
+  #carryOnRulesIdle(): Promise<void> {
+    if (this.#carryOnWrites === 0) return Promise.resolve()
+    return new Promise(resolve => this.#carryOnIdleWaiters.push(resolve))
+  }
+
+  /**
+   * Applies a read of the rules unless a write of this window's is newer:
+   * `'overtaken'` when one finished since, `'held'` while one is in flight —
+   * which, for a read nobody is waiting on, asks for another when it settles.
+   */
+  #applyCarryOnRules(preferences: Readonly<Record<string, unknown>> | undefined, revision: number, rereadWhenSettled = true): 'applied' | 'overtaken' | 'held' | 'empty' {
+    if (!preferences || typeof preferences !== 'object') return 'empty'
+    if (this.#carryOnWrites > 0) {
+      if (rereadWhenSettled) this.#carryOnRulesStale = true
+      return 'held'
+    }
+    if (revision !== this.#carryOnRulesRevision) return 'overtaken'
+    this.#patch({ carryOnPolicy: carryOnPolicyOf(preferences), accountPools: readAccountPools(preferences['accountPools']) })
+    this.#followPool(this.#snapshot.usage)
+    return 'applied'
+  }
+
+  /** A local write of the rule, held in flight so no read of the rules lands across it. */
+  async #writingCarryOnRules<T>(write: () => Promise<T>): Promise<T> {
+    this.#carryOnRulesRevision++
+    this.#carryOnWrites++
+    try {
+      return await write()
+    } finally {
+      this.#carryOnRulesRevision++
+      this.#carryOnWrites--
+      if (this.#carryOnWrites === 0) {
+        const waiters = this.#carryOnIdleWaiters
+        this.#carryOnIdleWaiters = []
+        for (const resolve of waiters) resolve()
+        if (this.#carryOnRulesStale) {
+          this.#carryOnRulesStale = false
+          void this.loadCarryOnPolicy()
+        }
+      }
+    }
+  }
+
+  /** Writes the whole rule, as the validator takes it; a write that did not land puts the old one back. */
+  async setCarryOnPolicy(carryOnPolicy: CarryOnPolicy): Promise<boolean> {
+    const before = this.#snapshot.carryOnPolicy
+    this.#patch({ carryOnPolicy })
+    const kept = await this.#writingCarryOnRules(() => this.#writePreference({ [CARRY_ON_PREFERENCE]: carryOnPolicy }, 'What happens when a usage limit is reached'))
+    if (!kept && this.#snapshot.carryOnPolicy === carryOnPolicy) this.#patch({ carryOnPolicy: before })
+    if (kept) this.#followPool(this.#snapshot.usage)
+    return kept
+  }
+
+  /**
+   * Every live carry-on incident, whole. Asked on each connect, so a card a
+   * reload or a dropped link took away comes back. A host that cannot answer
+   * yet leaves what this window holds: an empty list would say nothing is
+   * stuck, which it does not know.
+   *
+   * The list is reconciled one conversation at a time, through the same path
+   * as a push, so the inbox hears of a question asked while this window was
+   * away. A conversation a push changed while the list was being read keeps
+   * the push, and a list from a connection that has since dropped is not
+   * applied at all. A kept question the list no longer asks was answered
+   * elsewhere, and is marked read.
+   */
+  async loadCarryOn(): Promise<void> {
+    const generation = this.#chatConnectionGeneration
+    // Stamped again when the request goes out: its place in the host's order.
+    let stamp = ++this.#carryOnSeq
+    let answer: { readonly incidents: readonly CarryOnIncidentView[] }
+    try {
+      answer = await this.transport.request('carryOn/list', {}, { onSend: () => { stamp = ++this.#carryOnSeq } })
+    } catch {
+      // Carry-on is the host's; a host without it has nothing live to show.
+      return
+    }
+    if (!answer || !Array.isArray(answer.incidents) || generation !== this.#chatConnectionGeneration) return
+    // One read serves both: a seat's question belongs to its Team's notice, and the seats' state keeps those.
+    this.seatCarryOn.listed(answer.incidents)
+    const listed = new Map<string, CarryOnIncidentView>(answer.incidents.map(incident => [sessionKey(incident.runtime, incident.sessionId), incident]))
+    const held = this.#snapshot.carryOnIncidents
+    for (const at of new Set<string>([...held.keys(), ...listed.keys()])) {
+      if ((this.#carryOnTouched.get(at) ?? 0) >= stamp) continue
+      const next = listed.get(at) ?? null
+      const current = held.get(at)
+      const side = next ?? current
+      if (!side) continue
+      this.#carryOnChanged(next, { runtime: side.runtime, sessionId: side.sessionId }, stamp)
+    }
+    this.#carryOnInbox(() => this.#settleAnsweredCarryOn())
+  }
+
+  /** Marks read every kept carry-on question this window no longer sees asked. */
+  #settleAnsweredCarryOn(): void {
+    const asked = new Set([...this.#snapshot.carryOnIncidents.values()].filter(entry => entry.state === 'asked').map(entry => entry.incidentId))
+    const answered = this.#snapshot.inbox.filter(entry => {
+      if (entry.read || entry.kind !== 'usage:carry-on') return false
+      const match = /^carry-on:(.+):asked$/.exec(entry.id)
+      return match !== null && !asked.has(match[1]!)
+    })
+    if (answered.length > 0) this.#setInbox(answered.reduce((inbox, entry) => markedRead(inbox, entry.id), this.#snapshot.inbox))
+  }
+
+  /**
+   * The person's answer to an asked incident. The answer the host gives back
+   * replaces the card at once rather than waiting for the push — unless a
+   * push for the conversation arrived while the answer was on its way, which
+   * is newer. "Always do this" is written by the host, and mirrored here, at
+   * the level the incident named, so Settings and the next write from this
+   * window agree with it.
+   *
+   * A refusal (a stale target, a host without the service) is thrown for the
+   * card to say beside its buttons. A stale refusal carries the incident as
+   * the host now has it, or none; that is applied first, so the card the
+   * refusal is said on is the current one. Nothing is retried.
+   */
+  async decideCarryOn(decision: CarryOnDecision): Promise<CarryOnIncidentView> {
+    const before = [...this.#snapshot.carryOnIncidents.values()].find(entry => entry.incidentId === decision.incidentId)
+    const generation = this.#chatConnectionGeneration
+    // Stamped again when the request goes out: an answer made while the link
+    // was down is sent after a reconnect's list, so the list must not outrank it.
+    let stamp = ++this.#carryOnSeq
+    const fresh = (at: string): boolean => generation === this.#chatConnectionGeneration && (this.#carryOnTouched.get(at) ?? 0) < stamp
+    let incident: CarryOnIncidentView
+    try {
+      // "Always do this" is a write of the rule, by the host: no read of the rules lands across it.
+      const ask = () => this.transport.request('carryOn/decide', decision, { onSend: () => { stamp = ++this.#carryOnSeq } })
+      ;({ incident } = await (decision.always ? this.#writingCarryOnRules(ask) : ask()))
+    } catch (error) {
+      const refusal = error as { code?: unknown; data?: unknown }
+      const data = refusal.data as { incident?: CarryOnIncidentView | null } | undefined
+      if (refusal.code === 'carryOnStale' && data && typeof data === 'object' && 'incident' in data) {
+        const now = data.incident ?? null
+        const side = now ?? before
+        if (side && fresh(sessionKey(side.runtime, side.sessionId))) this.#carryOnChanged(now, { runtime: side.runtime, sessionId: side.sessionId }, stamp)
+      }
+      throw error
+    }
+    if (fresh(sessionKey(incident.runtime, incident.sessionId))) this.#carryOnChanged(incident, { runtime: incident.runtime, sessionId: incident.sessionId }, stamp)
+    if (decision.always) {
+      const scope = before?.alwaysScope ?? incident.alwaysScope
+      if (scope === 'desk') this.#patch({ carryOnPolicy: { ...this.#snapshot.carryOnPolicy, onLimit: decision.choice } })
+      else {
+        const agent = agentKeyOf(incident.runtime, this.#snapshot.runtimes)
+        this.#patch({ accountPools: { ...this.#snapshot.accountPools, [agent]: { ...this.#snapshot.accountPools[agent], whenOut: whenOutForChoice(decision.choice) } } })
+      }
+    }
+    return incident
+  }
+
+  /**
+   * One incident's new state, from the push, an answer or the list. The card
+   * reads the map; the inbox keeps one copy of each state worth reading
+   * later — of an ordinary chat only, since a seat's question is its Team's
+   * notice and a Lead chat's is the Lead's inbox.
+   */
+  #carryOnChanged(incident: CarryOnIncidentView | null, key: CarryOnKey, stamp = ++this.#carryOnSeq): void {
+    const at = sessionKey(key.runtime, key.sessionId)
+    this.#carryOnTouched.set(at, stamp)
+    const previous = this.#snapshot.carryOnIncidents.get(at)
+    const carryOnIncidents = new Map(this.#snapshot.carryOnIncidents)
+    if (incident) carryOnIncidents.set(at, incident)
+    else carryOnIncidents.delete(at)
+    this.#patch({ carryOnIncidents })
+    this.#carryOnInbox(() => this.#keepCarryOn(previous, incident))
+  }
+
+  /** Inbox work runs against the kept inbox and the real notice policy, so it waits for the preferences. */
+  #carryOnInbox(work: () => void): void {
+    if (this.#snapshot.preferencesLoaded) work()
+    else this.#carryOnInboxPending.push(work)
+  }
+
+  #keepCarryOn(previous: CarryOnIncidentView | undefined, incident: CarryOnIncidentView | null): void {
+    // An answered question is no longer waiting on anybody.
+    if (previous?.state === 'asked' && (incident?.state !== 'asked' || incident.incidentId !== previous.incidentId)) {
+      const asked = `carry-on:${previous.incidentId}:asked`
+      if (this.#snapshot.inbox.some(entry => entry.id === asked && !entry.read)) this.markInboxRead(asked)
+    }
+    if (!incident || incident.owner !== 'chat' || (previous?.incidentId === incident.incidentId && previous.state === incident.state)) return
+    const title = carryOnInboxTitle(incident)
+    const id = `carry-on:${incident.incidentId}:${incident.state}`
+    if (!title || surfaceFor(this.#snapshot.noticePolicy, 'usage:carry-on') === null) return
+    // Kept once: keeping again would mark a read copy unread.
+    if (this.#snapshot.inbox.some(entry => entry.id === id)) return
+    this.keep({
+      id,
+      kind: 'usage:carry-on',
+      tone: incident.state === 'asked' || incident.state === 'stopped' ? 'warning' : 'info',
+      title,
+      ...(incident.note ? { body: incident.note } : {}),
+      at: Date.now(),
+      from: { runtime: incident.runtime, sessionId: incident.sessionId, name: incident.from.name },
+    })
   }
 
   /** Whether this desk lets local clients answer on the person's behalf. */
@@ -579,6 +847,25 @@ export class AppStore {
 
   async setClientsMayAnswer(value: boolean): Promise<boolean> {
     return this.#writePreference({ clientsMayAnswer: value }, 'Letting local clients answer for you')
+  }
+
+  /** Whether MCP clients may start work on this desk, and how many starts today has left. `null` when the desk cannot say. */
+  async loadMcpStarts(): Promise<McpStartsView | null> {
+    try {
+      return await this.transport.request('app/mcpStarts/get', {})
+    } catch {
+      return null
+    }
+  }
+
+  /** Changes the MCP start switch or the daily number, from the revision last read. `null` when it was not saved, with a notice saying why. */
+  async setMcpStarts(revision: number, patch: { readonly mayStart?: boolean; readonly dailyStarts?: number }): Promise<McpStartsView | null> {
+    try {
+      return await this.transport.request('app/mcpStarts/set', { revision, ...patch })
+    } catch (error) {
+      this.resultNotice('error', `Letting MCP clients start work could not be saved. ${describe(error)}`)
+      return null
+    }
   }
 
   /** What happens when a Goal a trigger opened cannot hold a Seat's ceiling. Mirrors `loadUnheldCeilings`. */
@@ -616,7 +903,8 @@ export class AppStore {
     )
   }
 
-  #snapshot: AppSnapshot = emptySnapshot()
+  // A window that has not had a usage answer yet says so, so no agent is called Not reporting before it was asked.
+  #snapshot: AppSnapshot = { ...emptySnapshot(), usageAsked: [] }
   #accountOwners = new Map<RuntimeId, number>()
   #teamFrameSerial = 0
   /**
@@ -626,6 +914,9 @@ export class AppStore {
   readonly #libraryViewListeners = new Set<() => void>()
   #libraryViews: Record<LibraryViewSection, LibraryViewState> = { skill: emptyLibraryView(), mcp: emptyLibraryView() }
   readonly #sessionRemovalRevisions = new Map<SessionKey, number>()
+  #adjacentGeneration = 0
+  #adjacentReadChanges: { key: SessionKey; changes: AdjacentReadChanges; collectingFences: boolean; lastBody: Session | undefined; localChanged: boolean } | null = null
+  #adjacentRelease: (() => void) | null = null
   #listeners = new Set<() => void>()
   readonly #storageListeners = new Set<(usage: import('@harnessdesk/protocol').StorageUsage) => void>()
   subscribeStorageUsage(listener: (usage: import('@harnessdesk/protocol').StorageUsage) => void): () => void {
@@ -636,9 +927,35 @@ export class AppStore {
   readonly transport: Transport
   readonly lead: ReturnType<typeof createLeadState>
   readonly phone: ReturnType<typeof createPhoneState>
+  /** Carry-on questions of Team and Flow seats, answered from the Team's `limit` notice. */
+  readonly seatCarryOn: ReturnType<typeof createSeatCarryOnState>
   #leadCapabilityEpoch = 0
   #chatRootsVersion: { epoch: string; revision: number } | null = null
   #chatConnectionGeneration = 0
+  /**
+   * Carry-on's fences. Every incident state is stamped with the moment its
+   * news set out (`#carryOnSeq`): a push when it arrives, a list or an answer
+   * when its request was written to the socket — which, for one made while
+   * the link was down, is when the reconnect flushes it. A conversation keeps the stamp of the state it
+   * shows (`#carryOnTouched`), and a state stamped earlier never replaces it,
+   * so a list sent before an answer never outranks that answer, whichever
+   * comes back first.
+   *
+   * `#carryOnRulesRevision` moves when a local write of the rule (desk or
+   * agent) starts and again when it settles, and no read of the rules is
+   * applied while one is in flight (`#carryOnWrites`): a read sent before the
+   * write landed, or before a reconnect flushed it, never undoes it. A read
+   * dropped that way is read again: at once when the write has finished, or
+   * when the last one in flight settles (`#carryOnRulesStale`). Inbox work waits for the kept inbox and the
+   * notice policy (`#carryOnInboxPending`).
+   */
+  #carryOnSeq = 0
+  readonly #carryOnTouched = new Map<string, number>()
+  #carryOnRulesRevision = 0
+  #carryOnWrites = 0
+  #carryOnRulesStale = false
+  #carryOnIdleWaiters: (() => void)[] = []
+  #carryOnInboxPending: (() => void)[] = []
   // This authority is preparatory only: no body is evicted until the Host's
   // complete notification and durable-receipt guarantees are enabled.
   readonly #transcriptAuthority = new Map<SessionKey, { watermark: TranscriptWatermark; lastFingerprint: string | null; sessionFingerprint: string }>()
@@ -1254,7 +1571,7 @@ export class AppStore {
       // These families have no additional event owner and their captured
       // material can be checked in the body. Notice items require exact wire
       // equality during restoration; notice events remain protected.
-      const supportedItem = (item: AgentItem) => item.type === 'userMessage' || item.type === 'assistantMessage' || item.type === 'command' || item.type === 'reasoning' || item.type === 'fileChange' || item.type === 'plan' || item.type === 'toolCall' || item.type === 'publication' || item.type === 'notice'
+      const supportedItem = (item: AgentItem) => item.type === 'userMessage' || item.type === 'assistantMessage' || item.type === 'command' || item.type === 'reasoning' || item.type === 'fileChange' || item.type === 'plan' || item.type === 'toolCall' || item.type === 'publication' || item.type === 'carryOn' || item.type === 'notice'
       const represented = (event.type === 'session/started' && event.session.itemsLoaded && !event.session.partialHistory &&
           event.session.turns.every(turn => turn.items.every(supportedItem) && new Set(turn.items.map(item => item.id)).size === turn.items.length) &&
           new Set(event.session.turns.map(turn => turn.id)).size === event.session.turns.length) ||
@@ -1322,7 +1639,7 @@ export class AppStore {
     if (pending) {
       const result = pending.capture.observe(event, fence, pending.owner)
       if (result === 'duplicate') return
-      if (result === 'unresolved' || result === 'ignored') { pending.eligible = false; this.#transcriptRecoveryBlocked.add(key); this.#transcriptAuthority.delete(key); this.#transcriptCursors.delete(key); return }
+      if (result === 'unresolved' || result === 'ignored') { if (this.#adjacentReadChanges?.key === key) { this.#adjacentReadChanges.changes.unseen = true; this.#adjacentReadChanges.changes.coverageInvalid = true } pending.eligible = false; this.#transcriptRecoveryBlocked.add(key); this.#transcriptAuthority.delete(key); this.#transcriptCursors.delete(key); return }
       if ((event.type !== 'item/delta' && event.type !== 'session/status') || (event.type === 'item/delta' && event.delta.kind !== 'assistantText')) {
         pending.eligible = false
         const held = this.#snapshot.sessions.get(key)
@@ -1334,15 +1651,25 @@ export class AppStore {
     if (previous && this.#validTranscriptFence(fence) && fence.epoch === previous.epoch && fence.generation === previous.generation &&
         fence.sequence <= previous.sequence) {
       if (fence.sequence !== previous.sequence || fence.revision !== previous.revision || !cursorEntry?.lastFingerprint ||
-          fingerprint !== cursorEntry.lastFingerprint) { this.#transcriptRecoveryBlocked.add(key); this.#transcriptAuthority.delete(key); this.#transcriptCursors.delete(key) }
+          fingerprint !== cursorEntry.lastFingerprint) { if (this.#adjacentReadChanges?.key === key) { this.#adjacentReadChanges.changes.unseen = true; this.#adjacentReadChanges.changes.coverageInvalid = true } this.#transcriptRecoveryBlocked.add(key); this.#transcriptAuthority.delete(key); this.#transcriptCursors.delete(key) }
       return
     }
     const next = previous && this.#validTranscriptFence(fence) && fence.epoch === previous.epoch && fence.generation === previous.generation &&
       fence.sequence === previous.sequence + 1 && fence.revision >= previous.revision ? fence : null
-    if (previous && !next) { this.#transcriptRecoveryBlocked.add(key); this.#transcriptCursors.delete(key) }
+    if (previous && !next) { if (this.#adjacentReadChanges?.key === key) { this.#adjacentReadChanges.changes.unseen = true; this.#adjacentReadChanges.changes.coverageInvalid = true } this.#transcriptRecoveryBlocked.add(key); this.#transcriptCursors.delete(key) }
     if (next && fingerprint) this.#transcriptCursors.set(key, { watermark: next, lastFingerprint: fingerprint })
     this.#transcriptAuthority.delete(key)
+    const beforeAdjacentEvent = this.#adjacentReadChanges?.key === key ? this.#snapshot.sessions.get(key) : undefined
     this.#onEvent(runtime, event)
+    if (this.#adjacentReadChanges?.key === key) {
+      const owner = this.#adjacentReadChanges, after = this.#snapshot.sessions.get(key)
+      if (owner.collectingFences) {
+        if (beforeAdjacentEvent !== owner.lastBody) owner.localChanged = true
+        owner.changes.observeFence(this.#validTranscriptFence(fence) ? fence : null)
+        owner.lastBody = after
+      }
+      owner.changes.observe(event, beforeAdjacentEvent, after)
+    }
     if (pending) void this.#recoverTranscript(runtime, id, pending)
     const current = this.#snapshot.sessions.get(key)
     if (next && fingerprint && current && entry && !this.#transcriptProtected(key, current)) {
@@ -1397,6 +1724,10 @@ export class AppStore {
         if (notification.method === 'session/cache-invalidated') {
           this.#transcriptChange++
           const key = sessionKey(notification.params.runtime, notification.params.sessionId)
+          if (this.#adjacentReadChanges?.key === key && this.#adjacentReadChanges.collectingFences) {
+            const fence = notification.params.watermark
+            this.#adjacentReadChanges.changes.observeFence(this.#validTranscriptFence(fence) ? fence : null)
+          }
           const released = this.#releasedTranscripts.get(key)
           const cursor = this.#transcriptCursors.get(key)?.watermark, prior = this.#transcriptReproof.get(key)
           const floor = cursor ?? (prior?.change === this.#transcriptChange - 1 && prior.connection === this.#chatConnectionGeneration &&
@@ -1438,6 +1769,7 @@ export class AppStore {
         }
         this.lead.changed(notification)
         this.phone.changed(notification)
+        this.seatCarryOn.changed(notification)
         if (notification.method === 'provenance/changed') {
           const { project, revision, health } = notification.params
           if (revision > (this.#snapshot.provenanceRevision.get(project) ?? -1)) this.#keepCaptureHealth(health)
@@ -1564,6 +1896,9 @@ export class AppStore {
           this.#historyRemovedRuntimes.delete(info.id)
           if (!this.#snapshot.runtimes.some((entry) => entry.id === info.id)) {
             this.#patch({ runtimes: [...this.#snapshot.runtimes, info] })
+            // Its usage is read now, so it gets its reading or its Not reporting card without waiting for a refresh;
+            // until that read is back it is not in `usageAsked`, and nothing calls it silent (#2111 review round 4).
+            if (!(this.#snapshot.usageAsked ?? []).includes(info.id)) void this.loadUsage()
           }
           void this.loadAccounts()
           // A runtime just added may be exactly what an Agent's `prefer` names.
@@ -1571,6 +1906,11 @@ export class AppStore {
         }
         if (notification.method === 'runtime/removed') {
           const { runtime } = notification.params
+          const adjacent = this.#snapshot.adjacentSession
+          if (adjacent && splitSessionKey(adjacent.key).runtime === runtime) {
+            this.#adjacentGeneration++
+            this.#patch({ adjacentSession: { ...adjacent, loading: false, error: 'This runtime is unavailable.' } })
+          }
           this.#transcriptChange++
           for (const key of this.#transcriptCursors.keys()) if (splitSessionKey(key).runtime === runtime) { this.#transcriptRecoveryBlocked.add(key); this.#transcriptCursors.delete(key) }
           for (const key of this.#transcriptAuthority.keys()) if (splitSessionKey(key).runtime === runtime) this.#transcriptAuthority.delete(key)
@@ -1616,7 +1956,13 @@ export class AppStore {
             ...(state.state !== 'running' ? { historyRevision: this.#snapshot.historyRevision + 1 } : {}) })
         }
         if (notification.method === 'session/indexChanged') {
-          this.#patch({ historyRevision: this.#snapshot.historyRevision + 1 })
+          const pins = pinsFromHost(notification.params.pinnedSessions)
+          if (pins) this.#sessionPinsRevision++
+          const pinsChanged = pins && (pins.length !== this.#snapshot.listPrefs.pinnedSessions.length || pins.some((key, index) => key !== this.#snapshot.listPrefs.pinnedSessions[index]))
+          this.#patch({ historyRevision: this.#snapshot.historyRevision + 1, ...(pinsChanged ? { listPrefs: { ...this.#snapshot.listPrefs, pinnedSessions: pins } } : {}) })
+          for (const row of notification.params.upserted) if ((row.lastCompletedAt ?? 0) > (row.lastOpenedAt ?? 0) && sessionVisible(this.#snapshot, sessionKey(row.runtime, row.id))) {
+            void this.transport.request('session/opened', { runtime: row.runtime, sessionId: row.id }).catch(error => this.resultNotice('error', describe(error)))
+          }
           this.#changeHistory(notification.params.upserted, notification.params.removed, notification.params.firstPageCursor)
         }
         if (notification.method === 'session/removed') {
@@ -1698,6 +2044,7 @@ export class AppStore {
         if (notification.method === 'usage/scanProgress') {
           this.#patch({ scan: notification.params.progress })
         }
+        if (notification.method === 'carryOn/changed') this.#carryOnChanged(notification.params.incident, notification.params.key)
         if (notification.method === 'session/worktreeKept') this.resultNotice('info', notification.params.message)
         if (notification.method === 'person/notice') {
           this.#personNotice(notification.params.notice)
@@ -1801,6 +2148,7 @@ export class AppStore {
           this.#transcriptCursors.clear()
           this.#transcriptReceipts.clear()
           this.#chatConnectionGeneration += 1
+          if (this.#snapshot.adjacentSession) this.#patch({ adjacentSession: { ...this.#snapshot.adjacentSession, loading: false, error: 'Connection lost. Reconnecting…' } })
           this.#chatRootsVersion = null
           this.#leadCapabilityEpoch += 1
           this.#captureEpoch += 1
@@ -1808,14 +2156,24 @@ export class AppStore {
           this.#patch({ status, leadAvailable: false, captureHealth: new Map(), provenanceRevision: new Map() })
           this.lead.reset()
           this.phone.reset()
+          this.seatCarryOn.reset()
         } else {
           this.#patch({ status })
           if (previous === 'reconnecting') {
+            const adjacent = this.#snapshot.adjacentSession
+            if (adjacent) { const { runtime, id } = splitSessionKey(adjacent.key); void this.openAdjacentSession(id, runtime) }
             void this.#refreshLeadAvailability()
             const generation = this.#chatConnectionGeneration
-            void this.transport.request('app/state/get', {}).then(preferences => this.#applyChatsPreferences(preferences, generation)).catch(() => {})
+            // The same read refreshes the carry-on rules: an "Always do this" the host wrote while the link was down.
+            const rules = this.#carryOnRulesRevision
+            void this.transport.request('app/state/get', {}).then(preferences => {
+              this.#applyChatsPreferences(preferences, generation)
+              if (this.#applyCarryOnRules(preferences, rules) === 'overtaken') void this.loadCarryOnPolicy()
+            }).catch(() => {})
           }
           if (previous !== 'open') void this.loadCaptureHealth().catch(() => {})
+          // Chat and seat questions alike: a seat already waiting on a person, or one a dropped link took away, comes back.
+          if (previous !== 'open') void this.loadCarryOn()
           if (previous === 'reconnecting' && this.#harnessDeskAccountRequested) void this.loadHarnessDeskAccount()
         }
       },
@@ -1823,6 +2181,8 @@ export class AppStore {
     this.lead = createLeadState(this.transport, () => this.#snapshot.leadAvailable)
     this.phone = createPhoneState(this.transport)
     this.phone.subscribe(() => { const phoneLink = this.phone.state.enabled; if (phoneLink !== this.#snapshot.phoneLink) this.#patch({ phoneLink }) })
+    this.seatCarryOn = createSeatCarryOnState(this.transport)
+    this.seatCarryOn.subscribe(() => this.#patch({ seatCarryOn: this.seatCarryOn.state }))
     this.#watchWindowWidth()
     this.enableTranscriptCache()
   }
@@ -2419,6 +2779,74 @@ export class AppStore {
     for (const listener of this.#libraryViewListeners) listener()
   }
 
+  /**
+   * A prompt link (`harnessdesk://new`): a new chat's draft in the project it
+   * names, with the composer filled and marked as from a link. That is all it
+   * does — it never sends, never starts a run or a Flow, and never touches a
+   * permission or a setting. The person reads the draft and presses Send.
+   *
+   * The project must already be one the desk has: a link cannot make the
+   * desk open, clone or trust a folder. When none matches, a notice says
+   * which repository to open first. A draft already typed in the new-chat
+   * composer is set aside to restore, never overwritten.
+   */
+  async fillFromPromptLink(link: PromptLink): Promise<'filled' | 'unmatched' | 'not-opened' | 'not-taken' | 'superseded'> {
+    // The newest link wins: one still waiting on the host when another
+    // arrives must not, on its return, navigate or replace the newer draft.
+    const generation = ++this.#promptLinkGeneration
+    const current = (): boolean => generation === this.#promptLinkGeneration
+    const workspaces = await this.transport.request('workspace/recent', {}).catch(() => this.#snapshot.workspaces)
+    if (!current()) return 'superseded'
+    const project = matchPromptLinkProject(link.repo, workspaces)
+    if (!project) {
+      this.notice('warning', `Open this repository first: ${promptLinkRepoText(link.repo)}`)
+      return 'unmatched'
+    }
+    // Read before the pane turns into the draft (a conversation's composer
+    // leaving for it starts the draft empty) and again after (a new chat's
+    // composer already on screen keeps what it holds).
+    const before = this.drafts.live(NEW_SESSION_DRAFT_KEY)
+    if (this.#snapshot.workspace?.path !== project.path) {
+      // A link overtaken while its folder opens must not land that folder
+      // after a newer link (which may not have needed to open one at all).
+      const previous = this.#conversationWorkspaceSource?.navigation === this.#navigationEpoch
+        ? this.#conversationWorkspaceSource : undefined
+      const navigation = ++this.#navigationEpoch
+      await this.#openWorkspace(project.path, () => current() && navigation === this.#navigationEpoch, undefined, previous)
+    }
+    if (!current()) return 'superseded'
+    this.newDraft()
+    if (this.#snapshot.workspace?.path !== project.path) return 'not-opened'
+    // Whatever the new chat's draft holds is set aside, not overwritten:
+    // its words unless they are the link's own, and its chips always.
+    const after = this.drafts.live(NEW_SESSION_DRAFT_KEY)
+    const setAside = new Set<string>()
+    for (const held of [before, after]) {
+      if (!held || (held.attachments.length === 0 && (held.text.trim() === '' || held.text === link.prompt))) continue
+      const identity = JSON.stringify([held.text, held.attachments.map((attachment) => attachment.path)])
+      if (setAside.has(identity)) continue
+      setAside.add(identity)
+      this.addRecoverableDraft(UNSCOPED_RECOVERY_KEY, {
+        text: held.text,
+        attachments: held.attachments,
+        reason: 'saved',
+        detail: 'Set aside for the draft a link opened. Restore it to the composer you choose.',
+      })
+    }
+    // Kept for a composer drawn later, and handed to the new draft on screen
+    // now — that pane's draft alone, once it is drawn.
+    this.drafts.setLive(NEW_SESSION_DRAFT_KEY, { text: link.prompt, attachments: [] })
+    this.#patch({ promptLinkDraft: { text: link.prompt, context: promptLinkContext(link) } })
+    const taken = await handOverToComposer({ text: link.prompt, paneId: this.#snapshot.layout.focused, newDraft: true }, { live: current })
+    if (!current()) return 'superseded'
+    return taken ? 'filled' : 'not-taken'
+  }
+
+  /** The draft a prompt link filled was edited or sent: it is the person's own now. */
+  endPromptLinkDraft(): void {
+    if (this.#snapshot.promptLinkDraft) this.#patch({ promptLinkDraft: null })
+  }
+
   /** One click on a workspace group's +: that folder, a fresh draft. */
   async startSessionIn(path: string): Promise<void> {
     if (this.#snapshot.workspace?.path !== path) await this.openWorkspace(path)
@@ -2512,10 +2940,8 @@ export class AppStore {
 
   /** Pins a session to the top of its group, or unpins it. */
   toggleSessionPinned(key: string): void {
-    const pinned = this.#snapshot.listPrefs.pinnedSessions
-    this.setListPrefs({
-      pinnedSessions: pinned.includes(key) ? pinned.filter((entry) => entry !== key) : [...pinned, key],
-    })
+    void this.transport.request('session/pin', { ...address(key as SessionKey), pinned: !this.#snapshot.listPrefs.pinnedSessions.includes(key) })
+      .catch(error => this.resultNotice('error', describe(error)))
   }
 
   /** Shows a folder in the OS file browser. The desktop shell supplies the hand-off. */
@@ -3102,13 +3528,16 @@ export class AppStore {
    */
   async loadUsage(): Promise<void> {
     const events = new Map(this.#usageEvents)
+    const asking = this.#snapshot.runtimes.map((entry) => entry.id)
     try {
       const reports = await this.transport.request('usage/reports', {})
       const unchanged = (runtime: RuntimeId): boolean => this.#usageEvents.get(runtime) === events.get(runtime)
-      this.#patch({ usage: [
+      this.#patch({ usageAsked: this.#askedAlso(asking, reports), usage: [
         ...this.#snapshot.usage.filter((report) => !unchanged(report.runtime)),
         ...reports.filter((report) => unchanged(report.runtime)),
       ] })
+      // A reading that arrives here, and not as a push, can retire a notice as well as one a refresh brings.
+      this.#retireSupersededUsage(this.#snapshot.usage)
       // A host with a fresh reading cached answers here and sends no update,
       // so a spent account found at connect is the pool's to move too.
       this.#followPool(this.#snapshot.usage)
@@ -3146,6 +3575,25 @@ export class AppStore {
    * an already-spent account is silent. Being *out* is a condition rather than
    * an event and belongs to the banner, not here.
    */
+  /**
+   * `usageAsked` with the agents one answered read covered added: the host answers only once every agent's read has
+   * settled, so each agent the window knew when it asked was asked, and so was each agent the answer names.
+   */
+  #askedAlso(asking: readonly RuntimeId[], reports: readonly UsageReport[]): readonly RuntimeId[] {
+    const asked = new Set(this.#snapshot.usageAsked ?? [])
+    for (const id of [...asking, ...reports.map((report) => report.runtime)]) asked.add(id)
+    return [...asked]
+  }
+
+  /* A notice whose figures a newer read no longer bears out leaves: a window back under its line, or one in a cycle
+     the notice did not see, said something that is no longer so (#2111). The host's phone and Lead projection drop
+     the same notices by the same rule, so this only keeps the saved inbox from carrying them. */
+  #retireSupersededUsage(after: readonly UsageReport[]): void {
+    const names = new Map(this.#snapshot.runtimes.map((entry) => [entry.id, entry.presentation.name] as const))
+    const superseded = supersededUsageNotices(this.#snapshot.inbox, after, Date.now(), names)
+    if (superseded.size > 0) this.#setInbox(this.#snapshot.inbox.filter(entry => !superseded.has(entry.id)))
+  }
+
   #announceUsage(before: readonly UsageReport[], after: readonly UsageReport[]): void {
     const nameFor = (runtime: RuntimeId, account: string | null): string =>
       toastName(
@@ -3156,14 +3604,18 @@ export class AppStore {
         this.#snapshot.accountPrefs,
         this.#snapshot.hideAccountAddresses,
       )
-    for (const alert of crossings(before, after, nameFor, this.#snapshot.runtimes, Date.now())) {
-      this.infoNotice('warning', alert.message, 'usage:crossing')
+    const now = Date.now()
+    // A notice a newer read no longer bears out leaves before any new crossing is said.
+    this.#retireSupersededUsage(after)
+    for (const alert of crossings(before, after, nameFor, this.#snapshot.runtimes, now)) {
+      this.#keepInfo({ type: 'notice', class: 'info', kind: USAGE_CROSSING_KIND, level: 'warning', message: alert.message, contentKey: alert.contentKey })
     }
   }
 
   /** Asks the sources again — one agent, or all of them. */
   async refreshUsage(runtime?: RuntimeId): Promise<void> {
     const events = new Map(this.#usageEvents)
+    const asking = runtime ? [runtime] : this.#snapshot.runtimes.map((entry) => entry.id)
     try {
       const reply = await this.transport.request(
         'usage/refresh',
@@ -3182,7 +3634,9 @@ export class AppStore {
       const before = this.#snapshot.usage
       const kept = before.filter((entry) => !touched.has(keyOf(entry)))
       const usage = [...kept, ...reports]
-      this.#patch({ usage })
+      // The agents this refresh covered are asked, as a first read's are: without it, a start whose first
+      // `usage/reports` failed would hide each silent agent's card for as long as the window is open.
+      this.#patch({ usage, usageAsked: this.#askedAlso(asking, reply) })
       this.#announceUsage(before, usage)
       this.#followPool(usage)
     } catch {
@@ -3391,7 +3845,15 @@ export class AppStore {
       const archived = row.archived === undefined ? live.archived : row.archived
       if (live.title === title && live.archived === archived) continue
       const next = new Map(sessions)
-      next.set(key, { ...live, title, archived })
+      const indexed = { ...live, title, archived }
+      next.set(key, indexed)
+      const owner = this.#adjacentReadChanges
+      if (owner?.key === key) {
+        if (owner.collectingFences) {
+          if (owner.lastBody !== live) owner.localChanged = true
+          else { owner.changes.observeIndex(live, indexed); owner.lastBody = indexed }
+        } else owner.changes.observeIndex(live, indexed)
+      }
       sessions = next
     }
     const nextFoldersGone = this.#foldersGoneFor(upserted)
@@ -3523,6 +3985,95 @@ export class AppStore {
 
   // ----------------------------------------------------------------- sessions
 
+  /** A secondary reader owns a visibility lease, never a shared session handle. */
+  closeAdjacentSession(): void {
+    this.#adjacentReadChanges = null
+    this.#adjacentGeneration++
+    this.#adjacentRelease?.()
+    this.#adjacentRelease = null
+    if (this.#snapshot.adjacentSession) this.#patch({ adjacentSession: null })
+  }
+
+  async openAdjacentSession(id: SessionId, runtime: RuntimeId): Promise<void> {
+    const subject = this.workSubject()
+    if (!subject) return
+    if (this.#snapshot.workbench.navigation.current.kind !== 'work') this.returnToWork()
+    const key = sessionKey(runtime, id), generation = ++this.#adjacentGeneration
+    const removal = this.#sessionRemovalRevisions.get(key) ?? 0
+    const connection = this.#chatConnectionGeneration
+    const visibility = this.retainTranscript(runtime, id)
+    const operation = this.retainTranscript(runtime, id)
+    this.#adjacentRelease?.()
+    this.#adjacentRelease = visibility
+    this.#patch({ adjacentSession: { key, subject, loading: true, error: null } })
+    this.closeFloatingSidebar()
+    if (this.#historyRemovedRuntimes.has(runtime)) {
+      this.#patch({ adjacentSession: { key, subject, loading: false, error: 'This runtime is unavailable.' } })
+      operation()
+      return
+    }
+    const current = () => generation === this.#adjacentGeneration && this.#snapshot.adjacentSession?.key === key &&
+      this.workSubject() === subject && (this.#sessionRemovalRevisions.get(key) ?? 0) === removal && this.#chatConnectionGeneration === connection
+    let read = false
+    let changes = new AdjacentReadChanges()
+    const readOwner = { key, changes, collectingFences: !this.#snapshot.sessions.has(key), lastBody: this.#snapshot.sessions.get(key), localChanged: false }
+    this.#adjacentReadChanges = readOwner
+    try {
+      if (this.#releasedTranscripts.has(key) && !await this.restoreTranscript(runtime, id)) throw new Error('The saved conversation could not be restored.')
+      const session = await this.transport.request('session/read', { runtime, sessionId: id })
+      if (!current()) return
+      if (session.runtime !== runtime || session.id !== id) throw new Error('The conversation returned a different identity.')
+      if (readOwner.collectingFences && changes.unseen) {
+        const snapshot = await this.transport.request('session/cache-snapshot', { runtime, sessionId: id })
+        if (!current() || this.#adjacentReadChanges !== readOwner) return
+        const observed = changes.coverage
+        const held = this.#snapshot.sessions.get(key)
+        if (!snapshot || changes.coverageInvalid || readOwner.localChanged || held !== readOwner.lastBody || !observed || !this.#validTranscriptFence(snapshot.watermark) ||
+            snapshot.watermark.epoch !== observed.epoch || snapshot.watermark.generation !== observed.generation ||
+            snapshot.watermark.sequence < observed.sequence || snapshot.watermark.revision < observed.revision ||
+            (snapshot.watermark.sequence === observed.sequence && snapshot.watermark.revision !== observed.revision) ||
+            snapshot.session.runtime !== runtime || snapshot.session.id !== id || !snapshot.session.itemsLoaded || snapshot.session.partialHistory ||
+            !/^[a-f0-9]{64}$/.test(snapshot.identity) ||
+            transcriptFingerprint(canonicalTranscriptBody(snapshot.session.turns).canonical) !== snapshot.identity ||
+            this.#transcriptPending.has(key) || this.#releasedTranscripts.has(key) || this.#transcriptOrphans.size > 0 || this.#releasedOrphans.length > 0) {
+          throw new Error('The conversation changed without a covering snapshot. Retry to refresh it.')
+        }
+        this.#setSession(preserveAdjacentLocal(changes.applyIndex(snapshot.session), held), true)
+        changes = changes.forResume()
+        readOwner.changes = changes
+        readOwner.collectingFences = false
+      } else {
+        this.#setAdjacentRead(session, changes)
+        readOwner.collectingFences = false
+      }
+      read = true
+      void this.transport.request('session/opened', { runtime, sessionId: id }).catch(error => this.resultNotice('error', describe(error)))
+      const live = await this.transport.request('session/resume', { runtime, sessionId: id })
+      if (!current()) return
+      if (live.runtime !== runtime || live.id !== id) throw new Error('The conversation returned a different identity.')
+      this.#setAdjacentRead(live, changes)
+      // A successful reopen is evidence that this folder is no longer missing.
+      this.#lastResumeRefusal.delete(key)
+      if (this.#snapshot.foldersGone.has(live.cwd)) {
+        const foldersGone = new Map(this.#snapshot.foldersGone)
+        foldersGone.delete(live.cwd)
+        this.#patch({ foldersGone })
+      }
+      this.#patch({ adjacentSession: { key, subject, loading: false, error: null } })
+    } catch (error) {
+      if (current()) this.#patch({ adjacentSession: { key, subject, loading: false, error: `${read ? 'Could not resume: ' : 'Could not read: '}${describe(error)}` } })
+    } finally { if (this.#adjacentReadChanges === readOwner) this.#adjacentReadChanges = null; operation() }
+  }
+
+  /** A read has no sequence fence: keep events observed after it began. */
+  #setAdjacentRead(read: Session, changes: AdjacentReadChanges): void {
+    const key = sessionKey(read.runtime, read.id), held = this.#snapshot.sessions.get(key)
+    if (changes.unseen) throw new Error('The conversation changed without a complete event sequence. Retry to refresh it.')
+    const indexed = changes.applyIndex(read)
+    if (!held || !changes.observed) { this.#setSession(indexed); return }
+    this.#setSession(reconcileAdjacentRead(held, indexed, changes), true)
+  }
+
   /**
    * Opens a conversation: in the pane already showing it, else in the
    * conversation pane (`split` is honoured only when no pane converses, by
@@ -3624,6 +4175,7 @@ export class AppStore {
       if (!stillHeld()) return false
       this.#setSession(session)
       readSucceeded = true
+      if (options.reveal !== false || sessionVisible(this.#snapshot, key)) void this.transport.request('session/opened', { runtime, sessionId: id }).catch(error => this.resultNotice('error', describe(error)))
       if (!options.preview && !options.restoring) this.#ensureHistorySummary(session)
       await followFolder(session)
       if (!stillHeld()) return false
@@ -4027,6 +4579,8 @@ export class AppStore {
    * agent, one Enter from going to the very agent being left.
    */
   #parkedHandoff: DraftHandoff | null = null
+  /** Which prompt link is the newest: an older one still in flight stops where it is. */
+  #promptLinkGeneration = 0
 
   /**
    * The last reopen refusal toasted for a conversation that is not a gone
@@ -4118,7 +4672,7 @@ export class AppStore {
     this.#parkedHandoff = null
     // And it starts in the open folder: a worktree chosen for the last draft
     // is a decision about that one, and "New session" is asked to be empty.
-    this.#patch({ draftHandoff: parked, draftPlace: startsInChats ? { kind: 'chats' } : null, sidebarFloating: false })
+    this.#patch({ draftHandoff: parked, draftPlace: startsInChats ? { kind: 'chats' } : null, promptLinkDraft: null, sidebarFloating: false })
     // Hand the keyboard to the composer, the only thing to do in an empty pane.
     window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: '' }))
   }
@@ -4451,6 +5005,7 @@ export class AppStore {
    * again for a conversation it never showed.
    */
   #dropRemoved(key: SessionKey, deleted: boolean): void {
+    if (this.#snapshot.adjacentSession?.key === key) this.closeAdjacentSession()
     const released = this.#releasedTranscripts.get(key)
     const removal = this.#sessionRemovalRevisions.get(key) ?? 0
     // A deletion only owns material from this connection and incarnation.
@@ -5516,6 +6071,7 @@ export class AppStore {
     return null
   }
   chooseWorkTool(tool: WorkTool, mode: string = tool, toggle = false): void {
+    if (this.#snapshot.adjacentSession) this.closeAdjacentSession()
     const subject = this.workSubject()
     if (!subject) return
     const before = this.#snapshot.workbench
@@ -5561,6 +6117,7 @@ export class AppStore {
       frameSubjects: { ...before.frameSubjects, [subject]: { paneId: pane.id, view: pane.view } } })
   }
   toggleWorkPanel(): void {
+    if (this.#snapshot.adjacentSession) { this.closeAdjacentSession(); return }
     const subject = this.workSubject()
     if (!subject) return
     const before = this.#snapshot.workbench
@@ -5580,6 +6137,7 @@ export class AppStore {
 
   /** Mounts a view in an area, bringing it forward if it is already somewhere. */
   showViewIn(area: AreaId, view: PaneView): void {
+    if (area === 'right' && this.#snapshot.adjacentSession) this.closeAdjacentSession()
     if (view.kind === 'board') { this.openTeamBoard(view.room); return }
     if (view.kind === 'run-steps') {
       const room = this.#roomToShow()
@@ -7911,8 +8469,8 @@ export class AppStore {
       .catch(() => [])
   }
 
-  async mcpLogin(name: string): Promise<void> {
-    const runtime = this.#snapshot.activeRuntime
+  /** Starts the agent's own sign-in for one of its servers: the active agent's, or the one named. */
+  async mcpLogin(name: string, runtime: RuntimeId | null = this.#snapshot.activeRuntime): Promise<void> {
     if (!runtime) return
     try {
       const { url } = await this.transport.request('runtime/mcp/login', { runtime, name })
@@ -8280,6 +8838,8 @@ export class AppStore {
           ? (rawAccounts as AccountPrefsMap)
           : {}
       const rawList = preferences['listPrefs'] as Partial<AppSnapshot['listPrefs']> | undefined
+      const pinsRevision = this.#sessionPinsRevision
+      const hostPins = await this.transport.request('session/pins', {}).then(pins => pinsFromHost(pins) ?? this.#snapshot.listPrefs.pinnedSessions, () => this.#snapshot.listPrefs.pinnedSessions)
       const listPrefs: AppSnapshot['listPrefs'] = {
         // Compact unless the user has said otherwise: one line per
         // conversation is what both Codex and Claude Code open with.
@@ -8295,9 +8855,7 @@ export class AppStore {
         pinned: Array.isArray(rawList?.pinned)
           ? rawList.pinned.filter((entry): entry is string => typeof entry === 'string')
           : [],
-        pinnedSessions: Array.isArray(rawList?.pinnedSessions)
-          ? rawList.pinnedSessions.filter((entry): entry is string => typeof entry === 'string')
-          : [],
+        pinnedSessions: this.#sessionPinsRevision === pinsRevision ? hostPins : this.#snapshot.listPrefs.pinnedSessions,
         gitColumns: readColumnWidths(rawList?.gitColumns),
         collapsed: Array.isArray(rawList?.collapsed)
           ? rawList.collapsed.filter((entry): entry is string => typeof entry === 'string')
@@ -8348,6 +8906,7 @@ export class AppStore {
       this.#patch({
         accountPrefs,
         accountPools: readAccountPools(preferences['accountPools']),
+        carryOnPolicy: carryOnPolicyOf(preferences),
         hideAccountAddresses: preferences['hideAccountAddresses'] === true,
         profile,
         customPresets: readCustomPresets(preferences['customPresets']),
@@ -8406,6 +8965,9 @@ export class AppStore {
       this.#patch({ preferencesLoaded: true })
     }
     this.#drainPendingPersonNotices()
+    const carryOn = this.#carryOnInboxPending
+    this.#carryOnInboxPending = []
+    for (const work of carryOn) work()
     const info = this.#pendingInfo
     this.#pendingInfo = []
     for (const pending of info) this.#keepInfo(pending.event, pending.runtime)
@@ -9069,10 +9631,10 @@ export class AppStore {
   setAccountPool(agent: RuntimeId, patch: AccountPool): void {
     const merged: AccountPool = { ...this.#snapshot.accountPools[agent], ...patch }
     const accountPools = { ...this.#snapshot.accountPools }
-    if ((merged.order?.length ?? 0) === 0 && merged.whenOut === undefined) delete accountPools[agent]
+    if ((merged.order?.length ?? 0) === 0 && merged.whenOut === undefined && merged.pace === undefined) delete accountPools[agent]
     else accountPools[agent] = merged
     this.#patch({ accountPools })
-    void this.#writePreference({ accountPools }, 'The account order')
+    void this.#writingCarryOnRules(() => this.#writePreference({ accountPools }, 'The account order'))
     this.#followPool(this.#snapshot.usage)
   }
 
@@ -9096,13 +9658,14 @@ export class AppStore {
     const runtimes = this.#snapshot.runtimes
     const agent = agentKeyOf(active, runtimes)
     const pool = this.#snapshot.accountPools[agent]
-    if (whenOutOf(pool) !== 'next') return
-    const siblings = inPoolOrder(runtimes.filter((entry) => agentKeyOf(entry.id, runtimes) === agent), pool)
+    if (whenOutOf(pool, this.#snapshot.carryOnPolicy) !== 'next') return
+    const siblings = inPoolOrder(runtimes.filter((entry) => agentKeyOf(entry.id, runtimes) === agent), pool, { reports, now: Date.now() })
     const usable = (runtime: RuntimeId): boolean => {
       const entry = siblings.find((sibling) => sibling.id === runtime)
       return entry !== undefined && !runtimeOut(runtime, reports) && canTakeTurn(entry, this.#snapshot)
     }
-    const next = nextInPool(siblings, active, usable)
+    // The soonest-reset order is a ranking, not a queue to walk: take its best usable account.
+    const next = pool?.pace === 'soonest' ? siblings.find((sibling) => sibling.id !== active && usable(sibling.id)) ?? null : nextInPool(siblings, active, usable)
     if (!next) return
     const name = (runtime: RuntimeId): string => {
       const agentName = runtimes.find((entry) => entry.id === runtime)?.presentation.name ?? String(runtime)
@@ -9191,7 +9754,8 @@ export class AppStore {
     const listPrefs = { ...this.#snapshot.listPrefs, ...patch }
     this.#patch({ listPrefs })
     if (patch.agent !== undefined && patch.agent !== previousAgent) void this.loadHistory({ reset: true, reconcile: true })
-    void this.#writePreference({ listPrefs }, 'The list settings')
+    const { pinnedSessions: _pins, ...persisted } = listPrefs
+    void this.#writePreference({ listPrefs: persisted }, 'The list settings')
   }
 
   /**
@@ -9637,6 +10201,9 @@ export class AppStore {
   }
   #onEvent(runtime: RuntimeId, event: AgentEvent): void {
     this.#notifyPublication(event)
+    if (event.type === 'turn/completed' && sessionVisible(this.#snapshot, sessionKey(runtime, event.sessionId))) {
+      void this.transport.request('session/opened', { runtime, sessionId: event.sessionId }).catch(error => this.resultNotice('error', describe(error)))
+    }
     if (event.type === 'approval/requested') {
       const key = sessionKey(runtime, event.approval.sessionId)
       if (this.#snapshot.approvals.some((entry) => entry.key === key && entry.approval.id === event.approval.id)) return
@@ -9778,6 +10345,7 @@ export class AppStore {
   #historyQuery = ''
   #historyCursor: string | null = null
   #historyCapacity = 50
+  #sessionPinsRevision = 0
   #historyLoaded = false
   #historyRows: readonly SessionSummary[] = []
   #historyAgent: RuntimeId | null = null
@@ -9789,7 +10357,7 @@ export class AppStore {
 
   readonly #pendingConversationNotices = new PendingConversationNotices()
 
-  #setSession(session: Session): void {
+  #setSession(session: Session, reconciled = false): void {
     this.#transcriptChange++
     this.#transcriptAuthority.delete(sessionKey(session.runtime, session.id))
     this.#transcriptReceipts.delete(sessionKey(session.runtime, session.id))
@@ -9805,7 +10373,7 @@ export class AppStore {
     const read = existing?.archived !== undefined && session.archived === undefined
       ? { ...session, archived: existing.archived }
       : session
-    sessions.set(key, existing ? mergeRead(existing, read) : read)
+    sessions.set(key, existing && !reconciled ? mergeRead(existing, read) : read)
     this.#patch({ sessions })
   }
 
@@ -9817,6 +10385,13 @@ export class AppStore {
    */
   #patch(patch: Partial<AppSnapshot>, options?: { preserveSessionMembership?: boolean }): void {
     const next = { ...this.#snapshot, ...patch }
+    if (next.adjacentSession && (fixedSubject(next.workbench.main) !== next.adjacentSession.subject ||
+      !sameDestination(this.#snapshot.workbench.navigation.current, next.workbench.navigation.current))) {
+      this.#adjacentGeneration++
+      this.#adjacentRelease?.()
+      this.#adjacentRelease = null
+      next.adjacentSession = null
+    }
     const navigation = availableDestinationHistory(next.workbench.navigation, () => {
       const view = focusedPane(next.workbench.main).view
       return destinationOf(view.kind === 'conversation' || view.kind === 'room' ? view : { kind: 'conversation', session: null })
@@ -9957,6 +10532,20 @@ const address = (key: SessionKey): { runtime: RuntimeId; sessionId: SessionId } 
   const { runtime, id } = splitSessionKey(key)
   return { runtime, sessionId: id }
 }
+
+/**
+ * The host's pin list, in the window's key spelling. The host and paired phones
+ * spell a pin `runtime:id`; the window compares `sessionKey` values. Runtime ids
+ * carry no colon and session ids may, so only the first colon separates them.
+ * Anything but a list is `null`, so the caller keeps the pins it has.
+ */
+const pinsFromHost = (pins: unknown): string[] | null => Array.isArray(pins)
+  ? pins.filter((pin): pin is string => typeof pin === 'string').map(pin => {
+    if (pin.includes('\u0000')) return pin
+    const at = pin.indexOf(':')
+    return at > 0 ? String(sessionKey(pin.slice(0, at), pin.slice(at + 1))) : pin
+  })
+  : null
 
 /**
  * A conversation that could not be opened because something else has it.

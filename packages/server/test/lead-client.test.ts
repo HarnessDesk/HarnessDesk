@@ -234,10 +234,10 @@ test('Lead project lists and subscriptions agree with ownership-scoped single re
   assert.equal(peer.messages.slice(after).some(frame => frame.method === 'flow/execution-changed' && frame.params.execution.id === unrelated.id), false)
 })
 
-test('Lead refuses desk-wide library usage', async t => {
+test('Lead can dispatch desk-wide skill counts after permission admission', async t => {
   const { peer } = await rig(t)
   await peer.hello()
-  assert.equal((await peer.call('library/usage', {})).error?.code, 'leadScope')
+  assert.equal((await peer.call('library/usage', {})).ok, true)
 })
 
 test('Lead library definitions require the approved canonical project cwd', async t => {
@@ -509,4 +509,22 @@ test('private Lead authority refuses repeat controls and allowance raises withou
   t.after(() => rm(project, { recursive: true, force: true }))
   const authority = await createLeadClientAuthority({ project, owned: [], host: { async call() { throw new Error('No host effect is authorized') }, clientScopeViews: () => [] } as unknown as LeadClientAuthorityOptions['host'] })
   for (const method of ['lead/repeat/control', 'lead/budget/raise']) assert.equal(await authority.authorize({ id: 1, method, params: {} } as never), 'leadScope')
+})
+
+
+test('Lead client authority allows the title-only desk summary without widening chat reads', async t => {
+  const { authority } = await rig(t)
+  assert.equal(await authority.authorize({ id: 1, method: 'lead/desk/summary', params: {} }), null)
+  assert.equal(await authority.authorize({ id: 2, method: 'lead/chat/read', params: { id: 'fixture:foreign' } }), 'leadScope')
+})
+
+test('Lead client authority lets the Lead read its own context use', async t => {
+  const { authority } = await rig(t)
+  assert.equal(await authority.authorize({ id: 1, method: 'lead/context/use', params: {} } as never), null)
+})
+
+test('Lead client authority lets the Lead set and cancel a reminder on its own board', async t => {
+  const { authority } = await rig(t)
+  assert.equal(await authority.authorize({ id: 1, method: 'lead/reminder/set', params: { text: 'Send the notes', inMinutes: 30 } } as never), null)
+  assert.equal(await authority.authorize({ id: 2, method: 'lead/reminder/cancel', params: { id: 'remind-1' } } as never), null)
 })

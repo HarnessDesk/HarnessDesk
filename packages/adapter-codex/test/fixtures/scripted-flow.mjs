@@ -136,7 +136,7 @@ export function scriptedFlow(raw, { send, notify }) {
                 }
                 const path = join(cwd, file)
                 if (existsSync(path) && lstatSync(path).isSymbolicLink()) throw new Error('The scripted file is a symlink')
-                writeFileSync(path, step.contents?.replaceAll('{{intent}}', String(intent)) ?? `Retryable statuses: ${pass === 0 ? '503, 504' : '502, 503, 504'}\n`)
+                writeFileSync(path, step.contents?.replaceAll('{{intent}}', String(intent)).replaceAll('{{run}}', run) ?? `Retryable statuses: ${pass === 0 ? '503, 504' : '502, 503, 504'}\n`)
                 await call(tools, threadId, turnId, 'commit_work', { intent, message: 'rig: record the scripted retry change' })
                 check()
                 if (step.publish) {

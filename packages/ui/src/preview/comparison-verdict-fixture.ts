@@ -56,6 +56,9 @@ export const comparisonVerdictStore = (scene: ComparisonScene = 'picked'): AppSt
     flowExecutions: new Map([[run.id, run]]), flowRuns: new Map(), boardEvidence: new Map([[PREVIEW_ROOM, evidence]]),
   })
   const originalTeamIntent = own.teamIntent.bind(own)
+  // Captured before the transport is replaced: calling `own.transport.request` from inside the replacement would call
+  // the replacement itself, forever, for every method it does not answer.
+  const request = own.transport.request.bind(own.transport)
   return Object.assign(own, {
     teamIntent: async (room: string, id: number, action: Parameters<AppStore['teamIntent']>[2], reason?: string, outcome?: string, handoff?: string) => {
       if (action !== 'done') return originalTeamIntent(room, id, action, reason, outcome, handoff)
@@ -76,7 +79,7 @@ export const comparisonVerdictStore = (scene: ComparisonScene = 'picked'): AppSt
       if (method === 'git/merge') return {summary:'The recorded attempt is merged.', conflicts:[], merged:{branch:'main', commit:'c'.repeat(40)}}
       if (method === 'team/state') return own.getSnapshot().teams.get(PREVIEW_ROOM)
       if (method === 'git/diffRange') return {diff:'diff --git a/src/client.ts b/src/client.ts\n--- a/src/client.ts\n+++ b/src/client.ts\n@@ -1 +1 @@\n-retry(1)\n+retry(2)\n'}
-      return own.transport.request(method as never, params as never)
+      return request(method as never, params as never)
     } } as AppStore['transport'],
   })
 }

@@ -13,7 +13,7 @@ const unavailableWrites = {
   pullRequest: { create: async () => { throw new Error('No gateway in this fixture') }, update: async () => { throw new Error('No gateway in this fixture') }, merge: async () => { throw new Error('No gateway in this fixture') } },
   review: async () => { throw new Error('No gateway in this fixture') },
   comment: async () => { throw new Error('No gateway in this fixture') },
-  record: async () => [], attribute: async () => 'outside' as const,
+  record: async () => [], attribute: async () => 'outside' as const, reviewThreads: async () => { throw new Error('unused') }, settleThread: async () => { throw new Error('unused') },
 }
 
 /**
@@ -185,6 +185,8 @@ test('all writes require forge.write and every forge verb needs its own live inv
     comment: write,
     record: async () => [],
     attribute: async () => 'outside',
+    reviewThreads: async () => ({ repository: 'acme/widgets', number: 1, title: null, url: 'https://github.com/acme/widgets/pull/1', state: 'open', threads: [] }),
+    settleThread: async () => { calls++; return { output: '', repository: 'acme/widgets', outcome: 'resolved', url: null, pullRequest: { title: null, url: 'https://github.com/acme/widgets/pull/1', state: 'open' } } },
     associatedPullRequest: async scope => {
       assert.ok(scope.signal && !scope.signal.aborted)
       associatedScopes.push(scope)
@@ -203,6 +205,8 @@ test('all writes require forge.write and every forge verb needs its own live inv
     comment: () => ctx.forge.comment({ subject: 'issue', number: 1, body: 'Body' }, scope),
     repository: () => ctx.forge.repository(scope),
     associatedPullRequest: () => ctx.forge.associatedPullRequest(scope),
+    reviewThreads: () => ctx.forge.reviewThreads({ number: 1 }, scope),
+    settleThread: () => ctx.forge.settleThread({ number: 1, thread: 'PRRT_fixture1', outcome: 'fixed' }, scope),
     record: () => ctx.forge.record({}, scope), attribute: () => ctx.forge.attribute({ branch: 'feature/widgets', sha: 'a'.repeat(40) }, scope),
     seat: () => ctx.forge.seat(scope), identity: () => ctx.forge.identity(scope),
     publish: () => ctx.forge.publish({ kind: 'issue', repo: 'acme/widgets', number: 1, url: 'https://github.com/acme/widgets/issues/1', via: 'gh' }, scope),
@@ -220,12 +224,12 @@ test('all writes require forge.write and every forge verb needs its own live inv
   }
   await settle()
   const call = (name: string, args: unknown) => kernel.invokeTool(kernel.list('tool').find(one => one.name === name)!.id, args, { runtime: 'fixture', sessionId: 's1' } as never)
-  for (const verb of ['push', 'create', 'update', 'merge', 'review', 'comment']) {
+  for (const verb of ['push', 'create', 'update', 'merge', 'review', 'comment', 'settleThread']) {
     const denied = await call('legacy', { verb })
     assert.equal(denied.ok, false); assert.match(JSON.stringify(denied), /forge.write/)
     assert.equal(calls, 0)
   }
-  for (const verb of ['repository', 'record', 'attribute', 'associatedPullRequest']) {
+  for (const verb of ['repository', 'record', 'attribute', 'associatedPullRequest', 'reviewThreads']) {
     assert.equal((await call('legacy', { verb })).ok, true, verb)
   }
   assert.equal(associatedScopes.length, 1)
@@ -234,8 +238,8 @@ test('all writes require forge.write and every forge verb needs its own live inv
   assert.equal(associatedScopes[0]?.actor, 'agent')
   assert.match(associatedScopes[0]?.plugin ?? '', /^legacy#\d+$/)
   assert.equal(associatedScopes[0]?.signal?.aborted, true)
-  for (const verb of ['push', 'create', 'update', 'merge', 'review', 'comment']) assert.equal((await call('writer', { verb })).ok, true, verb)
-  assert.equal(calls, 6)
+  for (const verb of ['push', 'create', 'update', 'merge', 'review', 'comment', 'settleThread']) assert.equal((await call('writer', { verb })).ok, true, verb)
+  assert.equal(calls, 7)
   assert.match(JSON.stringify(await call('writer', { spoof: true })), /live invocation/)
   assert.equal((await call('writer', { save: true })).ok, true)
   for (const [verb, call] of Object.entries(saved)) await assert.rejects(call!, /live invocation/, verb)
@@ -341,4 +345,32 @@ test('associated pull request requires forge and refuses forged argument fields'
   ]) {
     assert.throws(() => validateForgeArgs('associatedPullRequest', args), /Invalid forge associatedPullRequest/)
   }
+})
+
+test('review thread settles are refused at the boundary unless their outcome and one-sentence answer agree', async () => {
+  const { validateForgeArgs } = await import('../src/index.js')
+  const thread = 'PRRT_kwDOfixture1'
+  validateForgeArgs('reviewThreads', { number: 7 })
+  validateForgeArgs('settleThread', { number: 7, thread, outcome: 'fixed' })
+  validateForgeArgs('settleThread', { number: 7, thread, outcome: 'declined', answer: 'The current name matches the rest of the module.' })
+  for (const args of [
+    {}, { number: 0 }, { number: 7, repository: 'acme/decoy' },
+  ]) assert.throws(() => validateForgeArgs('reviewThreads', args), /Invalid forge reviewThreads/)
+  for (const args of [
+    { number: 7, thread, outcome: 'fixed', answer: 'Fixed.' },
+    { number: 7, thread, outcome: 'declined' },
+    { number: 7, thread, outcome: 'ignored' },
+    { number: 7, thread: 'not a thread', outcome: 'fixed' },
+    { thread, outcome: 'fixed' },
+    { number: 7, thread, outcome: 'fixed', body: 'x' },
+    { number: 7, thread, outcome: 'declined', answer: 'First sentence. Second sentence.' },
+    { number: 7, thread, outcome: 'declined', answer: 'One line\nand another.' },
+    { number: 7, thread, outcome: 'declined', answer: `${'word '.repeat(60)}end.` },
+    { number: 7, thread, outcome: 'declined', answer: 'See [the docs](https://example.com) for why.' },
+    { number: 7, thread, outcome: 'declined', answer: 'See https://example.com for why.' },
+    { number: 7, thread, outcome: 'declined', answer: 'Kept <!-- hidden --> as is.' },
+    { number: 7, thread, outcome: 'declined', answer: 'Asking @jane-doe to decide.' },
+    { number: 7, thread, outcome: 'declined', answer: 'No full stop' },
+    { number: 7, thread, outcome: 'declined', answer: '# A heading.' },
+  ]) assert.throws(() => validateForgeArgs('settleThread', args), /Invalid forge settleThread/, JSON.stringify(args))
 })

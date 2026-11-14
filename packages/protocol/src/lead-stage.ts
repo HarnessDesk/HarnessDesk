@@ -17,13 +17,15 @@ export type LeadStageFacts =
       readonly resultReady: boolean; readonly workerApproval: boolean; readonly checkToRun: boolean
       readonly waitReason: typeof LEAD_MANAGEMENT_REASONS[number] | null
       readonly requestInFlight: boolean; readonly chatEffectQueued: boolean }
-  | { readonly kind: 'session'; readonly archived: boolean; readonly waiting: boolean; readonly failed: boolean; readonly queuePaused: boolean; readonly running: boolean; readonly queued: boolean }
+  | { readonly kind: 'session'; readonly archived: boolean; readonly waiting: boolean; readonly failed: boolean; readonly queuePaused: boolean; readonly running: boolean; readonly queued: boolean
+      /** The latest turn was interrupted: the person (or a desk stop) stopped it, so nothing finished. */
+      readonly stopped?: boolean }
   | { readonly kind: 'team'; readonly status: PhoneTeamStatus; readonly prepared: boolean }
 
 /** Deliberately explicit: a new management reason must make a classification choice. */
 export const LEAD_WAIT_STAGES = {
   'lead-predecessor-unavailable': 'you-blocked', 'lead-predecessor-unverifiable': 'you-blocked', 'lead-renewal-blocked': 'you-blocked',
-  'lead-disabled': 'you-blocked', 'lead-key-changed': 'you-blocked', 'lead-host-shutdown': 'you-blocked', 'lead-child-exited': 'you-blocked', 'lead-ownership-withdrawn': 'you-blocked',
+  'lead-disabled': 'you-blocked', 'lead-key-changed': 'you-blocked', 'lead-host-shutdown': 'you-blocked', 'lead-child-exited': 'you-blocked', 'lead-child-exited-again': 'you-blocked', 'lead-ownership-withdrawn': 'you-blocked',
   'lead-result-awaiting-person': 'you-answer', 'lead-handback-limit': 'you-blocked', 'lead-handback-pending': 'you-answer', 'lead-publication-needs-you': 'you-blocked',
   'lead-pr-head-changed': 'you-answer', 'lead-pr-branch-rewritten': 'you-blocked', 'lead-result-revisions-exhausted': 'you-blocked', 'lead-start-binding-failed': 'you-blocked',
   'lead-plan-refused': 'you-blocked', 'lead-activity-failed': 'you-blocked', 'lead-subscription-failed': 'you-blocked', 'lead-tools-refused': 'you-blocked',
@@ -32,7 +34,9 @@ export const LEAD_WAIT_STAGES = {
   'lead-request-failed': 'you-blocked', 'lead-request-max-tokens': 'you-blocked', 'lead-request-invalid-response': 'you-blocked', 'lead-request-cancelled': 'you-blocked', 'lead-request-uncertain': 'you-blocked',
   'lead-worker-audit-failed': 'you-blocked', 'lead-chat-effect-uncertain': 'you-blocked', 'lead-run-not-started': 'you-blocked', 'lead-budget-unknown': 'you-blocked',
   'lead-plan-unseatable': 'you-blocked', 'lead-plan-not-independent': 'you-blocked',
-} as const satisfies Record<typeof LEAD_MANAGEMENT_REASONS[number], 'you-answer' | 'you-blocked'>
+  // The desk did not send the request: nothing waits on the person's answer, and the person is told why instead.
+  'lead-request-unsent': 'idle', 'lead-request-unsent-again': 'idle', 'lead-request-withheld': 'idle', 'lead-request-held': 'idle', 'lead-request-held-again': 'idle',
+} as const satisfies Record<typeof LEAD_MANAGEMENT_REASONS[number], 'you-answer' | 'you-blocked' | 'idle'>
 
 type Row = { readonly kind: LeadStageFacts['kind']; readonly when: (facts: LeadStageFacts) => boolean; readonly stage: LeadStage; readonly reason: string }
 export const LEAD_STAGE_TABLE: readonly Row[] = [
@@ -55,6 +59,7 @@ export const LEAD_STAGE_TABLE: readonly Row[] = [
   { kind: 'session', when: f => f.kind === 'session' && f.queuePaused, stage: 'you-blocked', reason: 'queue-paused' },
   { kind: 'session', when: f => f.kind === 'session' && f.running, stage: 'working', reason: 'running' },
   { kind: 'session', when: f => f.kind === 'session' && f.queued, stage: 'queued', reason: 'send-queued' },
+  { kind: 'session', when: f => f.kind === 'session' && f.stopped === true, stage: 'idle', reason: 'stopped' },
   { kind: 'session', when: () => true, stage: 'idle', reason: 'idle' },
   { kind: 'team', when: f => f.kind === 'team' && f.status === 'needs-you', stage: 'you-answer', reason: 'needs-you' },
   { kind: 'team', when: f => f.kind === 'team' && f.status === 'ready', stage: 'you-review', reason: 'result-ready' },

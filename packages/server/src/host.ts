@@ -1,7 +1,7 @@
 import type { DispatchAdmission } from './dispatch-admission.js'
 import { isDeepStrictEqual } from 'node:util'
 import { firstAsk, leadMessageWords, isLeadMessageSource, leadDisplayName, leadMessageKey, splitContextContent, wrapContext, type LeadChatControlList, type LeadChatHolder } from '@harnessdesk/protocol'
-import { canonicalTranscriptBody, PendingTranscript } from '@harnessdesk/protocol'
+import { canonicalTranscriptBody, LEAD_MEMORY_KIND_LABELS, PendingTranscript, type LeadMemoryView, type LeadWorkBoard } from '@harnessdesk/protocol'
 import { DescriptorCache, PendingSessionOverlay, recoveryDescriptor } from './recovery-descriptor.js'
 import { LeadChatControlStore, LeadChatHeldError } from './lead/chat-control.js'
 import { leadOwnedTeams } from './lead/owned-teams.js'
@@ -10,7 +10,8 @@ import { readChecks } from './evidence/checks-file.js'
 import { LeadRepeats } from './lead/repeats.js'
 import { HarnessDeskAccount } from './harnessdesk-account.js'
 import { gitSteerContext } from './git-gateway/steer-context.js'
-import { redactGitCommand } from '@harnessdesk/protocol'
+import { leadContextUse, redactGitCommand } from '@harnessdesk/protocol'
+import { leadInbox, leadInboxWaiting } from './lead/inbox.js'
 import { GitSteering, type SteerScope } from './git-gateway/steering.js'
 import { parseGitCommand } from '@harnessdesk/protocol'
 import { LeadAutomaticGoals } from './lead/automatic-goals.js'
@@ -24,12 +25,24 @@ import { LeadChatWatches } from './lead/chat-watches.js'
 import { leadChatCandidates, readLeadChatLimits } from './lead/chat-candidates.js'
 import type { RateLimits, WrapChoices } from '@harnessdesk/protocol'
 import { LeadChats, LeadChatBusyError } from './lead/chats.js'
+import { leadChatHandlesPort } from './lead/chat-handles.js'
+import { LeadReminderTimer, LeadWorkLedger, settleLeadReminders, wakeForLeadWork } from './lead/work.js'
+import { LeadAutonomyStore } from './lead/autonomy.js'
+import { LeadSlots } from './lead/slots.js'
+import { LeadPresenceStore, leadTurnContext, leadWaitingDecisions } from './lead/presence.js'
+import { createLeadDigestObserver } from './lead/digest-observer.js'
+import { teamLeadStage } from './work-stage.js'
 import { loadLeadProjectPolicy } from './lead/project-policy.js'
 import { LeadControls, leadRefusal } from './lead/controls.js'
+import type { LeadContextStore } from './lead/context-store.js'
+import { LeadMemoryStore } from './lead/memory.js'
+import { LeadConversationCorpus, leadMemoryRank, type LeadMemoryDoc } from './lead/memory-search.js'
+import { createLeadMemoryTidier, runLeadMemoryTidy } from './lead/memory-tidy.js'
 import { phoneLinkOff } from './phone-link.js'
 import { PhoneWorkspace } from './phone-workspace.js'
 import { PhoneWork, phoneSessionValues } from './phone-work.js'
 import { folderName } from './phone-redact.js'
+import { pacingPort } from './lead/pacing.js'
 import { leadContainsSecret } from './lead/secrets.js'
 import { answerLeadPersonGate, answerLeadResult, validateLeadResult } from './lead/person-decision.js'
 import { LoadoutStore, LoadoutRecorder } from './loadouts.js'
@@ -55,6 +68,7 @@ import type { BrowserSettings } from '@harnessdesk/cordis-host'
 import { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 
 import {
+  brandForRuntime,
   browserProfileStorageName,
   sessionBrowserProfile,
   browserProfileSession,
@@ -74,6 +88,7 @@ import {
   folderGoneOf,
   SessionFolderGoneError,
   type CeilingLevel,
+  type Goal,
   type ApprovalDecision,
   type NoticeItem,
   type SeatCeiling,
@@ -150,6 +165,10 @@ import {
   type AttachmentSupport,
   runtimeId,
   sessionModel,
+  supersededUsageNotices,
+  trackedUsage,
+  type LeadInbox, type LeadDeskSummary,
+  type UsageReport,
 } from '@harnessdesk/protocol'
 
 import { packagedPath, type AgentDirectory } from './agent-registry.js'
@@ -164,14 +183,15 @@ import { LeadAdmission, leadPredecessorReadiness } from './lead/admission.js'
 import { LeadBudgets } from './lead/budgets.js'
 import { leadStopReachesRun } from './lead/stop.js'
 import { LeadService, type LeadServiceOptions } from './lead/service.js'
-import { leadContractDigest, readLeadEvidence, LeadAssembly, readRememberedLeadProject, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
+import { leadContractDigest, readLeadEvidence, LeadAssembly, LEAD_PRICES, readRememberedLeadProject, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
-import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
-import type { LeadRuntime } from '@harnessdesk/lead/supervisor'
+import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadRequestFenced, leadWorkCards, leadClockLine, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport, type LeadContextRecordInput } from '@harnessdesk/lead'
+import { initialLeadMemoryCore, leadMemoryStatus, leadRulesHeld, leadSettingsStatus } from '@harnessdesk/lead'
+import { LeadSupervisor, leadFailureCode, type LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
-import type { LeadProject } from '@harnessdesk/protocol'
-import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
+import type { FlowExecution, LeadProject } from '@harnessdesk/protocol'
+import { ExecutionFiles, FlowExecutions, sourceDigest, type SeatReplacement } from './flow-execution.js'
 import { FlowReview, PERSON_REVIEWER_ID } from './flow-evidence.js'
 import { FlowPreviews } from './flow-preview.js'
 import { seatOptionsProblem } from './seat-options.js'
@@ -181,11 +201,12 @@ import { AuthoringPlane } from './authoring/plane.js'
 import { factsKey, hostContextPort, previewStart, resolveContext, type ContextPort } from './authoring/start.js'
 import { previewAgent } from './methods/agents.js'
 import { PERSON, type TurnCause } from './ceilings/cause.js'
-import { DEFAULT_REVIEW_SIGNATURE } from '@harnessdesk/plugins'
+import { commitCoAuthorOf, DEFAULT_REVIEW_SIGNATURE } from '@harnessdesk/plugins'
 import { GatedRegistry, CeilingGate, type Conversation, type HeldQuestion } from './ceilings/gate.js'
 import { holdCeiling, type SeatHold } from './ceilings/hold.js'
 import type { InstallService } from './installs/service.js'
 import { AuditLog, type ClientAuditEntry } from './audit.js'
+import { McpStarts } from './mcp-starts.js'
 import { CatalogRefresher } from './catalog-refresher.js'
 import { isProgramFailure, RuntimeCache, type CachedRuntime } from './runtime-cache.js'
 import {
@@ -214,6 +235,7 @@ import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 import { LibrarySources, type LibrarySourcesOptions } from './library-sources.js'
 import { LibraryUpdates } from './library-updates.js'
 import { LibraryUsageReader } from './library-usage.js'
+import { McpConnectionTests } from './mcp-test.js'
 import type { Logger } from './log.js'
 import { SessionRegistry, seatedSession, seatedSettings, type SessionRecord } from './registry.js'
 import { StateStore, type ShellProjectIdentity } from './state.js'
@@ -230,21 +252,37 @@ import { ATTACHMENT_TRUST_FILE, AttachmentTrust } from './attachments/trust.js'
 import { resolveAttachmentDeclarations } from './attachments/catalog.js'
 import { ghInCheckout, type GhInCheckout } from './evidence/forge.js'
 import { checkoutMarkOf, projectOf, revisionOf, upstreamTipOf } from './evidence/revision.js'
-import type { SeatOpening } from './evidence/records.js'
+import { consultUsageOf, type SeatOpening } from './evidence/records.js'
 import { incarnationOf, SEEN_FILE } from './evidence/seen.js'
 import { Terminals } from './terminals.js'
 import { SeatHeldCards } from './seat-held-cards.js'
 import { SessionArchive } from './archive.js'
 import { ForgePlane, type ForgePlaneOptions } from './forge.js'
 import { publicationsIn, withPublications } from './publications.js'
+import { CarryOnService, carryOnMayTake } from './carry-on/service.js'
+import { carryOnKey } from './carry-on/incidents.js'
+import { carryOnPacket } from './carry-on/handoff.js'
+import { CONTINUE_SOURCE } from './carry-on/decide.js'
+import {
+  bindingLane as usageBindingLane,
+  carryOnFor,
+  carryOnPolicyOf,
+  CARRY_ON_PREFERENCE,
+  isBlocked as usageBlocked,
+  paceRankOf,
+  reachedLaneOf,
+  whenOutForChoice,
+  type CarryOnItem,
+} from '@harnessdesk/protocol'
 import { SessionNames } from './names.js'
 import { redactorFor, redactLog } from './diagnostics.js'
 import { waitFor } from './flow.js'
 import { Flows, runCheck } from './flows.js'
+import { CONSULT_CLEANUP_MS, CONSULT_CLOSED_REFUSAL, ConsultPlane, type OpenedConsult } from './consult.js'
 import { goalViewForWire } from './goals/wire.js'
 import { dispatchAfter, Serial } from './goals/assignments.js'
 import { goalMembers } from './goals/members.js'
-import { GoalPlane, type GoalPlanePort } from './goals/plane.js'
+import { GoalPlane, SeatMovedError, type GoalPlanePort } from './goals/plane.js'
 import { exportMemory, importMemory, type MemoryBackupPort } from './memory/backup.js'
 import { availablePorts, laneOf, LaneAllocator, LaneStore } from './goals/lanes.js'
 import {
@@ -259,17 +297,21 @@ import type { GoalOperation } from './goals/operations.js'
 import { acquireDeskWriter } from './goals/writer-lease.js'
 import { carryCardWork } from './card-claims.js'
 import { Team, type TeamPeer, type TeamSender, type TeamTurnFailure } from './team.js'
-import { TranscriptStore } from './transcripts.js'
+import { transcriptSessionFacts, TranscriptSaveRefusedError, TranscriptStore } from './transcripts.js'
 import { HistoryImport } from './history-import.js'
 import { SESSION_REMOVE_UNDO_MS, SessionIndex } from './session-index.js'
 import { SessionIndexRepos } from './session-index-repos.js'
 import { InsightPlane } from './insight/plane.js'
 import { IntakePlane, type IntakeTimers } from './intake/plane.js'
+import { observerAssessor, type AssessCharge } from './intake/assess.js'
+import type { MentionAssessor, WorkItemsPort } from './intake/mentions.js'
+import { leadProviderTransport } from './lead/provider-transport.js'
 import { NO_WAITS, actorWords, type HostWaits } from './intake/waits.js'
 import type { UsageSample } from './ledger/insight.js'
 import { InsightContexts } from './insight/context.js'
 import { LocalFiles, assertAbsolute, confine, describeWorkspace } from './workspace.js'
 import { dispatch, TERMINAL_CHIP, type HostContext } from './methods/index.js'
+import { startGoal } from './methods/flows.js'
 import { seatAgent } from './methods/agents.js'
 
 /**
@@ -439,6 +481,8 @@ const HELD_WAIT_SEC = 45
  * is judged by its session again, exactly as it was before the mark existed.
  */
 const SEND_ACCEPT_DEADLINE_MS = 30_000
+/** How long a desk wake waits for the memory store before it goes on without the memory status. */
+const LEAD_WAKE_MEMORY_STATUS_MS = 2_000
 
 /**
  * Where the built-in Agents ship: `agents/` at the root of this package, beside
@@ -609,6 +653,10 @@ export interface HostOptions {
    * machine's wait runs out. Absent everywhere else, where unref'd timers are used.
    */
   readonly questionTimers?: QuestionTimers
+  /** The timers an `ask_agent` consult's timeout runs on, for tests only, as `questionTimers` is. */
+  readonly consultTimers?: QuestionTimers
+  /** How many retired consults stay refused by id, for tests only; `CONSULT_RETIRED_KEPT` everywhere else. */
+  readonly consultsRetiredKept?: number
   /**
    * How to give an agent one more account. Supplied by the wiring, because
    * only the wiring knows that a second Codex means a second process over a
@@ -646,6 +694,13 @@ export interface HostOptions {
     readonly monotonic?: () => number
     readonly timers?: IntakeTimers
     readonly usage?: (project: string, from: number, to: number) => Promise<{ readonly samples: readonly UsageSample[]; readonly complete: boolean }>
+    /** Mention triggers' observer model, and the pull requests a Goal's work opened, scripted. */
+    readonly mentions?: {
+      readonly assess?: MentionAssessor | null
+      readonly pullRequests?: (repository: string, goals: readonly string[], firings: readonly string[]) => Promise<readonly number[]>
+      /** Where an accepted thread joins the work ledger, scripted; the Lead's own work ledger otherwise. */
+      readonly workItems?: WorkItemsPort
+    }
   }
 }
 
@@ -729,6 +784,8 @@ export type Broadcast = (notification: WireNotification) => void
  * costs a person a refused post. See `Host#teamLive`.
  */
 const REOPEN_REFUSALS_TO_LET_GO = 2
+/** Retired consults still refused by id; beyond this many, the oldest is forgotten (`#retireConsults`). */
+const CONSULT_RETIRED_KEPT = 1024
 const IDLE_STOP_MS = 10 * 60_000
 const SEAT_REST_MS = IDLE_STOP_MS
 const LIVE_RUNTIME_METHODS = new Set<PropertyKey>([
@@ -845,6 +902,12 @@ export class Host {
   readonly #creatingTranscripts = new Map<RuntimeId, number>()
   /** Accounts a fold is in flight for; see `#foldDuplicateAccount`. */
   readonly #folding = new Set<string>()
+  /**
+   * Conversations, by runtime and id, with a turn started since the host last
+   * handled an idle status as a turn ending: the next idle is that turn's,
+   * whatever it says of sub-agents. See `subagentsOnly` in `#foldEvent`.
+   */
+  readonly #turnSinceIdle = new Set<string>()
   readonly #broadcasters = new Set<Broadcast>()
   readonly #runtimeNoticeWrites = new Set<Promise<void>>()
   readonly #state: StateStore
@@ -867,9 +930,25 @@ export class Host {
   #leadChatCancellation: ((id: string, count: number) => Promise<void>) | null = null
   #leadChatLimits = new Map<string, RateLimits>()
   #leadChats: LeadChats | null = null
+  #leadChatsRestored = false
+  #leadTick: (() => Promise<unknown>) | null = null
+  #leadWork: LeadWorkLedger | null = null
+  #leadPresence: LeadPresenceStore | null = null
+  #leadPacing: ReturnType<typeof pacingPort> | null = null
+  #leadAutonomy: LeadAutonomyStore | null = null
   #leadAutomatic: { readonly project: LeadProject; readonly owner: LeadAutomaticGoals } | null = null
   #leadRepeats: LeadRepeats | null = null
   #leadPlannerFiles: LeadPlanner | null = null
+  /** The Lead's memory and the conversation search reads, opened on first use and kept for the host's life. */
+  #leadMemoryOpen: Promise<LeadMemoryStore> | null = null
+  #leadMemoryReady: LeadMemoryStore | null = null
+  #leadCorpusOpen: Promise<LeadConversationCorpus> | null = null
+  /** Set while the journal refuses the store's Core, so the memory view says the Lead is reading an older copy. */
+  #leadMemoryFault: 'journal' | null = null
+  #leadContextStore: LeadContextStore | null = null
+  /** Memory writes started outside a request (a reply's proposal, the conversation copy, Core to the journal, a
+   * tidy): disposal waits for them, so nothing writes into a home after the host has let it go. */
+  readonly #leadMemoryWork = new Set<Promise<unknown>>()
   #phoneLink: import('./phone-link.js').PhoneLinkControl | null = null
   #phoneWorkspace: PhoneWorkspace | null = null
   #phoneWork: PhoneWork | null = null
@@ -880,6 +959,8 @@ export class Host {
   readonly #credentials: CredentialBroker
   readonly #gateways: GatewaySupervisor
   readonly #audit: AuditLog
+  /** Whether MCP clients may start work, and today's count (`client-starts.json`). */
+  readonly #mcpStarts: McpStarts
   /** Sidebar metadata; the transcript store continues to own conversation bodies. */
   readonly #historyImport: HistoryImport
   #cacheEvictionTimer: ReturnType<typeof setTimeout> | undefined
@@ -907,6 +988,8 @@ export class Host {
   readonly #pendingTranscriptBases = new Map<string, Session>()
   readonly #recoveredTranscriptBases = new Map<string, { base: import('./transcripts.js').DurableTranscriptBase; saving: Promise<void> | null }>()
   readonly #protectedReadBases = new WeakMap<Session, import('./transcripts.js').DurableTranscriptBase>()
+  /** A client may have received a pending projection without changing writable facts. */
+  readonly #servedHistoryPending = new WeakSet<SessionRecord>()
   readonly #transcriptSequences = new WeakMap<SessionRecord, number>()
   readonly #runtimeFolds = new Map<string, number>()
   readonly #durableTranscriptBases = new WeakMap<SessionRecord, import('./transcripts.js').DurableTranscriptBase>()
@@ -915,6 +998,7 @@ export class Host {
   #libraryUpdates: LibraryUpdates | null = null
   #librarySources: LibrarySources | null = null
   #libraryUsage: LibraryUsageReader | null = null
+  #mcpConnectionTests: McpConnectionTests | null = null
   /** The archive for runtimes with none of their own. See `SessionArchive`. */
   readonly #archive: SessionArchive
   readonly #names: SessionNames
@@ -997,6 +1081,7 @@ export class Host {
   /** Host enforcement outlives the child; a missing journal refuses recovered dispatch. */
   readonly #leadBudgets = new LeadBudgets({
     now: () => Date.now(),
+    deadlinePassed: async id => await this.#leadAutonomy?.deadlineElapsed(id) ?? false,
     usage: (project, from, to, sessions) => this.#usageOf(project, from, to, sessions),
     seats: () => this.#evidence.seats.all(),
     delegation: seat => this.#delegationUncertainRuntimes.has(seat.session.runtime) ? 'unknown' : 'none',
@@ -1105,6 +1190,10 @@ export class Host {
   #usage: UsageService | null = null
   #ledger: Ledger | null = null
   #plans: PlanStore | null = null
+  /** Conversations stuck at a usage limit, carried on by the person's rule. Built in the constructor, restored in `start()`. */
+  readonly #carryOn: CarryOnService
+  /** Conversations whose turn may have ended on a limit, while carry-on decides whether it takes them (§9.3). */
+  readonly #carryOnDeciding = new Set<string>()
   /** What the wire methods may reach; see `HostContext`. Built once the fields above exist. */
   readonly #context: HostContext
 
@@ -1212,6 +1301,7 @@ export class Host {
       log: (message, error) => this.#logger.warn(message, { error: String(error) }),
     })
     this.#audit = new AuditLog(join(this.#state.directory, 'audit.ndjson'))
+    this.#mcpStarts = new McpStarts(join(this.#state.directory, 'client-starts.json'))
     this.#transcripts = new TranscriptStore(join(this.#state.directory, 'transcripts'), (message, details) =>
       this.#logger.warn(message, details),
       () => this.#scheduleCacheEviction(),
@@ -1220,12 +1310,9 @@ export class Host {
         // Only facts actually written by TranscriptStore participate here.
         // A later handle-settings change is kept by the Host and must not
         // make an otherwise identical queued transcript permanently unowned.
-        const persisted = (value: Session) => ({ runtime: value.runtime, id: value.id, turns: value.turns,
-          usage: value.usage ?? null, title: value.title ?? null, preview: value.preview ?? null,
-          cwd: value.cwd, createdAt: value.createdAt, updatedAt: value.updatedAt })
         return record?.bodyGeneration === generation && (authorityEpoch === undefined || record.bodyAuthorityEpoch === authorityEpoch) &&
           !record.transcriptIncomplete && record.session.itemsLoaded && (allowPartial || !record.session.partialHistory) && session.itemsLoaded && (allowPartial || !session.partialHistory) &&
-          isDeepStrictEqual(persisted(record.session), persisted(session))
+          isDeepStrictEqual(transcriptSessionFacts(record.session), transcriptSessionFacts(session))
       },
       (runtime, id, generation, base) => {
         const record = this.registry.get(runtime, id)
@@ -1243,11 +1330,15 @@ export class Host {
           this.#invalidateTranscriptCache(record)
         }
       },
+      (runtime, id) => {
+        const record = this.registry.get(runtime, id)
+        if (record) this.#clearSettledHistoryPending(record)
+      },
     )
     this.#sessionIndex = new SessionIndex(join(this.#state.directory, 'sessions.sqlite'), (change) => {
       const firstPage = this.#listSessionIndex({})
       if (change.resolveRepos !== false) for (const row of firstPage.data) this.#sessionIndexRepos.read(row.cwd)
-      this.#push({ method: 'session/indexChanged', params: { upserted: change.upserted.filter(row => this.#runtimes.has(row.runtime)).map(row => this.#indexStatus(row)), removed: change.removed, firstPageCursor: firstPage.nextCursor ?? null } })
+      this.#push({ method: 'session/indexChanged', params: { pinnedSessions: this.#sessionIndex.pins(), upserted: change.upserted.filter(row => this.#runtimes.has(row.runtime)).map(row => this.#indexStatus(row)), removed: change.removed, firstPageCursor: firstPage.nextCursor ?? null } })
     })
     this.#sessionWorktrees = new SessionWorktrees(this.#sessionIndex, this.#state.directory, path =>
       this.registry.snapshot().some(session => (samePath(session.cwd, path) || session.cwd.startsWith(path + '/')) &&
@@ -1379,7 +1470,7 @@ export class Host {
           return cwd && root ? { cwd, root } : null
         },
         admitWrite: async (verb, scope, args) => {
-          const names = { push: 'git_push', create: 'pr_create', update: 'pr_update', merge: 'pr_merge', review: 'pr_review', comment: 'pr_comment', record: '', attribute: '', repository: '', associatedPullRequest: '' }
+          const names = { push: 'git_push', create: 'pr_create', update: 'pr_update', merge: 'pr_merge', review: 'pr_review', comment: 'pr_comment', record: '', attribute: '', repository: '', associatedPullRequest: '', reviewThreads: '', settleThread: 'pr_thread_settle' }
           const result = await this.#ceilingGate.admit({ tool: verb === 'comment' && (args as { subject?: string })?.subject === 'issue' ? 'issue_comment' : names[verb], needs: verb === 'merge' ? 'merge' : 'publish',
             scope: { runtime: runtimeId(scope.runtime!), sessionId: makeSessionId(scope.sessionId!), ...(scope.turnId ? { turnId: scope.turnId as TurnId } : {}) }, publishes: true })
           if (!result.admitted) throw new Error(result.refusal)
@@ -1840,6 +1931,13 @@ export class Host {
         await this.#applySeatPicks(live, seat.seat)
         return this.#labelOf(seat.seat.runtime, live.options())
       },
+      replaceSeat: (seat, target) => this.#replaceSeat(seat, target),
+      // Carry-on's incidents are read from disk lazily: a restart's own resume waits for them, never for its queue.
+      carryOnHolds: async (runtime, sessionId) => {
+        if (this.#carryOnDeciding.has(carryOnKey(runtime, sessionId))) return true
+        await this.#carryOn.loaded()
+        return this.#carryOn.live(runtime, sessionId)
+      },
       // Tells windows only: a run's own journal moved, not the Goal's board,
       // and a view read here could predate the board's own pending write.
       // Each run goes out whole, so a run status on screen never waits to be asked.
@@ -1856,7 +1954,10 @@ export class Host {
           : { at: null, dirty: false, dirtyFiles: null, dirtyPaths: null }
       },
       // The host commits a card's own work for its Seat, git hardened (`commit_work`, #1074).
-      commitWork: (cwd, before, message, seat) => commitCardWork(cwd, before, message, this.#runtimes.get(seat.session.runtime)?.info.presentation.coAuthor ?? null),
+      // The agent's native credit always; the desk's own line as Settings › Extensions › Git sets it.
+      commitWork: (cwd, before, message, seat) => commitCardWork(
+        cwd, before, message, this.#runtimes.get(seat.session.runtime)?.info.presentation.coAuthor ?? null, this.#commitCoAuthor(),
+      ),
       runCheck: (command, where, card) => this.#evidence.runFlowCheck(command, where, card),
       assertCheckCleanup: (goal, card) => this.#evidence.assertFlowCheckCleanup(goal, card),
       // A fresh detached checkout for one `run_check`, git hardened, removed after (#1082).
@@ -2330,6 +2431,7 @@ export class Host {
           ...(input.grant === undefined ? {} : { grant: input.grant }),
           ...(policy.unattended ? { unattended: true } : {}),
           ...(policy.requireHeld ? { requireHeld: true as const } : {}),
+          ...(this.#flows?.offersAsk(goal.id, policy.role) ? { offersAsk: true as const } : {}),
         })).record
       },
       openLegacySeat: async (input, goal) => {
@@ -2378,6 +2480,7 @@ export class Host {
       claim: async (goal: string, card: number, opening: SeatOpening) => {
         await this.#claimGoalCard(goal, card, opening)
       },
+      moveClaim: (goal: string, card: number, from: SeatRecord, to: SeatRecord) => this.#moveGoalClaim(goal, card, from, to),
       releaseClaim: async (goal: string, seat: SeatId, until: string | null) => {
         await this.#releaseGoalCard(goal, seat, until)
       },
@@ -2464,6 +2567,7 @@ export class Host {
       ledger: () => this.#ledgerService,
       goals: this.#goals,
       seats: () => this.#evidence.seats.all(),
+      consults: () => this.#evidence.seats.consults(),
       seating: this.#machineSeating,
     })
     this.#provenance = new ProvenancePlane({
@@ -2478,11 +2582,12 @@ export class Host {
       lead: async operation => {
         if (!this.options.leadEnabled || !this.#leadReady) return { delivered: false, reason: 'Lead is disabled; this firing waits.' }
         if (!operation.payload) return { delivered: false, reason: 'The firing payload is unavailable; this firing waits.' }
-        await this.#leadAssembly?.ensure(operation.project)
+        // Built once, on the first firing; a Lead already running is the one it is handed to.
+        if (!this.#leadAutomatic) await this.#leadAssembly?.ensure(operation.project)
         const automatic = this.#leadAutomatic
         if (!automatic) return { delivered: false, reason: 'Lead is unavailable; this firing waits.' }
-        const { fact, sentence } = operation.payload
-        return automatic.owner.offerTrigger({ project: operation.project, key: `trigger-${operation.key}`, sentence, fact })
+        const { fact, sentence, binding } = operation.payload
+        return automatic.owner.offerTrigger({ project: operation.project, key: `trigger-${operation.key}`, sentence, fact, account: binding.account })
       },
       cipher: options.credentialCipher ?? plainCipher,
       confine: (root) => this.#confineGitRoot(root),
@@ -2522,6 +2627,14 @@ export class Host {
       },
       evidence: { observeTrigger: (firing, goal, fact) => this.#evidence.observeTrigger(firing, goal, fact) },
       seats: () => this.#evidence.seats.all(),
+      consultWindows: () => this.#evidence.seats.consults().flatMap((consult) => {
+        const caller = this.#evidence.seats.byId(consult.seat)
+        return caller ? [{
+          ...caller, id: `${caller.id}/ask/${consult.n}` as SeatRecord['id'], session: { runtime: consult.runtime, sessionId: consult.sessionId },
+          openedAt: consult.openedAt, closed: consult.closedAt === null ? null : { at: consult.closedAt, why: 'answered' }, restored: null,
+        }] : []
+      }),
+      goalWrapped: (goal) => this.#goalStore.standing(goal)?.state === 'wrapped',
       interrupt: (goal) => this.#interruptGoal(goal),
       lane: (goal) => this.#allowanceOf(goal),
       refreshLanes: (goals) => this.#refreshAllowances(goals),
@@ -2534,8 +2647,114 @@ export class Host {
       monotonic: options.intake?.monotonic ?? (() => performance.now()),
       ...(options.intake?.gh ? { gh: options.intake.gh } : {}),
       ...(options.intake?.timers ? { timers: options.intake.timers } : {}),
+      mentions: {
+        // The Lead's observer model, with the Lead's own key: none while the Lead is off or has no key, so a request waits for the person.
+        assess: options.intake?.mentions?.assess !== undefined ? options.intake.mentions.assess : observerAssessor({
+          transport: this.options.leadMessagesTransport ?? leadProviderTransport,
+          key: async () => this.options.leadEnabled && (await this.#credentials.leadStatus('anthropic')).configured ? this.#credentials.resolveLead('anthropic') : null,
+          model: LEAD_MESSAGES_DEFAULTS.observerModel,
+          account: { reserve: (requestId, inputTokens, maxOutputTokens) => this.#holdLeadSpend(requestId, inputTokens, maxOutputTokens) },
+        }),
+        leadName: () => this.#leadJournal?.state.name ?? 'dex',
+        pullRequests: options.intake?.mentions?.pullRequests ?? ((repository, goals, firings) => this.#mentionPullRequests(repository, goals, firings)),
+        // An accepted thread is one item on the Lead's work ledger: the thread it came from and the work it opened. A plan
+        // the Lead runs for the same thread joins that item by the thread's link, so the board shows them as one.
+        workItems: options.intake?.mentions?.workItems ?? {
+          attach: async (origin, links) => {
+            const work = this.#leadWork
+            if (!work || this.#disposed) return null
+            const at = (number: number) => `${origin.repository}#${number}`
+            return await work.attach({ kind: 'mention', ref: origin.comment ?? at(origin.thread.number),
+              title: `${origin.thread.kind === 'pull-request' ? 'Pull request' : 'Issue'} ${at(origin.thread.number)}` },
+            { issues: links.issues.map(at), prs: links.pulls.map(at), teams: [...links.goals] })
+          },
+        },
+        // A stop on the thread reaches the Lead's goal by the firing that opened it, never by a shared link.
+        stopLead: (asked) => this.stopLeadForThread(asked),
+      },
     })
+    this.#carryOn = this.#buildCarryOn()
     this.#context = this.#buildContext()
+  }
+
+  /**
+   * Holds one observer request against the Lead's spend limit, as a journaled
+   * reserve on the Lead's own budget ledger, priced at the Lead's model — at
+   * least what the smaller observer model costs, so the hold is an upper
+   * bound. No ledger (no Lead goal open), or a limit that refuses it, is null:
+   * nothing is sent, and the request waits for the person.
+   */
+  async #holdLeadSpend(requestId: string, inputTokens: number, maxOutputTokens: number): Promise<AssessCharge | null> {
+    const journal = this.#leadJournal
+    const price = LEAD_PRICES[LEAD_MESSAGES_DEFAULTS.model]
+    if (!journal?.state.budget || !price) return null
+    const now = (): number => Math.max(Date.now(), journal.state.budget?.now ?? 0)
+    try {
+      await journal.updateBudget({ version: 1, type: 'reserve', now: now(), requestId, inputTokens, maxOutputTokens, ...price })
+    } catch {
+      return null
+    }
+    return {
+      settle: async (usage) => { await journal.updateBudget({ version: 1, type: 'settle', now: now(), requestId, ...usage }) },
+      unknown: async () => {
+        await journal.updateBudget({ version: 1, type: 'uncertain', now: now(), requestId })
+        // Counted whole at once: an open uncertain hold would stop the Lead's own spending.
+        await journal.updateBudget({ version: 1, type: 'write-off', now: now(), requestId })
+      },
+    }
+  }
+
+  /**
+   * The pull requests a mention's work opened: those the git record says a
+   * Seat on one of its Goals created, and the Lead's own when a firing of it
+   * started the Lead's goal. Read only; a record that cannot be read is none.
+   */
+  async #mentionPullRequests(repository: string, goals: readonly string[], firings: readonly string[]): Promise<readonly number[]> {
+    const found = new Set<number>()
+    const boards = new Set(goals)
+    const sessions = new Set(this.#evidence.seats.all().filter((seat) => seat.board !== null && boards.has(seat.board))
+      .map((seat) => `${seat.session.runtime}/${seat.session.sessionId}`))
+    if (sessions.size > 0) {
+      const rows = await this.#gitGateway.record({ repository, limit: 500 }).catch(() => [])
+      for (const row of rows) {
+        if (row.op === 'pr.create' && row.outcome === 'ok' && row.number !== undefined && row.requester.kind === 'session' && sessions.has(row.requester.id)) found.add(row.number)
+      }
+    }
+    const lead = this.#leadJournal?.state
+    if (lead?.pr && lead.originKey && firings.some((firing) => lead.originKey === `trigger-${firing}`) &&
+      lead.pr.repository.toLowerCase() === repository.toLowerCase()) found.add(lead.pr.number)
+    return [...found]
+  }
+
+  /**
+   * A comment asked the Lead to stop the work on a thread. When the Lead's
+   * goal in hand is the one a firing of that thread opened, it is stopped the
+   * way the person's Stop stops it — journaled, as a stop from that comment,
+   * then the goal's own runs, then the model process — so its plan is ended
+   * and no later step of it starts. Only the runs the goal owns are reached:
+   * never a run a person started, and never another goal's. Says whether the
+   * goal was stopped, and how many of its runs were still going.
+   */
+  async stopLeadForThread(asked: { readonly firings: readonly string[]; readonly comment: string }): Promise<{ readonly plan: boolean; readonly runs: number }> {
+    const controls = this.#leadControls
+    if (!controls || this.#disposed) return { plan: false, runs: 0 }
+    let runs = 0
+    let claimed = false
+    try {
+      const plan = await controls.stopAsked({ kind: 'mention', comment: asked.comment }, (state) => {
+        if (!state.originKey || !asked.firings.some((firing) => state.originKey === `trigger-${firing}`)) return false
+        const going = new Set(this.#flows.leadRuns().filter((run) => run.state === 'running' || run.state === 'stalled').map((run) => run.id))
+        runs = state.runs.filter((run) => going.has(run.runId)).length
+        claimed = true
+        return true
+      })
+      return { plan, runs: plan ? runs : 0 }
+    } catch {
+      // The stop is journaled before its effects run, and the Lead retries those it could not finish; say what holds.
+      this.#logger.warn('A stop asked from a comment did not finish in the Lead')
+      const plan = claimed && this.#leadJournal?.state.phase === 'stopped'
+      return { plan, runs: plan ? runs : 0 }
+    }
   }
 
   /**
@@ -2565,6 +2784,23 @@ export class Host {
   #reviewSignature(): string {
     const stored = this.#storedPluginSettings('git')?.['reviewSignature']
     return typeof stored === 'string' ? stored : DEFAULT_REVIEW_SIGNATURE
+  }
+
+  /**
+   * The desk's co-author line for `commit_work`, as the Git plugin's stored
+   * settings hold it: the shipped line when untouched, null when blanked. A
+   * malformed stored value — only a hand-edited file can hold one, since
+   * Settings refuses it — is never written; the shipped line stands in.
+   */
+  #commitCoAuthor(): string | null {
+    const read = commitCoAuthorOf(this.#storedPluginSettings('git')?.['commitCoAuthor'])
+    if (read.problem) this.#logger.warn('the Commit co-author setting is malformed, so the default line is used', { problem: read.problem })
+    return read.line
+  }
+
+  /** What a plugin's settings may not be saved with, in one sentence, or null. */
+  #pluginConfigProblem(id: string, config: Readonly<Record<string, unknown>>): string | null {
+    return id === 'git' ? commitCoAuthorOf(config['commitCoAuthor']).problem : null
   }
 
   #storedPluginSettings(id: string): Record<string, unknown> | null {
@@ -2955,6 +3191,8 @@ export class Host {
     const shellIdentity = this.#state.state.workspaces[0]?.shellIdentity
     this.#shellProject = isShellProjectIdentity(shellIdentity) ? shellIdentity.project : shellFolder ?? null
     await this.#laneStore.load()
+    // A carry-on claim that was mid-send is asked again, never resent; a wait for a reset re-arms.
+    void this.#carryOn.restore().catch(() => { this.#logger.warn('Carry-on incidents could not be restored') })
     // Everything that restores a stored setting runs here, after the file has
     // been read, and never in the constructor. Until it did, a board left
     // holding inbound messages came back accepting them, and every plugin's
@@ -3064,6 +3302,14 @@ export class Host {
       titleOf: (runtime, id) => this.#names.nameOf(runtime, id),
       archiveCapability: (runtime) => this.#runtimes.get(runtime)?.info.capabilities.archiveHistory,
     }).then(async () => {
+      if (this.#disposed) return
+      const listPrefs = this.#state.state.preferences['listPrefs'] as Record<string, unknown> | undefined
+      const legacyPins = listPrefs?.['pinnedSessions']
+      this.#sessionIndex.migratePins(Array.isArray(legacyPins) ? legacyPins.filter((key): key is string => typeof key === 'string') : [])
+      if (listPrefs && Object.hasOwn(listPrefs, 'pinnedSessions')) {
+        const { pinnedSessions: _legacy, ...remaining } = listPrefs
+        await this.#state.setPreferences({ listPrefs: remaining })
+      }
       for (const row of this.#sessionIndex.managedCandidates(this.#state.directory)) {
         if (this.#disposed) return
         await this.#sessionWorktrees.remember(row.runtime, row.id).catch(() => {})
@@ -3678,11 +3924,15 @@ export class Host {
     this.#harnessDeskAccount.close()
     this.#attachments.revokeAll()
     this.#attachmentAbort.abort()
+    // A server a connection test started stops with the desk, its whole group.
+    this.#mcpConnectionTests?.dispose()
     this.#catalogs.stop()
     this.#agentWatch?.dispose()
     // Cancels every v2 release still waiting on a Seat's turn to end: no
     // timer of this class's own outlives the process (#1027).
     this.#flows.dispose()
+    // No carry-on retry or reset fallback fires into a closing desk.
+    this.#carryOn.close()
     // No save preview survives the host: an apply from here on refuses, and one in flight finishes on its queue.
     this.#authoring.close()
     /* Triggers stop first: no new admission, no poll, no budget sweep and no
@@ -3800,7 +4050,9 @@ export class Host {
 
   /** One host-owned supervisor, enabled explicitly by the authenticated Lead
    * service owner in the next slice step. Construction itself never spawns. */
-  createLeadService(options: Pick<LeadServiceOptions, 'journal' | 'project' | 'model' | 'seats' | 'prices' | 'resolveTool' | 'freezePlan' | 'readEvidence' | 'createSupervisor' | 'messagesTransport'> & { readonly recovery?: { readonly now: () => number; readonly schedule: (run: () => void, delay: number) => () => void } }): LeadService {
+  createLeadService(options: Pick<LeadServiceOptions, 'journal' | 'project' | 'model' | 'seats' | 'prices' | 'resolveTool' | 'freezePlan' | 'readEvidence' | 'createSupervisor' | 'messagesTransport' | 'probeRuntime'> & { readonly recovery?: { readonly now: () => number; readonly schedule: (run: () => void, delay: number) => () => void }
+    /** The stored conversation (the context engine); absent, each request is rebuilt from the thread's words. */
+    readonly context?: LeadContextStore }): LeadService {
     if (this.options.leadEnabled !== true) throw leadRefusal('lead-unavailable')
     if (this.#disposed) throw new Error('lead-host-closed')
     if (!this.#leadListenersAvailable) throw new Error('lead-listener-unavailable')
@@ -3826,8 +4078,126 @@ export class Host {
         throw error
       }
     }
-    this.#leadChatCancellation = async (id, count) => { await journal.appendReply(`Host notice: ${count} queued Lead message${count === 1 ? ' was' : 's were'} not delivered because the person took over chat ${id}.`) }
-    this.#leadChats = new LeadChats({ project, state: () => journal.state, now: options.recovery?.now ?? Date.now,
+    // One timer for the soonest reminder, armed once the minute tick exists below; every ledger change re-arms it.
+    let reminderTimer: LeadReminderTimer | null = null
+    // The short names the Lead knows chats by, kept in its journal (`lead/chat-handles.ts`).
+    const handles = leadChatHandlesPort({ journal, project: () => project.path, model: id => {
+      const at = id.indexOf(':'), held = at > 0 ? this.registry.get(runtimeId(id.slice(0, at)), makeSessionId(id.slice(at + 1))) : undefined
+      return held ? sessionModel(held.session) : null
+    } })
+    // The work ledger: one record per piece of work, its stages read from the same desk state the phone shows.
+    const work = new LeadWorkLedger({ file: join(this.#state.directory, 'lead', 'work.json'), now: () => Date.now(),
+      project: () => folderName(project.path),
+      chat: id => this.#leadChats?.workState(id) ?? null,
+      handle: id => handles.of(id),
+      teams: async () => new Map((await this.#goals.list()).map(view => {
+        const latest = this.#flows.executionSummaries({ team: view.goal.id, active: false })[0]
+        const { stage, reason } = view.stage === undefined ? teamLeadStage(view, latest ? { state: latest.state } : null) : { stage: view.stage, reason: view.stageReason ?? 'idle' }
+        return [view.goal.id as string, { stage, reason, done: view.goal.state === 'wrapped' }] as const
+      })),
+      pullRequests: () => {
+        const pr = journal.state.pr
+        return pr ? [{ ref: `${pr.repository}#${pr.number}`, state: pr.state, failing: pr.check?.state === 'failed' }] : []
+      },
+      replies: () => journal.state.messages.reduce((mark, message) => message.role === 'assistant' ? Math.max(mark, message.revision) : mark, 0),
+      asked: () => journal.state.messages.reduce((mark, message) => message.role === 'user' && (message.source === undefined || message.source === 'person') ? Math.max(mark, message.revision) : mark, 0),
+      noted: text => this.#logger.warn(text),
+      revision: () => journal.state.seq,
+      publish: board => { this.#push({ method: 'lead/work/changed', params: board }); void reminderTimer?.arm() },
+    })
+    this.#leadWork = work
+    this.onDispose(() => { if (this.#leadWork === work) this.#leadWork = null })
+    // #2144: each reply the Lead writes says the reminders its turn's cards called owed, so they are marked said once,
+    // on the board both surfaces read and in the cards of every later turn. The turn is the newest user message before
+    // the reply (the person's, a wake's or a trigger's); a reminder that fired after it began waits for the next reply.
+    // Only the Lead model's own reply counts: a notice the host writes meanwhile (a takeover, a refused repeat) told
+    // the person nothing about the reminder.
+    let repliedAt = journal.state.messages.reduce((mark, message) => message.role === 'assistant' ? Math.max(mark, message.revision) : mark, 0)
+    this.onDispose(journal.onChange(() => {
+      const messages = journal.state.messages
+      for (const [index, message] of messages.entries()) {
+        if (message.role !== 'assistant' || message.revision <= repliedAt) continue
+        repliedAt = message.revision
+        const turn = messages.slice(0, index).findLast(earlier => earlier.role === 'user')
+        if (turn && journal.isModelReply(message.id)) void work.saidInReply(turn.revision).catch(() => { this.#logger.warn('The Lead work ledger could not mark a reminder said') })
+      }
+    }))
+    // Presence: seen marks per device, the away digest, the morning brief and the state of each ask. Built from the
+    // ledger and the journal; only the optional paragraph reaches the smaller model, and its cost is counted.
+    const observe = createLeadDigestObserver({ prices: options.prices, transport: options.messagesTransport ?? leadProviderTransport,
+      resolveKey: async () => (await this.#credentials.leadStatus('anthropic')).configured ? await this.#credentials.resolveLead('anthropic') : null })
+    const presence = new LeadPresenceStore({ file: join(this.#state.directory, 'lead', 'presence.json'), now: () => Date.now(),
+      spent: () => { const budget = journal.state.budget; if (!budget) return 0; const spend = leadBudgetProjection(budget, Date.now()); return spend.leadUsdMicros + spend.workerUsdMicros },
+      board: () => work.board('all'), waiting: () => leadWaitingDecisions(journal.state), revision: () => journal.state.seq, messages: () => journal.state.messages,
+      quiet: async () => leadQuietAt(await this.#leadPlanner().readSchedule(), new Date()), name: () => leadDisplayName(journal.state.name),
+      // What else a digest tells, from the same records the Work list, the Inbox and Settings read.
+      desk: () => this.#phoneWorkspaceView().deskSummary({ limit: 20 }),
+      memory: async () => (await this.#leadMemory()).entries(),
+      settings: async () => (await this.#leadAutonomy?.view())?.changes ?? [],
+      observe: input => observe(input).catch(() => null), briefGate: async () => await this.#leadAutonomy?.gate('brief') ?? 'act',
+      push: notice => this.#push({ method: 'lead/presence/changed', params: { notice } }),
+      changed: () => this.#push({ method: 'lead/presence/changed', params: {} }) })
+    this.#leadPresence = presence
+    // Autonomy: Off / Observe / Act per proactive kind, the person's rule sections and the goal deadline. Host-enforced.
+    const autonomy = new LeadAutonomyStore({ file: join(this.#state.directory, 'lead', 'autonomy.json'), now: () => Date.now(), journal,
+      goal: () => { const budget = journal.state.budget; return budget ? { id: budget.logicalGoalId, open: !['accepted', 'declined', 'stopped'].includes(journal.state.phase) } : null },
+      report: text => journal.appendReply(text),
+      changed: () => { this.#push({ method: 'lead/presence/changed', params: {} }); this.#push({ method: 'lead/autonomy/changed', params: {} }) },
+      // Where a proposal card sits (under the Lead's next reply), and whether the person has written since a No.
+      seq: () => journal.state.seq, personSeq: () => this.#leadPersonSeq(), receipt: text => this.#leadReceipt(text) })
+    this.#leadAutonomy = autonomy
+    void autonomy.attach().catch(() => { this.#logger.warn('The Lead autonomy settings could not be read') })
+    this.onDispose(() => { if (this.#leadAutonomy === autonomy) this.#leadAutonomy = null })
+    // An ask's clock starts when the journal appends it, not when somebody first looks at the thread.
+    this.onDispose(journal.onChange(() => { void presence.observe().catch(() => {}) }))
+    this.onDispose(() => { if (this.#leadPresence === presence) this.#leadPresence = null })
+    let workTimer: ReturnType<typeof setTimeout> | null = null
+    const pokeWork = () => {
+      work.stale()
+      if (workTimer || this.#disposed) return
+      workTimer = setTimeout(() => { workTimer = null; void work.refresh().catch(() => { this.#logger.warn('The Lead work ledger could not refresh') }) }, 250)
+      workTimer.unref?.()
+    }
+    this.onDispose(() => { if (workTimer) clearTimeout(workTimer) })
+    // An approved plan is work too: its Teams and pull request join one item, made once per goal.
+    let goalLinks = ''
+    const syncGoal = () => {
+      const state = journal.state, goal = state.budget?.logicalGoalId, contract = state.contract
+      const teams = contract ? leadPlanRuns(state).map(run => run.teamId).filter((team): team is string => typeof team === 'string') : []
+      if (!goal || !contract || !teams.length) return
+      const prs = state.pr ? [`${state.pr.repository}#${state.pr.number}`] : []
+      // A plan drafted for an issue or pull request names it, so it joins the item that thread is already on (a mention's).
+      const thread = state.origin && (state.origin.source === 'issue' || state.origin.source === 'pull-request') && /^[^\s/#]+\/[^\s/#]+#[1-9][0-9]*$/.test(state.origin.subject)
+        ? state.origin : null
+      const issues = thread?.source === 'issue' ? [thread.subject] : []
+      if (thread?.source === 'pull-request' && !prs.includes(thread.subject)) prs.push(thread.subject)
+      const signature = JSON.stringify([goal, teams, prs, issues])
+      if (signature === goalLinks) return
+      goalLinks = signature
+      const kind = state.origin?.source === 'schedule' ? 'repeat' as const : state.origin ? 'trigger' as const : 'person' as const
+      void work.attach({ kind, ref: `goal:${goal}`, title: contract.goal }, { teams, prs, issues }).then(pokeWork, () => { goalLinks = '' })
+    }
+    this.onDispose(journal.onChange(() => { syncGoal(); pokeWork() }))
+    const WORK_EVENTS = new Set(['session/started', 'session/status', 'session/closed', 'turn/started', 'turn/completed', 'approval/requested', 'approval/resolved'])
+    this.onDispose(this.addBroadcaster(notification => {
+      if (notification.method === 'goal/changed' || notification.method === 'session/indexChanged' || notification.method === 'session/removed' ||
+        (notification.method === 'event' && WORK_EVENTS.has(notification.params.event.type))) pokeWork()
+    }))
+    this.#leadChatCancellation = async (id, count) => { const handle = handles.of(id); await journal.appendReply(`Host notice: ${count} queued Lead message${count === 1 ? ' was' : 's were'} not delivered because the person took over chat ${handle ? `${handle} (${id})` : id}.`) }
+    const pacing = pacingPort({
+        startableAgents: () => this.#phoneWorkView().startableAgents().map(String),
+        infoOf: id => { const known = this.#runtimes.get(runtimeId(id)); return known ? this.#infoOf(known) : undefined },
+        defaultRuntime: () => {
+          const preferred = this.#state.state.preferences['activeRuntime']
+          return ((typeof preferred === 'string' ? this.#runtimes.get(runtimeId(preferred)) : undefined) ?? this.#runtimes.values().next().value)?.info.id ?? null
+        },
+        preferences: () => this.#state.state.preferences,
+        usage: id => this.#usageService.cached(runtimeId(id)),
+        now: Date.now })
+    this.#leadPacing = pacing
+    this.#leadChats = new LeadChats({ project, state: () => journal.state, slots: this.#leadSlots(journal), now: options.recovery?.now ?? Date.now, pacing,
+      deadlinePassed: async () => { const goal = journal.state.budget?.logicalGoalId; return goal !== undefined && await this.#leadAutonomy?.deadlineElapsed(goal) === true },
+      askHoldingChatStart: () => this.#leadPresence?.askHoldingChatStart() ?? null,
       managementAvailable: () => this.#leadService?.managementAvailable === true,
       queuedSends: () => this.registry.all().some(record => record.queue.messages.some(message => {
         const admission = this.registry.queuedAdmission(record, message.id)
@@ -3845,7 +4215,11 @@ export class Host {
       cwd: async (runtime, id) => this.registry.get(runtime, id)?.session.cwd ?? this.#sessionIndex.get(runtime, id)?.cwd ?? null,
       live: (runtime, id) => {
         const held = this.registry.get(runtime, id)
-        return { approvalWaiting: (held?.approvals.size ?? 0) > 0, failed: held?.session.status.type === 'error', queuePaused: held?.queue.status === 'paused' && held.queue.messages.length > 0, queued: (held?.queue.messages.length ?? 0) > 0, running: (held?.running.size ?? 0) > 0, waiting: (held?.approvals.size ?? 0) > 0 || held?.queue.status === 'paused' && held.queue.messages.length > 0 }
+        return { approvalWaiting: (held?.approvals.size ?? 0) > 0, failed: held?.session.status.type === 'error', queuePaused: held?.queue.status === 'paused' && held.queue.messages.length > 0, queued: (held?.queue.messages.length ?? 0) > 0, running: (held?.running.size ?? 0) > 0, waiting: (held?.approvals.size ?? 0) > 0 || held?.queue.status === 'paused' && held.queue.messages.length > 0,
+          // A chat the host no longer holds, after a restart, keeps the stop its kept transcript ended on.
+          stopped: held ? held.session.turns.at(-1)?.status === 'interrupted' : this.#transcripts.lastTurnStopped(runtime, id),
+          // The latest turn, so the work ledger matches a stop to the turn it was for.
+          ...(held?.session.turns.at(-1)?.id ? { turn: String(held.session.turns.at(-1)!.id) } : {}) }
       },
       work: this.#phoneWorkView(),
       control: {
@@ -3893,7 +4267,7 @@ export class Host {
           const result = await journal.execute({ id: effectId, request: { ...call, project, runId: null, start: null },
             context: { ...scope.context, desk: journal.state.policy!, projectPolicy, project, now: (options.recovery?.now ?? Date.now)() } },
           async () => {
-            try { return { value: await this.#leadChats!.send({ ...call.params, effectId }, current, started, () => { busy = true }), identity: null } }
+            try { return { value: await this.#leadChats!.send({ ...call.params, effectId, cause: 'automatic' }, current, started, () => { busy = true }), identity: null } }
             catch (error) { busy ||= error instanceof LeadChatBusyError; throw error }
           })
           // For this send, failed proves the host's dispatch-not-started receipt; uncertain never permits replay.
@@ -3902,9 +4276,12 @@ export class Host {
         },
       },
       watches: new LeadChatWatches(join(this.#state.directory, 'lead', 'chats.json')),
-      publish: params => this.#push({ method: 'lead/chat/changed', params }),
+      publish: params => { this.#push({ method: 'lead/chat/changed', params }); pokeWork() },
+      handles,
+      ledger: work,
     })
-    void this.#leadChats.restore().catch(() => { this.#logger.warn('Lead incidents could not be restored') })
+    this.#leadChatsRestored = false
+    void this.#leadChats.restore().catch(() => { this.#logger.warn('Lead incidents could not be restored') }).finally(() => { this.#leadChatsRestored = true })
     this.onDispose(() => this.#leadChats?.close())
     let budgetOwner = this.registerLead(journal, project), budgetGoal = journal.state.budget!.logicalGoalId
     this.onDispose(() => { budgetOwner.close(); this.#leadChatControl = null; this.#leadChatProject = null; this.#leadJournal = null; this.#leadChatCancellation = null; this.#leadCanRerunChecks = null })
@@ -4025,17 +4402,37 @@ export class Host {
       return operation
     }
     let leadPresence: LeadPresence | null = null
-    this.#leadService = new LeadService({ ...options,
+    const { context: leadContext, ...serviceOptions } = options
+    this.#leadContextStore = leadContext ?? null
+    this.onDispose(() => { if (this.#leadContextStore === leadContext) this.#leadContextStore = null })
+    this.#connectLeadMemory(journal, options)
+    this.#leadService = new LeadService({ ...serviceOptions,
+      ...(leadContext ? {
+        recordContext: async (record: LeadContextRecordInput) => { await leadContext.record(record); this.#leadControls?.contextChanged() },
+        readContext: (epoch: number, room: number) => leadContext.read(epoch, room),
+        compactContext: async (trigger: 'due' | 'overflow') => await this.#leadControls?.compactForWake(trigger) ?? false,
+      } : {}),
+      readMemoryStatus: () => this.#leadMemoryStatusForWake(),
       onManagementStopped: reason => {
         if (reason === 'lead-host-shutdown') void this.#leadChats?.close()
         else if (reason === 'lead-disabled' || reason === 'lead-request-cancelled') this.#leadChats?.incidents?.cancel()
       },
       ...(this.options.leadRuntimes ? { runtimes: this.options.leadRuntimes } : {}),
       onRuntimeUnavailable: reason => this.#logger.warn('Lead runtime unavailable', { reason }),
+      // A reply that carried protocol output the Lead could not read is logged by its code alone, never its words.
+      createSupervisor: settings => {
+        const warned = { ...settings, onWarning: (code: string) => this.#logger.warn('Lead reply was not shown whole', { code }) }
+        return serviceOptions.createSupervisor ? serviceOptions.createSupervisor(warned) : new LeadSupervisor(warned)
+      },
+      onRequestRefused: refusal => this.#logger.warn('Lead request refused before sending', { ...refusal }),
+      // Where the Lead's child failed and the failure's code: a stop, or one it caught and carried on from. Never content.
+      onFailure: failure => this.#logger.warn(failure.stopped ? 'Lead child stopped' : 'Lead child failed and carried on', { stage: failure.stage, code: failure.code }),
+      onRequestWithheld: report => this.#logger.warn('Lead request sent with parts withheld', { ...report }),
       onPresence: presence => { leadPresence = presence; void this.#leadControls?.workerApprovalsChanged().catch(() => {}) },
-      readMemory: () => this.#leadPlanner().kept(),
+      // A `Remember:` line in a reply is read as the same proposal memory_propose makes: scanned, then to the inbox.
       onRemember: lines => {
-        for (const line of lines) void this.#leadPlanner().suggest(line, `memory-${randomUUID()}`, Date.now()).catch(() => { this.#logger.warn('Lead memory suggestion was not saved') })
+        const after = journal.state.seq
+        for (const line of lines) this.#leadMemoryTrack(this.#leadMemory().then(store => store.propose({ text: line, kind: 'preference' }, after, this.#leadPersonSeq())), 'Lead memory proposal was not saved')
       },
       readEvidence: async (runId, read) => { await secondLook(runId); return { ...await options.readEvidence(runId, read), personActions: (await personActions.read()).filter(action => action.runId === runId) } }, broker: this.#credentials,
       resolveTool: async call => {
@@ -4057,7 +4454,7 @@ export class Host {
       },
       recover: () => { this.#clearLeadChatEffects(); return this.#leadBudgets.recover() },
       openDoor: async admission => openLeadClientDoor({ host: this, logger: this.#logger, home: this.#state.directory,
-        hostVersion: this.options.version ?? '0.1.0', onWithdrawn: withdraw, authority: await createLeadClientAuthority({ host: this, project: project.path, owned: [], admission, readChatTarget: id => this.#leadChats!.canRead(id) }) }),
+        hostVersion: this.options.version ?? '0.1.0', onWithdrawn: withdraw, authority: await createLeadClientAuthority({ host: this, project: project.path, owned: [], admission, readChatTarget: id => this.#leadChats!.canRead(id), awaitsPlan: () => leadRequestFenced(journal.state, Date.now()), memoryLines: () => this.#leadMemoryReady?.entries().map(entry => entry.text) ?? [] }) }),
       stopOwned,
     })
     const ownedWorker = (runtime: string, sessionId: string, includeClosed = false) => {
@@ -4080,7 +4477,10 @@ export class Host {
         },
       })
     const follow = new LeadPrFollow({ journal, gateway: this.#gitGateway, now: () => Date.now(), validate: validateResult, answer: (card, decision, contract) => answerLeadResult({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team, readEvidence: decisionEvidence }, card, decision, contract), ...publication })
-    const repairResult = async (op: import('@harnessdesk/protocol').LeadHandback) => {
+    // A result card carries the budget, so it waits until every reserved Lead request has settled. A repair push carries
+    // only the reviewed source, which the Lead's own request in flight does not change: refusing it there, between
+    // pushOwned's two validations, parked the push as needs-you and the repair waited on a person for nothing.
+    const repairResult = async (op: import('@harnessdesk/protocol').LeadHandback, use: 'card' | 'push' = 'card') => {
       if (this.#disposed) return null
       await this.#leadBudgets.meter(journal)
       const state = journal.state, contract = state.contract, run = this.#flows.leadRuns().find(run => run.id === op.runId)
@@ -4089,7 +4489,7 @@ export class Host {
         last.state !== 'running' || !last.cards.length || !last.cards.every(id => this.#team.stateFor(op.teamId).intents.some(card => card.id === id && card.state === 'open'))) return null
       const evidence = await decisionEvidence(op.runId), budget = leadBudgetProjection(journal.state.budget!, Date.now())
       const result = evaluateLeadAcceptance(contract, evidence, { now: Date.now(), freshnessMs: 60_000, revision: journal.state.seq })
-      if (result.status !== 'reviewed' || !leadHandbackTerminal(op) && evidence.revision === op.head || budget.spend !== 'known' || budget.reservedUsdMicros) return null
+      if (result.status !== 'reviewed' || !leadHandbackTerminal(op) && evidence.revision === op.head || budget.spend !== 'known' || use === 'card' && budget.reservedUsdMicros) return null
       const old = journal.state.cards.find(card => card.id === `result-${contract.revision}`)
       const card = { version: 1 as const, id: `result-${contract.revision}`, revision: (old?.revision ?? 0) + 1, type: 'result' as const,
         contractDigest: contract.digest, outcome: 'reviewed' as const, summary: leadResultSummary('CI passed. Fresh checks and independent review are ready for your decision.', result.assertions), assertions: result.assertions, budget }
@@ -4117,9 +4517,9 @@ export class Host {
       },
       release: op => this.#flows.releaseLeadRepair(op),
       ciPassed: (op, head) => this.#evidence.observeLeadCi(project.path, op.teamId, `lead-ci-${head}`, head),
-      reviewed: async op => (await repairResult(op))?.source ?? null,
+      reviewed: async op => (await repairResult(op, 'push'))?.source ?? null,
       push: (source, op) => follow.pushOwned(source, async () => {
-        const fresh = await repairResult(op)
+        const fresh = await repairResult(op, 'push')
         if (!fresh || fresh.source.head !== source.head || journal.state.pr?.branchOwner === 'person') throw new Error('lead-repair-review-changed')
       }),
     })
@@ -4172,7 +4572,28 @@ export class Host {
     this.onDispose(journal.onChange(() => { void this.#intake.followingChanged().catch(() => {}) }))
     // Recovery uses only journaled person authority and freshly verified worker/forge identity.
     void follow.reconcile().then(refreshRepairs).catch(() => { this.#logger.warn('Lead publication needs attention') })
+    // The store opened before the ledger and the reply screen existed: checkpoints name the open work and are shown
+    // only once they pass the screen a reply does.
+    if (leadContext) void leadContext.connect({
+      ledgerIds: async () => (await work.board()).items.filter(card => card.group !== 'done').map(card => card.id),
+      screen: async text => { await this.#leadService!.assertPublic(text) },
+      // The desk as it stands when the checkpoint is written, so a summary never keeps a fact the ledger has moved past.
+      deskNow: async () => [leadClockLine(Date.now()),
+        leadWorkCards(this.#withLeadAsk(await work.board()), Date.now()) ?? '<work-ledger>\nNo open work, no reminders and nothing stopped in the last day.\n</work-ledger>'].join('\n'),
+    }).catch(() => {})
     this.#leadControls = new LeadControls({ journal,
+      readWorkContext: async turn => {
+        const expiry = presence.takeExpiryNote(turn.proactive)
+        // The person's own message under a goal whose time ran out is answered, and told so.
+        // Soon after the person comes back, their turn carries the real away window and what moved in it (#2147).
+        const away = turn.proactive ? undefined : await presence.awayNote().catch(() => undefined)
+        const note = [expiry, turn.proactive ? undefined : this.#leadAutonomy?.deadlineNote(), away].filter(Boolean).join(' ') || undefined
+        let cards: string | null = null
+        try { await work.refresh().catch(() => {}); cards = leadWorkCards(this.#withLeadAsk(await work.board()), Date.now()) } catch (error) { if (!note || turn.proactive) throw error }
+        return leadTurnContext(cards, note, turn.proactive)
+      },
+      readMemoryContext: () => this.#leadMemoryContext(),
+      settingsShown: async at => { await this.#leadAutonomy?.markSettingsShown(at) },
       approveRepeat: async (id, contract, reactivate) => { await this.#leadPlanner().approveRepeat(`repeat-${id}`, contract, journal.state.budget!.logicalGoalId, Date.now(), reactivate) },
       freezeRepeat: async contract => ({ ...contract, digest: leadContractDigest(contract) }),
       validateRepeat: async contract => {
@@ -4208,6 +4629,9 @@ export class Host {
         await this.#leadChats?.projectChanged()
       },
       readRequestInFlight: () => this.#leadService?.requestInFlight ?? false,
+      onFailure: (stage, failure) => this.#logger.warn('Lead request failed', { stage, code: leadFailureCode(failure) }),
+      readActiveTool: () => this.#leadService?.activeTool ?? null,
+      readActiveStep: () => this.#leadService?.step ?? null,
       readChatEffectQueued: () => this.#leadChats?.effectsQueued ?? false,
       service: this.#leadService, project, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,
       now: () => Date.now(), nextId: () => `lead-card-${randomUUID()}`, push: notification => this.#push(notification),
@@ -4215,6 +4639,7 @@ export class Host {
       reclaimBranch: (card, decision) => follow.reclaim(card, decision),
       readPersonActions: () => personActions.read(),
       readPresence: () => leadPresence,
+      ...(leadContext ? { context: leadContext } : {}),
       // The goal's latest run owns a board; a seat on it that is mid-turn takes the words without a restart.
       steerWorker: async text => {
         const board = journal.state.runs.at(-1)?.teamId
@@ -4240,13 +4665,14 @@ export class Host {
       stopEffects: () => stopOwned('lead-budget-stopped'),
     })
     this.onDispose(() => this.#leadControls?.close())
-    const automatic = new LeadAutomaticGoals({ journal, send: (input, origin, root) => this.#leadControls!.send(input, origin, root),
+    const automatic = new LeadAutomaticGoals({ journal, send: (input, origin, root, trigger) => this.#leadControls!.send(input, origin, root, trigger),
       enabled: () => this.options.leadEnabled === true && !this.#disposed,
       quiet: async () => leadQuietAt(await this.#leadPlanner().readSchedule(), new Date()),
+      gateMention: () => autonomy.gate('mention'),
     })
     this.#leadAutomatic = { project, owner: automatic }
     const repeats = new LeadRepeats({ planner: this.#leadPlanner(), journal, now: () => Date.now(),
-      start: (task, slot) => this.#leadControls!.runScheduled(task, slot) })
+      start: (task, slot) => this.#leadControls!.runScheduled(task, slot), gate: () => autonomy.gate('repeat') })
     this.#leadRepeats = repeats
     let lastSettled: string | null = null
     const settleRepeat = async () => {
@@ -4263,9 +4689,53 @@ export class Host {
       if (!settled.tasks.some(task => task.runs?.some(run => run.logicalGoalId === budget.logicalGoalId)) && lastSettled === signature) lastSettled = null
     }
     this.onDispose(journal.onChange(() => { void settleRepeat().catch(() => {}) }))
-    const timer = setInterval(() => { void settleRepeat().then(() => repeats.tick()).catch(() => { this.#logger.warn('A scheduled Lead task could not start') }) }, 60_000)
+    // A reminder wakes the Lead as a desk wake, never as the person's message: a closed thread opens a goal first, as a
+    // scheduled run does, and an open conversation takes the wake as a turn. One pass at a time, from the minute tick or
+    // the reminder's own timer.
+    const wakeOf = (due: { readonly id: string; readonly note: string; readonly for: 'person' | 'lead' }) => ({ reminder: due.id, text: due.note, person: due.for === 'person' })
+    let reminding: Promise<unknown> = Promise.resolve()
+    const remindWork = () => (reminding = reminding.catch(() => {}).then(() => wakeForLeadWork(work, {
+      quiet: async () => leadQuietAt(await this.#leadPlanner().readSchedule(), new Date()),
+      canBegin: () => canBeginLeadGoal(journal.state),
+      offer: (key, text, _id, due) => this.#leadControls!.remind(key, text, wakeOf(due), true),
+      remind: (key, text, due) => this.#leadControls!.remind(key, text, wakeOf(due)),
+      gate: () => autonomy.gate('repeat'),
+    })))
+    // A person's reminder counts as said only once the Lead's message is written; a silent wake is tried once more,
+    // then marked missed. Checked as the journal moves and on the minute tick, one pass at a time.
+    let settling: Promise<void> | null = null, settleAgain = false
+    const settleWork = (): Promise<void> => {
+      if (settling) { settleAgain = true; return settling }
+      settling = settleLeadReminders(work, {
+        outcome: key => this.#leadControls?.wakeOutcome(key) ?? 'pending',
+        retry: (key, text, due) => this.#leadControls ? this.#leadControls.remind(key, text, wakeOf(due)) : Promise.resolve(false),
+      }).catch(() => { this.#logger.warn('A Lead reminder\'s delivery could not be settled') }).finally(() => {
+        settling = null
+        if (settleAgain && !this.#disposed) { settleAgain = false; void settleWork() }
+      })
+      return settling
+    }
+    this.onDispose(journal.onChange(() => { void settleWork() }))
+    // The minute timer's whole body, so a test can fire the same tick the timer does.
+    const tick = (): Promise<unknown> => {
+      const done = settleRepeat().then(() => repeats.tick()).catch(() => { this.#logger.warn('A scheduled Lead task could not start') })
+        .then(() => remindWork()).catch(() => { this.#logger.warn('A Lead work reminder could not wake the Lead') })
+        .then(() => settleWork())
+        .then(() => autonomy.checkDeadline()).catch(() => { this.#logger.warn('A Lead goal deadline could not be checked') })
+        .then(() => presence.tick()).catch(() => { this.#logger.warn('The Lead morning brief could not be made') })
+      pokeWork()
+      return done
+    }
+    this.#leadTick = tick
+    const timer = setInterval(() => { void tick() }, 60_000)
     timer.unref?.()
     this.onDispose(() => clearInterval(timer))
+    const due = new LeadReminderTimer({ next: () => work.nextDue(), now: () => Date.now(),
+      fire: () => { void remindWork().catch(() => { this.#logger.warn('A Lead work reminder could not wake the Lead') }).then(() => due.arm()) },
+      setTimer: (run, ms) => { const one = setTimeout(run, ms); one.unref?.(); return () => clearTimeout(one) } })
+    reminderTimer = due
+    void due.arm()
+    this.onDispose(() => { due.close(); if (reminderTimer === due) reminderTimer = null })
     return this.#leadService
   }
 
@@ -4303,6 +4773,146 @@ export class Host {
       } })
   }
 
+  /** The journal position of the person's latest message to the Lead. A No they gave before it no longer keeps the
+   * Lead from proposing the same words again: they said it again. */
+  #leadPersonSeq(): number {
+    const messages = this.#leadJournal?.state.messages ?? []
+    for (let at = messages.length - 1; at >= 0; at--) {
+      const message = messages[at]!
+      if (message.role === 'user' && (message.source ?? 'person') === 'person') return message.revision
+    }
+    return 0
+  }
+  /** What each request tells the Lead about memory now: what became of its proposals, and what changed since the
+   * Core its standing instructions hold. `settingsShownAt` is when the settings were read: once the Lead's reply to the
+   * person is stored, the controls keep it, and a settings change before it is no longer marked as news (#2165). A
+   * failed request, a wake or a proactive turn answers nobody, so nothing is kept for them. */
+  async #leadMemoryContext(): Promise<{ readonly text: string; readonly settingsShownAt?: number } | null> {
+    const journal = this.#leadJournal
+    if (!journal) return null
+    const memory = leadMemoryStatus((await this.#leadMemory()).status(), journal.state.memoryEpoch?.memory ?? initialLeadMemoryCore())
+    // Its own settings and what became of its proposals to change them ride the same note: a settings file that cannot
+    // be read leaves them out rather than the memory status.
+    const autonomy = this.#leadAutonomy, shownAt = Date.now()
+    const read = autonomy ? await Promise.all([autonomy.view(), autonomy.settingsShownAt()]).then(([view, since]) =>
+      ({ settings: leadSettingsStatus(view, undefined, since, leadRulesHeld(journal.state)) }), () => null) : null
+    return { text: read?.settings ? `${memory}\n${read.settings}` : memory, ...(read ? { settingsShownAt: shownAt } : {}) }
+  }
+  /** The status a desk wake carries: null when the memory store cannot be read, or takes longer than
+   * `LEAD_WAKE_MEMORY_STATUS_MS` to open, so a corrupt file or a slow first open never stalls or stops a wake. */
+  async #leadMemoryStatusForWake(): Promise<string | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), LEAD_WAKE_MEMORY_STATUS_MS); timer.unref?.() })
+    try { return await Promise.race([this.#leadMemoryContext().then(note => note?.text ?? null, () => null), late]) }
+    finally { clearTimeout(timer) }
+  }
+  /** The Lead's memory: Core, Archive, the inbox and their versions, beside the journal. Opened once; the first open
+   * carries today's kept and offered lines across from the planner's file, which is left where it is. */
+  #leadMemory(): Promise<LeadMemoryStore> {
+    if (this.options.leadEnabled !== true) return Promise.reject(leadRefusal('lead-unavailable'))
+    return this.#leadMemoryOpen ??= LeadMemoryStore.open({ dir: join(this.#state.directory, 'lead'), legacy: () => this.#leadPlanner().readMemory(),
+      // Forgotten is forgotten in search too: the conversation the desk kept loses the passages that said it.
+      onForget: async texts => { const corpus = await this.#leadCorpus(); await (texts === 'all' ? corpus.clear() : corpus.forget(texts)) } }).then(store => {
+      this.#leadMemoryReady = store
+      this.onDispose(store.onChange(revision => this.#push({ method: 'lead/memory/changed', params: { revision } })))
+      return store
+    }, error => { this.#leadMemoryOpen = null; throw error })
+  }
+
+  /**
+   * One host notice in the Lead's thread for a change the person's own press made: a kept memory, an applied settings
+   * proposal (#2176). Both surfaces draw it as a host notice. A thread that cannot take it leaves the change as it is.
+   */
+  async #leadReceipt(text: string): Promise<void> {
+    const journal = this.#leadJournal
+    if (!journal) return
+    await journal.receipt(text.length > 600 ? `${text.slice(0, 599)}…` : text).catch(error => { this.#logger.warn(`lead receipt not written: ${(error as Error).message}`) })
+  }
+
+  /** The board with the Lead's open question on it, by the desk's ask states; the board as it is when none is open. */
+  #withLeadAsk(board: LeadWorkBoard): LeadWorkBoard {
+    const open = this.#leadPresence?.openAsk()
+    if (!open) return board
+    return { ...board, ask: { id: open.id, question: open.question, at: open.at, ...(open.expiresAt === undefined ? {} : { expiresAt: open.expiresAt }) } }
+  }
+
+  #leadMemoryShown(view: LeadMemoryView): LeadMemoryView { return this.#leadMemoryFault ? { ...view, fault: this.#leadMemoryFault } : view }
+
+  #leadMemoryTrack(work: Promise<unknown>, failure: string): void {
+    const tracked = work.catch(() => { if (!this.#disposed) this.#logger.warn(failure) }).finally(() => { this.#leadMemoryWork.delete(tracked) })
+    this.#leadMemoryWork.add(tracked)
+  }
+
+  #leadCorpus(): Promise<LeadConversationCorpus> {
+    return this.#leadCorpusOpen ??= LeadConversationCorpus.open(join(this.#state.directory, 'lead')).catch(error => { this.#leadCorpusOpen = null; throw error })
+  }
+
+  /**
+   * The Lead reads Core through a journal record, so what it sees changes only when its epoch does: each change to the
+   * store is journaled at once, and the loop takes it up at the next boundary. The conversation is copied for search as
+   * the journal grows, and a tidy runs at most once a day, only while the Lead is idle and no goal is running.
+   */
+  #connectLeadMemory(journal: LeadJournal, options: { readonly prices: LeadServiceOptions['prices']; readonly messagesTransport?: LeadServiceOptions['messagesTransport'] }): void {
+    let closed = false
+    this.onDispose(async () => { closed = true; await Promise.all([...this.#leadMemoryWork]) })
+    const fault = (next: 'journal' | null, revision: number) => {
+      if (this.#leadMemoryFault === next) return
+      this.#leadMemoryFault = next
+      this.#push({ method: 'lead/memory/changed', params: { revision } })
+    }
+    const publish = async (store: LeadMemoryStore) => {
+      const current = journal.state.memory, core = store.core()
+      if (closed) return
+      if (JSON.stringify(current.entries) === JSON.stringify(core.entries)) return fault(null, store.revision)
+      try {
+        await journal.memoryCore({ revision: Math.max(core.revision, current.revision + 1), entries: core.entries })
+        fault(null, store.revision)
+      } catch (error) {
+        // Never quietly: the Lead goes on reading the copy the journal last accepted, and the window says so.
+        fault('journal', store.revision)
+        throw error
+      }
+    }
+    this.#leadMemoryTrack(this.#leadMemory().then(store => {
+      if (closed) return
+      this.onDispose(store.onChange(() => { if (!closed) this.#leadMemoryTrack(publish(store), 'Lead memory could not reach the journal') }))
+      return publish(store)
+    }), 'Lead memory could not be opened')
+    // Messages carry no time of their own: each is dated when the desk first sees it, which is when it was sent for
+    // every message after this desk started.
+    const seen = new Map<string, number>()
+    const copy = () => {
+      if (closed) return
+      const messages = journal.state.messages, now = Date.now()
+      for (const message of messages) if (!seen.has(message.id)) seen.set(message.id, now)
+      if (seen.size > messages.length + 1000) { const live = new Set(messages.map(message => message.id)); for (const id of seen.keys()) if (!live.has(id)) seen.delete(id) }
+      this.#leadMemoryTrack(this.#leadCorpus().then(corpus => closed ? undefined : corpus.add(messages, id => seen.get(id))), 'The Lead conversation was not copied for search')
+    }
+    copy()
+    this.onDispose(journal.onChange(copy))
+    const tidier = createLeadMemoryTidier({ prices: options.prices, transport: options.messagesTransport ?? leadProviderTransport,
+      resolveKey: async () => (await this.#credentials.leadStatus('anthropic')).configured ? await this.#credentials.resolveLead('anthropic') : null })
+    const tidy = setInterval(() => {
+      const phase = journal.state.phase
+      if (closed || this.#leadService?.requestInFlight || phase === 'running' || phase === 'planning' || phase === 'following') return
+      this.#leadMemoryTrack(this.#leadMemory().then(store => runLeadMemoryTidy(store, tidier)), 'Lead memory tidy did not run')
+    }, 60 * 60 * 1000)
+    tidy.unref?.()
+    this.onDispose(() => clearInterval(tidy))
+  }
+
+  /** Search for the Lead: Archive, the conversation the desk kept, and the summaries that replaced parts of it. */
+  async #leadMemorySearch(query: string, limit?: number) {
+    const store = await this.#leadMemory()
+    const corpus = await this.#leadCorpus().catch(() => null)
+    const summaries: LeadMemoryDoc[] = (this.#leadContextStore?.facts().checkpoints ?? []).flatMap(checkpoint => checkpoint.text ? [{ id: checkpoint.id, text: checkpoint.text, at: checkpoint.at, kind: 'summary' as const }] : [])
+    const docs: LeadMemoryDoc[] = [...store.archive().map(entry => ({ id: entry.id, text: entry.text, at: entry.createdAt, kind: 'memory' as const, by: entry.by })), ...corpus?.docs() ?? [], ...summaries]
+    const results = leadMemoryRank(docs, query, limit)
+    const used = results.filter(hit => hit.source.kind === 'memory').map(hit => hit.source.id)
+    if (used.length) await store.touch(used).catch(() => {})
+    return { results }
+  }
+
   /** The timetable and kept lines live beside the journal and stay readable while no Lead goal is open. */
   #leadPlanner(): LeadPlanner {
     if (this.options.leadEnabled !== true) throw leadRefusal('lead-unavailable')
@@ -4323,7 +4933,7 @@ export class Host {
     const close = this.#leadBudgets.register(journal)
     return { admission: new LeadAdmission({ journal, project, budgets: this.#leadBudgets, previews: this.#flowPreviews,
       readIntents: goal => this.#team.stateFor(goal).intents,
-      now: () => Date.now(), nextId: () => `lead-start-${randomUUID()}` }), close }
+      now: () => Date.now(), nextId: () => `lead-start-${randomUUID()}`, slots: this.#leadSlots(journal) }), close }
   }
 
   /** Live identity and membership for client scope checks. Evidence belongs to
@@ -4344,7 +4954,7 @@ export class Host {
 
   /** The client's name is stated attribution, not authority. The door's live
    * action tier is checked again here; wire params cannot spoof provenance. */
-  async clientIntent(params: HostParams<'team/intent'>, client: string): Promise<HostResult<'team/intent'>> {
+  async clientIntent(params: HostParams<'team/intent'>, client: string, surface?: 'mcp'): Promise<HostResult<'team/intent'>> {
     if (params.action !== 'done' && params.action !== 'abandon') throw Object.assign(new Error('This action is not on the client surface.'), { wireCode: 'notOnClientSurface' })
     if (params.action === 'done' && !this.clientTiers().includes('answer')) throw Object.assign(new Error('This desk has not granted client answers.'), { wireCode: 'tierNotGranted' })
     const before = this.#flows.executionsFor(params.room).find(run => run.rounds.some(round => round.cards.includes(params.id)))
@@ -4360,7 +4970,7 @@ export class Host {
       if (run.state !== 'running' || run.rounds.some(one => one.n > (round?.n ?? Infinity) && one.cards.length > 0)) routed()
     }) : () => {}
     try {
-      await this.#team.intentAction(params.room, params.id, params.action, params.reason, params.outcome, params.context, client)
+      await this.#team.intentAction(params.room, params.id, params.action, params.reason, params.outcome, params.context, client, undefined, undefined, surface)
       await this.#team.flush()
       if (params.action === 'done') return null
       if (before) await Promise.race([this.#flows.cardContinuation(before.id), routing])
@@ -4372,6 +4982,56 @@ export class Host {
       const next = after?.rounds.find(one => one.n > (round?.n ?? Infinity) && one.cards.some(id => board.intents.some(card => card.id === id)))
       return { role: round?.role ?? null, nextRole: next?.role ?? null }
     } finally { detach() }
+  }
+
+  /**
+   * A flow start that came through the client door, stamped with where it came
+   * from. The origin is the host's: the door passes what the connection
+   * stated, and no wire param can carry or change it.
+   */
+  clientFlowStart(params: HostParams<'flow/start-goal'>, client: string, via: 'cli' | 'mcp'): Promise<FlowExecution> {
+    return startGoal(this.#context, params, { via, client })
+  }
+
+  /**
+   * A flow start from an MCP client. Off until the person turns it on, then
+   * counted against today's number; a start that fails is refunded. It never
+   * raises a ceiling: only attended work, and only a Flow saved where the
+   * catalogue finds it, so every grant a run from MCP holds is one the person
+   * saved. Seat overrides carry no ceiling, so they cannot raise one.
+   */
+  async clientStart(params: HostParams<'flow/start-goal'>, client: string): Promise<FlowExecution> {
+    const admission = await this.#mcpStarts.admit()
+    if (!admission.ok) throw Object.assign(new Error(admission.detail), { wireCode: admission.code })
+    try {
+      if (params.attended === false) {
+        throw Object.assign(new Error('An MCP client starts attended work only, so a ceiling a seat cannot hold asks you. Start unattended work in the app.'), { wireCode: 'mcpUnattended' })
+      }
+      // A front-door Goal is the window's to reuse, and Run again continues an
+      // earlier Run in its Team and checkout: both are work on an existing Team.
+      if (params.goal !== undefined || (params.continues !== undefined && params.continues !== null)) {
+        throw Object.assign(new Error('An MCP client cannot start work on an existing Team.'), { wireCode: 'refused' })
+      }
+      if (!await this.#savedFlowSource(params.root, params.source)) {
+        throw Object.assign(new Error('Start a Flow saved in this project; an MCP client cannot start an edited copy.'), { wireCode: 'mcpUnsavedFlow' })
+      }
+      return await this.clientFlowStart(params, client, 'mcp')
+    } catch (error) {
+      await this.#mcpStarts.refund(admission.ticket)
+      throw error
+    }
+  }
+
+  /** Whether this exact text is a Flow the project's catalogue holds, as `flow/source` would read it. */
+  async #savedFlowSource(root: string, source: string): Promise<boolean> {
+    const digest = sourceDigest(source)
+    for (const entry of await this.#flows.catalog(root)) {
+      let saved: string
+      try { saved = await this.#flows.catalogSource(root, entry.id, entry.origin) }
+      catch { continue }
+      if (sourceDigest(saved) === digest) return true
+    }
+    return false
   }
 
   recordClientAudit(entry: Omit<ClientAuditEntry, 'at' | 'via'>): void {
@@ -4388,15 +5048,16 @@ export class Host {
     return {
       method: 'sync',
       params: {
-        sessions: this.registry.snapshot(),
+        // A consult is never shown, to a window that connects mid-ask included.
+        sessions: this.registry.snapshot().filter((session) => !this.#consulting.has(sessionKey(session.runtime, session.id))),
         // What each conversation has waiting. A reloading client must get this
         // back: a queue that vanished on ⌘R would be the very bug queueing
         // exists to fix.
-        queues: this.registry.queues(),
+        queues: this.registry.queues().filter((entry) => !this.#consulting.has(sessionKey(entry.runtime, entry.sessionId))),
         // And what each has running in the background. Same reason: a job
         // that outlives a turn certainly outlives a window reload, and a
         // panel that forgot it would be a panel that lost the job.
-        tasks: this.registry.tasks(),
+        tasks: this.registry.tasks().filter((entry) => !this.#consulting.has(sessionKey(entry.runtime, entry.sessionId))),
         runtimes: [...this.#runtimes.values()].map((runtime) => this.#infoOf(runtime)),
         // Health for every runtime, not only the one selected somewhere: a
         // client that only ever learned the active runtime's health drew
@@ -4505,6 +5166,14 @@ export class Host {
     if (method === 'session/resume' && typeof address?.runtime === 'string' && typeof address.sessionId === 'string') {
       const record = this.registry.get(runtimeId(address.runtime), makeSessionId(address.sessionId))
       if (record) record.cacheClosed = false
+    }
+    // The person's own message wins over any carry-on incident: it is the continuation they chose. Only the window's
+    // and the phone's doors come through here; carry-on's own sends take the host's path and never count.
+    if ((method === 'turn/send' || method === 'turn/queue' || method === 'turn/steer') && typeof address?.runtime === 'string' && typeof address.sessionId === 'string')
+      void this.#carryOn.personSent(address.runtime, address.sessionId).catch(() => {})
+    if (method === 'workspace/session/send') {
+      const chat = (params as { readonly id?: unknown }).id, at = typeof chat === 'string' ? chat.indexOf(':') : -1
+      if (typeof chat === 'string' && at > 0) void this.#carryOn.personSent(chat.slice(0, at), chat.slice(at + 1)).catch(() => {})
     }
     const finish = method !== 'session/prepare-eviction' && method !== 'session/cache-snapshot' && typeof address?.runtime === 'string' && typeof address.sessionId === 'string'
       ? this.#beginTranscriptOperation(runtimeId(address.runtime), makeSessionId(address.sessionId)) : null
@@ -5111,6 +5780,89 @@ export class Host {
   }
 
   /**
+   * Carry-on (piece D): a card's claim passes from a Seat to its replacement.
+   * Only the claim's holder changes; where the checkout stood when the card was
+   * taken stays, because the replacement works in the same checkout.
+   */
+  async #moveGoalClaim(goal: string, card: number, from: SeatRecord, to: SeatRecord): Promise<void> {
+    await this.#goalPlaneWrite(goal, (intents) => {
+      const current = intents.find((one) => one.id === card)
+      if (!current) throw new Error('Choose an existing card.')
+      if (current.claim?.runtime === to.session.runtime && current.claim.sessionId === to.session.sessionId) return intents
+      // A card its Seat had not claimed (it was finished, say) has no claim to move.
+      if (current.state !== 'claimed' || current.claim?.runtime !== from.session.runtime || current.claim.sessionId !== from.session.sessionId) return intents
+      const at = Date.now()
+      return intents.map((intent) => intent.id === card && intent.claim ? {
+        ...intent, claim: { ...intent.claim, runtime: to.session.runtime as RuntimeId, sessionId: to.session.sessionId }, updatedAt: at,
+      } : intent)
+    })
+  }
+
+  /**
+   * Carry-on (piece D): a replacement Seat for one that reached a usage limit
+   * (§9.2). A sibling account of the same agent reopens the same thread under
+   * the new Seat; anything else is the same Agent seated again in the same
+   * checkout, whose first work message is the handoff packet. Never a
+   * mutation: the old Seat is closed with `limit` by the Goal plane once the
+   * new one holds the lane and the claim.
+   */
+  async #replaceSeat(seat: SeatRecord, target: SeatReplacement): Promise<SeatRecord | { readonly refused: string }> {
+    const opened: { record: SeatRecord | null } = { record: null }
+    const level: CeilingLevel = seat.ceiling?.level ?? (seat.standing.kind === 'ceiling' ? seat.standing.level
+      : seat.standing.kind === 'permission' ? ceilingOfPermission(seat.standing.permission) : 'read')
+    try {
+      const record = await this.#goals.replaceSeat(seat, target.card, async (where) => {
+        opened.record = target.mode === 'sameThread'
+          ? await this.#reopenSeatOn(seat, where.cwd, target, level)
+          : await this.#seatAgainOn(seat, where, target, level)
+        return opened.record
+      })
+      this.#membershipChanged(record.session.runtime as RuntimeId, record.session.sessionId)
+      return record
+    } catch (error) {
+      // Past the move, the replacement holds the work: it stays, and the run finishes the move from where it went.
+      if (opened.record && !(error instanceof SeatMovedError)) await this.#retireSeat(opened.record.session.runtime, opened.record.session.sessionId).catch(() => {})
+      else if (opened.record) this.#membershipChanged(opened.record.session.runtime as RuntimeId, opened.record.session.sessionId)
+      return { refused: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  /** The same thread, reopened by a sibling account: one live writer per thread, so the stuck account lets go first. */
+  async #reopenSeatOn(seat: SeatRecord, cwd: string, target: SeatReplacement, level: CeilingLevel): Promise<SeatRecord> {
+    const from = { runtime: runtimeId(seat.session.runtime), sessionId: makeSessionId(seat.session.sessionId) }
+    // What an Agent's attachments were approved for is one runtime's load set: it does not carry to another account.
+    // Read from the declarations the Seat actually froze, never from the record every Agent Seat writes: one that
+    // declared nothing moves on the same thread. A filter lost, or an Agent that declares (or cannot be read), refuses.
+    if (await this.#attachments.filters(seat.id) || await this.#attachments.lostFilter(seat.id) || (await this.#agentDeclaresAttachments(seat)) !== false) {
+      throw new Error('Its attachments do not carry over to another account.')
+    }
+    await this.call('session/close', from).catch(() => undefined)
+    await this.call('session/resume', { runtime: runtimeId(target.runtime), sessionId: from.sessionId, ...(target.model ? { options: { model: target.model } } : {}) })
+    const held = await this.#holdSeat(target.runtime, seat.session.sessionId, level)
+    const live = await this.#teamLive(runtimeId(target.runtime), seat.session.sessionId)
+    const { model: _model, ...picks } = seat.seat
+    return this.#evidence.seats.opened({
+      agent: seat.agent, briefDigest: seat.briefDigest,
+      ...(seat.runtimeServers !== undefined ? { runtimeServers: seat.runtimeServers } : {}),
+      seat: { ...picks, runtime: target.runtime, ...(target.model ? { model: target.model } : {}) },
+      seatLabel: this.#labelOf(target.runtime, live.options()),
+      passedOver: [], standing: seat.standing, ceiling: held.ceiling,
+      cwd, ...(seat.checkout.project ? { project: seat.checkout.project } : {}),
+      session: { runtime: target.runtime, sessionId: seat.session.sessionId },
+      board: seat.board, role: seat.role,
+    })
+  }
+
+  /** The same Agent, seated again on `target` in the same checkout, with the same ceiling and role. */
+  async #seatAgainOn(seat: SeatRecord, where: Goal, target: SeatReplacement, level: CeilingLevel): Promise<SeatRecord> {
+    if (!seat.agent) throw new Error('This seat was opened without an Agent, so it cannot be seated again elsewhere.')
+    return (await seatAgent(this.#context, {
+      id: seat.agent.id, cwd: where.cwd, project: where.root,
+      seats: [{ runtime: target.runtime, ...(target.model ? { model: target.model } : {}) }],
+    }, { board: where.id, role: target.role, grant: { kind: 'ceiling', level } })).record
+  }
+
+  /**
    * `until` is where the checkout stood, read by `GoalPlane.release` before
    * it ever closed this Seat (issue #1042 P1) — carried into this same patch
    * rather than a second write after the fact, which would have to queue
@@ -5405,6 +6157,221 @@ export class Host {
    * over this host's own state, so a method module never sees the class —
    * only what it was given — and can be run against a hand-built context.
    */
+  /** A seat's own recovery when its turn ends: its card handed back, and a release waiting on it answered. */
+  #recoverSeat(runtime: RuntimeId, sessionId: string): void {
+    void this.#flows.reArm(runtime, sessionId)
+    // The same turn-ended signal answers a v2 release still waiting on this
+    // Seat, rather than a poll of its own guessing when to ask again (#1027).
+    this.#flows.retryRelease(runtime, sessionId)
+  }
+
+  /**
+   * The carry-on service, wired to the host. Every name it reads is the
+   * runtime's presentation and an account ordinal or the gateway's own name —
+   * never an email; it acts through the same close, resume, create and send a
+   * window uses, its sends on the host's path so they never count as the
+   * person's.
+   */
+  /** Identities for live handles, so carry-on can tell the handle it opened from one somebody else attached. */
+  readonly #carryOnHandles = new WeakMap<object, string>()
+  #carryOnHandleCount = 0
+  #carryOnHandle(live: object): string {
+    let handle = this.#carryOnHandles.get(live)
+    if (handle === undefined) { handle = `h${++this.#carryOnHandleCount}`; this.#carryOnHandles.set(live, handle) }
+    return handle
+  }
+
+  /**
+   * Carry-on's lease on a conversation: the handle it holds and how many opens the conversation had then. It stays
+   * carry-on's only while both are unchanged — no other handle, and no other caller opened it since, even one an
+   * adapter handed the very same handle.
+   */
+  #carryOnLease(runtime: RuntimeId, id: SessionId, live: object): string {
+    return `${this.#carryOnHandle(live)}@${this.registry.opens(runtime, id).opened}`
+  }
+
+  #buildCarryOn(): CarryOnService {
+    const preferences = () => this.#state.state.preferences
+    const pools = () => {
+      const value = preferences()['accountPools']
+      return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, { readonly order?: unknown; readonly whenOut?: string } | undefined> : {}
+    }
+    const runtimeOf = (id: string) => this.#runtimes.get(runtimeId(id))
+    const agentOf = (runtime: AgentRuntime) => String(this.#infoOf(runtime).slot?.agent ?? runtime.info.id)
+    const key = (runtime: string, sessionId: string) => ({ runtime: runtimeId(runtime), sessionId: makeSessionId(sessionId) })
+    const cannotStart = (runtime: AgentRuntime) => {
+      const health = runtime.health()
+      return health.state === 'unavailable' && (health.reason === 'notInstalled' || health.reason === 'versionTooOld' || health.reason === 'spawnFailed')
+    }
+    return new CarryOnService({
+      file: join(this.#state.directory, 'carry-on', 'incidents.json'),
+      problem: reason => this.#logger.warn(reason),
+      owner: async (runtime, sessionId) => {
+        if (this.#evidence.seats.of(runtimeId(runtime), makeSessionId(sessionId)).some(seat => !seat.closed)) return 'seat'
+        if (await this.#leadChats?.recovers(`${runtime}:${sessionId}`)) return 'lead'
+        return 'chat'
+      },
+      policy: agent => {
+        const policy = carryOnPolicyOf(preferences())
+        return { ...carryOnFor(policy, pools()[agent]), otherAgents: policy.otherAgents }
+      },
+      describe: id => {
+        const runtime = runtimeOf(id)
+        if (!runtime) return null
+        const info = this.#infoOf(runtime), agent = agentOf(runtime)
+        const siblings = [...this.#runtimes.values()].filter(one => agentOf(one) === agent)
+        const report = this.#usageService.cached(runtime.info.id)
+        const account = info.slot?.gateway?.name ?? (siblings.length > 1 ? `account ${siblings.indexOf(runtime) + 1}` : undefined)
+        return {
+          id, agent, name: info.presentation.name, ...(account ? { account } : {}),
+          sessionStore: runtime.sessionStore ?? null, ownSessions: info.slot?.ownSessions === true, gateway: info.slot?.gateway !== undefined,
+          // A runtime not started yet is started by the resume or create that uses it; one that cannot start at all is
+          // as good as signed out, and the meter's own refusal is the one sign-out signal the host holds without asking.
+          signedIn: !cannotStart(runtime) && report?.error?.needsSignIn !== true,
+          resume: info.capabilities.resume === true,
+        }
+      },
+      runtimes: () => {
+        const all = [...this.#runtimes.values()]
+        // Within one agent, the person's own pool order; across agents, as the desk lists them.
+        const rank = (runtime: AgentRuntime) => {
+          const order = pools()[agentOf(runtime)]?.order
+          const at = Array.isArray(order) ? order.indexOf(String(runtime.info.id)) : -1
+          return at === -1 ? Number.MAX_SAFE_INTEGER : at
+        }
+        return all.map((runtime, at) => ({ runtime, at })).sort((a, b) =>
+          agentOf(a.runtime) === agentOf(b.runtime) ? rank(a.runtime) - rank(b.runtime) || a.at - b.at : a.at - b.at)
+          .map(({ runtime }) => String(runtime.info.id))
+      },
+      rank: id => { const report = this.#usageService.cached(runtimeId(id)); return paceRankOf(report ? [report] : [], Date.now()) },
+      meter: async id => {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const late = new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 10_000); timer.unref() })
+        try {
+          const reports = await Promise.race([this.#usageService.refresh(runtimeId(id)), late])
+          const report = reports?.[0]
+          if (!report || report.error) return null
+          const lane = reachedLaneOf(report) ?? usageBindingLane(report.lanes)
+          return { reached: report.reached !== null, blocked: usageBlocked(report), resetsAt: lane?.resetsAt ?? null }
+        } finally { clearTimeout(timer) }
+      },
+      models: id => this.call('runtime/models', { runtime: runtimeId(id) }),
+      modelOf: (runtime, sessionId) => this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.session.settings?.model || undefined,
+      titleOf: (runtime, sessionId) => {
+        const at = key(runtime, sessionId)
+        return this.registry.get(at.runtime, at.sessionId)?.session.title ?? this.#sessionIndex.get(at.runtime, at.sessionId)?.title ?? 'Conversation'
+      },
+      busy: (runtime, sessionId) => {
+        const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+        return !!record && (record.running.size > 0 || this.#queueBusy(record))
+      },
+      close: async (runtime, sessionId, lease) => {
+        if (lease !== undefined) {
+          // Only on carry-on's own lease: the handle it attached, with no other open since and none under way.
+          const at = key(runtime, sessionId)
+          const live = this.registry.get(at.runtime, at.sessionId)?.live
+          if (!live || this.registry.opens(at.runtime, at.sessionId).pending > 0 || this.#carryOnLease(at.runtime, at.sessionId, live) !== lease) return
+        }
+        await this.call('session/close', key(runtime, sessionId))
+      },
+      resume: async (runtime, sessionId, model) => {
+        const at = key(runtime, sessionId)
+        const before = this.registry.get(at.runtime, at.sessionId)
+        // Already open there, or being opened: somebody else's handle, which carry-on must never close.
+        const opens = this.registry.opens(at.runtime, at.sessionId)
+        if (before?.live || opens.pending > 0) return null
+        const attaches = before?.liveAttaches ?? 0
+        await this.call('session/resume', { ...at, ...(model ? { options: { model } } : {}) })
+        // Evidence of ownership, per call rather than per handle: exactly one open since the look before the await
+        // (carry-on's own), none still under way, and exactly one attachment, the one live now. Anything more means
+        // another opener came alongside — perhaps handed the very same handle — and then it is not carry-on's.
+        const after = this.registry.get(at.runtime, at.sessionId)
+        const now = this.registry.opens(at.runtime, at.sessionId)
+        if (!after?.live || (before !== undefined && after !== before) || after.liveAttaches !== attaches + 1 ||
+          now.opened !== opens.opened + 1 || now.pending > 0) return null
+        return this.#carryOnLease(at.runtime, at.sessionId, after.live)
+      },
+      footprint: (runtime, sessionId) => {
+        const at = key(runtime, sessionId)
+        const record = this.registry.get(at.runtime, at.sessionId)
+        if (!record?.live) return null
+        // The lease, the turns it holds and what runs: a reattach, another open, a turn or a queued send all change it.
+        return `${this.#carryOnLease(at.runtime, at.sessionId, record.live)}:${record.session.turns.length}:${record.running.size}:${this.#queueBusy(record) ? 1 : 0}`
+      },
+      // A packet and the continue are the host's own words: both go in as desk context, so the transcript never
+        // shows them as something the person typed. The packet is already enveloped; the continue is wrapped here.
+        // `stillOurs` rides the dispatch as its admission and is read once more at the effect boundary, after the
+        // last await: a person who writes while the host is resolving the handle wins there too.
+        send: async (runtime, sessionId, text, kind, stillOurs, admitted, seat) => {
+          const at = key(runtime, sessionId)
+          // Into a Flow's Seat, the run's own gate rides the same admission: its budget is read when the send goes
+          // (a queued packet's when it drains), and its stop at the boundary itself (§9.4). A Seat's send with no gate
+          // to pass — its run stalled or gone while the send was being made — is refused, never let through ungated.
+          const gate = (): { readonly admit: () => Promise<void>; readonly assert: () => void } | null => {
+            const run = this.#flows.carriedAdmission(runtime, sessionId, seat === true)
+            if (!run && seat) throw new Error('This seat no longer belongs to a running run.')
+            return run
+          }
+          gate()
+          const admission = Object.assign(async () => { await gate()?.admit() }, {
+            assertDispatch: () => { if (!stillOurs()) throw new Error('You sent a message first.'); gate()?.assert() },
+            // Past the boundary: carry-on's marker goes in now, never for a send the person overtook. With the turns the
+            // conversation already had, so carry-on watches the turn this send starts and nothing before it.
+            ...(admitted ? { dispatchStarted: () => admitted((this.registry.get(at.runtime, at.sessionId)?.session.turns ?? []).map((turn) => String(turn.id))) } : {}),
+          })
+          // The continue goes as desk context too, under its own label, so the transcript never draws it as the person's.
+          const input = [deskContextContent(kind === 'packet' ? text : wrapContext(CONTINUE_SOURCE, text))]
+          // A packet waits its turn behind whatever the conversation is doing: a replacement Seat is still reading
+          // its brief. Under the same admission, so the person writing first still wins when it is drained.
+          const record = this.registry.get(at.runtime, at.sessionId)
+          if (kind === 'packet' && record && (record.running.size > 0 || this.#queueBusy(record))) await queueTurn(this.#context, { ...at, input }, undefined, admission)
+          else await sendTurn(this.#context, { ...at, input }, admission)
+        },
+      create: async (runtime, from, model) => {
+        const source = key(from.runtime, from.sessionId)
+        // The new conversation starts in the stuck one's folder, worktree included, so its uncommitted work is there.
+        const cwd = this.registry.get(source.runtime, source.sessionId)?.session.cwd ?? this.#sessionIndex.get(source.runtime, source.sessionId)?.cwd
+        // The lease is taken the moment the creation attaches its handle, never from a later read: by the time the
+        // creation returns, another opener may have put a handle of its own there.
+        let handle: string | null = null
+        const session = await createConversation(this.#context, { runtime: runtimeId(runtime), options: { ...(cwd ? { cwd } : {}), ...(model ? { model } : {}) } },
+          undefined, live => {
+            // A brand-new conversation has had no open but this creation, which counts none: the runtime may have
+            // announced it before the create returned, and an opener that reached it then holds the handle too.
+            const opens = this.registry.opens(runtimeId(runtime), live.id)
+            handle = opens.opened === 0 && opens.pending === 0 ? this.#carryOnLease(runtimeId(runtime), live.id, live) : null
+          })
+        const title = this.registry.get(source.runtime, source.sessionId)?.session.title ?? this.#sessionIndex.get(source.runtime, source.sessionId)?.title
+        if (title) await this.call('session/setTitle', { runtime: runtimeId(runtime), sessionId: session.id, title }).catch(() => undefined)
+        return { sessionId: String(session.id), handle }
+      },
+      packet: async (from, meta) => {
+        const at = key(from.runtime, from.sessionId)
+        const transcript = await this.#readTranscript(this.#runtime({ runtime: at.runtime }), at.sessionId, false)
+        return carryOnPacket(transcript.turns, { ...meta, title: transcript.title ?? 'Conversation' })
+      },
+      // A Team or Flow seat: the flow engine answers for its run, opens its replacement, and takes it back.
+      seat: {
+        of: (runtime, sessionId) => this.#flows.seatCarry(runtime, sessionId),
+        refuse: (runtime, sessionId, target) => this.#flows.refuseSeatTarget(runtime, sessionId, target),
+        replace: async (from, to) => {
+          const opened = await this.#flows.replaceSeat(from.runtime, from.sessionId, to)
+          return 'refused' in opened ? opened : { runtime: opened.session.runtime, sessionId: opened.session.sessionId }
+        },
+        recover: (runtime, sessionId) => { if (!this.#disposed) this.#recoverSeat(runtime as RuntimeId, sessionId) },
+      },
+      record: (runtime, sessionId, item) => this.#recordCarryOn(runtime, sessionId, item),
+      publish: (at, incident) => this.#push({ method: 'carryOn/changed', params: { incident, key: at } }),
+      writeRule: async (scope, agent, choice) => {
+        const current = preferences()
+        const patch = scope === 'desk'
+          ? { [CARRY_ON_PREFERENCE]: { ...carryOnPolicyOf(current), onLimit: choice } }
+          : { accountPools: { ...pools(), [agent]: { ...pools()[agent], whenOut: whenOutForChoice(choice) } } }
+        await this.call('app/state/set', { patch })
+      },
+    })
+  }
+
   #buildContext(): HostContext {
     return {
       options: this.options,
@@ -5415,6 +6382,7 @@ export class Host {
       credentials: this.#credentials,
       harnessDeskAccount: this.#harnessDeskAccount,
       audit: this.#audit,
+      mcpStarts: this.#mcpStarts,
       transcripts: this.#transcripts,
       archive: this.#archive,
       sessionIndex: {
@@ -5431,7 +6399,11 @@ export class Host {
           for (const row of page.data) this.#sessionIndexRepos.read(row.cwd, true)
           return page
         },
+        opened: (runtime, id) => this.#sessionIndex.opened(runtime, id),
+        pins: () => this.#sessionIndex.pins(),
+        setPinned: (runtime, id, pinned) => this.#sessionIndex.setPinned(runtime, id, pinned),
         record: (session) => this.#recordSessionIndex(session, true),
+        refreshMissingFolder: (cwd) => this.#sessionIndexRepos.refreshMissing(cwd),
         reopen: (session) => {
           if (!this.#sessionIndex.admitReopened(session.runtime, session.id)) return
           const restored = this.registry.restoreRemoved(session.runtime, session.id)
@@ -5542,8 +6514,45 @@ export class Host {
       },
       leadChats: { list: params => this.leadChats.list(params), read: params => this.leadChats.read(params),
         start: params => this.leadChats.start(params), send: params => this.leadChats.send(params), stop: params => this.leadChats.stop(params) },
+      leadAutonomy: { view: () => this.leadAutonomy.view(), set: set => this.leadAutonomy.set(set), rules: () => this.leadAutonomy.rules(),
+        updateRules: update => this.leadAutonomy.updateRules(update), setDeadline: set => this.leadAutonomy.setDeadline(set),
+        proposeMode: params => this.leadAutonomy.proposeMode(params), proposeRules: params => this.leadAutonomy.proposeRules(params), decide: params => this.leadAutonomy.decide(params) },
+      leadPresence: { read: (device, options) => this.leadPresence.read(device, options), dismiss: (device, digest) => this.leadPresence.dismiss(device, digest),
+        brief: () => this.leadPresence.brief(), updateBrief: update => this.leadPresence.updateBrief(update) },
+      // A read of the board is current: a stop that landed a moment ago is on it, named, before the debounced refresh
+      // would have run, so the wake that stop causes never reads the chat as still working (#2145).
+      // The board carries the Lead's open question, by the desk's ask states, so a wake reads it as a person's turn does (#2173).
+      leadWork: { board: async state => { const work = this.leadWork; await work.current().catch(() => {}); return this.#withLeadAsk(await work.board(state)) }, read: params => this.leadWork.read(params),
+        note: async params => { const card = await this.leadWork.note(params); void this.leadWork.refresh(); return card },
+        close: params => this.leadWork.close(params), setReminder: params => this.leadWork.setReminder(params),
+        cancelReminder: params => this.leadWork.cancelReminder(params), clearReminder: params => this.leadWork.clearReminder(params) },
+      personStopping: chat => { try { return this.#leadWork?.stopping(chat, 'person') ?? (() => {}) } catch { return () => {} } },
+      carryOn: { list: () => this.#carryOn.list(), decide: decision => this.#carryOn.decide(decision) },
+      // Cache only: an allowance question never starts a meter/API refresh or ledger scan.
+      // The accounts the Dashboard lists, from the same cache: an allowance question never starts a refresh.
+      leadUsageSummary: () => this.#phoneWorkspaceView().usageSummary(this.#trackedUsage(this.#cachedUsage())),
+      // The waiting count rides the summary from the Inbox the bell and the phone show, the open question included, so
+      // a count the Lead says matches the rows it lists (#2182).
+      leadDeskSummary: async params => {
+        const summary = await this.#phoneWorkspaceView().deskSummary(params)
+        const inbox = await this.#leadInboxRead(summary).catch(() => null)
+        return inbox ? { ...summary, waiting: leadInboxWaiting(inbox) } : summary
+      },
       leadThreadRead: async () => (await this.#leadWindow()).readThread(),
-      leadThreadSend: async (params) => (await this.#leadWindow()).send(params),
+      // One inbox for the bell and the phone: the Lead's window, the desk's needs-you work, and the kept notices.
+      leadInbox: () => this.#leadInboxRead(),
+      leadThreadSend: async (params) => {
+        // A text that answers the question just asked is checked against its expiry first, and its receipt names this device.
+        const answered = await this.leadPresence.beforeSend(params.device, params.text, params.ask)
+        try {
+          const receipt = await (await this.#leadWindow()).send(params)
+          if (answered) await answered(true, receipt.messageId).catch(() => {})
+          return receipt
+        } catch (error) {
+          if (answered) await answered(false).catch(() => {})
+          throw error
+        }
+      },
       leadApprovalRevoke: async params => (await this.#leadWindow()).revokeApproval(params),
       leadActionPerform: async params => (await this.#leadWindow()).perform(params),
       leadCardDecide: async (params) => (await this.#leadWindow()).decide(params),
@@ -5561,8 +6570,23 @@ export class Host {
       },
       leadScheduleRead: async () => this.#leadPlanner().readSchedule(),
       leadScheduleUpdate: async params => this.#leadRepeats ? this.#leadRepeats.write(params.schedule) : this.#leadPlanner().writeSchedule(params.schedule),
-      leadMemoryRead: async () => this.#leadPlanner().readMemory(),
-      leadMemoryUpdate: async params => this.#leadPlanner().writeMemory(params.memory),
+      // The earlier read and update keep working, over the new store.
+      leadMemoryRead: async () => (await this.#leadMemory()).legacy(),
+      leadMemoryUpdate: async params => (await this.#leadMemory()).replaceLegacy(params.memory, this.#leadJournal?.state.seq ?? 0),
+      leadMemoryView: async () => this.#leadMemoryShown((await this.#leadMemory()).view()),
+      leadMemoryChange: async params => {
+        // Keep says what it kept in the thread, in the words and kind it was kept with (#2176). No leaves no receipt. The
+        // store names the entry this Keep made, so two Keeps at once never both name the same one.
+        let kept = undefined as { readonly kind: keyof typeof LEAD_MEMORY_KIND_LABELS; readonly text: string } | undefined
+        const view = await (await this.#leadMemory()).change(params, this.#leadJournal?.state.seq ?? 0, entry => { kept = entry })
+        if (kept) await this.#leadReceipt(`Kept · ${LEAD_MEMORY_KIND_LABELS[kept.kind]}: ${kept.text}`)
+        return this.#leadMemoryShown(view)
+      },
+      leadMemoryPropose: async params => (await this.#leadMemory()).propose(params, this.#leadJournal?.state.seq ?? 0, this.#leadPersonSeq()),
+      leadMemorySearch: async params => this.#leadMemorySearch(params.query, params.limit),
+      leadContextRead: async () => (await this.#leadWindow()).readContext(),
+      leadContextUse: async () => leadContextUse(await (await this.#leadWindow()).readContext(), Date.now()),
+      leadContextCompact: async () => (await this.#leadWindow()).compactContext(),
       leadStarts: this.#leadBudgets,
       flowUpdates: this.#flowUpdates,
       authoring: this.#authoring,
@@ -5670,6 +6694,7 @@ export class Host {
         )
         return this.#libraryUsage
       },
+      mcpConnectionTests: () => this.#mcpConnectionTests ??= new McpConnectionTests(this.options.libraryHome !== undefined ? { home: this.options.libraryHome } : {}),
       extensions: () => this.#requireExtensions(),
       push: (notification) => this.#push(notification),
       runtimes: {
@@ -5872,6 +6897,7 @@ export class Host {
       diagnostics: () => this.#diagnostics(),
       settings: {
         applyTeam: () => this.#applyTeamSettings(),
+        pluginConfigProblem: (id, config) => this.#pluginConfigProblem(id, config),
         applyBrowser: () => this.#applyBrowserSettings(),
       },
     }
@@ -6775,6 +7801,182 @@ export class Host {
     return this.#forge
   }
 
+  /**
+   * `ctx.agents`' engine: one read-only question from a Flow seat to another
+   * agent, answered once in a hidden, ephemeral conversation the desk opens
+   * and discards (`consult.ts`). Built on first use, like a plane a plugin
+   * host reaches through its module setter.
+   */
+  get consultPlane(): ConsultPlane {
+    this.#consult ??= new ConsultPlane({
+      caller: (runtime, sessionId) => {
+        const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+        if (!record) return null
+        const checkout = this.#evidence.seats.latestKeptOf(runtime, sessionId)?.checkout ?? record.shellCheckout
+        if (checkout) return { cwd: checkout.cwd, project: checkout.project }
+        return record.session.cwd ? { cwd: record.session.cwd, project: null } : null
+      },
+      isConsult: (runtime, sessionId) => this.#consulting.has(sessionKey(runtimeId(runtime), makeSessionId(sessionId))),
+      askingSeat: (runtime, sessionId) => this.#flows.askingSeat(runtime, sessionId),
+      seat: (id) => this.#evidence.seats.byId(id) ?? null,
+      spendAsk: (run, seat, times) => this.#flows.spendAsk(run, seat, times),
+      beforeDispatch: async (goal) => {
+        const gate = await this.#intake.beforeDispatch(goal)
+        return gate.ok ? { ok: true as const } : { ok: false as const, detail: gate.detail }
+      },
+      runtime: (id) => {
+        const found = this.#runtimes.get(runtimeId(id))
+        return found ? this.#infoOf(found) : null
+      },
+      open: async (agent, where, signal) => {
+        const id = runtimeId(agent.runtime)
+        this.#consultOpeningSeq += 1
+        const opening = this.#consultOpeningSeq
+        this.#consultOpenings.set(opening, id)
+        // This opening holds back its runtime's announcements — its own, no
+        // other runtime's — only until the ask's deadline and one cleanup
+        // bound after it, never for as long as a stuck open takes: past that,
+        // what it held is let through, whatever other openings started since,
+        // and a consult that opens later may be seen until its discard removes it.
+        let held = true
+        let bound: unknown = null
+        const release = (): void => {
+          if (!held) return
+          held = false
+          this.#consultOpenings.delete(opening)
+          this.#releaseConsultHeld(opening)
+        }
+        const expire = (): void => { bound = this.#consultSetTimer(release, CONSULT_CLEANUP_MS) }
+        if (signal.aborted) expire()
+        else signal.addEventListener('abort', expire, { once: true })
+        try {
+          const opened = await this.#openSeat(agent, {
+            cwd: where.cwd, ...(where.project ? { project: where.project } : {}), title: 'Consult',
+            ceiling: 'read', ephemeral: true, consult: true, withheldTools: ['ask_agent'],
+          })
+          // Opened after its hold was let go: its start may have reached a window, so its removal does too.
+          if (!held) this.#consultsShown.add(sessionKey(runtimeId(opened.runtime), makeSessionId(opened.sessionId)))
+          return { runtime: opened.runtime, sessionId: opened.sessionId, openedAt: Date.now() }
+        } finally {
+          signal.removeEventListener('abort', expire)
+          if (bound !== null) this.#consultClearTimer(bound)
+          release()
+        }
+      },
+      holdRead: async (consult) => (await this.#holdSeat(consult.runtime, consult.sessionId, 'read')).ceiling.hold === 'held',
+      ask: (consult, text, signal) => new Promise<Turn>((resolve, reject) => {
+        const key = sessionKey(runtimeId(consult.runtime), makeSessionId(consult.sessionId))
+        const stop = (): void => {
+          this.#consultTurns.delete(key)
+          signal.removeEventListener('abort', stop)
+          // Best effort: the conversation is discarded next either way.
+          void this.#teamLive(runtimeId(consult.runtime), consult.sessionId).then((live) => live.interrupt()).catch(() => undefined)
+          reject(signal.reason)
+        }
+        if (signal.aborted) { stop(); return }
+        signal.addEventListener('abort', stop, { once: true })
+        this.#consultTurns.set(key, (turn) => {
+          this.#consultTurns.delete(key)
+          signal.removeEventListener('abort', stop)
+          resolve(turn)
+        })
+        // The ask's signal goes with the order: an ask withdrawn while the order waits sends nothing.
+        this.#orderSeat(consult.runtime, consult.sessionId, text, undefined, signal).catch((error: unknown) => {
+          if (!this.#consultTurns.has(key)) return
+          this.#consultTurns.delete(key)
+          signal.removeEventListener('abort', stop)
+          reject(error)
+        })
+      }),
+      discard: async (consult) => {
+        const key = sessionKey(runtimeId(consult.runtime), makeSessionId(consult.sessionId))
+        try {
+          const left = await this.#discardSeat(runtimeId(consult.runtime), makeSessionId(consult.sessionId))
+          return left ? left.kind : null
+        } finally {
+          this.#consultTurns.delete(key)
+          this.#consulting.delete(key)
+          this.#consultClosed(key)
+          this.#consultsGone.add(key)
+          if (this.#consultsGone.size > 256) this.#consultsGone.delete(this.#consultsGone.values().next().value!)
+          this.#retireConsults()
+        }
+      },
+      closed: (consult) => this.#consultClosed(sessionKey(runtimeId(consult.runtime), makeSessionId(consult.sessionId))),
+      metered: (caller, consult) => this.#intake.consulted(caller, consult),
+      meteredStart: (goal, meter, started) => this.#intake.consultStarted(goal, meter, started),
+      usage: (consult, ended) => this.#consultUsage(consult, ended),
+      meteredEnd: (goal, meter, ended, final) => this.#intake.consultEnded(goal, meter, ended, final),
+      linkOpened: (seat, consult) => this.#evidence.seats.consultOpened({ seat, n: consult.n, runtime: consult.runtime, sessionId: consult.sessionId, openedAt: consult.openedAt }),
+      linkClosed: (seat, consult, closedAt, usage) => this.#evidence.seats.consultClosed(
+        { seat, n: consult.n, runtime: consult.runtime, sessionId: consult.sessionId, openedAt: consult.openedAt }, closedAt, consultUsageOf(usage),
+      ),
+      audit: (entry) => this.#audit.append({
+        at: Date.now(), runtime: runtimeId(entry.runtime), sessionId: entry.sessionId, kind: 'consult',
+        agent: entry.agent, outcome: entry.outcome, bytesIn: entry.bytesIn, bytesOut: entry.bytesOut, durationMs: entry.durationMs,
+      }),
+      log: (message, detail) => this.#logger.warn(message, { ...detail }),
+      now: () => Date.now(),
+      setTimer: (fire, ms) => this.#consultSetTimer(fire, ms),
+      clearTimer: (timer) => this.#consultClearTimer(timer),
+    })
+    return this.#consult
+  }
+
+  #consultSetTimer(fire: () => void, ms: number): unknown {
+    return this.options.consultTimers ? this.options.consultTimers.setTimer(fire, ms) : setTimeout(fire, ms).unref()
+  }
+
+  #consultClearTimer(timer: unknown): void {
+    if (this.options.consultTimers) this.options.consultTimers.clearTimer(timer)
+    else clearTimeout(timer as NodeJS.Timeout)
+  }
+
+  /**
+   * What a consult spent, as its live conversation reports it, read before
+   * it is discarded: an ephemeral conversation may leave nothing on disk.
+   * The runtime's own dollar figure when it gives one; else its tokens at
+   * the model's list price, an estimate; else a sample with no dollars,
+   * which the meter reads as unknown. Null when it reported no usage at all.
+   */
+  #consultUsage(consult: OpenedConsult, ended: number): UsageSample | null {
+    const record = this.registry.get(runtimeId(consult.runtime), makeSessionId(consult.sessionId))
+    const usage = record?.session.usage
+    if (!record || !usage) return null
+    const id = `consult:${consult.runtime}:${consult.sessionId}`
+    const total = usage.total
+    const exact = (value: number): { readonly value: number; readonly quality: 'exact' } => ({ value: Math.max(0, value), quality: 'exact' })
+    const cacheWrite = total.cacheWriteTokens
+    const dollars = usage.cost && usage.cost.currency === 'USD' && Number.isFinite(usage.cost.amount) && usage.cost.amount >= 0 ? usage.cost.amount : null
+    const sample: UsageSample = {
+      key: id,
+      source: { id, runtime: consult.runtime, kind: 'transcript', label: 'Consult', observedAt: ended, checkedAt: ended, stale: false, problem: null },
+      runtime: consult.runtime, sessionId: consult.sessionId, turnId: null, requestId: null, project: null,
+      model: record.session.settings?.model ?? null, from: consult.openedAt, to: ended, scope: 'session', includesChildren: null,
+      input: exact(total.inputTokens - total.cachedInputTokens - (cacheWrite ?? 0)),
+      output: exact(total.outputTokens),
+      cacheRead: exact(total.cachedInputTokens),
+      // A runtime that does not report cache writes is priced as writing none: an estimate either way.
+      cacheWrite: cacheWrite === undefined ? { value: 0, quality: 'estimate' } : exact(cacheWrite),
+      usd: dollars === null ? { value: null, quality: 'unknown' } : { value: dollars, quality: 'exact' },
+      moneyBasis: dollars === null ? 'unknown' : 'vendorMetered',
+    }
+    return dollars === null ? this.#ledgerService.price(sample) : sample
+  }
+
+  /**
+   * Plugin tools a conversation is not offered, by bare name: `ask_agent`
+   * for everything but a live Flow seat whose role says `ask:` — a person's
+   * own chat (Q5), a consult (depth 1), an unknown caller. The tool gateway's
+   * list reads it per caller; the tool's call-time check is the lock that
+   * holds whatever a list said.
+   */
+  withheldTools(who?: { readonly runtime: string; readonly sessionId: string }): readonly string[] {
+    if (!who) return ['ask_agent']
+    if (this.#consulting.has(sessionKey(runtimeId(who.runtime), makeSessionId(who.sessionId)))) return ['ask_agent']
+    return this.#flows.askingSeat(who.runtime, who.sessionId)?.ask ? [] : ['ask_agent']
+  }
+
   /** The gate every desk-tool call passes before it reaches its plugin. */
   get ceilingGate(): CeilingGate {
     return this.#ceilingGate
@@ -6965,7 +8167,9 @@ export class Host {
 
   /** A read for the host's own bookkeeping — the same rule as a client's: a filtered Seat's conversation is never opened unfiltered. */
   async #hostRead(runtime: AgentRuntime, id: SessionId): Promise<Session> {
-    return (await this.#scopedRead(runtime, id)) ?? runtime.readSession(id)
+    const finishRead = this.#beginHistoryRead(runtime.info.id, id)
+    try { return (await this.#scopedRead(runtime, id)) ?? await runtime.readSession(id) }
+    finally { finishRead() }
   }
 
   /** Why a fork of this conversation is refused, or null: a fork would run with no filter, and a fork is not the Seat. */
@@ -6984,6 +8188,7 @@ export class Host {
     refused: (call, reason) => this.#forge.refuseTool(call.tool, call.args, { runtime: String(call.scope.runtime), sessionId: String(call.scope.sessionId) }, reason, call.startedAt),
     rootOf: (runtime, sessionId) => this.#rootOf(runtime, sessionId),
     ceilingOf: (runtime, sessionId) => this.#ceilingOf(runtime, sessionId),
+    closedOf: (runtime, sessionId) => this.#closedConsultRefusal(runtime, sessionId),
     causeOf: (runtime, sessionId, turnId) => this.#causeOf(runtime, sessionId, turnId),
     nameOf: (runtime, sessionId) => this.#conversationName(runtime, sessionId),
     say: (runtime, sessionId, text) => void this.#say(runtime, sessionId, text),
@@ -7266,8 +8471,11 @@ export class Host {
     if (event.item.type !== 'subagent') return
     const root = this.#rootOf(String(runtime), String(event.sessionId))
     if (root === null) this.#delegationUncertainRuntimes.add(String(runtime))
+    // A consult's child is the consult's, registered or not, however deep: held as it is, apart from the bounded map below.
+    const consult = this.#consultOf(String(runtime), String(event.sessionId))
     for (const member of event.item.members) {
       if (!member.sessionId || member.sessionId === String(event.sessionId)) continue
+      if (consult !== null) this.#joinConsult(sessionKey(runtime, makeSessionId(member.sessionId)), consult)
       if (root !== null) this.#delegatedBy.set(sessionKey(runtime, makeSessionId(member.sessionId)), root)
       if (this.#delegatedBy.size > 2000) {
         const oldest = this.#delegatedBy.keys().next().value
@@ -7294,8 +8502,109 @@ export class Host {
     return this.registry.get(runtimeId(at.runtime), makeSessionId(at.sessionId)) ? at : null
   }
 
-  /** The Agent or live-flow ceiling governing this conversation. */
+  /**
+   * The consult this conversation is, or descends from, by its session key:
+   * the family the desk recorded as it delegated, or — for a child reported
+   * before its parent was known as the consult's — the delegation chain.
+   */
+  #consultOf(runtime: string, sessionId: string): string | null {
+    let key: string = sessionKey(runtimeId(runtime), makeSessionId(sessionId))
+    for (let depth = 0; depth <= 8; depth += 1) {
+      const consult = this.#consultFamily.get(key)
+      if (consult !== undefined) return consult
+      const parent = this.#delegatedBy.get(key as SessionKey)
+      if (!parent) return null
+      key = sessionKey(runtimeId(parent.runtime), makeSessionId(parent.sessionId))
+    }
+    return null
+  }
+
+  /** A new consult opened on this session key: an incarnation of its own, whatever an earlier consult on the same id left. */
+  #beginConsult(key: string): string {
+    this.#consultIncarnations += 1
+    const incarnation = `${key}\u0000${this.#consultIncarnations}`
+    this.#consultMembers.set(incarnation, { root: key, keys: new Set() })
+    this.#joinConsult(key, incarnation)
+    return incarnation
+  }
+
+  #joinConsult(key: string, incarnation: string): void {
+    const was = this.#consultFamily.get(key)
+    if (was === incarnation) return
+    if (was !== undefined) this.#consultMembers.get(was)?.keys.delete(key)
+    this.#consultFamily.set(key, incarnation)
+    this.#consultMembers.get(incarnation)?.keys.add(key)
+  }
+
+  /**
+   * A conversation the desk opens or registers anew on an id a closed
+   * consult once had: it is not that consult, so it leaves the consult's
+   * family rather than inheriting its refusal. A live consult's members are
+   * never touched.
+   */
+  #leaveClosedConsult(key: string): void {
+    const incarnation = this.#consultFamily.get(key)
+    if (incarnation === undefined || !(this.#consultsClosed.has(incarnation) || this.#consultsRetired.has(incarnation))) return
+    this.#consultFamily.delete(key)
+    this.#consultMembers.get(incarnation)?.keys.delete(key)
+  }
+
+  /** The consult on this session key has ended: from now on nothing of it, or of its family, is admitted. */
+  #consultClosed(key: string): void {
+    const incarnation = this.#consultFamily.get(key)
+    if (incarnation !== undefined && this.#consultMembers.get(incarnation)?.root === key) this.#consultsClosed.add(incarnation)
+  }
+
+  /**
+   * Closed consults none of whose family is still a live conversation here
+   * are retired: still refused, among the last `CONSULT_RETIRED_KEPT`. The
+   * oldest beyond that is forgotten; a runtime on which it had a child the
+   * desk never held is marked uncertain, as an evicted delegation is, so a
+   * late call from that child is refused rather than read as a stranger's.
+   * A live consult is never retired or forgotten.
+   */
+  #retireConsults(): void {
+    for (const incarnation of this.#consultsClosed) {
+      const family = this.#consultMembers.get(incarnation)
+      if (!family) { this.#consultsClosed.delete(incarnation); continue }
+      const live = [...family.keys].some((key) => {
+        const { runtime, id } = splitSessionKey(key as SessionKey)
+        return this.registry.get(runtime, id) !== undefined
+      })
+      if (live) continue
+      this.#consultsClosed.delete(incarnation)
+      this.#consultsRetired.add(incarnation)
+    }
+    while (this.#consultsRetired.size > (this.options.consultsRetiredKept ?? CONSULT_RETIRED_KEPT)) {
+      const oldest = this.#consultsRetired.values().next().value!
+      this.#consultsRetired.delete(oldest)
+      const family = this.#consultMembers.get(oldest)
+      this.#consultMembers.delete(oldest)
+      for (const key of family?.keys ?? []) {
+        if (this.#consultFamily.get(key) !== oldest) continue
+        this.#consultFamily.delete(key)
+        this.#consultsShown.delete(key)
+        if (key !== family!.root) this.#delegationUncertainRuntimes.add(String(splitSessionKey(key as SessionKey).runtime))
+      }
+    }
+  }
+
+  /** Why a call from a consult that has closed, or from anything it handed work to, is refused; null otherwise. */
+  #closedConsultRefusal(runtime: string, sessionId: string): string | null {
+    const consult = this.#consultOf(runtime, sessionId)
+    return consult !== null && (this.#consultsClosed.has(consult) || this.#consultsRetired.has(consult)) ? CONSULT_CLOSED_REFUSAL : null
+  }
+
+  /**
+   * The Agent or live-flow ceiling governing this conversation. A consult is
+   * held at read by the desk itself for its whole life, whatever its
+   * adapter's settings say: it has no Agent and no Flow seat — and so is
+   * every conversation it handed work to, registered or not, however deep,
+   * since the gate asks the ceiling of whichever conversation it resolved as
+   * the root.
+   */
   #ceilingOf(runtime: string, sessionId: string): SeatCeiling | null {
+    if (this.#consultOf(runtime, sessionId) !== null || this.#hiddenConsult(sessionKey(runtimeId(runtime), makeSessionId(sessionId)))) return { level: 'read', hold: 'held' }
     const seated = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.seatedAs?.ceiling
     if (seated) return seated
     const flowSeat = this.#flows.seatOf(runtime, sessionId)
@@ -7339,6 +8648,21 @@ export class Host {
     return true
   }
 
+  /**
+   * A carry-on marker, the way a publication is recorded: into the running or
+   * latest turn, through the host's own door, so the transcript store keeps it
+   * and every window learns of it. The agent never hears of it, so a replay
+   * puts it back where it stood (`publications.ts`).
+   */
+  #recordCarryOn(runtime: string, sessionId: string, item: CarryOnItem): boolean {
+    const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+    if (!record) return false
+    const turnId = [...record.running].at(-1) ?? record.session.turns.at(-1)?.id
+    if (turnId === undefined) return false
+    this.#onEvent(record.runtime, { type: 'item/completed', sessionId: record.session.id, turnId, item })
+    return true
+  }
+
   /** The live handle a `(runtime, sessionId)` pair names, reconnecting if it must. */
   async #live(params: {
     readonly runtime: RuntimeId
@@ -7373,26 +8697,31 @@ export class Host {
     await this.#restingSessions.get(key)
     const held = this.registry.get(runtime, id)
     if (held?.live) return held.live
-    // Two calls arriving together — a send and the option write beside it —
-    // must resume once between them, not once each.
-    const already = this.#reattaching.get(key)
-    if (already) {
-      this.#reopenWaiters.set(key, (this.#reopenWaiters.get(key) ?? 0) + 1)
-      try {
-        return await already
-      } finally {
-        const left = (this.#reopenWaiters.get(key) ?? 1) - 1
-        if (left > 0) this.#reopenWaiters.set(key, left)
-        else this.#reopenWaiters.delete(key)
-      }
-    }
-    const attempt = this.#reattach(this.#runtime({ runtime }), id, route)
-    this.#reattaching.set(key, attempt)
+    // Each caller that needs the conversation opened is an open of its own, the one that joins a reopen in flight
+    // too: all of them are handed the one handle.
+    const release = this.registry.opening(runtime, id)
     try {
-      return await attempt
-    } finally {
-      this.#reattaching.delete(key)
-    }
+      // Two calls arriving together — a send and the option write beside it —
+      // must resume once between them, not once each.
+      const already = this.#reattaching.get(key)
+      if (already) {
+        this.#reopenWaiters.set(key, (this.#reopenWaiters.get(key) ?? 0) + 1)
+        try {
+          return await already
+        } finally {
+          const left = (this.#reopenWaiters.get(key) ?? 1) - 1
+          if (left > 0) this.#reopenWaiters.set(key, left)
+          else this.#reopenWaiters.delete(key)
+        }
+      }
+      const attempt = this.#reattach(this.#runtime({ runtime }), id, route)
+      this.#reattaching.set(key, attempt)
+      try {
+        return await attempt
+      } finally {
+        this.#reattaching.delete(key)
+      }
+    } finally { release() }
   }
 
   /** Conversations being re-opened right now, so concurrent callers share one. */
@@ -7400,6 +8729,8 @@ export class Host {
   /** How many callers are waiting on a reopen already in flight, per conversation. */
   readonly #reopenWaiters = new Map<string, number>()
   readonly #transcriptOperations = new Map<string, number>()
+  /** Nested and overlapping reads retain replay provenance until the last read settles. */
+  readonly #historyReads = new Map<string, number>()
 
   /**
    * How many callers are waiting on a reopen of this conversation that is
@@ -7780,6 +9111,16 @@ export class Host {
    * flight the held transcript *is* the read; the rest of the time the store is
    * asked, and what it says is folded in (`SessionRegistry.upsert`).
    */
+  #beginHistoryRead(runtime: RuntimeId, id: SessionId): () => void {
+    const key = String(sessionKey(runtime, id))
+    this.#historyReads.set(key, (this.#historyReads.get(key) ?? 0) + 1)
+    return () => {
+      const remaining = this.#historyReads.get(key)! - 1
+      if (remaining) this.#historyReads.set(key, remaining)
+      else this.#historyReads.delete(key)
+    }
+  }
+
   #beginTranscriptOperation(runtime: RuntimeId, id: SessionId): () => void {
     const key = String(sessionKey(runtime, id))
     this.#transcriptOperations.set(key, (this.#transcriptOperations.get(key) ?? 0) + 1)
@@ -7799,38 +9140,40 @@ export class Host {
 
   async #read(runtime: AgentRuntime, id: SessionId): Promise<Session> {
     const finishRead = this.#beginTranscriptOperation(runtime.info.id, id)
+    const finishHistoryRead = this.#beginHistoryRead(runtime.info.id, id)
     try {
-      const pending = this.registry.get(runtime.info.id, id)
-      if (pending?.transcriptIncomplete && !this.#restorePendingTranscript(pending)) {
-        throw new Error('This conversation has unsaved changes and its saved history is unavailable.')
-      }
-      if (pending && this.#recoveredTranscriptBases.has(pending.bodyGeneration)) {
-        this.#saveRecoveredTranscript(pending)
-        await this.#recoveredTranscriptBases.get(pending.bodyGeneration)?.saving
-        if (this.registry.get(runtime.info.id, id) !== pending) throw new Error('The conversation changed while its history was being recovered.')
-        return { ...pending.session }
-      }
       const indexed = this.#sessionIndex.get(runtime.info.id, id)
       if (indexed?.archived) await archiveConversation(this.#context, { runtime: runtime.info.id, sessionId: id, archived: false })
       const restored = await this.#sessionWorktrees.prepare(runtime.info.id, id)
-      const read = await this.#readTranscript(runtime, id)
+      const pending = this.registry.get(runtime.info.id, id)
+      if (pending) this.#clearSettledHistoryPending(pending)
+      let read: Session
+      if (pending?.transcriptIncomplete && !this.#restorePendingTranscript(pending)) {
+        read = await this.#pendingTranscriptView(pending)
+      } else if (pending && this.#recoveredTranscriptBases.has(pending.bodyGeneration)) {
+        this.#saveRecoveredTranscript(pending)
+        await this.#recoveredTranscriptBases.get(pending.bodyGeneration)?.saving
+        if (this.registry.get(runtime.info.id, id) !== pending) throw new Error('The conversation changed while its history was being recovered.')
+        read = this.#recoveredTranscriptBases.has(pending.bodyGeneration) ? this.#historyPendingView(pending) : { ...pending.session }
+      } else read = await this.#readTranscript(runtime, id)
       const cwd = restored.cwd || indexed?.cwd || read.cwd
       const session = this.#preserveReadRecency({ ...read, cwd, ...(restored.warning ? { worktreeWarning: restored.warning } : {}) })
+      if (read.historyPending) {
+        return session
+      }
       this.#transcripts.rememberReadBase(session, this.#transcripts.readBase(read))
       const protectedBase = this.#protectedReadBases.get(read)
       if (protectedBase) {
-        this.#holdProtectedRead(session, protectedBase)
-        return session
+        return this.#holdProtectedRead(session, protectedBase)
       }
       this.#recordSessionIndex(session, true)
-      this.#sessionIndex.opened(runtime.info.id, id)
       // A closed source-less replay may contain new work without desk events.
       // Save its new version before release reuses the persisted timestamp.
       if (!this.#sessionIndex.isRemoved(runtime.info.id, id) && !this.#recoveredTranscriptBases.has(this.registry.get(runtime.info.id, id)?.bodyGeneration ?? '') && !runtime.info.capabilities.sourceTranscript &&
         (this.#sessionIndex.isImported(runtime.info.id, id) || !this.registry.get(runtime.info.id, id)?.live)) {
         const owner = this.#readBaseOwner(session)
         const result = await this.#transcripts.refresh(session, null, this.#transcripts.readBase(read))
-        if (!result.saved) this.#holdProtectedRead(session, result.base)
+        if (!result.saved) return this.#holdProtectedRead(session, result.base)
         else {
           const verified = result.base
           this.#transcripts.rememberReadBase(session, verified)
@@ -7839,6 +9182,7 @@ export class Host {
       }
       return session
     } finally {
+      finishHistoryRead()
       finishRead()
     }
   }
@@ -7896,21 +9240,35 @@ export class Host {
 
   async #readTranscript(runtime: AgentRuntime, id: SessionId, allowReopen = true, admitCwd?: DispatchAdmission<string>): Promise<Session> {
     const finishRead = this.#beginTranscriptOperation(runtime.info.id, id)
+    const finishHistoryRead = this.#beginHistoryRead(runtime.info.id, id)
     try {
       const pending = this.registry.get(runtime.info.id, id)
       if (pending?.transcriptIncomplete && !this.#restorePendingTranscript(pending)) {
-        throw new Error('This conversation has unsaved changes and its saved history is unavailable.')
+        if (admitCwd) throw Object.assign(new Error('The chat project location cannot be verified while its history is unsaved.'), { wireCode: 'historyUnavailable' })
+        return this.#pendingTranscriptView(pending)
       }
-      return await this.#readTranscriptUntracked(runtime, id, allowReopen, admitCwd)
+      if (pending) this.#clearSettledHistoryPending(pending)
+      try {
+        return await this.#readTranscriptUntracked(runtime, id, allowReopen, admitCwd)
+      } catch (error) {
+        // Only a refused persistence operation permits this projection. Runtime,
+        // scope and programming errors retain their original meaning.
+        const record = this.registry.get(runtime.info.id, id)
+        if (error instanceof TranscriptSaveRefusedError && admitCwd) throw Object.assign(
+          new Error('The chat project location cannot be verified while its history is unsaved.', { cause: error }), { wireCode: 'historyUnavailable' })
+        if (error instanceof TranscriptSaveRefusedError && !admitCwd && record &&
+            this.#transcripts.hasProtectedChanges(runtime.info.id, id)) return this.#pendingTranscriptView(record)
+        throw error
+      }
     }
-    finally { finishRead() }
+    finally { finishHistoryRead(); finishRead() }
   }
 
   async #readTranscriptUntracked(runtime: AgentRuntime, id: SessionId, allowReopen = true, admitCwd?: DispatchAdmission<string>): Promise<Session> {
     const held = this.registry.get(runtime.info.id, id)
     if (held && this.#recoveredTranscriptBases.has(held.bodyGeneration)) {
-      if (admitCwd) throw new Error('The chat project location cannot be verified while its history is unsaved.')
-      return { ...held.session }
+      if (admitCwd) throw Object.assign(new Error('The chat project location cannot be verified while its history is unsaved.'), { wireCode: 'historyUnavailable' })
+      return this.#historyPendingView(held)
     }
     if (held?.live && held.session.itemsLoaded && held.running.size > 0) {
       await admitCwd?.(held.live.settings().cwd)
@@ -7937,6 +9295,11 @@ export class Host {
     try {
       await this.#prepareReopenTranscript(runtime.info.id, id)
       const raw = await runtime.readSession(id)
+      const replayed = this.registry.get(runtime.info.id, id)
+      if (replayed?.transcriptIncomplete) {
+        if (admitCwd) throw Object.assign(new Error('The chat project location cannot be verified while its history is unsaved.'), { wireCode: 'historyUnavailable' })
+        return this.#pendingTranscriptView(replayed)
+      }
       // The index owns the desk's display location, not proof of a runtime
       // transcript's scope. Check the body being returned before replacing cwd.
       await admitCwd?.(raw.cwd)
@@ -8169,6 +9532,9 @@ export class Host {
           await this.#noteLeadChatCancellation(`${record.runtime}:${record.session.id}`, 1)
           return
         }
+        // Only the attempted admission was refused. A pause retains every
+        // queued message and cannot itself retire their recovery receipts.
+        if (!sendStarted) this.registry.queuedAdmission(record, sending.id)?.dispatchRefused?.()
         if (sendStarted) await sendingAdmission?.dispatchUnconfirmed?.().catch(() => this.#logger.warn('Lead chat recovery could not settle an unconfirmed send'))
         // Put it back exactly where it was and stop: the message is the thing
         // worth keeping, and a queue that kept firing into a broken agent would
@@ -8211,6 +9577,53 @@ export class Host {
    * retired, or discarded.
    */
   readonly #seating = new Map<string, SeatInHand>()
+
+  /**
+   * Consult conversations `ask_agent` has open, by session key: hidden from
+   * every window — never pushed, listed, indexed or named — for the one turn
+   * each lives, and never offered `ask_agent` themselves (depth 1). Entered
+   * the moment `createSession` answers; left after the consult is discarded.
+   */
+  readonly #consulting = new Set<string>()
+  /**
+   * Consults being opened, each with its runtime. A runtime can announce a
+   * conversation before `createSession` answers with its id, so while one
+   * opens, that runtime's `session/started` — and anything after it for the
+   * same conversation — is held back from windows, then let go once every
+   * opening it waited on has answered or reached its bound, dropping the
+   * consults' own. An opening that starts later never extends what an
+   * earlier one held. Like `#creatingTranscripts`.
+   */
+  readonly #consultOpenings = new Map<number, RuntimeId>()
+  #consultOpeningSeq = 0
+  /** What is held back, in arrival order, by the conversation it is about. */
+  readonly #consultHeld: { readonly key: string; readonly notification: WireNotification }[] = []
+  /** Each held-back conversation, to the openings it waits on: those under way on its runtime when its start arrived. */
+  readonly #consultHeldKeys = new Map<string, Set<number>>()
+  /** The one turn each consult is waiting for, by session key. */
+  readonly #consultTurns = new Map<string, (turn: Turn) => void>()
+  /** Consults discarded lately, newest last: a notice of theirs that arrives after the discard stays hidden too. */
+  readonly #consultsGone = new Set<string>()
+  /**
+   * Every conversation that is a consult or was handed work by one — a
+   * reported child, and its children — by session key, to its consult's
+   * incarnation: the consult's session key and the count of consults this
+   * desk opened, so an id a runtime hands out again is a new consult, not
+   * the old one. The read ceiling holds for all of them for the consult's
+   * whole life, and once it closes (`#consultsClosed`) every desk-tool call
+   * from any of them is refused — independent of the bounded caches
+   * (`#consultsGone`, `#delegatedBy`). A closed consult with no live family
+   * retires (`#consultsRetired`), still refused, and only the oldest beyond
+   * `CONSULT_RETIRED_KEPT` is forgotten (`#retireConsults`).
+   */
+  readonly #consultFamily = new Map<string, string>()
+  readonly #consultMembers = new Map<string, { readonly root: string; readonly keys: Set<string> }>()
+  readonly #consultsClosed = new Set<string>()
+  readonly #consultsRetired = new Set<string>()
+  #consultIncarnations = 0
+  /** Consults that opened after their hold was let go, so a window may have heard them start: their removal is not hidden. */
+  readonly #consultsShown = new Set<string>()
+  #consult: ConsultPlane | null = null
 
   /**
    * Opens a conversation on a seat, puts it on the seat's picks, and answers
@@ -8256,6 +9669,12 @@ export class Host {
       readonly ceiling?: CeilingLevel
       readonly runtimeServers?: readonly string[]
       readonly attachments?: SessionAttachments
+      /** Asks a runtime that can to keep no history of it (Codex); ignored by the rest. */
+      readonly ephemeral?: boolean
+      /** An `ask_agent` consult: hidden from every window from the moment it has an id, and never named. */
+      readonly consult?: boolean
+      /** Plugin tools not offered to this conversation; absent, `ask_agent` is withheld. */
+      readonly withheldTools?: readonly string[]
     },
   ): Promise<OpenedSeat> {
     const requestedCwd = await realpath(where.cwd).catch(() => '')
@@ -8301,6 +9720,8 @@ export class Host {
         ...(environment ? { environment } : {}),
         ...(seat.model ? { model: seat.model } : {}),
         ...(where.attachments ? { attachments: where.attachments } : {}),
+        ...(where.ephemeral ? { ephemeral: true } : {}),
+        withheldTools: where.withheldTools ?? ['ask_agent'],
         options: {
           ...(seat.effort ? { effort: seat.effort } : {}),
           ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),
@@ -8326,14 +9747,24 @@ export class Host {
       noteLeftOnFailure(refused, { kind: 'alreadyHeld' })
       throw refused
     }
+    // An id a closed consult once had is not that consult any more.
+    this.#leaveClosedConsult(sessionKey(runtime.info.id, live.id))
+    if (where.consult) {
+      const key = sessionKey(runtime.info.id, live.id)
+      this.#consulting.add(key)
+      this.#beginConsult(key)
+    }
     this.#seating.set(sessionKey(runtime.info.id, live.id), { live, reached: false, removing: false })
     try {
       const session = this.#attach(runtime, live.id, live)
       const checkout = Object.freeze({ project, cwd })
       this.registry.get(runtime.info.id, live.id)!.shellCheckout = { ...checkout, source: 'own' }
       await live.setTitle(where.title).catch(() => {})
-      await this.#names.set(runtime.info.id, live.id, where.title)
-      this.#sessionIndex.setTitle(runtime.info.id, live.id, where.title)
+      // A consult is never named: a name is a row somewhere.
+      if (!where.consult) {
+        await this.#names.set(runtime.info.id, live.id, where.title)
+        this.#sessionIndex.setTitle(runtime.info.id, live.id, where.title)
+      }
       await this.#applySeatPicks(live, seat)
       const ran = live.options()
       return {
@@ -8355,6 +9786,17 @@ export class Host {
         return null
       })
       noteLeftOnFailure(error, left)
+      if (where.consult) {
+        // Nothing of a consult that never opened reaches a window, not even what was held back while it opened.
+        const key = sessionKey(runtime.info.id, live.id)
+        for (let at = this.#consultHeld.length - 1; at >= 0; at -= 1) {
+          if (this.#consultHeld[at]!.key === key) this.#consultHeld.splice(at, 1)
+        }
+        this.#consultHeldKeys.delete(key)
+        this.#consulting.delete(key)
+        this.#consultClosed(key)
+        this.#retireConsults()
+      }
       throw error
     }
   }
@@ -8376,17 +9818,21 @@ export class Host {
     return holdCeiling(live, level, control)
   }
 
-  async #orderSeat(runtime: string, sessionId: string, text: string, noticeKind?: 'agentBrief'): Promise<void> {
+  async #orderSeat(runtime: string, sessionId: string, text: string, noticeKind?: 'agentBrief', signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) throw signal.reason
     const live = await this.#teamLive(runtime as RuntimeId, sessionId)
     const environment = environmentForCheckout(live.settings().cwd, this.#lanes.list())
     // Whether the values reached the agent's environment, the same rule that
     // decided it at the open: a runtime that took none is told to pass them itself.
     const handed = laneEnvironmentFor(this.#runtime({ runtime }), environment) !== undefined
+    // Nothing is awaited from this look to the send: an order withdrawn while it waited is never sent.
+    if (signal?.aborted) throw signal.reason
     await live.send(
       [{ type: 'text', text: laneStandingOrder(text, environment, handed) }],
       // Only the Agent seating entry point marks its standing brief. Flow
       // assignments and delivered answers share this send path, but stay plain.
-      { recordAs: 'notice', ...(noticeKind ? { noticeKind } : {}) },
+      // The signal goes on into the send, which looks at it after its own waits.
+      { recordAs: 'notice', ...(noticeKind ? { noticeKind } : {}), ...(signal ? { signal } : {}) },
     )
   }
 
@@ -8477,6 +9923,7 @@ export class Host {
       const asked = owner ? await this.#askToDelete(owner, id) : null
       // Then out of the host's records and every window, before any file is touched.
       this.registry.delete(runtime, id)
+      this.#turnSinceIdle.delete(`${runtime}\u0000${String(id)}`)
       this.#push({ method: 'session/removed', params: { runtime, sessionId: id, deleted: asked === 'deleted' } })
       const left: SeatLeft | null = owner && asked ? await this.#leftAs(owner, id, asked) : { kind: 'unasked' }
       await this.#forgetSeat(runtime, id, left)
@@ -8500,6 +9947,10 @@ export class Host {
   #leaveAsItIs(inHand: SeatInHand, runtime: RuntimeId, id: SessionId): SeatLeft | null {
     const key = sessionKey(runtime, id)
     const record = this.registry.get(runtime, id)
+    // A consult is hidden from every window, so nobody but the desk can have
+    // reached it: its own question, turn and watch are not use. Only a handle
+    // somebody else put on the record since keeps it.
+    if (this.#consulting.has(key)) return record?.live && record.live !== inHand.live ? { kind: 'inUse' } : null
     // A warning given while opening the conversation is not use; only real turns count.
     const hasRealTurn = record?.session.turns.some((turn) => !isNoticeTurn(turn)) ?? false
     const touched =
@@ -8966,6 +10417,7 @@ export class Host {
           const id = omitted[next++]!
           if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
           const key = String(sessionKey(runtime.info.id, id))
+          const finishRead = this.#beginHistoryRead(runtime.info.id, id)
           try {
             const read = await runtime.readSession(id)
             if (!this.#disposed && this.#runtimes.get(runtime.info.id) === runtime && this.#sessionIndex.fillMissingMetadata(read)) this.#sessionIndexRepos.read(read.cwd)
@@ -8974,6 +10426,7 @@ export class Host {
               this.#sessionIndex.confirmArchived(runtime.info.id, id, read.archived)
             }
           } catch { /* Retry unresolved rows on the next completed pass. */ }
+          finally { finishRead() }
         }
       }))
       if (!this.#disposed && this.#runtimes.get(runtime.info.id) === runtime) this.#sessionIndex.clearArchiveError(runtime.info.id)
@@ -9079,6 +10532,9 @@ export class Host {
   #recordSessionIndex(session: Session, now = false): void {
     const key = String(sessionKey(session.runtime, session.id))
     this.#cancelSessionIndex(session.runtime, session.id)
+    // A consult is never a row. While one opens, its runtime's rows wait: the consult may not have its id yet.
+    if (this.#consulting.has(key)) return
+    if (this.#openingOn(session.runtime)) now = false
     if (!now) {
       this.#indexPending.set(key, session)
       const timer = setTimeout(() => this.#recordSessionIndex(session, true), 800)
@@ -9127,7 +10583,6 @@ export class Host {
       if (existing.live !== live) this.#loadoutHandles.delete(live)
       existing.live = live
       this.#recordSessionIndex(existing.session, true)
-      this.#sessionIndex.opened(runtime.info.id, id)
       if (observe) this.#observeLoadout(runtime, id, existing.session.cwd)
       return existing.session
     }
@@ -9147,7 +10602,6 @@ export class Host {
     }
     const session = this.registry.upsert(seeded, live).session
     this.#recordSessionIndex(session, true)
-    this.#sessionIndex.opened(runtime.info.id, id)
     if (observe) this.#observeLoadout(runtime, id, session.cwd)
     return session
   }
@@ -9202,6 +10656,11 @@ export class Host {
     const id = event.type === 'session/started' ? event.session.id : event.type === 'approval/requested' ? event.approval.sessionId : 'sessionId' in event ? event.sessionId : undefined
     if (id && this.#sessionIndex.isRemoved(runtime, id)) return
     const held = id ? this.registry.get(runtime, id) : undefined
+    // Loading history can announce the adapter's open time. Only announcements
+    // within a read are replay; activity announcements keep their own clock.
+    if (event.type === 'session/started' && this.#historyReads.has(String(sessionKey(runtime, event.session.id)))) {
+      event = { ...event, session: this.#preserveReadRecency(event.session) }
+    }
     const initial = !held && source && this.ownsRuntime(source) && !this.#creatingTranscripts.has(runtime) && event.type === 'session/started' &&
       event.session.runtime === runtime && event.session.itemsLoaded && !event.session.partialHistory &&
       !this.#sessionIndex.isRemoved(runtime, event.session.id) && this.#transcripts.mayObserveInitialBase(event.session)
@@ -9212,6 +10671,22 @@ export class Host {
     if (held) {
       const key = `${held.bodyGeneration}\u0000${held.bodyAuthorityEpoch}`
       let conflict = this.#conflictingTranscripts.get(key)
+      // Only a full replay of this epoch's retained view can release
+      // quarantine, after the original captured items are covered too.
+      if (conflict && event.type === 'session/started' && event.session.itemsLoaded && !event.session.partialHistory &&
+          held.session.itemsLoaded && isDeepStrictEqual(event.session.turns, held.session.turns) &&
+          ![...this.#conflictingTranscripts.keys()].some(entry => entry !== key && entry.startsWith(`${held.bodyGeneration}\u0000`))) {
+        held.transcriptIncomplete = false
+        const { historyPending: _pending, ...complete } = held.session
+        held.session = complete
+        if (this.#transcripts.resumeAfterReplay(held.session, held.bodyGeneration, held.bodyAuthorityEpoch, conflict.capture)) {
+          this.#conflictingTranscripts.delete(key)
+          conflict = undefined
+          this.#invalidateTranscriptCache(held)
+        } else {
+          held.transcriptIncomplete = true
+        }
+      }
       const hasOldConflict = [...this.#conflictingTranscripts.keys()].some(entry => entry.startsWith(`${held.bodyGeneration}\u0000`))
       if (!conflict && ((event.type === 'session/started' && !held.transcriptIncomplete &&
           this.#transcripts.pendingReplayConflict(event.session, held.bodyGeneration, held.bodyAuthorityEpoch, held.session)) ||
@@ -9224,10 +10699,17 @@ export class Host {
         conflict = { runtime, id: held.session.id, owner, capture }
         this.#conflictingTranscripts.set(key, conflict)
         held.transcriptIncomplete = true
+        this.#logger.warn('Conversation history pending', { reason: 'replay-conflict', runtime, sessionId: held.session.id })
         this.#transcripts.protectPending(runtime, held.session.id, held.bodyGeneration, held.bodyAuthorityEpoch)
         this.#invalidateTranscriptCache(held)
       }
-      if (conflict) conflict.capture.observeLocal(event, conflict.owner)
+      if (conflict) {
+        if (event.type === 'session/started') conflict.capture.quarantine(event, conflict.owner)
+        else conflict.capture.observeLocal(event, conflict.owner)
+      }
+      // The replay remains in capture, but cannot replace the faithful held
+      // view. Later ordered activity continues to fold into that view.
+      if (conflict && event.type === 'session/started') event = { ...event, session: { ...held.session, historyPending: true } }
     }
     if (held?.session.itemsLoaded && !held.session.partialHistory && !held.transcriptIncomplete &&
         !this.#durableTranscriptBases.has(held) && !this.#unverifiedTranscriptBases.has(held)) {
@@ -9255,17 +10737,27 @@ export class Host {
         this.#pendingTranscriptBases.set(held.bodyGeneration, held.session)
         this.#pendingTranscriptOverlays.set(held.bodyGeneration, new PendingSessionOverlay(descriptor))
         held.transcriptIncomplete = true
+        this.#logger.warn('Conversation history pending', { reason: 'missing-retained-base', runtime, sessionId: held.session.id })
         this.#invalidateTranscriptCache(held)
         this.#push({ method: 'event', params: { runtime, event: { type: 'notice', class: 'conversation', level: 'warning', sessionId: held.session.id,
           message: 'Saved conversation history is unavailable. New activity is being kept in memory.' } } })
       }
+    }
+    let replayOnlyBody = false
+    if (held && !held.transcriptIncomplete && event.type === 'session/started') {
+      const enriched = this.#transcripts.enrichReplay(event.session, held.session)
+      // Restoring an unchanged body from a lossy replay adds no source work.
+      // Recording it would invalidate the last reconciled source fingerprint.
+      replayOnlyBody = !this.#transcripts.hasOutstandingWrite(runtime, held.session.id) &&
+        enriched !== event.session && isDeepStrictEqual(transcriptSessionFacts(enriched), transcriptSessionFacts(held.session))
+      event = { ...event, session: enriched }
     }
     if (event.type === 'account/changed') this.#accountReads.get(runtime)?.invalidate()
     if (event.type === 'catalog/changed' || event.type === 'runtime/options') {
       const owner = this.#runtimeSources.get(String(runtime))
       if (owner?.observations && owner.health().state === 'ready') this.#recordObservations(owner, owner.observations())
     }
-    withCanonicalPaths(() => this.#foldEvent(runtime, event, initial?.kind === 'missing' ? initial : undefined, source))
+    withCanonicalPaths(() => this.#foldEvent(runtime, event, initial?.kind === 'missing' ? initial : undefined, source, replayOnlyBody))
     if (hydrated && held?.session.itemsLoaded && !this.#pendingTranscriptOverlays.has(held.bodyGeneration)) {
       this.#recoveryDescriptors.remove(held.bodyGeneration)
       this.#descriptorOwners.delete(held.bodyGeneration)
@@ -9278,6 +10770,58 @@ export class Host {
     this.#transcriptSequences.set(record, sequence)
     this.#push({ method: 'session/cache-invalidated', params: { runtime: record.runtime, sessionId: record.session.id,
       watermark: { epoch: this.#transcriptEpoch, generation: record.bodyGeneration, revision: record.bodyRevision, sequence } } })
+  }
+
+  #clearSettledHistoryPending(record: SessionRecord): void {
+    const settled = () => !record.transcriptIncomplete && !this.#recoveredTranscriptBases.has(record.bodyGeneration) &&
+      !this.#transcripts.hasProtectedChanges(record.runtime, record.session.id)
+    const served = () => record.session.historyPending || this.#servedHistoryPending.has(record)
+    if (!served() || !settled()) return
+    const push = (session: Session) => {
+      if (!session.itemsLoaded) return
+      const { historyPending: _pending, ...complete } = session
+      if (record.session.historyPending) {
+        const { historyPending: _mark, ...unmarked } = record.session
+        record.session = unmarked
+      }
+      this.#servedHistoryPending.delete(record)
+      this.#push({ method: 'event', params: { runtime: record.runtime,
+        event: { type: 'session/started', session: complete },
+        transcriptFence: { epoch: this.#transcriptEpoch, generation: record.bodyGeneration, revision: record.bodyRevision } } })
+    }
+    if (record.session.itemsLoaded) { push(record.session); return }
+    // A pending projection may have shown durable turns that the record no
+    // longer holds. Clearing its mark must not replace that view with an empty body.
+    const session = record.session, generation = record.bodyGeneration, revision = record.bodyRevision
+    void this.#transcripts.recover(record.runtime, session.id).then(body => {
+      if (!body || this.#disposed || this.registry.get(record.runtime, session.id) !== record ||
+          record.session !== session || record.bodyGeneration !== generation || record.bodyRevision !== revision || !served() || !settled()) return
+      push({ ...record.session, turns: body.turns, itemsLoaded: true })
+    }).catch(() => { /* Keep the served mark so a later read can clear it. */ })
+  }
+
+  #historyPendingView(record: SessionRecord, session: Session = record.session): Session {
+    this.#servedHistoryPending.add(record)
+    return { ...session, historyPending: true }
+  }
+
+  /** Read-only projections never grant the missing base's write authority. */
+  async #pendingTranscriptView(record: SessionRecord): Promise<Session> {
+    if (record.session.itemsLoaded) return structuredClone(this.#historyPendingView(record))
+    let kept: Session | null = null
+    try { kept = await this.#transcripts.recover(record.runtime, record.session.id) }
+    catch { /* Protected or unavailable storage still permits an independent memory view. */ }
+    if (kept) {
+      const overlay = this.#pendingTranscriptOverlays.get(record.bodyGeneration)
+      const base = this.#pendingTranscriptBases.get(record.bodyGeneration)
+      if (overlay && base) try {
+        return this.#historyPendingView(record, overlay.materialize({ ...base, turns: kept.turns, itemsLoaded: true }))
+      } catch { /* A different durable body is readable, but cannot receive this overlay. */ }
+      return this.#historyPendingView(record, kept)
+    }
+    const available = this.#pendingTranscriptOverlays.get(record.bodyGeneration)?.available(record.session)
+    if (available) return this.#historyPendingView(record, available)
+    throw Object.assign(new Error('Conversation history is unavailable. Recent activity is being kept in memory.'), { wireCode: 'historyUnavailable' })
   }
 
   /** Reconstitute only from the exact durable base associated with this record. */
@@ -9293,7 +10837,8 @@ export class Host {
     let recovered: Session
     try { recovered = overlay.materialize({ ...base, turns, itemsLoaded: true }) }
     catch { return false }
-    record.session = recovered
+    const { historyPending: _pending, ...complete } = recovered
+    record.session = complete
     record.transcriptIncomplete = false
     this.#pendingTranscriptOverlays.delete(generation)
     this.#pendingTranscriptBases.delete(generation)
@@ -9305,9 +10850,10 @@ export class Host {
     return true
   }
 
-  #holdProtectedRead(session: Session, base: import('./transcripts.js').DurableTranscriptBase): void {
+  #holdProtectedRead(session: Session, base: import('./transcripts.js').DurableTranscriptBase): Session {
     const record = this.registry.upsert(session, this.registry.get(session.runtime, session.id)?.live ?? null)
     if (!this.#recoveredTranscriptBases.has(record.bodyGeneration)) this.#recoveredTranscriptBases.set(record.bodyGeneration, { base, saving: null })
+    return this.#historyPendingView(record, session)
   }
 
   /** Persist a reconstituted body against its independently verified old base. */
@@ -9330,12 +10876,15 @@ export class Host {
       this.#durableTranscriptBases.set(record, base)
       this.#transcripts.bindBase(snapshot, generation, base)
       if (this.registry.get(record.runtime, record.session.id) !== record) return
-      if (record.running.size === 0 && record.bodyRevision === revision && isDeepStrictEqual(record.session, snapshot)) this.#recoveredTranscriptBases.delete(generation)
+      if (record.running.size === 0 && record.bodyRevision === revision && isDeepStrictEqual(record.session, snapshot)) {
+        this.#recoveredTranscriptBases.delete(generation)
+        this.#clearSettledHistoryPending(record)
+      }
       else if (record.running.size === 0) this.#saveRecoveredTranscript(record)
     })()
   }
 
-  #foldEvent(runtime: RuntimeId, event: AgentEvent, initialBase?: import('./transcripts.js').DurableTranscriptBase, source?: AgentRuntime): void {
+  #foldEvent(runtime: RuntimeId, event: AgentEvent, initialBase?: import('./transcripts.js').DurableTranscriptBase, source?: AgentRuntime, replayOnlyBody = false): void {
     if (event.type === 'approval/requested') {
       this.#abandonedApprovals.delete(`${runtime}\u0000${event.approval.sessionId}\u0000${event.approval.id}`)
     } else if (event.type === 'approval/resolved' && this.#abandonedApprovals.has(`${runtime}\u0000${event.sessionId}\u0000${event.approvalId}`)) {
@@ -9406,6 +10955,7 @@ export class Host {
     // question reaches a human. A matched approval never renders: it is
     // answered here, audited here, and reported as a notice.
     if (event.type === 'approval/requested') {
+      if (this.#declineConsultApproval(runtime, event.approval)) return
       if (this.#answerFlowBoardTool(runtime, event.approval)) return
       const approval = event.approval
       if (approval.type === 'command' && approval.kind !== 'stdin' || approval.type === 'permission' && !String(approval.id).startsWith('held-')) {
@@ -9473,6 +11023,26 @@ export class Host {
     const eventSession = event.type === 'session/started' ? event.session.id : event.type === 'approval/requested' ? event.approval.sessionId :
       'sessionId' in event ? event.sessionId : undefined
     const priorRecord = eventSession ? this.registry.get(runtime, eventSession) : undefined
+    // An idle status that differs from the idle before it only in
+    // `subagentsRunning`, with no turn started since the last idle the host
+    // handled as a turn ending, says a sub-agent started or stopped while the
+    // conversation rested. It is not a turn ending: nothing below treats it as
+    // one, or a child finishing would drain the queue, tell the Team its turn
+    // ended and hand a flow seat its order again — a turn nobody asked for.
+    // A turn seen only as `turn/started` and `turn/completed`, with no
+    // `active` status between, leaves the idle before it standing; the turn
+    // starting is what makes the idle after it that turn's. The mark is set
+    // at the start, not the completion, because Codex can say idle before
+    // `turn/completed` (a review turn, an interrupt): that idle ends the turn,
+    // and a completion after it must not mark the next flag-only idle.
+    const priorStatus = priorRecord?.session.status
+    const turnKey = eventSession === undefined ? null : `${runtime}\u0000${String(eventSession)}`
+    if (turnKey !== null && event.type === 'turn/started') this.#turnSinceIdle.add(turnKey)
+    if (turnKey !== null && (event.type === 'session/closed' || event.type === 'session/detached')) this.#turnSinceIdle.delete(turnKey)
+    const subagentsOnly = event.type === 'session/status' && event.status.type === 'idle' && priorStatus?.type === 'idle' &&
+      (priorStatus.subagentsRunning === true) !== (event.status.subagentsRunning === true) &&
+      (turnKey === null || !this.#turnSinceIdle.has(turnKey))
+    if (turnKey !== null && event.type === 'session/status' && event.status.type === 'idle' && !subagentsOnly) this.#turnSinceIdle.delete(turnKey)
     const temporarilyWatched: TurnId[] = []
     if (priorRecord && event.type === 'session/started') {
       const pending = this.#transcripts.pendingTurnIds(runtime, priorRecord.session.id, priorRecord.bodyGeneration, priorRecord.bodyAuthorityEpoch)
@@ -9500,7 +11070,8 @@ export class Host {
       this.#durableTranscriptBases.set(record, initialBase)
       this.#transcripts.bindBase(record.session, record.bodyGeneration, initialBase)
     }
-    if (record?.transcriptIncomplete && record.session.itemsLoaded) record.session = { ...record.session, turns: [], itemsLoaded: false }
+    if (record?.transcriptIncomplete && record.session.itemsLoaded &&
+        !this.#conflictingTranscripts.has(`${record.bodyGeneration}\u0000${record.bodyAuthorityEpoch}`)) record.session = { ...record.session, turns: [], itemsLoaded: false }
     if (event.type === 'item/completed' || event.type === 'turn/completed') {
       const items = event.type === 'item/completed' ? [event.item] : event.turn.items
       const turn = event.type === 'item/completed' ? event.turnId : event.turn.id
@@ -9566,8 +11137,10 @@ export class Host {
     // What the host just folded in is what a read tomorrow will be missing.
     if (record && event.type !== 'approval/requested' && event.type !== 'approval/resolved') {
       if (event.type === 'turn/completed') this.#turnInsight.complete(runtime, record.session.id, String(event.turn.id), Date.now(), record.session.usage ?? null)
-      if (!record.transcriptIncomplete && !this.#recoveredTranscriptBases.has(record.bodyGeneration)) this.#transcripts.record(record.session, { now: event.type === 'turn/completed', insight: this.#turnInsight.forSession(runtime, record.session.id), generation: record.bodyGeneration, revision: record.bodyRevision, authorityEpoch: record.bodyAuthorityEpoch })
+      if (!replayOnlyBody && !record.transcriptIncomplete && !this.#recoveredTranscriptBases.has(record.bodyGeneration)) this.#transcripts.record(record.session, { now: event.type === 'turn/completed', insight: this.#turnInsight.forSession(runtime, record.session.id), generation: record.bodyGeneration, revision: record.bodyRevision, authorityEpoch: record.bodyAuthorityEpoch })
       this.#recordSessionIndex(record.session, event.type === 'turn/completed' || event.type === 'session/started' || event.type === 'session/title')
+      // last_completed_turn makes replayed completion observations inert.
+      if (event.type === 'turn/completed') this.#sessionIndex.completed(runtime, record.session.id, Date.now(), String(event.turn.id))
     }
     // The numbers moved because a turn just spent some: re-read that agent
     // only, and only when someone could be looking. Cheaper and fresher than
@@ -9604,7 +11177,7 @@ export class Host {
     // Cancellation cleanup may still have seen the completed turn's active
     // status. Its trailing idle notification resumes the surviving queue, but
     // cannot deliver into a newer running turn or a send awaiting acceptance.
-    if (event.type === 'session/status' && event.status.type === 'idle' && record && !this.#queueBusy(record)) {
+    if (event.type === 'session/status' && event.status.type === 'idle' && !subagentsOnly && record && !this.#queueBusy(record)) {
       void this.#drain(record)
     }
     // Messages other agents left for this conversation go after the user's
@@ -9615,7 +11188,7 @@ export class Host {
     // is the nudge that actually lands most deliveries.
     if (
       event.type === 'turn/completed' ||
-      (event.type === 'session/status' && event.status.type === 'idle')
+      (event.type === 'session/status' && event.status.type === 'idle' && !subagentsOnly)
     ) {
       // The turn's own last word goes with the signal: if this turn was
       // started by a teammate's message, the room shows that answer. It is
@@ -9646,10 +11219,33 @@ export class Host {
          and the only sign is a room that stopped moving. So the seat is
          handed its order again. Unfinished turns and self-block hand-backs
          have separate hourly allowances, so neither can re-arm forever. */
-      void this.#flows.reArm(runtime, String(event.sessionId))
-      // The same turn-ended signal answers a v2 release still waiting on this
-      // Seat, rather than a poll of its own guessing when to ask again (#1027).
-      this.#flows.retryRelease(runtime, String(event.sessionId))
+      // While a carry-on incident holds the conversation it is the one recovery: a re-arm would retry the same
+      // exhausted account behind its back. A turn that may have ended on a limit waits for carry-on to say whether
+      // it took it — the incident opens only after a meter read, and the idle signal that trails the turn must not
+      // re-arm in that gap (§9.3).
+      const waiting = this.#carryOnDeciding.has(carryOnKey(String(runtime), String(event.sessionId)))
+      if (!waiting && !(event.type === 'turn/completed' && carryOnMayTake(event.turn)) && !this.#carryOn.live(String(runtime), String(event.sessionId))) {
+        this.#recoverSeat(runtime, String(event.sessionId))
+      }
+    }
+    // A turn that ended on a usage limit opens a carry-on incident; one that continued a move settles it.
+    if (event.type === 'turn/completed' && !this.#disposed) {
+      const at = { runtime: String(runtime), sessionId: String(event.sessionId) }
+      const mayTake = carryOnMayTake(event.turn)
+      const deciding = carryOnKey(at.runtime, at.sessionId)
+      if (mayTake) this.#carryOnDeciding.add(deciding)
+      void this.#carryOn.ended(at.runtime, at.sessionId, { id: String(event.turn.id), status: event.turn.status, error: event.turn.error ?? null })
+        .catch((error: unknown) => { this.#logger.warn('a carry-on incident could not be handled', { error: error instanceof Error ? error.message : String(error) }); return false })
+        .then((took) => {
+          if (!mayTake) return
+          this.#carryOnDeciding.delete(deciding)
+          // Not a limit carry-on takes: the seat's own recovery runs, as it would have at the turn's end.
+          if (!took && !this.#disposed && !this.#carryOn.live(at.runtime, at.sessionId)) this.#recoverSeat(runtime, at.sessionId)
+        })
+    }
+    // A conversation that can take a transcript marker again gets the ones carry-on had to keep for it.
+    if ((event.type === 'turn/started' || event.type === 'turn/completed' || event.type === 'session/started') && !this.#disposed) {
+      void this.#carryOn.reachable(String(runtime), String(event.type === 'session/started' ? event.session.id : event.sessionId)).catch(() => {})
     }
     if (event.type === 'session/closed') {
       this.#team.onSessionClosed(runtime, String(event.sessionId))
@@ -9786,6 +11382,24 @@ export class Host {
     }
     this.#boardRoots.set(cwd, found)
     return found
+  }
+
+  /**
+   * A consult conversation asked for something: it is declined at once and
+   * never shown. A consult is read-only and nobody is watching it; anything
+   * it wants beyond reading is refused, a question is cancelled.
+   */
+  #declineConsultApproval(runtime: RuntimeId, approval: Approval): boolean {
+    const key = sessionKey(runtime, approval.sessionId)
+    if (!this.#consulting.has(key)) return false
+    const live = this.registry.get(runtime, approval.sessionId)?.live ?? this.#seating.get(key)?.live
+    const options = 'options' in approval && Array.isArray(approval.options) ? approval.options : []
+    const deny = options.find((option) => option.intent === 'deny' && option.once !== false) ?? options.find((option) => option.intent === 'deny')
+    const decision: ApprovalDecision = deny ? { type: 'option', optionId: deny.id } : { type: 'cancel' }
+    void Promise.resolve()
+      .then(() => live?.respondToApproval(approval.id, decision))
+      .catch((error: unknown) => this.#logger.warn('a consult’s approval could not be declined', { runtime: String(runtime), error: describeError(error) }))
+    return true
   }
 
   /**
@@ -10348,6 +11962,8 @@ export class Host {
   }
 
   #routeToHolders(runtime: AgentRuntime, page: Page<SessionSummary>): Page<SessionSummary> {
+    // A consult conversation is never listed: it is hidden for the one turn it lives.
+    if (this.#consulting.size > 0) page = { ...page, data: page.data.filter((row) => !this.#consulting.has(sessionKey(row.runtime, row.id))) }
     const peers = this.#peersOf(runtime)
     if (peers.length === 0) return page
     return {
@@ -10611,6 +12227,54 @@ export class Host {
     this.#push({ method: 'runtime/healthChanged', params: { runtime, health } })
   }
 
+  /** The readings already taken, one per runtime, without asking any agent: what the Dashboard last drew. */
+  #cachedUsage(): readonly UsageReport[] {
+    return [...this.#runtimes.values()].flatMap(runtime => {
+      const report = this.#usageService.cached(runtime.info.id)
+      return report ? [report] : []
+    })
+  }
+
+  /**
+   * The accounts every usage surface lists, from readings already taken: each reading of an agent the person tracks,
+   * and one Not reporting entry for a tracked agent a read has finished for and nothing came back from; an agent no
+   * read has finished for since this host started is not called Not reporting yet. The Dashboard and the Runtimes page
+   * draw the same list from the same rule (`trackedUsage`), so the phone and the Lead never count a different set.
+   */
+  #trackedUsage(reports: readonly UsageReport[]): readonly UsageReport[] {
+    const off = this.#state.state.preferences['usageOff']
+    return trackedUsage([...this.#runtimes.values()].map(runtime => runtime.info), reports,
+      Array.isArray(off) ? off.filter((id): id is RuntimeId => typeof id === 'string') : [], Date.now(), id => this.#usageService.asked(id))
+  }
+
+  /** One inbox for the bell, the phone and the Work list: the Lead's window, the desk's needs-you work, the kept notices. */
+  async #leadInboxRead(summary?: LeadDeskSummary): Promise<LeadInbox> {
+    return leadInbox({
+      window: await this.#leadWindow().then(window => window.readThread()).catch(() => null),
+      desk: summary ?? await this.#phoneWorkspaceView().deskSummary({ limit: 20 }).catch(() => null),
+      kept: this.#currentNotices(), now: Date.now(), askSeenAt: id => this.#leadPresence?.askSeenAt(id),
+      ask: this.#leadPresence?.openAsk() ?? null,
+    })
+  }
+
+  /**
+   * The kept notices less any allowance notice a newer read superseded (#2111): the bell and the phone read the same
+   * list, and a notice about a window that has since reset or fallen back under its line no longer says what is so.
+   */
+  #currentNotices(): unknown {
+    const kept = this.#state.state.preferences['inbox']
+    if (!Array.isArray(kept)) return kept
+    const rows = kept.filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
+    const entries = rows.flatMap(row => typeof row['id'] === 'string' ? [{
+      id: row['id'], kind: typeof row['kind'] === 'string' ? row['kind'] : undefined,
+      contentKey: typeof row['contentKey'] === 'string' ? row['contentKey'] : undefined, at: typeof row['at'] === 'number' ? row['at'] : 0,
+      title: typeof row['title'] === 'string' ? row['title'] : undefined,
+    }] : [])
+    const names = new Map([...this.#runtimes.values()].map(runtime => [runtime.info.id, runtime.info.presentation.name] as const))
+    const gone = supersededUsageNotices(entries, this.#trackedUsage(this.#cachedUsage()), Date.now(), names)
+    return gone.size === 0 ? kept : kept.filter(row => !(typeof row === 'object' && row !== null && gone.has((row as Record<string, unknown>)['id'] as string)))
+  }
+
   /** The LAN phone link starts after the host does; the window learns of every change through `phone/changed`. */
   /** What a paired phone reads of the desk's work, built on first use from the planes it projects. */
   #phoneWorkspaceView(): PhoneWorkspace {
@@ -10622,15 +12286,18 @@ export class Host {
           for (const row of page.rows) this.#sessionIndexRepos.read(row.summary.cwd, true)
           return page
         },
+        isOwn: (runtime, id) => this.#sessionIndex.isOwn(runtime, id),
         counts: () => this.#sessionIndex.phoneCounts(),
         touchedSince: (since) => this.#sessionIndex.touchedSince(since),
         costliestSince: (since, limit) => this.#sessionIndex.costliestSince(since, limit),
       },
+      stopped: (runtime, id) => !this.registry.get(runtime, id) && this.#transcripts.lastTurnStopped(runtime, id),
       live: () => this.registry.all().flatMap((record) => {
         const id = record.session.id
         if (!this.#sessionIndex.isOwn(record.runtime, id)) return []
         const cost = record.session.usage?.cost
         return [{ runtime: record.runtime, id, failed: record.session.status.type === 'error', queuePaused: record.queue.status === 'paused' && record.queue.messages.length > 0, queued: record.queue.messages.length > 0, running: record.running.size > 0, waiting: record.approvals.size > 0,
+          stopped: record.session.turns.at(-1)?.status === 'interrupted', updatedAt: record.session.updatedAt,
           cost: cost && cost.currency === 'USD' ? cost.amount : null,
           preview: record.session.preview || firstAsk(record.session) }]
       }),
@@ -10638,6 +12305,12 @@ export class Host {
         const known = this.#runtimes.get(runtime)
         return known ? this.#infoOf(known).presentation.name : null
       },
+      // The mark the desktop draws for this agent, decided by the same function (#2150).
+      seatBrand: (runtime) => {
+        const known = this.#runtimes.get(runtime)
+        return known ? brandForRuntime(this.#infoOf(known)) : null
+      },
+      canDelete: runtime => this.#runtimes.get(runtime)?.info.capabilities.deleteHistory === 'trash',
       knowsStart: (runtime) => {
         const known = this.#runtimes.get(runtime)
         return known ? this.#infoOf(known).capabilities.startTimes === true : false
@@ -10678,7 +12351,7 @@ export class Host {
           }),
         }
       }),
-      reports: () => this.#usageService.reports(),
+      reports: async () => this.#trackedUsage(await this.#usageService.reports()),
       ledger: async (query) => {
         const ledger = this.#ledgerService
         // The same first-read rule `usage/ledger` follows: prices load when someone asks for money, and a machine
@@ -10696,6 +12369,51 @@ export class Host {
   }
   async leadChatActivities(): Promise<readonly import('./lead/chats.js').LeadChatActivity[]> {
     return this.#leadChats?.activities() ?? []
+  }
+
+  /** The Lead's work ledger; refuses while no Lead runs here. */
+  get leadWork(): LeadWorkLedger {
+    if (!this.#leadWork || this.#disposed) throw leadRefusal('lead-unavailable')
+    return this.#leadWork
+  }
+
+  /** Presence for the window and the phones; refuses while no Lead runs here. */
+  /**
+   * The person's room: starts the Lead made on its own are counted (chats and Team runs that are still working) and
+   * capped, and refused on an account near its window's end. The person's own starts are never counted or refused.
+   */
+  #leadSlots(_journal: LeadJournal): LeadSlots {
+    return new LeadSlots({
+      automaticLive: () => {
+        const ids = this.#leadAutonomy?.automaticIdsNow() ?? new Set<string>()
+        const runs = this.#leadBudgets.port.runs()
+        const starting = this.#leadBudgets.preparedStartIds().filter(id => ids.has(id) && !runs.some(run => run.lead?.startId === id)).length
+        return (this.#leadChats?.liveHeld(id => ids.has(id)) ?? 0) + starting +
+          runs.filter(run => run.lead !== undefined && run.state === 'running' && ids.has(run.lead.startId)).length
+      },
+      ready: () => (this.#leadAutonomy?.loaded ?? false) && this.#leadChatsRestored,
+      mark: async id => { await this.#leadAutonomy?.markAutomatic(id) },
+      headroom: async () => await this.#leadPacing?.headroom() ?? null,
+    })
+  }
+
+  /** Runs the Lead's minute tick now: due repeats, work reminders, goal deadlines and the morning brief, the same body the timer runs. */
+  async leadTick(): Promise<void> { await this.#leadTick?.() }
+  /** A trigger firing offered to the Lead, as the intake plane does it. */
+  async leadOfferTrigger(input: Parameters<LeadAutomaticGoals['offerTrigger']>[0]): ReturnType<LeadAutomaticGoals['offerTrigger']> {
+    const automatic = this.#leadAutomatic
+    if (!automatic) return { delivered: false, reason: 'Lead is unavailable; this firing waits.' }
+    return automatic.owner.offerTrigger(input)
+  }
+
+  get leadAutonomy(): LeadAutonomyStore {
+    if (!this.#leadAutonomy || this.#disposed) throw leadRefusal('lead-unavailable')
+    return this.#leadAutonomy
+  }
+
+  get leadPresence(): LeadPresenceStore {
+    if (!this.#leadPresence || this.#disposed) throw leadRefusal('lead-unavailable')
+    return this.#leadPresence
   }
 
   get leadChats(): Pick<LeadChats, 'list' | 'read' | 'start' | 'send' | 'stop' | 'idle'> {
@@ -10844,6 +12562,15 @@ export class Host {
   #phoneWorkView(): PhoneWork {
     return this.#phoneWork ??= new PhoneWork({
       workspace: this.#phoneWorkspaceView(),
+      leadWork: async () => this.#leadWork && !this.#disposed ? await this.#leadWork.board() : null,
+      leadInbox: async () => this.#leadWork && !this.#disposed ? await this.#leadInboxRead() : null,
+      leadTeams: async () => (await this.#goals.list()).map(view => ({ goal: view.goal.id as string, room: view.board?.id ?? null })),
+      leadAutonomy: async () => this.#leadAutonomy && !this.#disposed ? await this.#leadAutonomy.view() : null,
+      leadMemory: async () => {
+        if (!this.#leadWork || this.#disposed) return null
+        const view = (await this.#leadMemory()).view()
+        return { revision: view.revision, inbox: view.inbox, core: view.core.length, archive: view.archive.length, auto: view.auto }
+      },
       wrapTeam: team => this.#wrapLeadTeam(team),
       cancelRecovery: async id => {
         const project = this.#leadChatProject
@@ -10868,6 +12595,11 @@ export class Host {
         const known = this.#runtimes.get(runtime)
         return known ? this.#infoOf(known).presentation.name : null
       },
+      // The mark the desktop draws for this agent, decided by the same function (#2150).
+      seatBrand: (runtime) => {
+        const known = this.#runtimes.get(runtime)
+        return known ? brandForRuntime(this.#infoOf(known)) : null
+      },
       isOwn: (runtime, id, includeArchived) => this.#sessionIndex.isOwn(runtime, id, includeArchived),
       summary: (runtime, id) => this.#sessionIndex.get(runtime, id),
       // Phone reads never admit a removed conversation or restore an archive, even if the desk changes it during I/O.
@@ -10875,9 +12607,14 @@ export class Host {
         const held = this.registry.get(runtime, id)
         const seat = this.#sessionIndex.get(runtime, id)?.archived ? this.#evidence.seats.latestKeptOf(runtime, id) : undefined
         const scopedArchive = !!seat && await this.#carriesFilter(seat, 'read')
+        if (held) this.#clearSettledHistoryPending(held)
         const session = !admitCwd && held?.session.itemsLoaded && !scopedArchive
-          ? held.session : await this.#readTranscript(this.#runtime({ runtime }), id, false, admitCwd)
+          ? held.transcriptIncomplete || this.#recoveredTranscriptBases.has(held.bodyGeneration) || this.#transcripts.hasProtectedChanges(runtime, id)
+            ? await this.#pendingTranscriptView(held) : held.session
+          : await this.#readTranscript(this.#runtime({ runtime }), id, false, admitCwd)
         if (!this.#sessionIndex.isOwn(runtime, id, true)) throw new Error('That is not a session this desk can show.')
+        const protectedBase = this.#protectedReadBases.get(session)
+        if (protectedBase) return this.#holdProtectedRead(session, protectedBase)
         return session
       },
       live: (runtime, id) => {
@@ -10894,6 +12631,7 @@ export class Host {
       readyRuntimes: () => this.#readyRuntimes(),
       projectRoots: () => this.#state.state.workspaces.filter(workspace => !isManagedChatFolder(this.#state, workspace.path)).map(workspace => workspace.path),
       projectName: root => folderName(this.#sessionIndex.repo(root)?.repo?.root ?? root),
+      canDelete: runtime => this.#runtimes.get(runtime)?.info.capabilities.deleteHistory === 'trash',
       canInterrupt: runtime => this.#runtimes.get(runtime)?.info.capabilities.interrupt === true,
       models: async runtime => {
         await this.#ensureStarted(this.#runtime({ runtime }))
@@ -10905,9 +12643,9 @@ export class Host {
         if (!known) return null
         return this.#runtimeCache.get(String(runtime)).models ?? (known.health().state === 'ready' ? this.call('runtime/models', { runtime }) : null)
       },
-      newSessionValues: async (runtime, cwd, choices) => {
+      newSessionValues: async (runtime, cwd, choices, cautious) => {
         await this.#ensureStarted(this.#runtime({ runtime }))
-        return phoneSessionValues(runtime, cwd, this.#state.state.preferences, params => this.call('runtime/sessionDefaults', params), choices)
+        return phoneSessionValues(runtime, cwd, this.#state.state.preferences, params => this.call('runtime/sessionDefaults', params), choices, cautious)
       },
       create: (params, effectStarted) => createConversation(this.#context, params, effectStarted),
       send: async (params, admitCwd, effectStarted) => {
@@ -11024,6 +12762,107 @@ export class Host {
       (notification.method === 'event' && notification.params.event.type === 'session/started'))) {
       this.#captureProjects()
     }
+    // A consult's one turn ended: the engine waiting on it hears first.
+    if (notification.method === 'event' && notification.params.event.type === 'turn/completed') {
+      const { runtime, event } = notification.params
+      const waiting = this.#consultTurns.get(sessionKey(runtime, event.sessionId))
+      // The turn as it completed, when it carries its own answer; else as the registry folded it from its items.
+      const said = event.turn.items.some((item) => item.type === 'assistantMessage' && item.text.trim() !== '')
+      if (waiting) waiting(said ? event.turn : this.registry.get(runtime, event.sessionId)?.session.turns.find((turn) => turn.id === event.turn.id) ?? event.turn)
+    }
+    // A run that stopped running withdraws the consults its seats have open.
+    if (notification.method === 'flow/execution-changed' && notification.params.execution.state !== 'running') {
+      this.#consult?.runEnded(notification.params.execution.id)
+    }
+    const shown = this.#forWindows(notification)
+    if (shown) this.#broadcast(shown)
+  }
+
+  /**
+   * What windows may hear of a notification while consults are open: nothing
+   * of a consult conversation — no `session/started`, item, approval,
+   * `session/removed` or index row — and, while one is being opened, its
+   * runtime's announcements held back until its id is known (`#consultOpenings`).
+   * One let go (`released`) is not held again by an opening that started since.
+   */
+  #forWindows(notification: WireNotification, released = false): WireNotification | null {
+    if (this.#consulting.size === 0 && this.#consultsGone.size === 0 && this.#consultOpenings.size === 0 && this.#consultHeld.length === 0) return notification
+    switch (notification.method) {
+      case 'event': {
+        const { runtime, event } = notification.params
+        const id = event.type === 'session/started' ? event.session.id : event.type === 'approval/requested' ? event.approval.sessionId :
+          'sessionId' in event ? event.sessionId : undefined
+        if (id === undefined) return notification
+        const key = sessionKey(runtime, id)
+        if (this.#hiddenConsult(key)) return null
+        if (!released && !this.#consultHeldKeys.has(key) && event.type === 'session/started' && this.#openingOn(runtime)) {
+          this.#consultHeldKeys.set(key, new Set([...this.#consultOpenings].filter(([, on]) => on === runtime).map(([opening]) => opening)))
+        }
+        if (this.#consultHeldKeys.has(key)) {
+          this.#consultHeld.push({ key, notification })
+          return null
+        }
+        return notification
+      }
+      case 'session/removed':
+      case 'session/cache-invalidated': {
+        const key = sessionKey(notification.params.runtime, notification.params.sessionId)
+        if (notification.method === 'session/removed' && this.#consultsShown.delete(key)) return notification
+        if (this.#hiddenConsult(key)) return null
+        // A conversation whose start is held back while a consult opens is held with it.
+        if (this.#consultHeldKeys.has(key)) {
+          this.#consultHeld.push({ key, notification })
+          return null
+        }
+        return notification
+      }
+      case 'session/indexChanged': {
+        const upserted = notification.params.upserted.filter((row) => !this.#hiddenConsult(sessionKey(row.runtime, row.id)))
+        const removed = notification.params.removed.filter((row) => !this.#hiddenConsult(sessionKey(row.runtime, row.id)))
+        if (upserted.length === notification.params.upserted.length && removed.length === notification.params.removed.length) return notification
+        return { ...notification, params: { ...notification.params, upserted, removed } }
+      }
+      default:
+        return notification
+    }
+  }
+
+  /** A consult open now, or one discarded lately whose last notices may still be on their way. */
+  #hiddenConsult(key: string): boolean {
+    return this.#consulting.has(key) || this.#consultsGone.has(key)
+  }
+
+  /** Whether a consult is being opened on this runtime now. */
+  #openingOn(runtime: RuntimeId): boolean {
+    for (const on of this.#consultOpenings.values()) if (on === runtime) return true
+    return false
+  }
+
+  /**
+   * One opening answered or reached its bound: each conversation that waited
+   * on it alone goes out, in the order it arrived, the consults' own dropped.
+   * A conversation still waiting on another opening stays held.
+   */
+  #releaseConsultHeld(opening: number): void {
+    const free = new Set<string>()
+    for (const [key, waits] of this.#consultHeldKeys) {
+      waits.delete(opening)
+      if (waits.size === 0) free.add(key)
+    }
+    if (free.size === 0) return
+    for (const key of free) this.#consultHeldKeys.delete(key)
+    const out: WireNotification[] = []
+    for (let at = 0; at < this.#consultHeld.length;) {
+      const one = this.#consultHeld[at]!
+      if (free.has(one.key)) { out.push(one.notification); this.#consultHeld.splice(at, 1) } else at += 1
+    }
+    for (const notification of out) {
+      const shown = this.#forWindows(notification, true)
+      if (shown) this.#broadcast(shown)
+    }
+  }
+
+  #broadcast(notification: WireNotification): void {
     if (notification.method === 'event') {
       const { runtime, event } = notification.params
       const id = event.type === 'session/started' ? event.session.id : event.type === 'approval/requested' ? event.approval.sessionId :

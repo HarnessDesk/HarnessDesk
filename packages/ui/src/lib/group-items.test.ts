@@ -101,12 +101,24 @@ describe('described steps', () => {
       bare('b4'),
       bare('b5'),
     ])
-    expect(nodes.map((node) => (node.kind === 'group' ? `group:${node.items.length}` : node.item.id))).toEqual([
+    expect(nodes.map((node) => (node.kind === 'item' ? node.item.id : `${node.kind}:${node.items.length}`))).toEqual([
       'd1',
       'group:3',
       'd2',
       'b4',
       'b5',
+    ])
+  })
+
+  test('draws one sub-agent card per stretch: a reply between calls starts the next card', () => {
+    const agent = (id: string): AgentItem => ({ id, type: 'subagent', action: 'spawnAgent', status: 'completed', members: [] }) as unknown as AgentItem
+    const reply = (id: string): AgentItem => ({ id, type: 'assistantMessage', text: 'ok' }) as unknown as AgentItem
+    const nodes = groupItems([agent('s1'), agent('s2'), bare('b1'), agent('w1'), reply('r1'), agent('w2')])
+    expect(nodes.map((node) => (node.kind === 'item' ? node.item.id : `${node.kind}:${node.items.length}`))).toEqual([
+      'agents:3',
+      'b1',
+      'r1',
+      'agents:1',
     ])
   })
 

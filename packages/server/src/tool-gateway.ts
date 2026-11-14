@@ -8,6 +8,7 @@ import {
   type CapabilityContribution,
   type CapabilityRegistry,
   type ToolResult,
+  type TurnId,
 } from '@harnessdesk/protocol'
 
 /**
@@ -75,6 +76,12 @@ export interface BridgeCaller {
   readonly sessionId: string
   /** Read from the host's session record at invocation, never from bridge arguments. */
   readonly workspaceRoot?: string | undefined
+  /**
+   * The turn the conversation has running when the call arrives, read from
+   * the host's session record; absent when none is. What a per-turn limit,
+   * such as a bot reviewer's repair rounds, counts by.
+   */
+  readonly turnId?: string | undefined
 }
 
 /** Invoke one bridge call as the conversation whose opening minted its token. */
@@ -103,9 +110,21 @@ export const invokeForBridge = async (
     scope ? {
       runtime: runtimeId(scope.runtime), sessionId: sessionId(scope.sessionId),
       ...(scope.workspaceRoot !== undefined ? { workspaceRoot: scope.workspaceRoot } : {}),
+      ...(scope.turnId !== undefined ? { turnId: scope.turnId as TurnId } : {}),
     } : {},
   )
 }
+
+/** How long a burst of registry events is gathered into one `tools/changed` push. */
+const TOOLS_CHANGED_WINDOW_MS = 250
+
+/**
+ * The calls only the MCP bridge makes. A socket that has made one is a bridge
+ * and may be pushed to; the git stand-in and the Claude hook share this socket
+ * but send one `git/steer` and read the first line back as its reply, so a
+ * push to them would be taken for that reply.
+ */
+const BRIDGE_METHODS: ReadonlySet<string> = new Set(['server/info', 'tools/list', 'tools/invoke', 'mcp/list', 'mcp/call'])
 
 interface Request {
   id?: number | string
@@ -136,8 +155,37 @@ export class ToolGateway {
 
   /** Every bridge connected right now — ended by `stop`, which must not wait on an agent that has not hung up. */
   readonly #sockets = new Set<Socket>()
+  /** The connected sockets that have made a bridge call, the only ones `toolsChanged` writes to. */
+  readonly #bridges = new WeakSet<Socket>()
+
+  /**
+   * The tool set changed — a plugin came, went, reloaded or updated. Tells
+   * every connected bridge (never a `git/steer` caller) with one unsolicited line (`tools/changed`, no
+   * `id`, so it can never be taken for a reply); the bridge turns it into
+   * MCP's `notifications/tools/list_changed`, which is how an agent with a
+   * conversation already open learns to ask for the list again. A reload
+   * emits several registry events in a row, so pushes coalesce: at most one
+   * per window, sent when the window closes. The timer is unref'd and
+   * cleared by `stop`, so neither a test nor a quitting desk waits on it.
+   */
+  toolsChanged(): void {
+    if (this.#pushTimer || !this.#server) return
+    this.#pushTimer = setTimeout(() => {
+      this.#pushTimer = null
+      for (const socket of this.#sockets) {
+        if (!socket.destroyed && this.#bridges.has(socket)) socket.write(`${JSON.stringify({ method: 'tools/changed' })}\n`)
+      }
+    }, TOOLS_CHANGED_WINDOW_MS)
+    this.#pushTimer.unref()
+  }
+
+  #pushTimer: NodeJS.Timeout | null = null
 
   async stop(): Promise<void> {
+    if (this.#pushTimer) {
+      clearTimeout(this.#pushTimer)
+      this.#pushTimer = null
+    }
     // A host refused by the home writer lock never owned this socket.
     if (!this.#server) return
     await new Promise<void>((resolve) => {
@@ -178,6 +226,7 @@ export class ToolGateway {
     const reply = (body: object): void => {
       if (!socket.destroyed) socket.write(`${JSON.stringify({ id: request.id, ...body })}\n`)
     }
+    if (typeof request.method === 'string' && BRIDGE_METHODS.has(request.method)) this.#bridges.add(socket)
     try {
       switch (request.method) {
         case 'tools/list': {

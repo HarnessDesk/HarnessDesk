@@ -116,6 +116,21 @@
       "title": "Schema form \u2014 a plugin's own configuration"
     },
     {
+      "selector": "[data-frame-id=\"mcp-test-list-result\"] > div",
+      "id": "mcp-test-list-result",
+      "title": "MCP test \u2014 a result in the list"
+    },
+    {
+      "selector": "[data-frame-id=\"mcp-test-needs-sign-in\"] > div",
+      "id": "mcp-test-needs-sign-in",
+      "title": "MCP test \u2014 sign in through its agent"
+    },
+    {
+      "selector": "[data-frame-id=\"mcp-test-agent-sign-in\"] > div",
+      "id": "mcp-test-agent-sign-in",
+      "title": "MCP test \u2014 its agent owns sign-in"
+    },
+    {
       "selector": "[data-frame-id=\"typography-cjk\"] > div",
       "id": "typography-cjk",
       "title": "CJK \u2014 reading text and controls"
@@ -171,6 +186,11 @@
       "title": "The / and @ menu"
     },
     {
+      "selector": "[data-frame-id=\"transcript-ask-agent\"] > div",
+      "id": "transcript-ask-agent",
+      "title": "A seat asking another agent"
+    },
+    {
       "selector": "[data-frame-id=\"transcript-folded-steps\"] > div",
       "id": "transcript-folded-steps",
       "title": "A folded burst of steps"
@@ -221,6 +241,11 @@
       "title": "Room \u2014 the channel's own grouping"
     },
     {
+      "selector": "[data-frame-id=\"room-channel-carry-on\"] > div",
+      "id": "room-channel-carry-on",
+      "title": "Team \u2014 a seat's usage limit asks what to do"
+    },
+    {
       "selector": "[data-frame-id=\"tasks-session-plan\"] > div",
       "id": "tasks-session-plan",
       "title": "Tasks \u2014 a session's own plan"
@@ -229,6 +254,11 @@
       "selector": "[data-frame-id=\"coverage-field-density\"] > div",
       "id": "coverage-field-density",
       "title": "Fields \u2014 comfortable density"
+    },
+    {
+      "selector": "[data-frame-id=\"coverage-adjacent-transcript\"] > div",
+      "id": "coverage-adjacent-transcript",
+      "title": "Conversation \u2014 read-only transcript"
     },
     {
       "selector": "[data-frame-id=\"coverage-answer-actions\"] > div",
@@ -383,6 +413,7 @@
     "Message \u00b7 Bubble",
     "Channel",
     "Flow canvas workspace",
+    "Agent flow",
     "Flow example",
     "Flow cards",
     "Flow canvas toolbar",
@@ -413,6 +444,7 @@
     "Window \u00b7 panel controls",
     "Stat",
     "Delta",
+    "Lead turn",
     "Lead avatar",
     "Lead plan flow",
     "Lead contract",

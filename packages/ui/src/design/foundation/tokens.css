@@ -346,6 +346,8 @@ body {
   --hd-line-heading: 28px;
   --hd-line-title: 30px;
   --hd-line-display: 40px;
+  /* Prose uses a ratio so its leading follows the reading size. */
+  --hd-leading-reading: 1.625;
 
   --hd-weight-normal: 400;
   --hd-weight-medium: 400; /* desk: 500 → 400, a lighter medium */
@@ -527,6 +529,10 @@ body {
      the bar shares one x. */
   --hd-bar-ink: calc(var(--hd-rail-inset) + var(--hd-nav-inset) + var(--hd-border-width));
   --hd-column: 736px;
+  /* The tallest the notices over a composer stand: past it they scroll inside
+     themselves, so a long card (an away digest) never pushes its own title and
+     dismiss above the page while the composer holds the bottom. */
+  --hd-composer-notices-max-height: 60dvh;
   /* A page's two other measures (`Page` in design/patterns). Wide is for
      tables and card grids that read better than a reading column allows;
      every page keeps one gutter on both sides of whichever measure it takes.

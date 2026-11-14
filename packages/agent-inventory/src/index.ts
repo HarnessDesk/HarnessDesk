@@ -26,6 +26,7 @@ import {
 export { classifySkillFiles } from './skill-risk.js'
 export { parseGithubSource } from './github-source.js'
 export { knownRoots } from './locations.js'
+export { findMcpDeclaration, type McpDeclarationLookup } from './mcp-lookup.js'
 export { bundleDigest, digestOf } from './digest.js'
 export { unifiedDiff } from './diff.js'
 export { LibraryManifest, type ManifestEntry } from './manifest.js'

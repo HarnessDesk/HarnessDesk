@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { wrapContext, type AgentItem } from '@harnessdesk/protocol'
+import { leadMessageEnvelope, leadMessageKey, splitContextContent, wrapContext, type AgentItem } from '@harnessdesk/protocol'
 
 import { toCodexToolResponse } from '../src/capabilities.js'
 import { mapItem } from '../src/mapping/items.js'
@@ -80,6 +80,19 @@ test('peels HarnessDesk context envelopes from the Codex user text', () => {
   assert.deepEqual(mapped.context, [{ label: 'Git', text: 'The workspace is on git branch `main`.' }])
 })
 
+test('a Lead message in Codex history reads back as the Lead\'s block, whole, with nothing of it as typed text (#2090)', () => {
+  const envelope = leadMessageEnvelope('Dex', 'Fix the stalled task.')
+  const mapped = map({ type: 'userMessage', id: 'user-lead', content: [{ type: 'text', text: envelope }] } as Message)
+  assert.ok(mapped.type === 'userMessage')
+  // A message that is only context stays whole in the item; the reader peels it.
+  const split = splitContextContent(mapped.content)
+  assert.equal(split.text, '')
+  const block = split.injections[0]
+  assert.equal(block?.label, 'Lead message from Dex')
+  // The block rebuilds the exact envelope, so the host's record of it still verifies the sender.
+  assert.equal(leadMessageKey('codex:chat', wrapContext(block!.label, block!.text)), leadMessageKey('codex:chat', envelope))
+})
+
 test('peels the known pre-marker Git envelope from Codex history', () => {
   const mapped = map({
     type: 'userMessage',
@@ -99,6 +112,15 @@ test('assistant phase distinguishes commentary from the final answer', () => {
   const final = map(fixtures.agentFinal)
   assert.equal(commentary.type === 'assistantMessage' && commentary.phase, 'commentary')
   assert.equal(final.type === 'assistantMessage' && final.phase, 'final')
+})
+
+test('a partial answer is shown as prose but never marked final', () => {
+  const partial = map({ ...fixtures.agentFinal, phase: 'partial_answer' } as Parameters<typeof mapItem>[0])
+  assert.equal(partial.type, 'assistantMessage')
+  assert.equal(partial.type === 'assistantMessage' && partial.phase, undefined)
+  // Control: a message with no phase at all keeps the legacy reading.
+  const unphased = map({ ...fixtures.agentFinal, phase: null } as Parameters<typeof mapItem>[0])
+  assert.equal(unphased.type === 'assistantMessage' && unphased.phase, 'final')
 })
 
 test('reasoning keeps summary and detail separate', () => {
@@ -522,6 +544,36 @@ test('a delegation keeps the handles it can open and drops the rest (#272)', () 
     assert.equal(mapped.type === 'subagent' && mapped.status, 'completed')
     assert.equal(mapped.type === 'subagent' && mapped.action, 'spawn')
   }
+})
+
+test('a sub-agent announced by activity items reads as the calls did (Codex 0.160)', () => {
+  // Shape measured on codex-cli 0.160.0: no spawn call, an activity per step, the path's last segment the name.
+  const activity = (kind: string, fields: Record<string, unknown> = {}) =>
+    map({ type: 'subAgentActivity', id: `activity-${kind}`, kind, agentThreadId: 'thread-child', agentPath: '/root/alpha', model: null, reasoningEffort: null, ...fields } as unknown as Parameters<typeof mapItem>[0])
+  const started = activity('started', { model: 'gpt-6.1-sol' })
+  assert.deepEqual(started, {
+    id: 'activity-started',
+    type: 'subagent',
+    action: 'spawnAgent',
+    status: 'completed',
+    prompt: null,
+    model: 'gpt-6.1-sol',
+    members: [{ sessionId: 'thread-child', nickname: 'alpha', role: null, state: 'running' }],
+  })
+  const word = (kind: string) => {
+    const mapped = activity(kind)
+    return mapped.type === 'subagent' ? [mapped.action, mapped.members[0]?.state] : null
+  }
+  assert.deepEqual(word('interacted'), ['sendInput', 'running'])
+  assert.deepEqual(word('interrupted'), ['interruptAgent', 'interrupted'])
+  assert.deepEqual(word('completed'), ['agentCompleted', 'completed'])
+  // A kind a later Codex adds names the child without claiming a state.
+  assert.deepEqual(word('paused'), ['subAgentActivity', null])
+  // No thread is nothing to open, and no path is no name.
+  const bare = activity('started', { agentThreadId: '', agentPath: '' })
+  assert.deepEqual(bare.type === 'subagent' ? bare.members : null, [])
+  const nameless = activity('started', { agentPath: '' })
+  assert.deepEqual(nameless.type === 'subagent' ? nameless.members[0]?.nickname : undefined, null)
 })
 
 test('a contentItems that is present but falsy is a container that arrived, not "nothing came" (#272)', () => {

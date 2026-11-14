@@ -3,14 +3,15 @@ import { readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import {
-  parseClientMessage, wireCodeOf, type HarnessDeskAccountStatus, type HostMethodName, type HostParams, type PhoneLinkState,
+  leadDisplayName, parseClientMessage, wireCodeOf, type HarnessDeskAccountStatus, type HostMethodName, type HostParams, type HostResult, type LeadAutonomyView, type PhoneLinkState,
   type PhonePairing, type PhoneRelayState, type PhoneTier, type WireNotification,
 } from '@harnessdesk/protocol'
 import { PhoneCallError, PhoneLinkService, RelayLink, type AccountOffer, type Device, type PhonePolicy } from '@harnessdesk/phone-link'
-import type { PhoneInvite, RelayAccess } from './harnessdesk-account.js'
+import type { PhoneInvite, PhonePushStatus, RelayAccess, SealedPhonePush } from './harnessdesk-account.js'
 import type { Host } from './host.js'
 import type { Logger } from './log.js'
-import { WorkspaceFeed } from './phone-work.js'
+import { PhonePushSender } from './phone-push.js'
+import { phoneAutonomy, WorkspaceFeed } from './phone-work.js'
 
 /** What the wire methods under `phone/` reach: the window decides, the service obeys. */
 export interface PhoneLinkControl {
@@ -37,6 +38,18 @@ export const PHONE_POLICY: PhonePolicy = {
     'lead/settings/read': 'read',
     // Exact repeat/card JSON and method results: packages/phone-link/lead.md.
     'lead/schedule/read': 'read',
+    // How full the Lead's conversation is and the checkpoints that replaced its earlier part: facts, never a control.
+    'lead/context/read': 'read',
+    // The same as one figure (percent, tokens, last summary time), the one the Lead itself reads.
+    'lead/context/use': 'read',
+    // The inbox the desktop's bell lists: what waits on the person and the kept notices.
+    'lead/inbox/read': 'read',
+    // What changed while this phone was away, and what became of each question; dismissing marks this phone's copy only.
+    'lead/presence/read': 'read',
+    'lead/presence/dismiss': 'read',
+    'lead/brief/read': 'read',
+    // The table of what the Lead does unasked, with the rule words in force: read here, switches below.
+    'lead/autonomy/read': 'read',
     // The work itself, read-only and redacted: projections written for the phone, never the desk's own records.
     'phone/sessions/list': 'read',
     'phone/teams/list': 'read',
@@ -46,11 +59,18 @@ export const PHONE_POLICY: PhonePolicy = {
     'workspace/session/start': 'run',
     'workspace/session/send': 'run',
     'workspace/stop': 'run',
+    'workspace/session/rename': 'run',
+    'workspace/session/archive': 'run',
+    'workspace/session/pin': 'run',
+    // There is no destructive lane: run is the same tier as wrapping a Team and its worktrees.
+    'workspace/session/delete': 'run',
     'workspace/thread/read': 'read',
     'workspace/approval/decide': 'answer',
     // Only a Team whose Lead result the person accepted, and only when nothing on it needs a choice. Run, as stop is:
     // wrapping closes seats, archives the Team's conversations and removes its clean worktrees.
     'workspace/team/wrap': 'run',
+    // The person's Done or Drop on a Lead work item: it closes the record, never a chat, Team or pull request.
+    'lead/work/close': 'run',
     'lead/thread/send': 'run',
     'lead/stop': 'run',
     'lead/resume': 'run',
@@ -61,8 +81,24 @@ export const PHONE_POLICY: PhonePolicy = {
     'lead/budget/raise': 'answer',
     // The money limit alone, as narrow as a raise: `lead/settings/update`, which also writes policy and keys, stays off the phone.
     'lead/spendLimit/set': 'answer',
+    // One switch of the autonomy table; rules and deadlines are written on the desk.
+    'lead/autonomy/set': 'answer',
+    // Mention triage, read only: switching a trigger to act or evaluating a request again is the desk's.
+    'phone/triage/list': 'read',
+    // The Lead's memory: the lists, and of its changes only Keep or No on a proposal and Forget of one entry
+    // (`phoneActionRefusal`). Forget all, Undo, Add, Edit, Move and the auto-keep switch are the desk's; the Lead's own
+    // propose and search stay off the phone.
+    'lead/memory/view': 'read',
+    'lead/memory/change': 'answer',
+    // A reminder listed on the work board: the phone cancels a set one and clears a fired or cancelled one, as the
+    // window does. Setting one is the Lead's.
+    'lead/reminder/cancel': 'run',
+    'lead/reminder/clear': 'run',
+    // Apply or No on the Lead's own proposal card: it applies exactly the change the card shows, as the window's does.
+    // Writing rules or modes freely stays on the desk.
+    'lead/settings/decide': 'answer',
   },
-  topics: { lead: 'read', workspace: 'read' },
+  topics: { lead: 'read', workspace: 'read', notices: 'read', presence: 'read' },
   // A phone the person allows can answer a card, which is what a phone is for; the window can narrow it later.
   defaultTiers: ['read', 'run', 'answer'],
 }
@@ -80,6 +116,8 @@ export interface PhoneLinkOptions {
   readonly account?: PhoneRelayAccount
   /** For tests. */
   readonly relay?: { readonly heartbeatMs?: number; readonly random?: () => number; readonly maxBackoffMs?: number }
+  /** For tests: how long changes are gathered before the Inbox is read for pushes. */
+  readonly pushDelayMs?: number
 }
 
 /** The part of the HarnessDesk account the phone link uses. The desk key stays inside it. */
@@ -89,6 +127,8 @@ export interface PhoneRelayAccount {
   relayAccess(fresh: boolean): Promise<RelayAccess>
   createPhoneInvite(): Promise<PhoneInvite>
   unlinkPhone(deviceId: string): Promise<HarnessDeskAccountStatus>
+  /** One sealed push for a phone the account linked; the account service carries it and can read none of it. */
+  sendPush(push: SealedPhonePush): Promise<PhonePushStatus>
 }
 
 export interface RunningPhoneLink {
@@ -105,17 +145,64 @@ const WORKSPACE_EVENTS = new Set([
   'session/started', 'session/status', 'session/title', 'session/closed', 'turn/started', 'turn/completed',
   'approval/requested', 'approval/resolved',
 ])
-const WORKSPACE_METHODS = new Set(['goal/changed', 'team/changed', 'session/removed', 'seat/activity'])
+const WORKSPACE_METHODS = new Set(['goal/changed', 'team/changed', 'session/removed', 'seat/activity', 'lead/work/changed', 'lead/memory/changed', 'lead/autonomy/changed'])
+/** What may change what waits on the person, so the push sender reads the Inbox again: the workspace's own, and the Lead's. */
+const PUSH_METHODS = new Set([...WORKSPACE_METHODS, 'lead/changed', 'lead/presence/changed', 'session/indexChanged', 'lead/chats/controlChanged'])
+
+/**
+ * The methods whose receipts and marks name the device that made them, and the one that lets a phone do less:
+ * `lead/settings/decide` refuses a phone's Apply of a section's whole new words, which are read in full at the desk.
+ */
+const PHONE_DEVICE_METHODS = new Set(['lead/presence/read', 'lead/presence/dismiss', 'lead/thread/send', 'lead/settings/decide'])
+const phoneDeviceRef = (device: Device) => ({
+  id: `phone:${device.id.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 48)}`,
+  label: device.name.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').trim().slice(0, 40) || 'Phone',
+})
+
+/** Every host method whose answer is the autonomy view, the Lead's proposal words in it. */
+type AutonomyViewMethod = { [M in HostMethodName]: HostResult<M> extends LeadAutonomyView ? M : never }[HostMethodName]
+/**
+ * What a phone receives in place of a method's own answer. The autonomy view carries the Lead's proposal words, so
+ * every answer that holds one reaches a phone as `phoneAutonomy` makes it (scrubbed, `deskOnly` where the phone answers
+ * No only), the same as the workspace snapshot's copy. The record is keyed by every such method, phone-reachable or
+ * not, so a new one cannot reach the phone raw by being left out: the compiler asks for it here.
+ */
+const PHONE_RESULTS: Record<AutonomyViewMethod, (result: LeadAutonomyView) => LeadAutonomyView> = {
+  'lead/autonomy/read': phoneAutonomy,
+  'lead/autonomy/set': phoneAutonomy,
+  'lead/deadline/set': phoneAutonomy,
+  'lead/settings/decide': phoneAutonomy,
+}
+/** A host answer as the phone may have it. */
+export const phoneResult = (method: string, result: unknown): unknown =>
+  Object.hasOwn(PHONE_RESULTS, method) && result && typeof result === 'object' ? PHONE_RESULTS[method as AutonomyViewMethod](result as LeadAutonomyView) : result
+
+/** The memory changes a phone may make: answer a proposal, or forget one entry. */
+const PHONE_MEMORY_ACTIONS = new Set(['keep', 'dismiss', 'forget'])
+/**
+ * Narrower than a method's tier: a method the phone may call, with an action it may not take. The refusal is the
+ * sentence the phone shows; null lets the call through.
+ */
+export const phoneActionRefusal = (method: string, params: unknown): string | null => {
+  if (method !== 'lead/memory/change') return null
+  const action = params && typeof params === 'object' && !Array.isArray(params) ? (params as { action?: unknown }).action : undefined
+  return typeof action === 'string' && PHONE_MEMORY_ACTIONS.has(action) ? null
+    : 'From a phone you can keep or decline a proposed note, or forget one entry; make other memory changes at the desk.'
+}
 
 /** Starts the LAN listener against a running host and hands the window its controls. */
 export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' | 'attachPhoneLink'>, logger: Logger, options: PhoneLinkOptions): Promise<RunningPhoneLink> {
   const log = logger.child('phone-link')
   const call = async (method: string, params: unknown, device: Device): Promise<unknown> => {
     let parsed
+    const refusal = phoneActionRefusal(method, params)
+    if (refusal) throw new PhoneCallError('notOnPhoneSurface', refusal)
+    // Who is asking is what the link proved, never what the phone's request says about itself.
+    if (PHONE_DEVICE_METHODS.has(method) && params && typeof params === 'object' && !Array.isArray(params)) params = { ...params, device: phoneDeviceRef(device) }
     try { parsed = parseClientMessage({ id: 0, method, params: params ?? {} }) } catch (error) {
       throw new PhoneCallError('badRequest', error instanceof Error ? error.message : String(error))
     }
-    try { return await host.call(parsed.method as HostMethodName, parsed.params as never) } catch (error) {
+    try { return phoneResult(method, await host.call(parsed.method as HostMethodName, parsed.params as never)) } catch (error) {
       log.info('phone request failed', { device: device.id, method, code: wireCodeOf(error) })
       throw new PhoneCallError(wireCodeOf(error) ?? 'methodFailed', error instanceof Error ? error.message : String(error))
     }
@@ -132,10 +219,30 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
     delayMs: options.workspaceDelayMs,
     onError: error => log.info('workspace snapshot failed', { error: error instanceof Error ? error.name : 'error' }),
   })
+  const account = options.account
+  // A push for each phone the account linked when something newly waits on the person; nothing without an account.
+  const push = account ? new PhonePushSender({
+    account, devices: () => service.devices(),
+    inbox: () => host.call('lead/inbox/read', {}),
+    leadName: async () => leadDisplayName((await host.call('lead/thread/read', {})).settings?.name ?? 'dex'),
+    log: (message, fields) => log.info(message, fields),
+    ...(options.pushDelayMs === undefined ? {} : { delayMs: options.pushDelayMs }),
+  }) : null
   const detach = host.addBroadcaster((notification: WireNotification) => {
+    if (push) {
+      if (notification.method === 'event') push.noteEvent(notification.params.runtime, notification.params.event)
+      if (PUSH_METHODS.has(notification.method) || (notification.method === 'event' && WORKSPACE_EVENTS.has(notification.params.event.type))) push.poke()
+    }
     // A Lead change can move a Team row too (its step, `canWrap`, `relayed`, who started it) without any Team event,
     // so the workspace is rebuilt as well; the feed publishes only when the snapshot differs.
     if (notification.method === 'lead/changed') { service.publish('lead', notification.params); feed.poke() }
+    // The morning brief is one push, already capped for the phone; it carries words and a pointer, nothing else.
+    else if (notification.method === 'lead/presence/changed') {
+      const notice = notification.params.notice
+      // Presence moved (an ask was answered or expired, a brief arrived): a phone that is open re-reads it. No text rides along.
+      service.publish('presence', { v: 1 })
+      if (notice) service.publish('notices', { v: 1, id: notice.digest.slice(0, 64), ts: Math.floor(Date.now() / 1000), kind: 'message', title: notice.phone.title, body: notice.phone.body, deep: 'lead' })
+    }
     // Session pages extend beyond the metadata snapshot's bounded session portion. Every index change invalidates
     // them, even when that snapshot is byte-for-byte identical.
     else if (notification.method === 'session/indexChanged' || notification.method === 'lead/chats/controlChanged') feed.poke(true)
@@ -148,7 +255,6 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
     }
   }
   let closed = false
-  const account = options.account
   let relayState: PhoneRelayState = 'off'
   const unlinks = account ? await UnlinkOutbox.open(join(options.home, 'phone-link', 'relay-unlinks.json'), account, log) : null
   const relay = account ? new RelayLink({
@@ -167,6 +273,7 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
   let reachable = false
   const follow = (status: HarnessDeskAccountStatus) => {
     if (closed) return
+    push?.accountChanged()
     const next = status.status === 'signedIn' && status.desk.reachable
     if (status.status === 'signedIn') void unlinks?.flush()
     if (next === reachable) return
@@ -215,11 +322,13 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
       return () => { listeners.delete(listener); off() }
     },
   }
+  // A phone paired or removed changes who a push goes to.
+  if (push) service.onChange(change => { if (change === 'devices') push.poke() })
   host.attachPhoneLink(control)
   log.info('phone link listening', { port: service.port, deskId: service.deskId })
   return {
     service, control,
-    close: async () => { closed = true; detach(); unfollow?.(); relay?.stop(); feed.dispose(); await service.close() },
+    close: async () => { closed = true; detach(); unfollow?.(); relay?.stop(); feed.dispose(); push?.dispose(); await service.close() },
   }
 }
 

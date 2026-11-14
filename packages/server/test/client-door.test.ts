@@ -1091,9 +1091,10 @@ test('a connected outside client cannot call any Lead window control even with a
   const { door } = await rig(t)
   const peer = await Peer.open(door.socketPath)
   t.after(() => peer.socket.close())
-  await peer.hello()
+  const hello = await peer.hello()
   for (const method of ['lead/action/perform', 'lead/approval/revoke', 'lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume',
-    'lead/chat/list', 'lead/chat/read', 'lead/chat/start', 'lead/chat/send', 'lead/chat/stop']) {
+    'lead/desk/summary', 'lead/usage/summary', 'lead/chat/list', 'lead/chat/read', 'lead/chat/start', 'lead/chat/send', 'lead/chat/stop']) {
+    assert.equal(hello.result.methods.includes(method), false, method)
     const result = await peer.call(method, {})
     assert.equal(result.ok, false)
     assert.equal(result.error.code, 'notOnClientSurface')
@@ -1199,8 +1200,8 @@ test('outside clients cannot subscribe to chat baselines or live changes', async
   assert.equal(peer.messages.some(message => message.method === 'lead/chat/changed'), false)
 })
 
-test('private chat methods and subscriptions require host-policy access before dispatch', () => {
-  for (const method of ['lead/chat/list', 'lead/chat/read', 'lead/chat/start', 'lead/chat/send', 'lead/chat/stop']) {
+test('private summaries, chat methods and subscriptions require host-policy access before dispatch', () => {
+  for (const method of ['lead/desk/summary', 'lead/usage/summary', 'lead/chat/list', 'lead/chat/read', 'lead/chat/start', 'lead/chat/send', 'lead/chat/stop']) {
     assert.equal(doorModule.clientRefusal(method, true, ['read', 'run', 'answer'], {}), 'notOnClientSurface')
     assert.equal(doorModule.clientRefusal(method, true, ['read', 'run'], {}, true), null)
   }
@@ -1210,4 +1211,41 @@ test('private chat methods and subscriptions require host-policy access before d
     assert.equal(doorModule.clientRefusal('client/subscribe', true, ['read'], params, true), null)
   }
   assert.equal(doorModule.clientRefusal('client/subscribe', true, ['read'], { topics: ['runs'] }), null)
+})
+
+test('an MCP client cannot continue an earlier Run: Run again is work on an existing Team, refused and refunded', async t => {
+  const { home, h, door } = await rig(t)
+  // The Flow is saved in the project, so the only thing wrong with the start below is what it continues.
+  await mkdir(join(home, '.harnessdesk', 'flows'), { recursive: true })
+  await writeFile(join(home, '.harnessdesk', 'flows', 'demo.yml'), source)
+  await h.host.call('workspace/open', { path: home })
+  const preview = await h.host.call('flow/preview', { root: home, source })
+  const earlier = await h.host.call('flow/start-goal', { root: home, source, sentence: 'Demo', token: preview.token! })
+  const view = await h.host.call('goal/read', { goal: earlier.goal })
+  await h.host.call('team/intent', { room: view.board.id, id: view.board.intents[0]!.id, action: 'done', outcome: 'done' })
+  const settled = Date.now() + LOADED_MACHINE_MS
+  while ((await h.host.call('flow/execution', { run: earlier.id })).state === 'running') {
+    assert.ok(Date.now() < settled, 'the earlier Run settles'); await new Promise(r => setTimeout(r, 10))
+  }
+  await h.host.call('app/mcpStarts/set', { revision: 0, mayStart: true })
+
+  const peer = await Peer.open(door.socketPath)
+  t.after(() => peer.socket.close())
+  const hello = await peer.call('client/hello', { client: { name: 'example-client', version: '1.0.0' }, protocol: 1, pid: 42, surface: 'mcp' })
+  assert.ok(hello.result, JSON.stringify(hello))
+  const again = await peer.call('flow/preview', { root: home, source, continues: earlier.id })
+  assert.ok(again.result?.token, JSON.stringify(again))
+  const refused = await peer.call('flow/start-goal', { root: home, source, sentence: 'Demo again', token: again.result.token, continues: earlier.id })
+  assert.equal(refused.error?.code, 'refused', JSON.stringify(refused))
+  assert.match(refused.error.message, /existing Team/)
+  assert.equal((await h.host.call('app/mcpStarts/get', {})).started, 0, 'the refused start is given back')
+  const teams = (await h.host.call('flow/executions', { active: false })).filter(run => run.team === earlier.goal)
+  assert.equal(teams.length, 1, 'nothing new ran in the earlier Team')
+
+  // The same saved Flow, started fresh, is a start an MCP client may make.
+  const fresh = await peer.call('flow/preview', { root: home, source })
+  const started = await peer.call('flow/start-goal', { root: home, source, sentence: 'Demo fresh', token: fresh.result.token })
+  assert.ok(started.result?.id, JSON.stringify(started))
+  assert.notEqual(started.result.goal, earlier.goal)
+  assert.equal((await h.host.call('app/mcpStarts/get', {})).started, 1)
 })

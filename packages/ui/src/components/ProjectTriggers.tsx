@@ -8,8 +8,10 @@ import { triggerProblemPlace, triggerRowWords, triggerSkipWords } from '../lib/i
 import { shortPath } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
 import { ClockIcon } from './Icons'
+import { MentionDecisionRows, useMentionTriage } from './MentionDecisions'
 import { TriggerArm } from './TriggerArm'
 import { TriggerCreate } from './TriggerCreate'
+import { useLeadLabel } from './use-lead-name'
 
 export interface ProjectTriggersProps {
   readonly root: string
@@ -330,7 +332,8 @@ const TriggerRowGroup = ({
   readonly onRearm: () => void
   readonly onWatchFromNow: () => void
 }) => {
-  const words = trigger.definition ? triggerRowWords(trigger.definition) : null
+  const leadName = useLeadLabel()
+  const words = trigger.definition ? triggerRowWords(trigger.definition, leadName) : null
   const title = words?.title ?? trigger.id
   const desc = [
     words?.facts,
@@ -341,10 +344,16 @@ const TriggerRowGroup = ({
   const on = trigger.state !== 'off'
   const stale = trigger.state === 'changed' || trigger.state === 'refused'
   const gap = trigger.source?.state === 'gap' ? trigger.source : null
+  // A mention trigger records what it would do until this machine switches it to act.
+  const mention = trigger.definition?.on.kind === 'mention' && trigger.armed
+  const revision = useSnapshot().triggerRevisions[root]
+  const triage = useMentionTriage(root, trigger.id, mention, revision)
+  const observing = mention && triage.page?.mode === 'observe'
   const stateChip = trigger.state === 'changed' ? <Chip tone="warning">Changed</Chip>
     : trigger.state === 'refused' ? <Chip tone="danger">Refused</Chip>
       : trigger.state === 'paused' ? <Chip tone="info">Paused</Chip>
-        : null
+        : observing ? <Chip tone="info">Observing</Chip>
+          : null
   return (
     <>
       <ListRow
@@ -354,6 +363,16 @@ const TriggerRowGroup = ({
         {...(desc ? { subtitle: desc, wrapSubtitle: true } : {})}
         trail={(
           <span className="inline-flex items-center gap-(--hd-space-2)">
+            {observing && (
+              <Button variant="secondary" size="sm" disabled={busy || triage.busy} onClick={() => void triage.setMode('act')} title="Open work for what it accepts, from now on">
+                Switch to act
+              </Button>
+            )}
+            {mention && triage.page?.mode === 'act' && (
+              <Button variant="ghost" size="sm" disabled={busy || triage.busy} onClick={() => void triage.setMode('observe')} title="Record what it would accept, and act on nothing">
+                Observe only
+              </Button>
+            )}
             {stale && trigger.definition && (
               <Button variant="ghost" size="sm" disabled={busy} onClick={onRearm} title="Review what it runs now, and arm it again">
                 Review
@@ -385,6 +404,7 @@ const TriggerRowGroup = ({
           )}
         />
       )}
+      {expanded && mention && <MentionDecisionRows triage={triage} />}
       {expanded && <TriggerHistory root={root} id={trigger.id} />}
     </>
   )

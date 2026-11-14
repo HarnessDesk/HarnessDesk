@@ -138,3 +138,27 @@ test('Back to Library steps onto the page behind it, and otherwise visits the se
   // A non-Library page directly behind, an MCP page earlier: visit MCP.
   expect(libraryBack({ current: changes, back: [mcp, settings], forward: [] })).toEqual({ step: false, section: 'mcp' })
 })
+
+test('a door clicked again on the same Lead row is heard, but pushes nothing and is never kept', () => {
+  const start = { current: work, back: [], forward: [] }
+  const first = visitDestination(start, { kind: 'lead', focus: 'remind-1', nonce: 1 })
+  expect(first.back).toEqual([work])
+  const again = visitDestination(first, { kind: 'lead', focus: 'remind-1', nonce: 2 })
+  expect(again.current).toEqual({ kind: 'lead', focus: 'remind-1', nonce: 2 })
+  expect(again.back, 'no second entry for the same place').toEqual([work])
+  expect(visitDestination(again, { kind: 'lead', focus: 'remind-1', nonce: 2 }), 'the same click is not heard twice').toBe(again)
+  expect(visitDestination(again, { kind: 'lead', focus: 'remind-1' }), 'a plain visit stays where it is').toBe(again)
+  expect(readDestination(again.current, true), 'the click is not persisted').toEqual({ kind: 'lead', focus: 'remind-1' })
+})
+
+test('a Settings door clicked again on the same row is heard, but pushes nothing and is never kept (#2187)', () => {
+  const start = { current: work, back: [], forward: [] }
+  const route = (nonce?: number) => ({ kind: 'settings' as const, route: { kind: 'section' as const, section: 'lead' as const, focus: 'autonomy:brief', ...(nonce === undefined ? {} : { nonce }) } })
+  const first = visitDestination(start, route(1))
+  const again = visitDestination(first, route(2))
+  expect(again.current).toEqual(route(2))
+  expect(again.back, 'no second entry for the same place').toEqual([work])
+  expect(visitDestination(again, route(2)), 'the same click is not heard twice').toBe(again)
+  expect(visitDestination(again, route()), 'a plain visit stays where it is').toBe(again)
+  expect(readDestination(again.current, true), 'the click is not persisted').toEqual(route())
+})

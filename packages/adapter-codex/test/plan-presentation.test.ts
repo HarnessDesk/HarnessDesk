@@ -9,6 +9,8 @@ for (const [raw, label] of [
   ['prolite', 'Pro Lite'],
   ['promax', 'Pro Max'],
   ['plus', 'Plus'],
+  ['sci', 'Science'],
+  ['sci_plus', 'Science Plus'],
   ['self_serve_future_plan', 'Future Plan'],
 ] as const) test(`plan presentation names ${raw} and preserves the raw type`, () => {
   const limits = mapRateLimits({ planType: raw, primary: null, secondary: null, credits: null } as unknown as CodexProtocol.v2.RateLimitSnapshot)

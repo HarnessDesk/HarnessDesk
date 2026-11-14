@@ -328,7 +328,7 @@ test('plans are frozen by a trusted port before a card, and the API brain receiv
   assert.equal(frozen, 1)
   const card = s.journal.state.cards.find(c => c.type === 'plan')!
   assert.equal(card.contractDigest, 'b'.repeat(64))
-  assert.ok(JSON.parse(s.fake.requests[0].body).system.includes((lead as any).leadReviewedResultSource))
+  assert.ok(JSON.parse(s.fake.requests[0].body).system[0].text.includes((lead as any).leadReviewedResultSource))
   await loop.close()
 })
 
@@ -848,14 +848,36 @@ test('a successful tool result beyond the continuation budget does not park the 
   const call = s.options.desk.call
   s.options.desk.call = async (method: string, params: unknown) => method === 'library/usage' ? 'x'.repeat(15_000) : call(method, params)
   const loop = exported('createLeadLoop')(s.options)
-  const result = await loop.request({ ...input, messages: [{ role: 'user', content: Array.from({ length: 64 }, () => ({ type: 'text', text: 'x'.repeat(16_050) })) }] })
+  // Room for the standing instructions and the tool list below the request bound, but not for the 15,000-byte result.
+  const result = await loop.request({ ...input, messages: [{ role: 'user', content: Array.from({ length: 64 }, () => ({ type: 'text', text: 'x'.repeat(15_800) })) }] })
   assert.equal(result.status, 'completed')
-  assert.equal(result.toolResults[0].content, 'Tool refused')
+  assert.equal(s.fake.requests[0].body.includes('Desk clock: '), false, 'a full person turn goes without the clock, rather than carrying it inside its own words or being refused')
+  assert.match(result.toolResults[0].content, /^Tool failed:.*result.*conversation limit/)
   assert.equal([...s.journal.state.attempts.values()].find(attempt => attempt.method === 'library/usage')!.outcome, 'succeeded')
   assert.equal(loop.state.phase, 'planning')
   await s.tick(); await loop.idle()
   assert.equal(s.fake.requests.length, 2)
   await loop.close()
+})
+
+test('a proactive turn one block under the cap keeps its automatic-wake instruction, and the clock is what yields', async () => {
+  const s = await fixture([message([{ type: 'text', text: 'quiet' }])])
+  const loop = exported('createLeadLoop')(s.options)
+  const result = await loop.request({ ...input, proactive: true, messages: [{ role: 'user', content: Array.from({ length: 63 }, (_, n) => ({ type: 'text', text: `desk fact ${n}` })) }] })
+  assert.notEqual(result.status, 'refused', 'never refused for the blocks the desk added')
+  assert.equal(s.fake.requests.length, 1, 'the request went')
+  const sent = JSON.parse(s.fake.requests[0].body), last = sent.messages.at(-1)
+  assert.equal(last.content.length, 64)
+  assert.match(last.content.at(-1).text, /^This is an automatic wake\./, 'the instruction is kept')
+  assert.equal(s.fake.requests[0].body.includes('Desk clock: '), false, 'the clock gave way at the cap')
+  // One block further from the cap, both go, and the clock is the request's last block.
+  const t = await fixture([message([{ type: 'text', text: 'quiet' }])])
+  const roomy = exported('createLeadLoop')(t.options)
+  await roomy.request({ ...input, proactive: true, messages: [{ role: 'user', content: Array.from({ length: 62 }, (_, n) => ({ type: 'text', text: `desk fact ${n}` })) }] })
+  const blocks = JSON.parse(t.fake.requests[0].body).messages.at(-1).content
+  assert.match(blocks.at(-2).text, /^This is an automatic wake\./)
+  assert.match(blocks.at(-1).text, /^Desk clock: /)
+  await loop.close(); await roomy.close()
 })
 
 for (const variant of ['expired consent', 'wrong recipe', 'unknown tool', 'malformed arguments', 'host scope', 'dispatch scope']) {
@@ -1072,11 +1094,26 @@ test('a person resume resets the no-progress bound', async () => {
 })
 
 test('three oversized successful reads park without a fourth request', async () => {
+  // The first request is filled to `margin` bytes under the request limit (`LIMIT.bytes` in messages.ts), measured from
+  // the request this loop builds, so longer instructions or tool text shrink the filler instead of the room left. Each
+  // round's continuation (a tool_use turn, its placeholder result and the reserved diagnostic space) costs a few hundred
+  // bytes: 8 KiB holds three rounds and stays far below one 15,000-byte result, which therefore never fits and parks.
+  const limit = 1_048_576, margin = 8_192, blocks = 64, result = 15_000
+  const filled = (size: number) => [{ role: 'user', content: Array.from({ length: blocks }, () => ({ type: 'text', text: 'x'.repeat(size) })) }]
+  const probe = await fixture([message([{ type: 'text', text: 'measured' }])])
+  const measure = exported('createLeadLoop')(probe.options)
+  await measure.request({ ...input, messages: filled(1) })
+  await measure.close()
+  const base = Buffer.byteLength(probe.fake.requests[0].body) - blocks
+  const size = Math.floor((limit - margin - base) / blocks)
+  assert.ok(size > 0 && size <= 16_384, `filler ${size} fits a text block`)
   const s = await fixture(Array.from({ length: 5 }, (_, i) => message([tool(`usage-${i}`, 'library_usage')], { stop_reason: 'tool_use' })))
   const call = s.options.desk.call
-  s.options.desk.call = async (method: string, params: unknown) => method === 'library/usage' ? 'x'.repeat(15_000) : call(method, params)
+  s.options.desk.call = async (method: string, params: unknown) => method === 'library/usage' ? 'x'.repeat(result) : call(method, params)
   const loop = exported('createLeadLoop')(s.options)
-  await loop.request({ ...input, messages: [{ role: 'user', content: Array.from({ length: 64 }, () => ({ type: 'text', text: 'x'.repeat(16_050) })) }] })
+  await loop.request({ ...input, messages: filled(size) })
+  const room = limit - Buffer.byteLength(s.fake.requests[0].body)
+  assert.ok(room >= margin && room < margin + blocks + 1024, `the first request leaves ${room} bytes`)
   for (let i = 0; i < 4; i++) { await s.tick(); await loop.idle() }
   assert.equal(s.fake.requests.length, 3)
   assert.equal(loop.state.reason, 'lead-tools-refused')
@@ -1213,7 +1250,7 @@ for (const permanent of [false, true]) test(`a retrying premature start waits fo
   try {
     await loop.start()
     const first = await loop.request(input)
-    assert.equal(first.toolResults.find((tool: any) => tool.tool_use_id === 'premature').content, 'Step 1 is not yet awaiting acceptance; wait for desk activity.')
+    assert.equal(first.toolResults.find((tool: any) => tool.tool_use_id === 'premature').content, 'Tool was not permitted: step 1 is not yet awaiting acceptance; wait for desk activity.')
     for (let i = 0; i < 5; i++) await s.tick()
     assert.equal(s.fake.requests.length, 1, 'only one provider request between desk changes')
     assert.notEqual(s.journal.state.managementReason, 'lead-tools-refused')
@@ -1248,7 +1285,7 @@ test('a start-only retry does not count refusals across three desk changes', asy
   try {
     await loop.start()
     const first = await loop.request(input)
-    assert.equal(first.toolResults.find((tool: any) => tool.tool_use_id === 'premature').content, 'Step 1 is not yet awaiting acceptance; wait for desk activity.')
+    assert.equal(first.toolResults.find((tool: any) => tool.tool_use_id === 'premature').content, 'Tool was not permitted: step 1 is not yet awaiting acceptance; wait for desk activity.')
     for (let i = 0; i < 5; i++) await s.tick()
     assert.equal(s.fake.requests.length, 1, 'only one provider request between desk changes')
     assert.notEqual(s.journal.state.managementReason, 'lead-tools-refused')
@@ -1286,7 +1323,7 @@ for (const terminalReason of ['lead-predecessor-unavailable', 'lead-predecessor-
     assert.deepEqual(result.deskActivityTools, [])
     assert.equal(s.journal.state.phase, 'waiting-for-user')
     assert.equal(s.journal.state.managementReason, terminalReason)
-    assert.equal(result.toolResults[0].content, `Step 2 cannot start: step 1's result ${terminalReason === 'lead-predecessor-unavailable' ? 'was not accepted' : 'cannot be confirmed'}. Ask the person how to continue.`)
+    assert.equal(result.toolResults[0].content, `Tool was not permitted: step 2 cannot start: step 1's result ${terminalReason === 'lead-predecessor-unavailable' ? 'was not accepted' : 'cannot be confirmed'}. Ask the person how to continue.`)
     assert.equal(s.calls.filter(call => call.method === 'flow/start-goal').length, 1)
   } finally { await loop.close() }
 })
@@ -1316,7 +1353,7 @@ for (const terminalReason of ['lead-predecessor-unavailable', 'lead-predecessor-
     assert.equal(refreshedWithPlan, true, 'refresh observes the proposal before parking')
     assert.equal(s.journal.state.phase, 'waiting-for-user')
     assert.equal(s.journal.state.managementReason, terminalReason)
-    assert.equal(result.toolResults[0].content, `Step 2 cannot start: step 1's result ${terminalReason === 'lead-predecessor-unavailable' ? 'was not accepted' : 'cannot be confirmed'}. Ask the person how to continue.`)
+    assert.equal(result.toolResults[0].content, `Tool was not permitted: step 2 cannot start: step 1's result ${terminalReason === 'lead-predecessor-unavailable' ? 'was not accepted' : 'cannot be confirmed'}. Ask the person how to continue.`)
     assert.equal(s.calls.filter(call => call.method === 'flow/start-goal').length, 1)
   } finally { await loop.close() }
 })
@@ -1325,7 +1362,8 @@ for (const terminalReason of ['lead-predecessor-unavailable', 'lead-predecessor-
 // The system text is built once for a goal, from the loop's project and the journal's policy and caps.
 const crew = { implement: [{ runtime: 'acme-writer', model: 'acme/writer-1' }, { runtime: 'acme-writer', model: 'acme/writer-2', thinking: true }],
   review: [{ runtime: 'acme-reviewer', model: 'acme/reviewer-1', effort: 'high' }, { runtime: 'acme-reviewer', model: 'acme/reviewer-2' }] }
-const systemOf = (request: any): string => JSON.parse(request.body).system
+/** The standing instructions arrive as one text block carrying the cache mark that ends them. */
+const systemOf = (request: any): string => JSON.parse(request.body).system[0].text
 const exampleLine = (system: string) => system.split('\n').find(line => line.startsWith('{"version":1,"type":"lead-output"'))
 const exampleOf = (system: string): any => JSON.parse(exampleLine(system)!)
 
@@ -1759,19 +1797,19 @@ test('a released branch never re-offers a result on green refresh while Needs-yo
   } finally { await loop.close() }
 })
 
-test('desk wakes journal silent gate checks without paying for another turn', async () => {
+test('desk checks that find nothing new pay for no turn and leave no ledger row (#2172)', async () => {
   const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }), message()])
   const loop = exported('createLeadLoop')(s.options)
   try {
-    await s.approve(); s.setEvidence({ ...spendEvidence(), reviews: [] }); await loop.request(input)
+    await s.approve(); s.setEvidence({ ...spendEvidence(), reviews: [] }); await loop.request({ ...input, wakeSource: 'person' })
     for (let i = 0; i < 3; i++) {
       s.emit({ type: 'run.changed', run: 'run-1', team: 'team-1', state: 'running', flow: 'lead-reviewed-result', round: 1, reason: null })
       await s.drain(); await s.tick(); await loop.idle()
     }
     const wakes = s.journal.state.wakes
     assert.ok(wakes.some((wake: any) => wake.source === 'person' && wake.modelTurn))
-    assert.ok(wakes.some((wake: any) => wake.source === 'desk-change' && !wake.modelTurn && wake.decision === 'silent'))
-    assert.equal(wakes.length, 4, 'one row per wake, including three coalesced desk checks')
+    assert.equal(wakes.some((wake: any) => wake.source === 'desk-change'), false, 'three checks of a desk the model already saw are not wakes')
+    assert.equal(wakes.length, 2, 'the request and its tool continuation')
     assert.equal(s.fake.requests.length, 2)
   } finally { await loop.close() }
 })
@@ -1798,7 +1836,7 @@ for (const source of ['schedule', 'trigger'] as const) test(`a ${source} wake pr
   const loop = exported('createLeadLoop')(s.options)
   try {
     await loop.request({ ...input, proactive: true, wakeSource: source })
-    assert.deepEqual(s.journal.state.messages.at(-1)?.proactive, report)
+    assert.deepEqual(s.journal.state.messages.at(-1)?.proactive, { ...report, startsMarked: true })
     assert.equal(s.journal.state.messages.at(-1)?.text, [report.finding, report.caveat, report.ask].join('\n'))
     assert.equal(s.records.filter(record => record.type === 'wake').length, 1)
   } finally { await loop.close() }
@@ -1816,17 +1854,15 @@ test('an automatic wake without a proactive envelope stays silent', async () => 
   } finally { await loop.close() }
 })
 
-test('a desk notice outside the model-wake filter leaves a silent ledger row', async () => {
+test('a desk notice outside the model-wake filter costs no turn and leaves no ledger row (#2172)', async () => {
   const s = await fixture([message([{ type: 'text', text: 'I am reading the desk.' }])])
   const loop = exported('createLeadLoop')(s.options)
   try {
     await loop.request(input)
     s.emit({ type: 'notice', team: null, text: 'A desk notice' }); await s.drain(); await s.tick(); await loop.idle()
-    const wake = s.journal.state.wakes.at(-1)!
-    assert.equal(s.journal.state.wakes.length, 2)
-    assert.equal(wake.source, 'desk-change'); assert.equal(wake.decision, 'silent'); assert.equal(wake.modelTurn, false)
+    assert.equal(s.journal.state.wakes.length, 1, 'only the request')
     assert.equal(s.fake.requests.length, 1)
-    assert.equal(s.records.filter(record => record.type === 'wake').length, 2)
+    assert.equal(s.records.filter(record => record.type === 'wake').length, 1)
   } finally { await loop.close() }
 })
 
@@ -1905,13 +1941,15 @@ test('a quiet reply whose only card is a summary the host never offers is still 
   } finally { await loop.close() }
 })
 
+// Real preview tokens are UUIDs: any other value under a `token` field is credential-shaped and withheld before sending.
+const previewToken = '123e4567-e89b-42d3-a456-426614174000' // hd-secrets-ok: a flow preview's UUID, not a credential
 for (const coalesced of [false, true]) test(`a two-step goal starts step 2 through a desk-woken preview continuation${coalesced ? ' with another desk change' : ''}`, async () => {
   const s = await fixture([message(), message([tool('preview-second', 'flow_preview', {
     root: contract.project.path, source: lead.leadReviewedResultSource,
   })], { stop_reason: 'tool_use' }), async request => {
     const latest = JSON.parse(request.body).messages.at(-1).content
     const preview = latest.find((block: any) => block.type === 'tool_result' && block.tool_use_id === 'preview-second' && !block.is_error)
-    return preview && JSON.parse(preview.content).token === 'preview-1'
+    return preview && JSON.parse(preview.content).token === previewToken
       ? message([tool('start-second', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })
       : message()
   }])
@@ -1925,7 +1963,7 @@ for (const coalesced of [false, true]) test(`a two-step goal starts step 2 throu
   const readings: string[] = []
   s.options.readEvidence = async (runId: string) => { readings.push(runId); return { ...spendEvidence(), runId, reviews: [] } }
   s.options.resolveTool = async (request: any) => ({ ...await resolve(request), stepId: 'second', start: second, predecessor: { runId: 'run-1', ready: true } })
-  s.options.desk.call = async (method: string, params: unknown) => method === 'flow/preview' ? { token: 'preview-1' }
+  s.options.desk.call = async (method: string, params: unknown) => method === 'flow/preview' ? { token: previewToken }
     : method === 'flow/start-goal' ? { id: 'run-2', goal: 'team-2', rounds: [{ n: 1 }], state: 'running' } : call(method, params)
   const loop = exported('createLeadLoop')(s.options)
   try {
@@ -2323,7 +2361,7 @@ test('an ordinary ask is journaled once and counted as a decision without a ques
   const loop = exported('createLeadLoop')(s.options)
   try {
     await loop.request(input)
-    assert.deepEqual(s.journal.state.messages.at(-1)?.ask, ask)
+    assert.deepEqual(s.journal.state.messages.at(-1)?.ask, { ...ask, startsMarked: true })
     assert.equal(s.journal.state.wakes.at(-1)?.decision, 'asked')
   } finally { await loop.close() }
 })
@@ -2337,7 +2375,7 @@ test('an ask-only ordinary reply answers the person without a silent-turn retry'
     const result = await loop.request(input)
     assert.equal(result.status, 'completed')
     assert.equal(s.fake.requests.length, 1)
-    assert.deepEqual(s.journal.state.messages.at(-1)?.ask, ask)
+    assert.deepEqual(s.journal.state.messages.at(-1)?.ask, { ...ask, startsMarked: true })
   } finally { await loop.close() }
 })
 
@@ -2358,5 +2396,116 @@ test('a stuck-chat observation wakes once with candidates and uses the existing 
     assert.equal(s.journal.state.messages.at(-1)?.proactive?.recommended, 'move')
     s.emit(structuredClone(event)); await s.drain(); await s.tick(); await loop.idle()
     assert.equal(s.fake.requests.length, 2, 'the same incident cannot buy a second model turn')
+  } finally { await loop.close() }
+})
+
+test('a request the desk refused before sending waits as unsent, costs nothing, records a failed wake, and the next one goes', async () => {
+  for (const [wireCode, reason] of [['lead-provider-refused', 'lead-request-unsent'], ['lead-provider-withheld', 'lead-request-held']] as const) {
+    const s = await fixture([async () => { throw Object.assign(new Error(wireCode), { wireCode }) }, message()])
+    const loop = exported('createLeadLoop')(s.options)
+    try {
+      const spent = s.journal.state.budget?.leadUsdMicros ?? 0
+      await loop.request({ ...input, wakeSource: 'desk-change' })
+      assert.equal(s.journal.state.phase, 'waiting-for-user')
+      assert.equal(s.journal.state.managementReason, reason)
+      assert.equal(protocol.leadStage({ kind: 'lead', state: s.journal.state.phase, pendingPersonCard: null, resultReady: false, workerApproval: false,
+        checkToRun: false, waitReason: reason, requestInFlight: false, chatEffectQueued: false }).stage, 'idle', 'not sent is not waiting on the person')
+      const budget = s.journal.state.budget
+      assert.equal(budget?.requests.length ?? 0, 0); assert.equal(budget?.leadUsdMicros ?? 0, spent)
+      assert.ok(!s.records.some(record => record.type === 'budget' && (record.event.type === 'uncertain' || record.event.type === 'write-off')))
+      const wake = s.journal.state.wakes.at(-1)!
+      assert.equal(wake.decision, 'failed'); assert.equal(wake.modelTurn, false)
+      await s.journal.resume()
+      await loop.request({ ...input, wakeSource: 'person' })
+      assert.equal(s.fake.requests.length, 2)
+      assert.equal(s.journal.state.managementReason, null)
+    } finally { await loop.close() }
+  }
+})
+
+test('a second refusal before sending in a row says so, and one that completes in between starts over', async () => {
+  const refused = async () => { throw Object.assign(new Error('lead-provider-refused'), { wireCode: 'lead-provider-refused' }) }
+  const s = await fixture([refused, refused, message(), refused])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    const reasons: (string | null)[] = []
+    for (let i = 0; i < 4; i++) {
+      await loop.request({ ...input, wakeSource: 'person' })
+      reasons.push(s.journal.state.managementReason)
+      if (s.journal.state.phase === 'waiting-for-user') await s.journal.resume()
+    }
+    assert.deepEqual(reasons, ['lead-request-unsent', 'lead-request-unsent-again', null, 'lead-request-unsent'])
+    assert.equal(s.fake.requests.length, 4)
+  } finally { await loop.close() }
+})
+
+test('a second hold of the conversation in a row says so, and one that completes in between starts over', async () => {
+  const held = async () => { throw Object.assign(new Error('lead-provider-withheld'), { wireCode: 'lead-provider-withheld' }) }
+  const refused = async () => { throw Object.assign(new Error('lead-provider-refused'), { wireCode: 'lead-provider-refused' }) }
+  const s = await fixture([held, held, message(), held, refused, held])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    const reasons: (string | null)[] = []
+    for (let i = 0; i < 6; i++) {
+      await loop.request({ ...input, wakeSource: 'person' })
+      reasons.push(s.journal.state.managementReason)
+      if (s.journal.state.phase === 'waiting-for-user') await s.journal.resume()
+    }
+    // A different refusal in between is not the same part held again.
+    assert.deepEqual(reasons, ['lead-request-held', 'lead-request-held-again', null, 'lead-request-held', 'lead-request-unsent', 'lead-request-held'])
+  } finally { await loop.close() }
+})
+
+test('a wake whose request was sent and lost is recorded as failed, not as silence', async () => {
+  const s = await fixture([async () => { throw new Error('lost after send') }])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request({ ...input, wakeSource: 'desk-change' })
+    assert.equal(s.journal.state.managementReason, 'lead-request-uncertain')
+    const wake = s.journal.state.wakes.at(-1)!
+    assert.equal(wake.decision, 'failed'); assert.equal(wake.modelTurn, true)
+  } finally { await loop.close() }
+})
+
+test('#2172: the minute tick over an unchanged desk records no wake, while a desk change the gate lets pass records one wake', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }), message(), message(), message()])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.approve(); s.setEvidence({ ...spendEvidence(), reviews: [] }); await loop.request({ ...input, wakeSource: 'person' })
+    // The request's tool continuation runs first, and the first look at the started run: both are wakes with a cause.
+    await s.drain(); await s.tick(); await loop.idle()
+    loop.poke(); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(loop.state.phase, 'running')
+    const before = s.journal.state.wakes.length
+    for (let minute = 1; minute <= 3; minute++) { loop.poke(); await s.drain(); await s.tick(); await loop.idle() }
+    assert.equal(s.journal.state.wakes.length, before, 'three ticks that found nothing left no row')
+    // The Team turns to the person: the look finds a change, and that wake is one row.
+    s.setSnapshot({ teams: [{ goal: { id: 'team-1' }, stage: 'you-answer' }], runs: [], boards: [], seats: [], approvals: [], reviews: [], waiting: [] })
+    s.emit({ type: 'team.changed', team: 'team-1', stage: 'you-answer', activity: 'needs-you', sentence: 'Work' })
+    await s.drain(); await s.tick(); await loop.idle()
+    const added = s.journal.state.wakes.slice(before)
+    assert.equal(added.length, 1, 'the desk change is one row')
+    assert.equal(added[0]!.source, 'desk-change')
+    // Evidence that reached the desk with no run or card event (a check a person ran) keeps its one row on purpose: the
+    // host's publication walk waits on it as the sign the child read the desk again.
+    loop.refreshSoon(); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.journal.state.wakes.length, before + 2, 'the evidence change is one row')
+  } finally { await loop.close() }
+})
+
+test('#2172: prose notices and a team change that wakes nothing add no row to the wake ledger', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }), message(), message(), message()])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.approve(); s.setEvidence({ ...spendEvidence(), reviews: [] }); await loop.request({ ...input, wakeSource: 'person' })
+    await s.drain(); await s.tick(); await loop.idle()
+    loop.poke(); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(loop.state.phase, 'running')
+    const before = s.journal.state.wakes.length
+    for (let n = 1; n <= 5; n++) {
+      s.emit({ type: 'notice', team: null, text: `Ordinary activity ${n}` }); await s.drain(); await s.tick(); await loop.idle()
+    }
+    s.emit({ type: 'team.changed', team: 'team-1', activity: 'working', sentence: 'Work', stage: 'working' }); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.journal.state.wakes.length, before, 'a chatty run leaves the ledger as it was')
   } finally { await loop.close() }
 })

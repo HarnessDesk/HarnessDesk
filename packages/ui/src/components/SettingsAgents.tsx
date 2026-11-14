@@ -32,6 +32,7 @@ import {
   accountKey,
   accountName,
   credentialHome,
+  prefsForUsage,
   TINTS,
   tintOf,
   runtimeTint,
@@ -45,15 +46,17 @@ import {
   registrySentence,
 } from '../lib/acp-registry'
 import { describeLimits, formatReset } from '../lib/limits'
-import { formatResetCountdown } from '../lib/usage'
+import { formatResetCountdown, pacingNote, usageAskedOf } from '../lib/usage'
 import { isBlocking, READINESS_LABEL, readinessOf, worstReadiness, type Readiness } from '../lib/readiness'
 import { splitHealth, type Unavailable } from '../lib/health'
 import { shortPath } from '../lib/paths'
 import { withCount } from '../lib/with-count'
 import { Prose } from './Prose'
+import { trackedUsage, useFirstNote } from '@harnessdesk/protocol'
 import { bindingLane, isBlocked, remainingOf } from '../lib/usage'
 import { usageAccount } from '../lib/usage-alerts'
-import { firstInPool, inPoolOrder, movedInPool, WHEN_OUT, WHEN_OUT_LABEL, whenOutOf, type WhenOut } from '../lib/account-pool'
+import { Card as UsageCard } from './usage/shared'
+import { firstInPool, inPoolOrder, isPaced, movedInPool, WHEN_OUT, WHEN_OUT_LABEL, type WhenOut } from '../lib/account-pool'
 import { describeUpdate, describeVersion } from '../lib/versions'
 import { copyReason, describeCopy, describeFallback, installSummary, standingChip, pinHolds } from '../lib/installs'
 import { useSnapshot, useStore } from '../state/context'
@@ -100,7 +103,7 @@ import {
   Text,
 } from '../design'
 import { useOptionConfirm } from './OptionConfirm'
-import { Dialog, ConfirmDialog, EmptyState } from '../design'
+import { Dialog, ConfirmDialog, EmptyState, DashboardAccounts } from '../design'
 
 /**
  * Runtimes — the agent programs HarnessDesk starts — and the accounts under them.
@@ -357,6 +360,9 @@ export const PlanSection = ({
   )
 }
 
+/** The select's value for an agent that sets no rule of its own and follows the desk's. */
+const FOLLOW_DESK = 'desk'
+
 /** The account's own colour, as five circles wearing the agent's mark. */
 const RingPicker = ({
   info,
@@ -484,7 +490,7 @@ const AgentRow = ({
   const snapshot = useSnapshot()
   const status = snapshot.accountsByRuntime[info.id]
   const build = describeVersion(info)?.replace(`${info.presentation.name} `, '') ?? null
-  const ordered = inPoolOrder(siblings, snapshot.accountPools[agentKey(info)])
+  const ordered = inPoolOrder(siblings, snapshot.accountPools[agentKey(info)], { reports: snapshot.usage, now: Date.now() })
   const accounts = ordered.flatMap((entry) =>
     (snapshot.accountsByRuntime[entry.id]?.accounts ?? []).map((account) => ({ entry, account })),
   )
@@ -632,8 +638,27 @@ const AgentAccounts = ({
   const status = snapshot.accountsByRuntime[info.id]
   const agent = agentKey(info)
   const pool = snapshot.accountPools[agent]
+  // The pools are read again on each visit: an "Always do this for <agent>"
+  // the host wrote from a card elsewhere would otherwise be undone by the
+  // next order change here, which writes the whole map. Until a read has
+  // been applied, nothing on this page writes the pools — a move made
+  // against the old map would write it back over the rule the read is
+  // bringing. One that could not be read stays held, and says so.
+  const [pools, setPools] = useState<'reading' | 'read' | 'unread'>('reading')
+  const poolsRead = useRef(0)
+  useEffect(() => {
+    if (!destinationActive) return
+    const read = ++poolsRead.current
+    setPools('reading')
+    void store.readCarryOnRules().then((applied) => {
+      if (read === poolsRead.current) setPools(applied ? 'read' : 'unread')
+    }, () => {
+      if (read === poolsRead.current) setPools('unread')
+    })
+  }, [destinationActive, store])
+  const poolsReading = pools !== 'read'
   // In the order new sessions use them, so the list is the queue.
-  const queue = inPoolOrder(siblings, pool)
+  const queue = inPoolOrder(siblings, pool, { reports: snapshot.usage, now: Date.now() })
   const order = queue.map((entry) => entry.id)
   // One flat list of rows across the agent's runtimes, each row remembering
   // which runtime it belongs to — that is what a sign-out or a removal needs.
@@ -649,11 +674,15 @@ const AgentAccounts = ({
   // screen; runtimes not drawn here keep their places behind it.
   const listed = queue.filter((entry) => entry.slot?.gateway || rows.some((row) => row.entry === entry))
   const listedOrder = listed.map((entry) => entry.id)
-  // An order and a rule for running out mean something only once there is a
-  // second runtime to run on. Two identities one runtime reports (an agent
-  // identity and its key) are one place in the queue, not two.
+  // An order means something only once there is a second runtime to run on.
+  // Two identities one runtime reports (an agent identity and its key) are
+  // one place in the queue, not two.
   const ordered = listed.length > 1
+  // With the soonest-reset order on, the usage reports set the order, so a
+  // move by hand would change nothing and is not offered.
+  const paced = isPaced(pool)
   const movesFor = (runtime: RuntimeId) => {
+    if (poolsReading) return {}
     const at = listedOrder.indexOf(runtime)
     const move = (delta: number) => () => store.setAccountPool(agent, {
       order: [...movedInPool(listedOrder, runtime, delta), ...order.filter((id) => !listedOrder.includes(id))],
@@ -794,14 +823,15 @@ const AgentAccounts = ({
               />
             )
           }
-          const { key, blocked, left } = accountStanding(entry, account, snapshot)
+          const { key, blocked, left, report } = accountStanding(entry, account, snapshot)
+          const useFirst = report ? useFirstNote(report, Date.now()) : null
           const name = accountName(account, snapshot.accountPrefs[key], entry.presentation.name, snapshot.hideAccountAddresses)
           const identity = shownIdentity(account, snapshot)
           return (
             <RowButton
               key={key}
               onClick={() => onOpenAccount(entry.id, key)}
-              {...(ordered ? {
+              {...(ordered && !paced ? {
                 action: (
                   <SettingsRowMenu
                     name={name}
@@ -826,6 +856,13 @@ const AgentAccounts = ({
               control={
                 <>
                   {blocked && <Chip state="limit" />}
+                  {/* Allowance that expires unspent: more than half is left and
+                      the window is about to refill. The reset is the title. */}
+                  {useFirst && (
+                    <Chip tone="neutral" size="sm" title={`${Math.round(useFirst.remainingPercent)}% left, resets ${formatReset(useFirst.resetsAt)}`}>
+                      Use it first
+                    </Chip>
+                  )}
                   {account.planType && (
                     <Chip tint={tintOf(key, snapshot.accountPrefs)}>
                       {account.planType}
@@ -967,25 +1004,49 @@ const AgentAccounts = ({
         )}
       </Rows>
 
-      {/* The queue's rule, beside the queue. Only new sessions move: a
-          conversation's thread lives in the account it started on. */}
-      {ordered && (
-        <Rows>
+      {/* The queue's rule, beside the queue. "When an account runs out" is
+          this agent's answer to the desk's usage-limit rule (Settings ›
+          Permissions) and reaches a running conversation too; its first
+          option follows the desk. It is shown with one account as well: a
+          rule set while there were two still applies, and this is the only
+          place to change it. The order needs two accounts to mean anything.
+          The order is the one sentence true of the whole group, so it is
+          said once, under it, rather than on a row. */}
+      <Rows>
+        {ordered && (
           <Row
-            title="When an account runs out"
-            desc="New sessions follow the order above. A conversation already running stays on its account."
+            title="Order"
             control={
               <NativeSelect
-                aria-label="When an account runs out"
-                value={whenOutOf(pool)}
-                onChange={(event) => store.setAccountPool(agent, { whenOut: event.target.value as WhenOut })}
+                aria-label="Order"
+                disabled={poolsReading}
+                value={paced ? 'soonest' : 'mine'}
+                onChange={(event) => store.setAccountPool(agent, { pace: event.target.value === 'soonest' ? 'soonest' : undefined })}
               >
-                {WHEN_OUT.map((rule) => <option key={rule} value={rule}>{WHEN_OUT_LABEL[rule]}</option>)}
+                <option value="mine">My order</option>
+                <option value="soonest">Prefer the account that resets soonest</option>
               </NativeSelect>
             }
           />
-        </Rows>
-      )}
+        )}
+        <Row
+          title="When an account runs out"
+          control={
+            <NativeSelect
+              aria-label="When an account runs out"
+              disabled={poolsReading}
+              value={pool?.whenOut ?? FOLLOW_DESK}
+              onChange={(event) => store.setAccountPool(agent, { whenOut: event.target.value === FOLLOW_DESK ? undefined : event.target.value as WhenOut })}
+            >
+              <option value={FOLLOW_DESK}>Follow the desk setting</option>
+              {WHEN_OUT.map((rule) => <option key={rule} value={rule}>{WHEN_OUT_LABEL[rule]}</option>)}
+            </NativeSelect>
+          }
+        />
+      </Rows>
+      {pools === 'unread'
+        ? <Note ink="muted">The saved order and rule could not be read, so they cannot be changed here. Open this page again to try once more.</Note>
+        : ordered && <Note ink="muted">New sessions follow the order above.</Note>}
 
       {destinationActive && namingAccount && <AccountNameDialog info={info} adding={adding}
         onAdd={addAccount} onClose={() => setNamingAccount(false)} />}
@@ -1990,6 +2051,35 @@ const InstallSection = ({ info }: { info: RuntimeInfo }) => {
  * What belongs to the runtime rather than to any one account: whether it is
  * healthy, what version it is on, and the behaviour it lets HarnessDesk set.
  */
+const AgentUsage = ({ siblings }: { siblings: readonly RuntimeInfo[] }) => {
+  const store = useStore()
+  const snapshot = useSnapshot()
+  const ids = new Set(siblings.map((entry) => entry.id))
+  const now = Date.now()
+  // The Dashboard's own list, narrowed to this runtime's accounts: the same accounts, the same readings, and "not
+  // reporting" for one nothing has read. An account whose usage the person stopped tracking is left out on both.
+  const reports = trackedUsage(snapshot.runtimes, snapshot.usage, snapshot.usageOff, now, usageAskedOf(snapshot.usageAsked)).filter((report) => ids.has(report.runtime))
+  if (reports.length === 0) return null
+  return (
+    <>
+      <SectionHead level="label" name="Usage" />
+      <div aria-label="Usage by account">
+        <DashboardAccounts accounts={reports.map((report) => (
+          <UsageCard
+            key={`${report.runtime}:${report.account ?? ''}`}
+            report={report}
+            info={siblings.find((entry) => entry.id === report.runtime) ?? null}
+            preference={prefsForUsage(report.runtime, report.account, snapshot.accountsByRuntime, snapshot.accountPrefs)}
+            now={now}
+            onRefresh={() => void store.refreshUsage(report.runtime)}
+            onStopTracking={() => store.setUsageTracked(report.runtime, false)}
+          />
+        ))} />
+      </div>
+    </>
+  )
+}
+
 const AgentDetail = ({
   info,
   onBack,
@@ -2070,7 +2160,7 @@ const AgentDetail = ({
           control={snapshot.runtimes.some((entry) => entry.id === snapshot.activeRuntime && agentKey(entry) === agentKey(info))
             ? <Chip state={defaultChipState(info, snapshot)} label="Default" />
             : <Button variant="outline" size="sm" onClick={() => void store.selectRuntime(firstInPool(
-                inPoolOrder(snapshot.runtimes.filter((entry) => agentKey(entry) === agentKey(info)), snapshot.accountPools[agentKey(info)]),
+                inPoolOrder(snapshot.runtimes.filter((entry) => agentKey(entry) === agentKey(info)), snapshot.accountPools[agentKey(info)], { reports: snapshot.usage, now: Date.now() }),
                 snapshot,
                 info.id,
               ))}>Use for new sessions</Button>}
@@ -2097,6 +2187,11 @@ const AgentDetail = ({
         onOpenAccount={onOpenAccount}
         onSignIn={onSignIn}
       />
+
+      {/* What each account has left and whether it lasts to its reset: the
+          Dashboard's own card, so the figure and the pacing sentence here are
+          the ones the Dashboard shows, never a second reading of the report. */}
+      <AgentUsage siblings={siblings} />
 
       {/* By how often each is reached for: who it runs as, then how a new
           session starts, then the build and what it costs to keep running,
@@ -2206,6 +2301,10 @@ export const RuntimesSection = ({
   const openAccount = (runtime: RuntimeId, key: string): void => setView({ kind: 'account', runtime, key })
 
   const groups = useMemo(() => agentGroups(snapshot.runtimes), [snapshot.runtimes])
+  const pacing = useMemo(
+    () => pacingNote(snapshot.usage, (report) => snapshot.runtimes.find((entry) => entry.id === report.runtime)?.presentation.name ?? 'Runtime', Date.now()),
+    [snapshot.usage, snapshot.runtimes],
+  )
   const needle = query.trim().toLowerCase()
 
   const listed = useMemo(
@@ -2284,6 +2383,9 @@ export const RuntimesSection = ({
         </Button>
       </Toolbar>}
 <PageExplanation>What your Agents run on: the runtimes HarnessDesk can start, and the accounts each is signed in as.</PageExplanation>
+      {/* Which account to spend first, when an allowance is about to refill unspent: the page that lists the accounts
+          is where that choice is made (Q15). The Dashboard and the Lead say the same sentence. */}
+      {pacing && <Note>{pacing}</Note>}
 
       {/* Two agents fit on a screen and need no help being found; the filters
           arrive with the third, which is where scrolling starts. */}

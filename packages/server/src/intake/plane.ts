@@ -2,14 +2,14 @@ import type { HostPullWatch } from './poll.js'
 import type { PollBatch } from './forge.js'
 import { createHash } from 'node:crypto'
 import { open, readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 
 import {
   DEFAULT_TRIGGER_DAILY_USD, TRIGGER_DAILY_USD_MAX, TRIGGER_HISTORY_PAGE,
   type FlowExecution, type FlowOrigin, type ForgeReference, type FlowPreview, type GoalOrigin, type SeatRecord, type TriggerArmPreview,
   type TriggerAttention, type TriggerFact, type TriggerFiring, type TriggerGoalStatus, type TriggerHistoryPage,
   type TriggerDefinition, type TriggerPreferences, type TriggerProjectView, type TriggerSource, type TriggerSourceStatus, type TriggerView,
-  type WireNotification,
+  type WireNotification, type PhoneTriageRow, type PhoneTriageTrigger, PHONE_TRIAGE_TRIGGERS_MAX, type TriggerDecision, type TriggerDecisionsPage, type TriggerMode,
 } from '@harnessdesk/protocol'
 
 import type { CredentialCipher } from '../credentials.js'
@@ -18,14 +18,16 @@ import type { GhApiRunner } from '../findings/forge.js'
 import { Serial } from '../goals/assignments.js'
 import { atomicJson } from '../goals/store.js'
 import type { UsageSample } from '../ledger/insight.js'
-import { Admission, AGAIN_MISSING, SKIP_CHANGED, type AdmissionOptions, type GoalLifecycle, type OfferAnswer } from './admission.js'
+import { Admission, AGAIN_MISSING, PAUSED, SKIP_CHANGED, type AdmissionOptions, type GoalLifecycle, type OfferAnswer } from './admission.js'
 import { IntakeEffects, type IntakeObservationPort, type TriggerExecutionPort, type TriggerGoalPort } from './apply.js'
 import { AttentionOutbox, type AttentionInput } from './attention.js'
 import { BudgetWatch, TriggerBudgets, utcDay, type BudgetVerdict } from './budget.js'
+import { CONSULT_USAGE_UNKNOWN, type SessionMeter } from './spend.js'
 import { consentMatches, TriggerClosures, TriggerConsent, type ArmBinding, type ArmedTrigger, type TriggerClosure } from './consent.js'
 import { usdMicros } from './definition.js'
 import { ForgeSource } from './forge.js'
 import { goalWaits, type HostWaits } from './waits.js'
+import { MentionTriage, NO_WORK_ITEMS, type MentionAssessor, type WorkItemsPort } from './mentions.js'
 import { IntakeMonitor, intakeSources, SourceCursors } from './poll.js'
 import { readTriggerSource, type TriggerSourceFile } from './source.js'
 import { IntakeStore, type IntakeFiring, type IntakeOperation } from './store.js'
@@ -72,6 +74,8 @@ const postId = (url: string): { repository: string; id: string } | null => {
   return review ? { repository: review[1]!, id: `review:${review[2]}` } : null
 }
 const METER_MS = 30_000
+/** How often open mention threads are followed to their pull requests' end. */
+const MENTION_SWEEP_MS = 5 * 60_000
 const SKIP_WINDOW_MS = 5 * 60_000
 const SUBJECT = /^[1-9][0-9]{0,15}$/
 const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
@@ -120,6 +124,15 @@ export interface IntakeHostPort {
   readonly evidence: IntakeObservationPort
   /** The Seat book. */
   seats(): readonly SeatRecord[]
+  /**
+   * Consults the Seat book recorded (`seat-consult`), as Seat-shaped windows
+   * keyed `${seat}/ask/${n}`: what a restarted desk meters a consult by when
+   * its live window is gone — one interrupted, or one whose spend is still
+   * unknown and waiting for a reading.
+   */
+  consultWindows?(): readonly SeatRecord[]
+  /** Whether the Goal has wrapped, as its own record says: what a restarted desk settles a reconciled reservation by. */
+  goalWrapped?(goal: string): boolean
   /** Interrupts every live turn on the Goal's open Seats, keeping what each already said. */
   interrupt(goal: string): Promise<void>
   /** Whether the plan the Goal's Seats spend from has allowance left, as the usage service last read it. */
@@ -140,6 +153,20 @@ export interface IntakeHostPort {
   readonly gh?: GhApiRunner
   /** Timers the plane's watchers use; unref'd real ones when absent. */
   readonly timers?: IntakeTimers
+  /**
+   * What mention triggers reach beyond intake: the observer model (none when
+   * absent, so every request that passes the rules waits for the person), the
+   * Lead's name a trigger without a handle answers to, the pull requests a
+   * Goal's work opened, the work ledger, and how a thread's work is stopped.
+   */
+  readonly mentions?: {
+    readonly assess?: MentionAssessor | null
+    leadName?(): string
+    pullRequests?(repository: string, goals: readonly string[], firings: readonly string[]): Promise<readonly number[]>
+    readonly workItems?: WorkItemsPort
+    /** Stops the Lead's goal when a firing of the thread opened it, as the person's Stop does; what it stopped. */
+    stopLead?(asked: { readonly firings: readonly string[]; readonly comment: string }): Promise<{ readonly plan: boolean; readonly runs: number }>
+  }
 }
 
 interface Preferences {
@@ -182,6 +209,9 @@ export class IntakePlane {
   readonly #watch: BudgetWatch
   readonly #attention: AttentionOutbox
   readonly #closures: TriggerClosures
+  readonly #mentions: MentionTriage
+  readonly #mentionsAbort = new AbortController()
+  #mentionSwept: number | null = null
   readonly #prefsSerial = new Serial()
   #prefs: Preferences = DEFAULT_PREFERENCES
   /** Why intake is off on this desk, or null. */
@@ -241,7 +271,10 @@ export class IntakePlane {
       deliver: (watch, batch) => this.#following?.deliver(watch, batch) ?? Promise.resolve(),
       sources: intakeSources(this.#forge),
       cursors: new SourceCursors(port.home),
-      offer: async (arm, fact, batch) => { await this.#offer(arm, fact, batch) },
+      offer: async (arm, fact, batch) => {
+        if (arm.definition.on.kind === 'mention') await this.#judge(arm, fact, batch)
+        else await this.#offer(arm, fact, batch)
+      },
       wall: () => port.now(),
       monotonic: () => port.monotonic(),
       timers: this.#timers,
@@ -322,6 +355,41 @@ export class IntakePlane {
     }), {
       onStep: () => this.#schedule(),
       onFault: (fault) => { void this.#track(this.#faulted(fault)).catch(() => {}) },
+    })
+    this.#mentions = new MentionTriage({
+      home: port.home,
+      forge: this.#forge,
+      assess: port.mentions?.assess ?? null,
+      leadName: () => port.mentions?.leadName?.() ?? 'dex',
+      stop: async ({ goals, firings, comment }, why) => {
+        // The trigger's own runs, by the host's stop: checks first, then each intake run still going, then any live turn on
+        // the Goal's Seats. Never a run a person started on the Goal, and never another trigger's.
+        let own = 0
+        for (const goal of goals) {
+          port.flows.interruptChecks?.(goal)
+          for (const run of port.flows.runs(goal).filter((one) => one.intake && (one.state === 'running' || one.state === 'stalled'))) {
+            await port.flows.stopRun(run.id, why)
+            own += 1
+          }
+          await port.interrupt(goal)
+        }
+        // The Lead's goal, only when a firing of this thread opened it: stopped as the person's Stop stops it.
+        const lead = await port.mentions?.stopLead?.({ firings, comment }) ?? { plan: false, runs: 0 }
+        this.#schedule()
+        return { own, lead: lead.runs, plan: lead.plan }
+      },
+      pullRequests: (repository, goals, firings) => port.mentions?.pullRequests?.(repository, goals, firings) ?? Promise.resolve([]),
+      workItems: port.mentions?.workItems ?? NO_WORK_ITEMS,
+      ask: (arm, decision) => this.#attention.notice(`triage:${arm.project}:${arm.id}`, {
+        key: `triage:${decision.id}`, goal: null, trigger: arm.id, kind: 'triage',
+        waitingOn: { kind: 'person', label: 'You' },
+        sentence: `Trigger ${arm.id} has a request on ${decision.thread.kind === 'pull-request' ? 'pull request' : 'issue'} #${decision.thread.number} that waits for you: ${decision.reason}`,
+        action: 'open-trigger',
+      }, SKIP_WINDOW_MS),
+      changed: (project) => this.#changed(project),
+      signal: this.#mentionsAbort.signal,
+      now: () => port.now(),
+      log: (message, details) => port.log(message, details),
     })
     this.#attention = new AttentionOutbox(port.home, {
       announce: (attention) => port.push({ method: 'trigger/attention', params: { attention } }),
@@ -436,6 +504,7 @@ export class IntakePlane {
       this.#meterTimer = null
     }
     await this.#monitor.close()
+    this.#mentionsAbort.abort()
     await Promise.allSettled([...this.#work])
     await this.#metering?.catch(() => {})
     await this.#reconciling?.catch(() => {})
@@ -467,7 +536,7 @@ export class IntakePlane {
   async #offer(arm: ArmedTrigger, fact: TriggerFact, batch?: object): Promise<OfferAnswer> {
     if (this.#closed) throw new Error('The desk is closing.')
     // A comment whose id the desk recorded posting is the desk's own, marker or not: it never fires.
-    if ((fact.action === 'commented' || fact.action === 'review-commented') && fact.desk !== true && await this.#postedHere(fact)) fact = { ...fact, desk: true }
+    if ((fact.action === 'commented' || fact.action === 'review-commented' || fact.action === 'mentioned') && fact.desk !== true && await this.#postedHere(fact)) fact = { ...fact, desk: true }
     const answer = await this.#admission.offer(arm, fact, batch ? { binding: () => this.#bindingOnce(batch, arm) } : {})
     this.#changed(arm.project)
     if (answer.outcome === 'fired') await this.#syncTimers()
@@ -483,6 +552,18 @@ export class IntakePlane {
     }
     this.#schedule()
     return answer
+  }
+
+  /**
+   * A comment offered to a mention arm: triaged, joined to its thread, or
+   * nothing for this trigger. What it admits goes through the trigger's own
+   * admission, exactly as any other firing.
+   */
+  async #judge(arm: ArmedTrigger, fact: TriggerFact, batch?: object): Promise<void> {
+    if (this.#closed) throw new Error('The desk is closing.')
+    if (this.#prefs.paused) throw new Error(PAUSED)
+    if (fact.desk !== true && await this.#postedHere(fact)) fact = { ...fact, desk: true }
+    await this.#mentions.judge(arm, fact, (one, admitted) => this.#offer(one, admitted, batch))
   }
 
   /**
@@ -742,6 +823,8 @@ export class IntakePlane {
   async arm(root: string, id: string, token: string): Promise<TriggerView> {
     this.#refuseWhenOff()
     const armed = await this.#consent.arm(root, id, token)
+    // A new arm observes: acting is a person's choice for the declaration they just read, never carried over.
+    await this.#mentions.reset(await this.#project(root), id)
     await this.#monitor.refresh()
     await this.#syncTimers()
     const project = await this.#project(root)
@@ -756,6 +839,7 @@ export class IntakePlane {
   async disarm(root: string, id: string): Promise<TriggerView> {
     if (this.#closed) throw coded('The desk is closing, so triggers are not changed now.', 'HD_TRIGGER_REFUSED')
     const off = await this.#consent.disarm(root, id)
+    await this.#mentions.reset(await this.#project(root), id)
     await this.#monitor.refresh()
     await this.#syncTimers()
     const project = await this.#project(root)
@@ -973,6 +1057,58 @@ export class IntakePlane {
     return this.preferences()
   }
 
+  // ------------------------------------------------------------- mentions
+
+  async #mentionArm(root: string, id: string): Promise<{ readonly project: string; readonly arm: ArmedTrigger | null }> {
+    const project = await this.#project(root)
+    const arm = (await this.#consent.armed()).find((one) => one.project === project && one.id === id) ?? null
+    return { project, arm }
+  }
+
+  /** A mention trigger's decisions, newest first, its mode on this machine, and its threads of work. */
+  async decisions(root: string, id: string): Promise<TriggerDecisionsPage> {
+    const { project, arm } = await this.#mentionArm(root, id)
+    return this.#mentions.page(project, id, arm?.definition.on.kind === 'mention' ? arm : null)
+  }
+
+  /** Switches an armed mention trigger between observing and acting, on this machine, for this arm only. */
+  async setMode(root: string, id: string, mode: TriggerMode): Promise<TriggerDecisionsPage> {
+    this.#refuseWhenOff()
+    const { project, arm } = await this.#mentionArm(root, id)
+    if (!arm || arm.definition.on.kind !== 'mention') throw coded('Only an armed mention trigger has a mode on this machine.', 'HD_TRIGGER_REFUSED')
+    await this.#mentions.setMode(arm, mode)
+    return this.#mentions.page(project, id, arm)
+  }
+
+  /** Judges one recorded decision again on the comment as the forge holds it now. */
+  async reevaluate(root: string, id: string, decision: string): Promise<TriggerDecision> {
+    this.#refuseWhenOff()
+    const { arm } = await this.#mentionArm(root, id)
+    if (!arm || arm.definition.on.kind !== 'mention') throw coded('Arm this mention trigger to evaluate its requests again.', 'HD_TRIGGER_REFUSED')
+    return this.#mentions.reevaluate(arm, decision, (one, fact) => this.#offer(one, fact))
+  }
+
+  /** Every mention decision on this desk, newest first, for the phone: read only. */
+  triage(limit: number): Promise<readonly PhoneTriageRow[]> {
+    return this.#mentions.phone(limit)
+  }
+
+  /** The armed mention triggers, for the phone's Mentions page: where each watches, its mode here, and who may ask. */
+  async triageTriggers(): Promise<readonly PhoneTriageTrigger[]> {
+    if (this.#closed) return []
+    const arms = (await this.#consent.armed().catch(() => [] as readonly ArmedTrigger[]))
+      .filter((arm) => arm.definition.on.kind === 'mention')
+      .sort((a, b) => basename(a.project).localeCompare(basename(b.project)) || a.id.localeCompare(b.id))
+      .slice(0, PHONE_TRIAGE_TRIGGERS_MAX)
+    return Promise.all(arms.map(async (arm) => ({
+      id: arm.id, project: basename(arm.project),
+      ...(arm.binding.repository ? { repository: arm.binding.repository } : {}),
+      mode: await this.#mentions.mode(arm),
+      ...(arm.definition.from ? { from: arm.definition.from } : {}),
+      people: [...(arm.definition.people ?? [])], bots: [...(arm.definition.bots ?? [])],
+    })))
+  }
+
   // ---------------------------------------------------------------- Goals
 
   /** A trigger Goal's origin, budget and named waits; null for every other Goal. */
@@ -988,10 +1124,12 @@ export class IntakePlane {
     const firing = snapshot.firings[origin.event]
     const source: TriggerSource = firing?.source ?? 'schedule'
     const subject = firing?.subject && SUBJECT.test(firing.subject) ? firing.subject : null
-    const label = source === 'pull-request' && subject ? `from PR #${subject}` : source === 'issue' && subject ? `from issue #${subject}` : 'from a schedule'
+    // A mention's work is labelled by the thread it started on.
+    const kind = source === 'mention' ? this.#mentions.originOf(goal)?.kind ?? 'issue' : source
+    const label = kind === 'pull-request' && subject ? `from PR #${subject}` : kind === 'issue' && subject ? `from issue #${subject}` : 'from a schedule'
     const repository = firing?.repository && REPO.test(firing.repository) ? firing.repository : null
-    const url = repository && subject && source !== 'schedule'
-      ? `https://github.com/${repository}/${source === 'pull-request' ? 'pull' : 'issues'}/${subject}`
+    const url = repository && subject && kind !== 'schedule'
+      ? `https://github.com/${repository}/${kind === 'pull-request' ? 'pull' : 'issues'}/${subject}`
       : null
     return {
       goal, trigger: origin.trigger, source, label, url,
@@ -1021,6 +1159,100 @@ export class IntakePlane {
   }
 
   /**
+   * Consult conversations a trigger Goal's Seats opened with `ask_agent`, as
+   * Seat-shaped windows keyed `${seat}/ask/${n}`: the one way their usage is
+   * attributed to the Goal — counted against the caller's run — while they
+   * are never Seats anywhere else. Kept until the Goal's next read after they
+   * close, so a sample read late still lands.
+   */
+  readonly #consults = new Map<string, SeatRecord[]>()
+
+  /**
+   * A Seat of a trigger Goal asked another agent: the consult's meter opens
+   * at zero, keyed `${caller}/ask/${n}`, on the caller's Goal. Awaited, so the
+   * meter exists before the consult's one turn starts.
+   */
+  async consulted(caller: SeatRecord, consult: { readonly n: number; readonly runtime: string; readonly sessionId: string; readonly openedAt: number }): Promise<string | null> {
+    const goal = caller.board
+    if (!goal || this.#closed || !this.#hasBudget(goal)) return null
+    const id = `${caller.id}/ask/${consult.n}`
+    const window: SeatRecord = {
+      ...caller, id, session: { runtime: consult.runtime, sessionId: consult.sessionId },
+      openedAt: consult.openedAt, closed: null, restored: null,
+    }
+    this.#consults.set(goal, [...(this.#consults.get(goal) ?? []).filter((one) => one.id !== id), window])
+    await this.#budgets.seated(goal, {
+      seat: id, runtime: consult.runtime, sessionId: consult.sessionId, project: caller.checkout.project,
+      openedAt: consult.openedAt, fresh: true, delegation: 'none',
+    })
+    return id
+  }
+
+  /** A consult's one turn is about to be sent: its start is on the meter first, so a working consult never reads as idle. */
+  async consultStarted(goal: string, id: string, started: number): Promise<void> {
+    if (this.#closed || !this.#consults.get(goal)?.some((one) => one.id === id)) return
+    await this.#meterGoal(goal, { seat: id, started })
+  }
+
+  /**
+   * A consult's one turn ended: metered with a usage read made after it,
+   * and with `final` — its usage as the live conversation reported it,
+   * captured and priced before it is discarded, since an ephemeral consult
+   * leaves nothing on disk to read later; or `unsent` when the question
+   * never went. A consult nothing counted is unknown, never zero: the
+   * Goal's next dispatch and ask are refused, and its window stays on the
+   * Goal so the first valid reading of it reconciles the meter
+   * (`settleConsult`). A known one's window is dropped after this read.
+   */
+  async consultEnded(goal: string, id: string, ended: number, final: UsageSample | null | 'unsent'): Promise<void> {
+    const windows = this.#consults.get(goal)
+    const window = windows?.find((one) => one.id === id)
+    if (!windows || !window || this.#closed) return
+    this.#consults.set(goal, windows.map((one) => one.id === id ? { ...one, closed: { at: ended, why: 'answered' } } : one))
+    await this.#meterGoal(goal, final === 'unsent' ? undefined : { seat: id, ended }, [{ seat: id, final }])
+  }
+
+  /**
+   * The consult windows a Goal's read attributes by: the live ones, and
+   * those the Seat book recorded whose meter is still open — a consult a
+   * restart interrupted, or one whose spend waits for a reading. An
+   * interrupted consult (its turn begun, never closed) is closed now, with
+   * no final reading.
+   */
+  #consultWindows(goal: string, budget: { readonly meters: Readonly<Record<string, SessionMeter>> }): {
+    readonly windows: readonly SeatRecord[]
+    readonly interrupted: readonly string[]
+  } {
+    const live = this.#consults.get(goal) ?? []
+    const held = new Set(live.map((one) => one.id))
+    const recorded = (this.#port.consultWindows?.() ?? []).filter((one) => one.board === goal && !held.has(one.id) && budget.meters[one.id])
+    const interrupted = recorded.filter((one) => {
+      const meter = budget.meters[one.id]!
+      return meter.turnStartedAt !== null && (meter.turnEndedAt === null || meter.turnStartedAt > meter.turnEndedAt)
+    }).map((one) => one.id)
+    const waiting = recorded.filter((one) => interrupted.includes(one.id) || budget.meters[one.id]!.unknown === CONSULT_USAGE_UNKNOWN)
+    // A consult's conversation is that consult's alone, before and after its turn: a reading taken
+    // after it closed — the one that can prove its final figure — is still its own.
+    return { windows: [...live, ...waiting].map((one) => ({ ...one, closed: null })), interrupted }
+  }
+
+  /**
+   * Closed consult windows whose meter is now known are let go; a wrapped
+   * Goal still holding its reservation settles once its spend is known —
+   * wrapped as this desk saw it, or as the Goal itself says after a restart.
+   * Settling is tried at every read, so no reading that repairs the spend is
+   * one the reservation can miss.
+   */
+  async #afterConsultRead(goal: string): Promise<void> {
+    const meters = this.#store.read().budgets[goal]?.meters ?? {}
+    const left = (this.#consults.get(goal) ?? []).filter((one) => one.closed === null || meters[one.id]?.unknown === CONSULT_USAGE_UNKNOWN)
+    if (left.length > 0) this.#consults.set(goal, left)
+    else this.#consults.delete(goal)
+    const budget = this.#store.read().budgets[goal]
+    if (budget && !budget.settled && (this.#wrapped.has(goal) || this.#port.goalWrapped?.(goal) === true)) await this.#budgets.settle(goal)
+  }
+
+  /**
    * A turn started or ended on a trigger Goal's Seat. Its end is recorded in
    * the same save as a usage read made after it, so a finished turn is
    * metered — or, when the read had gaps, unknown — never read as zero.
@@ -1039,9 +1271,13 @@ export class IntakePlane {
       .catch((error: unknown) => this.#port.log('a trigger Seat’s turn could not be metered', { error: String(error) }))
   }
 
+  /** Goals wrapped while this desk ran: a consult's spend reconciled later settles one then. */
+  readonly #wrapped = new Set<string>()
+
   /** A Goal wrapped: its reservation settles against its final spend — only a known, complete one — and its waits end. */
   wrapped(goal: string): void {
     if (this.#closed || !this.#hasBudget(goal)) return
+    this.#wrapped.add(goal)
     void this.#track((async () => {
       await this.#meterGoal(goal)
       await this.#budgets.settle(goal)
@@ -1061,7 +1297,10 @@ export class IntakePlane {
   // --------------------------------------------------------------- meters
 
   /** One usage read for one Goal, folded with a turn when one is given. */
-  async #meterGoal(goal: string, turn?: { readonly seat: string; readonly started?: number; readonly ended?: number }): Promise<void> {
+  async #meterGoal(
+    goal: string, turn?: { readonly seat: string; readonly started?: number; readonly ended?: number },
+    settle: readonly { readonly seat: string; readonly final: UsageSample | null | 'unsent' }[] = [],
+  ): Promise<void> {
     const budget = this.#store.read().budgets[goal]
     if (!budget) return
     const at = this.#port.now()
@@ -1071,16 +1310,27 @@ export class IntakePlane {
     } catch {
       read = { samples: [], complete: false }
     }
-    await this.#budgets.read(goal, read.samples, this.#port.seats().filter((seat) => seat.board === goal), { at, complete: read.complete }, turn)
+    const consults = this.#consultWindows(goal, budget)
+    const seats = [...this.#port.seats().filter((seat) => seat.board === goal), ...consults.windows]
+    // An interrupted consult closes here, at the read that found it, with no final reading.
+    const closing = [...settle, ...consults.interrupted.filter((id) => !settle.some((one) => one.seat === id)).map((seat) => ({ seat, final: null }))]
+    for (const seat of consults.interrupted) await this.#budgets.turn(goal, seat, { ended: at })
+    await this.#budgets.read(goal, read.samples, seats, { at, complete: read.complete }, turn, closing)
+    await this.#afterConsultRead(goal)
   }
 
-  /** Every live budget read once: what keeps a Seat inside a turn under a minute stale. */
+  /**
+   * Every live budget read once: what keeps a Seat inside a turn under a
+   * minute stale — and every Goal, stopped or not, whose reservation is still
+   * held, so the reading that can repair its spend settles it.
+   */
   meter(): Promise<void> {
     this.#metering ??= (async () => {
       const live = this.#budgets.live()
-      if (live.length === 0 || this.#closed) return
-      await this.#port.refreshLanes?.(live).catch(() => {})
-      for (const goal of live) {
+      const reading = [...new Set([...live, ...this.#budgets.unsettled()])]
+      if (reading.length === 0 || this.#closed) return
+      if (live.length > 0) await this.#port.refreshLanes?.(live).catch(() => {})
+      for (const goal of reading) {
         if (this.#closed) return
         await this.#meterGoal(goal).catch((error: unknown) => this.#port.log('a trigger Goal could not be metered', { error: String(error) }))
       }
@@ -1102,6 +1352,15 @@ export class IntakePlane {
     await this.#watch.tick()
     await this.#retryHeld()
     await this.reconcile()
+    await this.#sweepMentions()
+  }
+
+  /** Open mention threads followed to their pull requests' end, at most once in five minutes. */
+  async #sweepMentions(): Promise<void> {
+    const now = this.#port.monotonic()
+    if (this.#mentionSwept !== null && now - this.#mentionSwept < MENTION_SWEEP_MS) return
+    this.#mentionSwept = now
+    await this.#mentions.sweep()
   }
 
   // ------------------------------------------------------------ attention
@@ -1245,4 +1504,4 @@ export class IntakePlane {
 }
 
 const sourceWords = (source: TriggerSource): string =>
-  source === 'pull-request' ? 'pull request' : source === 'issue' ? 'issue event' : 'scheduled run'
+  source === 'pull-request' ? 'pull request' : source === 'issue' ? 'issue event' : source === 'mention' ? 'mention' : 'scheduled run'

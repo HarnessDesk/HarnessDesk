@@ -18,9 +18,13 @@ import { PendingTranscript, canonicalTranscriptBody, isNoticeTurn, openingOfCont
 import { decodeBody, durableStateIdentity, InvalidTranscriptBodyError, NewerTranscriptFormatError, readTranscriptFacts, TranscriptDatabase, TOOL_INDEX_CAP } from './transcript-database.js'
 import { DailySessionSnapshots } from './session-snapshots.js'
 import { publicationsIn, withPublications } from './publications.js'
+import { mergeReplayItem } from './replay-item.js'
 
 /** The runtime has no retained transcript store yet (or it became unavailable). */
 export class MissingTranscriptRuntimeError extends Error {}
+
+/** The owned body remains readable even though persistence was refused. */
+export class TranscriptSaveRefusedError extends Error {}
 
 /**
  * The transcript the host watched, kept.
@@ -36,8 +40,12 @@ export class MissingTranscriptRuntimeError extends Error {}
  * Turn and item rows in the index's `<state>/sessions.sqlite`,
  * written a beat after the last event and at once when a turn completes. On
  * a read, the backend's turns are *enriched*, not replaced: a turn with the
- * same id whose stored copy knows more items takes the stored items, and the
- * backend's own status, timestamps and diff win wherever it has them. A turn
+ * same id keeps stored-only items alongside replay-only items, unless replay
+ * split the turn across other turns. Shared items
+ * preserve final saved fields unless replay equals or extends them; running
+ * items accept replay rewrites and completion, retaining missing or truncated
+ * fields. Replay-only items follow their preceding shared replay neighbour; the
+ * backend's own turn status and diff still win wherever it has them. A turn
  * the backend no longer lists — after a rollback — is not brought back.
  *
  * The last token figures ride along for the same reason. Every adapter holds
@@ -173,7 +181,7 @@ const withDeskContext = (turns: readonly Turn[], stored: readonly Turn[]): reado
  */
 const restorableUsage = (
   session: Session,
-  stored: Stored,
+  stored: Pick<Stored, 'turns' | 'usage'>,
   pairs: ReadonlyMap<Turn, Turn>,
 ): SessionUsage | null => {
   if (session.usage) return null
@@ -197,6 +205,11 @@ type PendingWrite = { timer: ReturnType<typeof setTimeout>; session: Session; in
 const sameStoredSessionFacts = (stored: Stored, session: Session): boolean =>
   (['title', 'preview', 'cwd', 'createdAt', 'updatedAt', 'usage'] as const)
     .every(field => isDeepStrictEqual(stored[field] ?? null, session[field] ?? null))
+
+/** Exactly the session facts persisted by record(), shared with replay admission. */
+export const transcriptSessionFacts = (value: Session) => ({ runtime: value.runtime, id: value.id, turns: value.turns,
+  usage: value.usage ?? null, title: value.title ?? null, preview: value.preview ?? null,
+  cwd: value.cwd, createdAt: value.createdAt, updatedAt: value.updatedAt })
 
 export class TranscriptStore {
   readonly #pending = new Map<string, PendingWrite>()
@@ -225,6 +238,7 @@ export class TranscriptStore {
     private readonly baseAdvanced: (runtime: RuntimeId, id: SessionId, generation: string, base: DurableTranscriptBase) => void = () => {},
     private readonly onProtected: (runtime: RuntimeId, id: SessionId) => void = () => {},
     private readonly onDurableChange: (runtime: RuntimeId, id: SessionId, kind?: 'import') => void = () => {},
+    private readonly onProtectionSettled: (runtime: RuntimeId, id: SessionId) => void = () => {},
   ) {
     this.#database = new TranscriptDatabase(join(dirname(directory), 'sessions.sqlite'))
     this.#snapshots = new DailySessionSnapshots(this.#database.file, {
@@ -313,8 +327,17 @@ export class TranscriptStore {
   /** Detect, without choosing a winner, when a replay conflicts with unsaved items. */
   pendingReplayConflict(replay: Session, generation: string, epoch: number, held?: Session): boolean {
     if (!replay.itemsLoaded) return false
+    const pending = this.pendingBodies(replay.runtime, replay.id, generation, epoch)
+    if (!pending.length) return false
     replay = this.replayWithPendingMetadata(replay, generation, epoch)
-    const bodies = [...this.pendingBodies(replay.runtime, replay.id, generation, epoch)]
+    // A cold reopen queues the retained body before asking the agent to replay.
+    // That queue entry is not unsaved activity. Compare only bodies that differ
+    // from storage; ordinary lossy replay is reconciled by enrich, not quarantine.
+    let durable: readonly Turn[] | undefined
+    try { durable = this.#database.read(replay.runtime, replay.id)?.turns } catch { /* Unknown storage stays protected. */ }
+    const durableBody = durable && canonicalTranscriptBody(durable).canonical
+    const bodies = pending.filter(body =>
+      durableBody === undefined || canonicalTranscriptBody(body.turns).canonical !== durableBody)
     if (bodies.length && held && held.runtime === replay.runtime && held.id === replay.id) bodies.push(held)
     for (const body of bodies) {
       const byTurn = new Map(body.turns.map(turn => [turn.id, turn]))
@@ -327,6 +350,9 @@ export class TranscriptStore {
           group.push(item); byItem.set(String(item.id), group)
         }
         if (turn.items.some(item => byItem.get(String(item.id))?.some(previous => {
+          // A queued body can mix saved items with genuinely new activity.
+          // Only its unsaved values need protection against lossy replay.
+          if (durable?.find(candidate => candidate.id === turn.id)?.items.some(candidate => isDeepStrictEqual(candidate, previous))) return false
           if (isDeepStrictEqual(previous, item)) return false
           if (previous.type !== 'assistantMessage' || item.type !== 'assistantMessage' || !item.text.startsWith(previous.text)) return true
           const { text: _oldText, ...oldFields } = previous
@@ -336,6 +362,39 @@ export class TranscriptStore {
       }
     }
     return false
+  }
+
+  /** A full replay agreed with the current held body; keep the existing CAS base. */
+  resumeAfterReplay(session: Session, generation: string, epoch: number, capture: PendingTranscript): boolean {
+    const key = keyOf(session.runtime, session.id)
+    if (this.#generationConflicts.has(key) || this.#writes.has(key) || this.#retryHeld.has(key) ||
+        this.#authorities.get(key)?.generation !== generation ||
+        !this.generationCurrent(session.runtime, session.id, generation, session, undefined, epoch)) return false
+    const pending = this.#pending.get(key)
+    if (pending && (pending.generation !== generation || pending.authorityEpoch !== epoch)) return false
+    const covers = (items: readonly AgentItem[], item: AgentItem): boolean => items.some(candidate => {
+      if (isDeepStrictEqual(candidate, item)) return true
+      if (item.type !== 'assistantMessage' || candidate.type !== 'assistantMessage' || !candidate.text.startsWith(item.text)) return false
+      const { text: _old, ...previous } = item, { text: _new, ...next } = candidate
+      return isDeepStrictEqual(previous, next)
+    })
+    // The queue can have been replaced since quarantine began. Its original
+    // owned alternatives must also be covered before their capture is released.
+    const captured = capture.inspect()
+    if (captured.runtime !== session.runtime || captured.sessionId !== session.id ||
+        !captured.local.turns.every(turn => {
+          const agreed = session.turns.find(candidate => candidate.id === turn.id)
+          return agreed && turn.items.every(item => [...item.candidates, ...(item.replacement ? [item.replacement] : [])]
+            .every(candidate => covers(agreed.items, candidate)))
+        })) return false
+    if (pending && !pending.session.turns.every(turn => {
+      const agreed = session.turns.find(candidate => candidate.id === turn.id)
+      return agreed && turn.items.every(item => covers(agreed.items, item))
+    })) return false
+    this.#protectedWrites.delete(key)
+    this.#protectedNotified.delete(key)
+    this.record(session, { generation, authorityEpoch: epoch })
+    return true
   }
 
   /** Unsaved turns belong to this exact record incarnation, not a later one. */
@@ -490,7 +549,11 @@ export class TranscriptStore {
       this.record(next.session, { insight: next.insight, generation, revision: next.revision, authorityEpoch })
       return true
     })
-    if (saved && current() && this.#advanceBase(session, generation)) { this.#retryHeld.delete(key); return true }
+    if (saved && current() && this.#advanceBase(session, generation)) {
+      this.#retryHeld.delete(key)
+      this.onProtectionSettled(session.runtime, session.id)
+      return true
+    }
     if (saved) this.#notifyProtected(session)
     if (!this.#pending.has(key)) { this.#pending.set(key, pending); this.#retryHeld.delete(key) }
     return false
@@ -520,16 +583,8 @@ export class TranscriptStore {
       const preserveSource = refresh?.preserveSource && !this.#failedWrites.has(key)
       let stored: Stored = refresh?.preserveStored ?? {
         version: FORMAT,
-        runtime: session.runtime,
-        id: session.id,
         savedAt: Date.now(),
-        turns: session.turns,
-        usage: session.usage ?? null,
-        title: session.title ?? null,
-        preview: session.preview ?? null,
-        cwd: session.cwd,
-        createdAt: session.createdAt,
-        updatedAt: session.updatedAt,
+        ...transcriptSessionFacts(session),
         ...(insight.length ? { insight } : {}),
       }
       try {
@@ -652,6 +707,7 @@ export class TranscriptStore {
     this.#verifiedRows.set(key, prepared!)
     this.#protectedWrites.delete(key)
     this.#protectedNotified.delete(key)
+    if (!ownedHeld) this.onProtectionSettled(session.runtime, session.id)
     return true
   }
 
@@ -667,7 +723,11 @@ export class TranscriptStore {
     this.#pending.delete(key)
     this.#retryHeld.set(key, pending)
     const saved = await this.#persistEvolvedBody(session, expectedBase, [], current, pending)
-    if (saved) { this.#retryHeld.delete(key); return true }
+    if (saved) {
+      this.#retryHeld.delete(key)
+      this.onProtectionSettled(session.runtime, session.id)
+      return true
+    }
     if (!this.#pending.has(key)) { this.#pending.set(key, pending); this.#retryHeld.delete(key) }
     return false
   }
@@ -722,14 +782,14 @@ export class TranscriptStore {
     const key = keyOf(runtime, id)
     const inProgress = this.#settling.get(key)
     if (inProgress) { await inProgress; return this.#settle(runtime, id) }
-    if (this.#protectedWrites.has(key)) throw new Error('Transcript has protected changes that could not be saved')
+    if (this.#protectedWrites.has(key)) throw new TranscriptSaveRefusedError('Transcript has protected changes that could not be saved')
     const pending = this.#pending.get(key)
     if (pending) {
       if (pending.generation) {
         const work = this.#settleGeneration(key, pending)
         this.#settling.set(key, work)
         try { await work } finally { if (this.#settling.get(key) === work) this.#settling.delete(key) }
-        if (this.#protectedWrites.has(key)) throw new Error('Transcript has protected changes that could not be saved')
+        if (this.#protectedWrites.has(key)) throw new TranscriptSaveRefusedError('Transcript has protected changes that could not be saved')
         if (this.#pending.get(key) === pending) throw new Error('Transcript write authority is not established')
         return this.#settle(runtime, id)
       }
@@ -780,6 +840,7 @@ export class TranscriptStore {
       this.#protectedNotified.delete(key)
       const next = this.#pending.get(key)
       if (next) this.record(next.session, { insight: next.insight, generation: next.generation, revision: next.revision, authorityEpoch: next.authorityEpoch })
+      this.onProtectionSettled(session.runtime, session.id)
       return
     }
     this.#notifyProtected(session)
@@ -814,6 +875,15 @@ export class TranscriptStore {
     finally { verifier.close() }
   }
 
+  /**
+   * Whether the conversation's latest kept turn was stopped. The registry forgets a conversation when the desk
+   * restarts; this is how a stopped chat still reads Stopped afterwards. Unknown or unreadable storage reads not stopped.
+   */
+  lastTurnStopped(runtime: RuntimeId, id: SessionId): boolean {
+    try { return !this.#database.isRemoved(runtime, id) && this.#database.lastTurnInterrupted(runtime, id) }
+    catch { return false }
+  }
+
   /** Metadata of a verified stored body, including conversations with no turns. */
   async readSummary(runtime: RuntimeId, id: SessionId): Promise<SessionSummary | null> {
     const stored = await this.#read(runtime, id)
@@ -841,7 +911,7 @@ export class TranscriptStore {
   async refresh(session: Session, source: SessionSource | null, observedBase?: DurableTranscriptBase): Promise<{ saved: true; base: DurableTranscriptBase } | { saved: false; base: DurableTranscriptBase }> {
     await this.#settle(session.runtime, session.id)
     const key = keyOf(session.runtime, session.id)
-    if (this.#protectedWrites.has(key)) throw new Error('Transcript has protected changes that could not be saved')
+    if (this.#protectedWrites.has(key)) throw new TranscriptSaveRefusedError('Transcript has protected changes that could not be saved')
     const retained = new Set(session.turns.map(turn => String(turn.id)))
     const contexts = (this.#insight.get(key) ?? []).filter(context => retained.has(context.turn))
     const base = observedBase ?? (session.partialHistory ? undefined : this.observeBase(session, true))
@@ -853,7 +923,7 @@ export class TranscriptStore {
       if (!this.#pending.has(key)) this.#pending.set(key, held)
       else if (!this.#retryHeld.has(key)) this.#retryHeld.set(key, held)
       if (base && this.#baseStillMatches(session, base)) return { saved: false, base }
-      throw new Error('Transcript refresh could not be verified; changes are protected')
+      throw new TranscriptSaveRefusedError('Transcript refresh could not be verified; changes are protected')
     }
     if (contexts.length) this.#insight.set(key, contexts)
     else this.#insight.delete(key)
@@ -923,7 +993,12 @@ export class TranscriptStore {
     return { session: this.#enrichFromStored(session, stored), base }
   }
 
-  #enrichFromStored(session: Session, stored: Stored | null): Session {
+  /** Enrich a non-conflicting synchronous replay before it can queue a write. */
+  enrichReplay(session: Session, held: Session): Session {
+    return held.itemsLoaded ? this.#enrichFromStored(session, held) : session
+  }
+
+  #enrichFromStored(session: Session, stored: Pick<Stored, 'turns' | 'usage'> | null): Session {
     if (!stored) return session
     // A backend that answers with no turns at all — an ACP agent restarted
     // out of its idle sessions serves the session but not its past — is not
@@ -964,44 +1039,83 @@ export class TranscriptStore {
       // host recorded. Put back at its place, whichever list stands.
       const published = publicationsIn(kept.items)
       const carry = (items: readonly AgentItem[]): readonly AgentItem[] => {
-        const classified = preserveDeskContext(preserveNoticeItems(items, kept.items, true), kept.items)
+        const enriched = items.map(item => {
+          const previous = kept.items.filter(candidate => candidate.id === item.id)
+          if (previous.length !== 1) return item
+          const saved = previous[0]!
+          return mergeReplayItem(saved, item)
+        })
+        const restored = enriched.some((item, index) => item !== items[index]) ? enriched : items
+        const classified = preserveDeskContext(preserveNoticeItems(restored, kept.items, true), kept.items)
         return published.every(({ item }) => classified.some((entry) => entry.id === item.id))
           ? classified
           : withPublications(classified, published)
       }
-      if (kept.items.length <= turn.items.length) {
-        const items = carry(turn.items)
-        if (items === turn.items) return turn
-        changed = true
-        return { ...turn, items }
+      // Use the same id merge regardless of counts. Do not copy an item the
+      // runtime moved to another turn. Insert each new replay run immediately
+      // after its preceding shared neighbour (or before all saved items).
+      const replay = carry(turn.items)
+      const byId = new Map(replay.map(item => [item.id, item]))
+      // A split turn cannot claim the missing items' placement. Likewise a
+      // renumbered, equally full turn may use fresh message ids for the same
+      // prose. Preserve the existing segmentation guard in those cases.
+      const moved = kept.items.some(item => homes.has(String(item.id)) && homes.get(String(item.id)) !== turn)
+      const restoreMissing = !moved && (kept.id === turn.id || kept.items.length > turn.items.length)
+      const retainedIds = new Set<AgentItem['id']>()
+      const retained = (restoreMissing ? kept.items : replay).filter(item => {
+        if (retainedIds.has(item.id)) return false
+        retainedIds.add(item.id)
+        return true
+      })
+      const storedIds = new Set(retained.map(item => item.id))
+      const additions = new Map<AgentItem['id'] | null, AgentItem[]>()
+      let anchor: AgentItem['id'] | null = null
+      for (const item of replay) {
+        if (storedIds.has(item.id)) anchor = item.id
+        else {
+          const group = additions.get(anchor) ?? []
+          group.push(item)
+          additions.set(anchor, group)
+        }
       }
-      if (
-        kept.items.some((entry) => {
-          const home = homes.get(String(entry.id))
-          return home !== undefined && home !== turn
-        })
-      ) {
-        const items = carry(turn.items)
-        if (items === turn.items) return turn
-        changed = true
-        return { ...turn, items }
+      const items = [...(additions.get(null) ?? []), ...retained.flatMap(item => [byId.get(item.id) ?? item, ...(additions.get(item.id) ?? [])])]
+      // The host's own stored time, never the backend read's: a replay
+      // that opens this turn again re-stamps `startedAt` at the moment it
+      // was replayed (see the ACP adapter), and letting that win would
+      // re-date a turn from months ago to today every time the session is
+      // reopened -- and, since desk turn counting buckets by day, count it
+      // again on whatever day it happens to be reopened (#1047 review).
+      // A duration is the backend's where it measured one; an ACP load
+      // measures nothing, and a replay as full as the stored turn used to
+      // drop the time the desk watched it take (#2044). The completion time
+      // only fills a gap the same way: a read with its own end time keeps it,
+      // and a turn the read still has running (or has re-opened on the same
+      // id) is not ended, whatever the stored copy says.
+      // The plan and diff the host recorded fill in for a read silent on them,
+      // as the branch below already does. Only what the host holds is laid
+      // over: a turn with nothing to add stays the read's own object, so an
+      // unchanged read writes nothing. A turn the read split differently is
+      // not the one that was timed.
+      const recorded = moved ? {} : {
+        ...(kept.startedAt != null ? { startedAt: kept.startedAt } : {}),
+        ...(turn.completedAt == null && turn.status !== 'inProgress' && kept.completedAt != null ? { completedAt: kept.completedAt } : {}),
+        ...(turn.durationMs == null && kept.durationMs != null ? { durationMs: kept.durationMs } : {}),
+        ...(turn.plan === undefined && kept.plan !== undefined ? { plan: kept.plan } : {}),
+        ...(turn.diff == null && kept.diff != null ? { diff: kept.diff } : {}),
       }
-      changed = true
-      return {
+      const enriched = !restoreMissing || kept.items.length <= turn.items.length ? { ...turn, items, ...recorded } : {
         ...kept,
         ...turn,
-        items: kept.items,
+        items,
         diff: turn.diff ?? kept.diff ?? null,
         plan: turn.plan ?? kept.plan,
-        // The host's own stored time, never the backend read's: a replay
-        // that opens this turn again re-stamps `startedAt` at the moment it
-        // was replayed (see the ACP adapter), and letting that win would
-        // re-date a turn from months ago to today every time the session is
-        // reopened -- and, since desk turn counting buckets by day, count it
-        // again on whatever day it happens to be reopened (#1047 review).
         startedAt: kept.startedAt ?? turn.startedAt ?? null,
         completedAt: kept.completedAt ?? turn.completedAt ?? null,
+        ...recorded,
       }
+      if (isDeepStrictEqual(enriched, turn)) return turn
+      changed = true
+      return enriched
     })
     // These rows are host-owned and have no vendor turn to pair with.
     // Keep only their missing items; omitted work turns still belong to rollback.
@@ -1243,7 +1357,7 @@ export class TranscriptStore {
     await Promise.all(waiting.map(entry => this.#settle(entry.session.runtime, entry.session.id)))
     await Promise.all([...this.#settling.values()])
     await Promise.all([...this.#writes.values()])
-    if (this.#protectedWrites.size) throw new Error('Transcript has protected changes that could not be saved')
+    if (this.#protectedWrites.size) throw new TranscriptSaveRefusedError('Transcript has protected changes that could not be saved')
   }
   async close(): Promise<void> {
     try { await this.flush() }

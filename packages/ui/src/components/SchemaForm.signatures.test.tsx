@@ -44,3 +44,26 @@ it('an unset enum stays unselected until an explicit choice is saved', () => {
     expect(save).toHaveBeenCalledWith({ mode: 'safe' })
   } finally { act(() => root.unmount()); box.remove() }
 })
+
+it('an untouched text field shows its default as text, and emptying it saves blank while the others stay unset', () => {
+  const box = document.createElement('div'); document.body.append(box)
+  const root = createRoot(box), save = vi.fn()
+  const schema = { type: 'object', properties: {
+    credit: { type: 'string', title: 'Commit co-author', default: 'Co-authored-by: Jane Doe <dev@example.com>' },
+    signature: { type: 'string', title: 'Description signature', default: 'Default template' },
+  } }
+  try {
+    act(() => root.render(<SchemaForm schema={schema} value={{}} onSubmit={save} />))
+    const [credit, signature] = [...box.querySelectorAll('input')]
+    expect(credit!.value).toBe('Co-authored-by: Jane Doe <dev@example.com>')
+    expect(signature!.value).toBe('Default template')
+    expect(box.querySelector('button')!.disabled).toBe(true)
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(credit, '')
+      credit!.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(credit!.value).toBe('')
+    act(() => box.querySelector('button')!.click())
+    expect(save).toHaveBeenCalledWith({ credit: '' })
+  } finally { act(() => root.unmount()); box.remove() }
+})

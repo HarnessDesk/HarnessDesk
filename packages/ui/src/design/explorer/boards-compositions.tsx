@@ -1,4 +1,4 @@
-import { LeadAvatarSpecimen, LeadContractSpecimen, LeadPlanFlowSpecimen } from '../../preview/frames-lead'
+import { LeadAvatarSpecimen, LeadContractSpecimen, LeadPlanFlowSpecimen, LeadTurnSpecimen } from '../../preview/frames-lead'
 import { flowModel } from '../../lib/flow-model'
 import { PagePreview } from '../../preview/page-preview'
 import { InfoCardBody, SubjectActionsMenu } from '..'
@@ -18,6 +18,7 @@ import { FlowOverlayBoard } from '../../preview/frames-flow-overlay'
 import { ReviewPublicationBoard } from '../../preview/frames-review-publication'
 import { FlowCanvasBoard } from '../../preview/frames-flow-canvas'
 import { FlowGraphBoard } from '../../preview/frames-flow-graph'
+import { AgentFlowBoard } from '../../preview/agent-flow-board'
 import { ShapeGraphBoard } from '../../preview/frames-shape-graph'
 import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
@@ -3260,6 +3261,7 @@ const FlowCanvasWorkspaceBoard = () => {
 
 export const COMPOSITION_BOARDS: BoardSpec[] = [
   { id: 'flow-canvas-workspace', title: 'Flow canvas workspace', about: 'The shared canvas and its responsive card rail, below the shell bar.', render: () => <FlowCanvasWorkspaceBoard /> },
+  { id: 'agent-flow', title: 'Agent flow', about: 'Sub-agents a conversation started: the transcript card with each phase, the fan-in line, and lanes on one clock.', render: () => <AgentFlowBoard /> },
   { id: 'flow-example', title: 'Flow example', about: 'Local finite playback of declared routes; no host work starts.', render: () => <Specimen measure="wide" caption="A repair loop and person handoff, with manual or automatic stepping"><FlowExample model={flowModel(FLOW_CARD_EXAMPLE_POLICY)} rounds={7} /></Specimen> },
   { id: 'flow-cards', title: 'Flow cards', about: 'Policy thumbnails, source chips, complete summaries and selection in the destination and picker.', render: () => <FlowCardsBoard /> },
   { id: 'flow-canvas-toolbar', title: 'Flow canvas toolbar', about: 'Two floating groups leave the canvas available between controls.', render: () => <FlowCanvasToolbarBoard /> },
@@ -3312,6 +3314,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     about: 'A change, with its sign said in colour as well as in punctuation.',
     render: DeltaBoard,
   },
+  { id: 'lead-turn', title: 'Lead turn', about: 'A face centred on the first line, across prose, labels, headings and pending replies.', render: LeadTurnSpecimen },
   { id: 'lead-avatar', title: 'Lead avatar', about: 'Dex and Lex at each place they are drawn: sidebar, turn, bar, popover, picker.', render: LeadAvatarSpecimen },
   {
     id: 'lead-plan-flow', title: 'Lead plan flow', about: 'The plan in reading order, with responsible roles and approval before work.', render: LeadPlanFlowSpecimen,
@@ -3601,7 +3604,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   { id: 'left-column', title: 'Left column', about: 'Aligned rows with one trailing slot and long titles.', render: LeftColumnBoard },
 ]
 
-import { LeftColumnSeats, LeftColumn, LeftColumnTop, LeftColumnBody, LeftColumnRow, LeftColumnGroup, LeftColumnSeat, LeftColumnExplorerHead, LeftColumnExplorerFoot } from ".."
+import { LeftColumnBulkBar, LeftColumnSeats, LeftColumn, LeftColumnTop, LeftColumnBody, LeftColumnRow, LeftColumnGroup, LeftColumnSeat, LeftColumnExplorerHead, LeftColumnExplorerFoot } from ".."
 import { BellIcon, UserIcon, FileIcon } from '../../components/Icons'
 
 export const LEFTCOLUMN_CATALOG_VARIANTS = ['light', 'dark'] as const
@@ -3630,7 +3633,7 @@ export function LeftColumnBoard() {
       <li><LeftColumnRow nested label="Agent 2" icon={<AgentIcon size={16} />} trailing={{ kind: 'mark', label: 'Working', prefix: '#4', icon: <Spinner aria-hidden /> }} /></li>
       <li><LeftColumnRow nested label="Agent with a long seat label" icon={<AgentIcon size={16} />} title="Agent · Idle" /></li>
     </LeftColumnSeats>}
-  </LeftColumnGroup></LeftColumnGroup>}
+  </LeftColumnGroup><LeftColumnBulkBar count={2} onCancel={() => {}}><Button variant="ghost" size="sm">Pin</Button><Button variant="ghost" size="sm">Archive</Button><Button variant="ghost" size="sm">Delete</Button></LeftColumnBulkBar></LeftColumnGroup>}
 </LeftColumnBody>}
   footer={<>{mode === 'editor' && <LeftColumnExplorerFoot onClick={() => {}} />}<LeftColumnSeat notifications={<Button variant="ghost" size="icon-sm" aria-label="Inbox"><BellIcon size={16} /></Button>} settingsOpen={false} onSettings={() => {}}
     menu={<Button variant="ghost" size="pattern" className="inline-flex items-center gap-(--hd-space-2) px-(--hd-space-2) text-(length:--hd-text) font-(weight:--hd-weight-medium)" data-catalog-size="default"><UserIcon size={16} />Jane Doe</Button>} /></>} />

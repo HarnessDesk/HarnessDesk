@@ -120,6 +120,43 @@ test('a reopened session keeps its stored startedAt and completedAt, never a rep
   })
 })
 
+test('a full replay that carries no times keeps the turn timing the host recorded', async () => {
+  await withStore(async (store) => {
+    const items = [item('u', 'userMessage'), item('r', 'reasoning'), item('c', 'command'), item('a', 'assistantMessage')]
+    const plan = [{ step: 'Run the tests', status: 'completed' as const }]
+    store.record(session([turn('t1', items, { startedAt: 1_000, completedAt: 75_000, durationMs: 74_000, plan, diff: 'd' })]), { now: true })
+    await store.flush()
+
+    // An ACP load replays every item and no time at all (#2044): the turn
+    // comes back as long as the stored one, with `startedAt: null` and no
+    // duration. The desk watched it run, so what it measured stands, and so
+    // do the plan and diff it recorded on the turn.
+    const replayed = await store.enrich(session([turn('t1', items, { startedAt: null })]))
+    assert.equal(replayed.turns[0]?.startedAt, 1_000)
+    assert.equal(replayed.turns[0]?.completedAt, 75_000)
+    assert.equal(replayed.turns[0]?.durationMs, 74_000)
+    assert.deepEqual(replayed.turns[0]?.plan, plan)
+    assert.equal(replayed.turns[0]?.diff, 'd')
+    // A backend that does measure its turns still has the last word on that.
+    const measured = await store.enrich(session([turn('t1', items, { startedAt: null, durationMs: 80_000 })]))
+    assert.equal(measured.turns[0]?.durationMs, 80_000)
+  })
+})
+
+test("a stored completion time only fills a gap: the read's own end time stands and a running turn is not ended", async () => {
+  await withStore(async (store) => {
+    const items = [item('u', 'userMessage'), item('a', 'assistantMessage')]
+    store.record(session([turn('t1', items, { startedAt: 1_000, completedAt: 75_000 })]), { now: true })
+    await store.flush()
+
+    const own = await store.enrich(session([turn('t1', items, { startedAt: null, completedAt: 90_000 })]))
+    assert.equal(own.turns[0]?.completedAt, 90_000, 'a backend that measured the end keeps it')
+
+    const running = await store.enrich(session([turn('t1', items, { startedAt: null, completedAt: null, status: 'inProgress' })]))
+    assert.equal(running.turns[0]?.completedAt ?? null, null, 'a turn still running is not given a stale end time')
+  })
+})
+
 test('reopening a session twice, on two different days, never changes which day its turn counts on', async () => {
   await withStore(async (store) => {
     const full = session([

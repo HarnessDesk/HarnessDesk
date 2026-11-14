@@ -15,6 +15,7 @@ import { respondToCrash } from './crash-policy.mjs'
 import { attachQuitSignals } from './quit-signals.mjs'
 import { attachAppUpdates, attachAppUpdateBridge } from './app-updates.mjs'
 import { attachAppProtocol, loadMainWindow } from './main-window.mjs'
+import { createPromptLinkInbox } from './prompt-link.mjs'
 import { MENU_LABEL, createCommandLineTool, targetOf } from './cli-install.mjs'
 import { decide, relevant } from './notifications.mjs'
 import { createIntakeNotifier } from './intake-notifications.mjs'
@@ -115,7 +116,11 @@ let extensions = null
 let updateMenuItem = null
 const appUpdateBridge = attachAppUpdateBridge({ ipcMain, currentWindow: () => mainWindow, currentMenu: () => updateMenuItem })
 
-const primaryInstance = attachAppProtocol({ app, currentWindow: () => mainWindow })
+/** A prompt link waits here until the app window's renderer takes it, once. */
+const promptLinks = createPromptLinkInbox({ currentWindow: () => mainWindow })
+const primaryInstance = attachAppProtocol({ app, currentWindow: () => mainWindow, argv: process.argv, promptLinks })
+// Draft text only: the renderer puts it in a new chat's composer, unsent.
+ipcMain.handle('harnessdesk:prompt-link-take', event => promptLinks.take(event.sender))
 
 const pickDirectory = async () => {
   const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
@@ -344,7 +349,7 @@ const showAbout = async () => {
  * from this and nothing else — the shell never asks the host itself, because
  * two sources for one number is two numbers.
  */
-let traySummary = { title: '', agents: [] }
+let traySummary = { title: '', tooltip: '', agents: [] }
 
 /**
  * The images the menu draws beside its rows.
@@ -411,7 +416,7 @@ const createTray = () => {
   if (image.isEmpty()) return
   image.setTemplateImage(true)
   tray = new Tray(image)
-  tray.setToolTip('HarnessDesk')
+  tray.setToolTip(traySummary.tooltip || 'HarnessDesk')
   tray.setTitle(traySummary.title)
   // A menu set this way is what macOS opens on either button, and it keeps the
   // status item highlighted while it is open — `popUpContextMenu` does neither.
@@ -908,15 +913,18 @@ ipcMain.on('harnessdesk:set-theme', (_event, theme) => {
 })
 
 // What the status item says, and what its menu lists. The title is the
-// tightest figure of the lot: the one number worth two characters of menu bar.
+// current agent's figure — the agent the next Send goes to — and the tooltip
+// names whose it is.
 ipcMain.on('harnessdesk:tray-summary', (_event, summary) => {
   if (!summary || typeof summary !== 'object') return
   traySummary = {
     title: typeof summary.title === 'string' ? summary.title : '',
+    tooltip: typeof summary.tooltip === 'string' ? summary.tooltip : '',
     agents: Array.isArray(summary.agents) ? summary.agents : [],
   }
   if (!tray) return
   tray.setTitle(traySummary.title)
+  tray.setToolTip(traySummary.tooltip || 'HarnessDesk')
   tray.setContextMenu(buildTrayMenu())
 })
 
@@ -947,18 +955,23 @@ app.on('before-quit', async (event) => {
   running = null
   host = null
   extensions = null
-  try {
-    await closingDoor?.close()
-    await closingPhone?.close()
-    await closing?.close()
-    await closingHost?.dispose()
-    await closingExtensions?.dispose()
-    await logger?.flush()
-  } finally {
-    tray?.destroy()
-    tray = null
-    app.quit()
+  // Quit is a best-effort drain, never a crash/relaunch boundary. In
+  // particular, refusing an unsafe transcript save must not skip extensions.
+  const step = async (name, close) => {
+    try { await close() } catch (error) {
+      try { logger?.error(`Shutdown ${name} failed`, { error: String(error?.stack ?? error) }) }
+      catch { /* A broken logger must not turn quitting into a crash either. */ }
+    }
   }
+  await step('client door', () => closingDoor?.close())
+  await step('phone link', () => closingPhone?.close())
+  await step('server', () => closing?.close())
+  await step('host', () => closingHost?.dispose())
+  await step('extensions', () => closingExtensions?.dispose())
+  await step('tray', () => tray?.destroy())
+  tray = null
+  await step('log flush', () => logger?.flush())
+  app.quit()
 })
 
 // SIGTERM must run the same disposal as the menu: ACP agents own separate groups.

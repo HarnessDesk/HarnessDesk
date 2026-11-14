@@ -4,6 +4,7 @@ import { BrandMark } from '../../components/BrandIcons'
 import type { Brand } from '../../lib/brands'
 import { Bubble, BubbleContent } from '../ui/bubble'
 import { Button } from '../ui/button'
+import { Checkbox } from '../ui/checkbox'
 import { IconTile } from '../ui/icon-tile'
 import { AgentIcon } from '../../components/Icons'
 import { Message, MessageContent, MessageFooter } from '../ui/message'
@@ -485,6 +486,21 @@ const CAUSE = {
 } as const satisfies Record<string, { word: string; tone: Tone }>
 
 /**
+ * One answer a notice offers when the member's stop is a question for the
+ * person — a seat out of its usage limit, say, that could go on elsewhere.
+ * The first is the recommended one; the label carries everything the answer
+ * needs, so nothing below it explains it again.
+ */
+export type ChannelNoticeChoice = {
+  readonly label: string
+  /** The same answer, said longer, on hover. */
+  readonly title?: string
+  /** Called with whether the person ticked the notice's "Always do this" box. */
+  readonly onSelect: (always: boolean) => void
+  readonly disabled?: boolean
+}
+
+/**
  * A row about a member rather than from one: its turn ended without an answer.
  *
  * Shaped like a signal — the same spine, the same aside voice — because it is
@@ -492,29 +508,75 @@ const CAUSE = {
  * because the difference between "still reading" and "ran out of its window
  * forty minutes ago" is the whole reason the row exists, and a grey sentence
  * in a busy channel is not that difference.
+ *
+ * When the stop waits on the person, the same row carries the decision:
+ * `choices` as a line of buttons under the sentence, the first one the
+ * filled act the composer's own decision card draws, `always` as the box that
+ * turns the answer into the rule from now on (its label states its scope, and
+ * it is unticked each time the question is shown), and `note` for the one
+ * fact that varies (a candidate that was skipped and why). A Team never gets a second card for it — the notice is where the
+ * room already says the member stopped.
  */
 export const ChannelNotice = ({
   about,
   cause,
   text,
   at,
+  choices,
+  always,
+  note,
 }: {
   readonly about: string
   readonly cause: 'limit' | 'auth' | 'stopped' | 'gone'
   /** The runtime's own words. */
   readonly text: string
   readonly at: string
-}) => (
-  <TurnItem register="light" data-channel="notice" className="flex items-baseline">
-    <span className={SPINE} aria-hidden />
-    <Text role="meta" className="min-w-0 flex-1">
-      <Chip tone={CAUSE[cause].tone} className="mr-1.5 align-baseline">
-        {CAUSE[cause].word}
-      </Chip>
-      <Text role="meta" ink="secondary">{about}</Text> {text}
-      <Text role="meta" numeric className="ml-1.5 whitespace-nowrap">{at}</Text>
-    </Text>
-  </TurnItem>
-)
+  readonly choices?: readonly ChannelNoticeChoice[]
+  /** The box that makes the answer the rule: "Always do this", or "… for <agent>". */
+  readonly always?: { readonly label: string }
+  readonly note?: string
+}) => {
+  const [remember, setRemember] = useState(false)
+  const asking = choices !== undefined && choices.length > 0
+  return (
+    <TurnItem register="light" data-channel="notice" className="flex items-baseline">
+      <span className={SPINE} aria-hidden />
+      <div className="min-w-0 flex-1">
+        <Text role="meta" className="block min-w-0">
+          <Chip tone={CAUSE[cause].tone} className="mr-1.5 align-baseline">
+            {CAUSE[cause].word}
+          </Chip>
+          <Text role="meta" ink="secondary">{about}</Text> {text}
+          <Text role="meta" numeric className="ml-1.5 whitespace-nowrap">{at}</Text>
+        </Text>
+        {note ? <Text as="p" role="meta" className="mt-1">{note}</Text> : null}
+        {asking ? (
+          <div data-slot="channel-notice-choices" className="mt-1.5 flex flex-wrap gap-1.5">
+            {choices.map((choice, index) => (
+              <Button
+                key={choice.label}
+                variant={index === 0 ? 'default' : 'outline'}
+                size="sm"
+                title={choice.title ?? choice.label}
+                disabled={choice.disabled}
+                onClick={() => choice.onSelect(remember)}
+              >
+                {choice.label}
+              </Button>
+            ))}
+          </div>
+        ) : null}
+        {asking && always ? (
+          <Checkbox
+            className="mt-1.5"
+            checked={remember}
+            onCheckedChange={(next) => setRemember(next === true)}
+            label={<Text role="meta">{always.label}</Text>}
+          />
+        ) : null}
+      </div>
+    </TurnItem>
+  )
+}
 
 ChannelNotice.displayName = 'ChannelNotice'

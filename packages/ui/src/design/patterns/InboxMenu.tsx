@@ -2,10 +2,10 @@ import { Fragment, useRef, useState } from 'react'
 import { Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator } from './Menu'
 import { Chip, CodeText } from './Settings'
 import { MiddleTruncate } from '../ui/key-value'
-import type { InboxList } from './Notices'
+import type { InboxList, InboxWaiting } from './Notices'
 
-export const InboxMenu = ({ messages, onOpen, onMarkAllRead, onClear, now = Date.now(), close }:
-  Parameters<typeof InboxList>[0] & { close: () => void }) => {
+export const InboxMenu = ({ messages, waiting = [], needs = waiting.length, onOpen, onMarkAllRead, onClear, now = Date.now(), close }:
+  Parameters<typeof InboxList>[0] & { waiting?: readonly InboxWaiting[]; needs?: number; close: () => void }) => {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const unread = messages.filter(message => !message.read).length
   const marked = useRef(new Set<string>())
@@ -21,7 +21,12 @@ export const InboxMenu = ({ messages, onOpen, onMarkAllRead, onClear, now = Date
   }
   return <Menu close={close}>
     <MenuLabel>Inbox{unread ? ` · ${unread} new` : ''}</MenuLabel>
-    {messages.length === 0 && <MenuNote>Nothing kept yet. Messages an Agent sends you wait here.</MenuNote>}
+    {waiting.length > 0 && <>
+      <MenuLabel>{`Needs you · ${needs}`}</MenuLabel>
+      {waiting.map(item => <MenuItem key={item.id} label={item.title} value={item.place} onSelect={() => item.onOpen?.()} />)}
+      {messages.length > 0 && <MenuSeparator />}
+    </>}
+    {messages.length === 0 && waiting.length === 0 && <MenuNote>Nothing kept yet. Messages an Agent sends you wait here.</MenuNote>}
     {groups.map(group => <Fragment key={group.name}>
       <MenuLabel>{group.name}</MenuLabel>
       {group.items.map(message => <Fragment key={message.id}>
@@ -46,6 +51,7 @@ export const InboxMenu = ({ messages, onOpen, onMarkAllRead, onClear, now = Date
     {(onMarkAllRead && unread > 0 || onClear && messages.length > 0) && <MenuSeparator />}
     {onMarkAllRead && unread > 0 && <MenuItem label="Mark all read" keepOpen onSelect={onMarkAllRead} />}
     {onClear && messages.length > 0 && <MenuItem label="Clear the inbox" onSelect={onClear} />}
-    <MenuSeparator /><div data-menu-footer="">Kept until you clear them.</div>
+    {/* The footer speaks of kept messages; under the needs-you rows alone it would describe nothing listed. */}
+    {(messages.length > 0 || waiting.length === 0) && <><MenuSeparator /><div data-menu-footer="">Kept until you clear them.</div></>}
   </Menu>
 }

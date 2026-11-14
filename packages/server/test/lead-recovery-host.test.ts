@@ -465,6 +465,69 @@ test('a desk interrupt settles an automatic retry through its terminal turn even
 })
 
 
+test('a detached agent pauses a queued renewal without retiring it before resume', async t => {
+  const r = await rig(t), created = await r.start()
+  r.fail(created.id, 'credits'); await r.idle()
+  await r.journal.appendMessage('retry-answer', 'Retry this chat', 'person')
+  await r.host.call('workspace/session/send', { id: created.id, text: 'Person turn still running' })
+  await r.execute({ method: 'lead/chat/send', params: { id: created.id, text: 'Continue after this turn' } })
+  const target = { runtime: r.runtime.info.id, sessionId: sessionId(created.id.slice(created.id.indexOf(':') + 1)) }
+  const record = r.host.registry.get(target.runtime, target.sessionId)!
+  const settings = r.runtime.sessions.get(String(target.sessionId))!.settings()
+  assert.equal(record.queue.messages.length, 1)
+  assert.equal((await r.stored()).records[0].state, 'retrying')
+
+  r.runtime.emit({ type: 'session/detached', sessionId: target.sessionId })
+  await r.idle()
+  assert.equal(record.queue.status, 'paused')
+  assert.equal(record.queue.messages.length, 1)
+  assert.equal((await r.stored()).records[0].state, 'retrying', 'a held message still owns its recovery')
+
+  r.runtime.sessions.set(String(target.sessionId), new FakeSession(r.runtime, target.sessionId, settings, { model: 'fake-1', tone: 'plain', uppercase: false }))
+  await r.host.call('turn/queue/flush', target)
+  await r.idle()
+  assert.equal(r.prompts.length, 3, 'the retained renewal sends once')
+  assert.equal(record.queue.messages.length, 0)
+  assert.equal((await r.stored()).records[0].state, 'retrying')
+  await r.host.call('turn/queue/flush', target)
+  assert.equal(r.prompts.length, 3, 'another flush cannot send the renewal twice')
+})
+
+test('expiry of a removed paused conversation settles its queued renewal', async t => {
+  let transcripts: TranscriptStore | undefined
+  const recordTranscript = TranscriptStore.prototype.record
+  t.mock.method(TranscriptStore.prototype, 'record', function (this: TranscriptStore, ...args: Parameters<TranscriptStore['record']>) {
+    transcripts = this
+    return recordTranscript.apply(this, args)
+  })
+  const r = await rig(t), created = await r.start()
+  r.fail(created.id, 'credits'); await r.idle()
+  await r.journal.appendMessage('retry-answer', 'Retry this chat', 'person')
+  await r.host.call('workspace/session/send', { id: created.id, text: 'Person turn still running' })
+  await r.execute({ method: 'lead/chat/send', params: { id: created.id, text: 'Continue after this turn' } })
+  const target = { runtime: r.runtime.info.id, sessionId: sessionId(created.id.slice(created.id.indexOf(':') + 1)) }
+  const record = r.host.registry.get(target.runtime, target.sessionId)!
+  r.host.registry.pauseQueue(record, 'The agent stopped')
+  assert.equal((await r.stored()).records[0].state, 'retrying')
+  assert.ok(transcripts)
+  await transcripts.flushSession(target.runtime, target.sessionId)
+  const saved = await transcripts.recover(target.runtime, target.sessionId)
+  assert.ok(saved)
+  assert.equal(canonicalTranscriptBody(saved.turns).canonical, canonicalTranscriptBody(record.session.turns).canonical)
+  const removed = await r.host.call('session/remove', { ...target, removed: true })
+  const deadline = removed.undoUntil
+  assert.ok(deadline, 'the actual removal provides an Undo deadline')
+  assert.equal(r.host.registry.get(target.runtime, target.sessionId), undefined)
+  assert.equal(r.host.registry.forReopen(target.runtime, target.sessionId), record)
+  r.host.registry.sweepRemoved(deadline - 1)
+  await r.idle()
+  assert.equal((await r.stored()).records[0].state, 'retrying', 'Undo still owns the queued renewal')
+  r.host.registry.sweepRemoved(deadline)
+  await r.idle()
+  assert.equal((await r.stored()).records[0].state, 'stopped')
+  assert.equal(r.prompts.length, 2, 'expiry did not dispatch the renewal')
+})
+
 for (const removal of ['cancel', 'clear', 'delete'] as const) test(`a queued renewal removed before dispatch settles recovery: ${removal}`, async t => {
   let transcripts: TranscriptStore | undefined
   if (removal === 'delete') {
@@ -483,6 +546,9 @@ for (const removal of ['cancel', 'clear', 'delete'] as const) test(`a queued ren
   const target = { runtime: r.runtime.info.id, sessionId: sessionId(created.id.slice(created.id.indexOf(':') + 1)) }
   const record = r.host.registry.get(target.runtime, target.sessionId)!
   assert.equal(record.queue.messages.length, 1)
+  r.host.registry.pauseQueue(record, 'The agent stopped')
+  await r.idle()
+  assert.equal((await r.stored()).records[0].state, 'retrying', 'pause retains the renewal before removal')
   if (removal === 'delete') {
     // A bare registry delete does not perform the Host's transcript cleanup.
     // Settle this active owner's exact body first so deletion cannot strand a
@@ -537,4 +603,23 @@ test('a queued renewal rejected by the outer host admission settles before its t
     assert.ok(notice && notice.method === 'event' && notice.params.event.type === 'notice')
     assert.match(notice.params.event.message, /queued message was not sent/i)
   } finally { releaseRead.resolve(); await r.idle() }
+})
+
+// A retry the host sends on its own is automatic work: after the goal's time has run out it goes nowhere.
+test('a stuck-chat retry the host schedules is refused once the goal\'s deadline has passed', async t => {
+  const r = await rig(t)
+  const created = await r.start()
+  const reset = r.now() + 200
+  const deadlineAt = Date.now() + 1000
+  await r.host.leadAutonomy.setDeadline({ logicalGoalId: 'recovery-fixture', deadlineAt })
+  r.runtime.emit({ type: 'limits/updated', runtime: r.runtime.info.id,
+    limits: { reached: 'Weekly', windows: [{ label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: reset }] } })
+  r.fail(created.id, 'rateLimit')
+  await after(r, async () => (await r.stored().catch(() => null))?.records[0]?.state === 'waiting-reset' ? true : null, 'persisted reset wait')
+  // The autonomy store keeps real time, the retry clock is the rig's: wait until the deadline has really passed.
+  await new Promise(resolve => setTimeout(resolve, Math.max(0, deadlineAt - Date.now()) + 100))
+  await r.advance(500)
+  await r.idle()
+  assert.equal(r.prompts.length, 1, 'no continue goes out after the time has run out')
+  assert.equal(await r.host.leadAutonomy.deadlineElapsed('recovery-fixture'), true)
 })

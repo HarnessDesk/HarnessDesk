@@ -706,3 +706,64 @@ it.each([
   act(() => header.click())
   expect(container.querySelector('[data-role="wire-name"]')?.textContent).toContain(tool)
 })
+
+describe('ask_agent', () => {
+  // The asked agent's name is the desk's own for that runtime, never a brand in code.
+  const asking = { ...emptySnapshot(), runtimes: [{ id: 'second', presentation: { name: 'Second Opinion' } }] } as unknown as ReturnType<typeof emptySnapshot>
+  const render = (item: AgentItem): HTMLButtonElement => {
+    const store = { subscribe: () => () => {}, getSnapshot: () => asking } as unknown as AppStore
+    act(() => root.render(<StoreProvider store={store}><ItemView item={item} root="/w" /></StoreProvider>))
+    return container.querySelector<HTMLButtonElement>('button')!
+  }
+
+  it('reads Asked and the agent’s own name, never the wire name, the server or the runtime id', () => {
+    const header = render(call({
+      tool: 'mcp__harnessdesk__ask_agent',
+      args: { agent: 'second', question: 'Is the retry loop in fetchPage bounded?', context: 'src/net/fetch.ts, lines 40-80.' },
+      result: [{ type: 'text', text: 'Yes: it stops after three attempts.' }],
+    }))
+    expect(header.textContent).toContain('Asked Second Opinion')
+    expect(header.textContent).not.toMatch(/harnessdesk|ask_agent/)
+    act(() => header.click())
+    const body = container.textContent ?? ''
+    expect(body).not.toMatch(/mcp__|ask_agent|harnessdesk/)
+    expect(body).not.toMatch(/\bsecond\b/)
+    expect(body).not.toMatch(/\bagent\b:?/)
+    const labels = [...container.querySelectorAll('[data-role="ask"] [data-slot="key-value-row"]')].map((row) => row.textContent)
+    expect(labels).toEqual([
+      'QuestionIs the retry loop in fetchPage bounded?',
+      'Contextsrc/net/fetch.ts, lines 40-80.',
+      'AnswerYes: it stops after three attempts.',
+    ])
+  })
+
+  it('the question and the answer are agent text: through sanitizeText — terminal control gone, markup inert', () => {
+    const header = render(call({
+      tool: 'mcp__harnessdesk__ask_agent',
+      args: { agent: 'second', question: 'Is this safe? \u001b[31m<b>x</b>', context: null },
+      result: [{ type: 'text', text: 'Looks safe. <img src=x onerror="window.pwned=1"> <script>window.pwned=2</script>' }],
+    }))
+    act(() => header.click())
+    expect(container.textContent).toContain('Is this safe? <b>x</b>')
+    expect(container.textContent).toContain('<img src=x onerror="window.pwned=1">')
+    expect(container.textContent).not.toContain('\u001b')
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.querySelector('script')).toBeNull()
+    expect(container.querySelector('[data-role="ask"] b')).toBeNull()
+    expect((window as { pwned?: unknown }).pwned).toBeUndefined()
+  })
+
+  it('while it runs reads Asking, and an agent the desk no longer knows is “another agent”', () => {
+    const running = { ...call({ tool: 'ask_agent', args: { agent: 'second', question: 'q' } }), status: 'inProgress' } as unknown as AgentItem
+    expect(render(running).textContent).toContain('Asking Second Opinion')
+    const gone = call({ tool: 'ask_agent', args: { agent: 'retired', question: 'q' } })
+    expect(render(gone).textContent).toContain('Asked another agent')
+  })
+
+  it('its mark says what it is — one question asked of another agent — never a sub-agent of this conversation', () => {
+    const header = render(call({ tool: 'ask_agent', args: { agent: 'second', question: 'q' }, result: [{ type: 'text', text: 'a' }] }))
+    const titles = [...header.querySelectorAll('[title]')].map((one) => one.getAttribute('title'))
+    expect(titles).toContain('Asked another agent one question')
+    expect(titles).not.toContain('Sub-agent of this conversation')
+  })
+})

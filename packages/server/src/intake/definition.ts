@@ -7,9 +7,12 @@ import {
   TRIGGER_LABEL_CHARS,
   TRIGGER_LABEL_LIMIT,
   TRIGGER_COMMENT_FROM,
+  TRIGGER_NAMED_LIMIT,
   TRIGGER_SOURCES,
   type FlowBudget,
   type FlowThen,
+  type IssueEvent,
+  type PullRequestEvent,
   type TriggerBudget,
   type TriggerCommentFrom,
   type TriggerDefinition,
@@ -55,7 +58,33 @@ const HOURS_MAX = 168
 /** An id, a flow, an Agent or a role: an ASCII slug a path or a shell could never read as anything else. */
 export const TRIGGER_SLUG = /^[a-z0-9][a-z0-9_-]{0,63}$/
 
-const ENTRY_KEYS = new Set(['id', 'on', 'events', 'label', 'from', 'opens', 'goal', 'again', 'dedupe', 'concurrency', 'forks', 'budget', 'every'])
+const ENTRY_KEYS = new Set(['id', 'on', 'events', 'label', 'from', 'opens', 'goal', 'again', 'dedupe', 'concurrency', 'forks', 'budget', 'every', 'handle', 'people', 'bots'])
+
+/** A forge login as the forge allows one: what a mention handle and a named person or bot are. Compared without case. */
+export const FORGE_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/
+
+const readLogins = (value: unknown, at: string, what: 'people' | 'bots', problems: TriggerProblem[]): readonly string[] | null => {
+  const fix = `Write ${what}: [${what === 'people' ? 'jane-doe' : 'release-helper'}], at most ${TRIGGER_NAMED_LIMIT} forge logins${what === 'bots' ? ' without [bot]' : ''}.`
+  const list = typeof value === 'string' ? [value] : value
+  if (!Array.isArray(list) || list.length === 0 || list.length > TRIGGER_NAMED_LIMIT) {
+    problems.push({ at, text: `${what} is one forge login or a list of one to ${TRIGGER_NAMED_LIMIT}.`, fix })
+    return null
+  }
+  const out: string[] = []
+  for (const item of list) {
+    if (typeof item !== 'string' || !FORGE_LOGIN.test(item)) {
+      problems.push({ at, text: `${what} lists forge logins: letters, digits and single hyphens, at most 39 characters.`, fix })
+      return null
+    }
+    const login = item.toLowerCase()
+    if (out.includes(login)) {
+      problems.push({ at, text: `"${login}" is listed twice.`, fix })
+      return null
+    }
+    out.push(login)
+  }
+  return out
+}
 const BUDGET_KEYS = new Set(['usd', 'rounds', 'hours', 'without-progress'])
 const AGAIN_KEYS = new Set(['role'])
 
@@ -263,12 +292,13 @@ const readBudget = (value: unknown, at: string, problems: TriggerProblem[]): Tri
   return { usd, rounds, hours, withoutProgress }
 }
 
-const SUBJECT: Readonly<Record<TriggerSource, TriggerField>> = { 'pull-request': 'pr', issue: 'issue', schedule: 'slot' }
+const SUBJECT: Readonly<Record<TriggerSource, TriggerField>> = { 'pull-request': 'pr', issue: 'issue', schedule: 'slot', mention: 'thread' }
 /** The narrowest dedupe each source accepts: anything less merges facts that are not the same. */
 const DEDUPE_FLOOR: Readonly<Record<TriggerSource, readonly TriggerField[]>> = {
   'pull-request': ['pr', 'head'],
   issue: ['issue', 'event'],
   schedule: ['slot'],
+  mention: ['thread', 'event'],
 }
 
 const readEntry = (raw: unknown, at: string, problems: TriggerProblem[]): TriggerDefinition | null => {
@@ -282,7 +312,7 @@ const readEntry = (raw: unknown, at: string, problems: TriggerProblem[]): Trigge
   const sourceName = raw['on']
   const source = typeof sourceName === 'string' && (TRIGGER_SOURCES as readonly string[]).includes(sourceName) ? sourceName as TriggerSource : null
   if (source === null) {
-    problems.push({ at: `${at}.on`, text: 'on must be pull-request, issue or schedule.', fix: 'Write on: pull-request, on: issue or on: schedule.' })
+    problems.push({ at: `${at}.on`, text: 'on must be pull-request, issue, schedule or mention.', fix: 'Write on: pull-request, on: issue, on: schedule or on: mention.' })
     return null
   }
   const defaults = TRIGGER_DEFAULTS[source]
@@ -295,8 +325,11 @@ const readEntry = (raw: unknown, at: string, problems: TriggerProblem[]): Trigge
   let label: readonly string[] | undefined
   if (raw['label'] !== undefined) {
     const labelled = raw['events'] !== undefined && events?.length === 1 && events[0] === 'labelled'
-    if (source !== 'issue') {
-      problems.push({ at: `${at}.label`, text: 'Only an issue trigger reads label.', fix: 'Remove label, or make this trigger on: issue.' })
+    if (source === 'mention') {
+      // A mention trigger's labels are a rule of its gate: the issue or pull request must carry one of them.
+      label = readLabel(raw['label'], `${at}.label`, problems) ?? undefined
+    } else if (source !== 'issue') {
+      problems.push({ at: `${at}.label`, text: 'Only an issue or mention trigger reads label.', fix: 'Remove label, or make this trigger on: issue.' })
     } else if (!labelled) {
       problems.push({ at: `${at}.label`, text: 'label chooses which labelled issues fire, so this trigger must say events: [labelled].', fix: 'Add events: [labelled], or remove label.' })
     } else {
@@ -318,8 +351,9 @@ const readEntry = (raw: unknown, at: string, problems: TriggerProblem[]): Trigge
     }
     if (events) {
       on = source === 'pull-request'
-        ? { kind: 'pull-request', events: events as readonly ('opened' | 'pushed')[] }
-        : { kind: 'issue', events: events as readonly ('labelled' | 'closed' | 'commented')[] }
+        ? { kind: 'pull-request', events: events as readonly PullRequestEvent[] }
+        : source === 'mention' ? { kind: 'mention', events: ['commented'] }
+        : { kind: 'issue', events: events as readonly IssueEvent[] }
     }
   }
 
@@ -338,19 +372,26 @@ const readEntry = (raw: unknown, at: string, problems: TriggerProblem[]): Trigge
     if (agent) opens = { agent }
   }
 
+  // A request is in words, and only the Lead reads words from outside: a Flow or an Agent started by a trigger never sees them.
+  const mentions = (events ?? []).includes('mentioned')
+  if (mentions && opens && !('lead' in opens)) {
+    problems.push({ at: `${at}.opens`, text: 'A mention is a request in words, and only the Lead reads words from outside.', fix: 'Write opens: { lead: true }.' })
+  }
+
   const subject = SUBJECT[source]
   let goal: readonly TriggerField[] | null = defaults.goal
   if (raw['goal'] !== undefined) {
     goal = fieldList(raw['goal'], `${at}.goal`, defaults.fields, problems, 'goal')
     if (goal && !goal.includes(subject)) {
-      problems.push({ at: `${at}.goal`, text: `goal must include ${subject}: a Goal is about one ${subject === 'slot' ? 'slot' : subject === 'pr' ? 'pull request' : 'issue'}.`, fix: `Add ${subject} to goal.` })
+      problems.push({ at: `${at}.goal`, text: `goal must include ${subject}: a Goal is about one ${subject === 'slot' ? 'slot' : subject === 'pr' ? 'pull request' : subject === 'thread' ? 'thread of work' : 'issue'}.`, fix: `Add ${subject} to goal.` })
       goal = null
     }
   }
   let dedupe: readonly TriggerField[] | null = defaults.dedupe
   if (raw['dedupe'] !== undefined) {
     dedupe = fieldList(raw['dedupe'], `${at}.dedupe`, defaults.fields, problems, 'dedupe')
-    const floor = DEDUPE_FLOOR[source]
+    // A request is one comment: a trigger that reads them never merges two, whatever else it reads.
+    const floor = mentions && !DEDUPE_FLOOR[source].includes('event') ? [...DEDUPE_FLOOR[source], 'event' as const] : DEDUPE_FLOOR[source]
     if (dedupe && !floor.every((field) => dedupe!.includes(field))) {
       problems.push({ at: `${at}.dedupe`, text: `dedupe must include ${floor.join(' and ')}, or two different facts would be one firing.`, fix: `Add ${floor.filter((field) => !dedupe!.includes(field)).join(' and ')} to dedupe.` })
       dedupe = null
@@ -382,11 +423,14 @@ const readEntry = (raw: unknown, at: string, problems: TriggerProblem[]): Trigge
   }
 
   // Whose comments fire it: only a trigger that reads comments says, and it is `me` unless the file chooses otherwise.
-  const comments = on?.kind === 'issue' && (on.events as readonly string[]).includes('commented')
+  const comments = on?.kind === 'mention' || mentions || on?.kind === 'issue' && (on.events as readonly string[]).includes('commented')
   let from: TriggerCommentFrom | undefined = comments ? 'me' : undefined
   if (raw['from'] !== undefined) {
     if (!comments) {
-      problems.push({ at: `${at}.from`, text: 'Only an issue trigger that reads comments says whose comments fire it.', fix: 'Remove from, or add commented to this issue trigger’s events.' })
+      problems.push({ at: `${at}.from`, text: 'Only a trigger that reads comments says whose comments fire it.', fix: 'Remove from, or add commented or mentioned to this trigger’s events.' })
+    } else if (source === 'mention' && raw['from'] === 'anyone') {
+      // Asking the desk for work is an allowed list's to grant: never a stranger's.
+      problems.push({ at: `${at}.from`, text: 'A mention trigger takes requests from a list: me or collaborators, plus named people and bots.', fix: 'Write from: me or from: collaborators, and name others under people or bots.' })
     } else if (typeof raw['from'] === 'string' && (TRIGGER_COMMENT_FROM as readonly string[]).includes(raw['from'])) {
       from = raw['from'] as TriggerCommentFrom
     } else {
@@ -394,9 +438,31 @@ const readEntry = (raw: unknown, at: string, problems: TriggerProblem[]): Trigge
     }
   }
 
+  // A mention trigger's handle and named lists: only it reads them.
+  let handle: string | undefined
+  let people: readonly string[] | undefined
+  let bots: readonly string[] | undefined
+  for (const key of ['handle', 'people', 'bots'] as const) {
+    if (raw[key] === undefined) continue
+    if (source !== 'mention') {
+      problems.push({ at: `${at}.${key}`, text: `Only a mention trigger reads ${key}.`, fix: `Remove ${key}, or make this trigger on: mention.` })
+      continue
+    }
+    if (key === 'handle') {
+      const value = typeof raw[key] === 'string' ? (raw[key] as string).replace(/^@/, '') : null
+      if (value === null || !FORGE_LOGIN.test(value)) {
+        problems.push({ at: `${at}.handle`, text: 'handle is the name a comment addresses, as @handle: letters, digits and single hyphens.', fix: 'Write handle: dex, or leave it out to use the Lead’s name.' })
+      } else handle = value.toLowerCase()
+    } else if (key === 'people') people = readLogins(raw[key], `${at}.people`, 'people', problems) ?? undefined
+    else bots = readLogins(raw[key], `${at}.bots`, 'bots', problems) ?? undefined
+  }
+
   const budget = readBudget(raw['budget'], `${at}.budget`, problems)
   if (problems.length > before || !id || !on || !opens || !goal || !dedupe || concurrency === null || !budget) return null
-  return { id, on, opens, goal, again, dedupe, concurrency, forks, budget, ...(label ? { label } : {}), ...(from ? { from } : {}) }
+  return {
+    id, on, opens, goal, again, dedupe, concurrency, forks, budget, ...(label ? { label } : {}), ...(from ? { from } : {}),
+    ...(handle ? { handle } : {}), ...(people ? { people } : {}), ...(bots ? { bots } : {}),
+  }
 }
 
 /**
@@ -406,7 +472,8 @@ const readEntry = (raw: unknown, at: string, problems: TriggerProblem[]): Trigge
  */
 export function acceptsFact(definition: TriggerDefinition, fact: TriggerFact): boolean {
   if (definition.on.kind !== fact.source || !(definition.on.events as readonly string[]).includes(fact.action)) return false
-  if (definition.label === undefined) return true
+  // A mention trigger's labels are its gate's rule, read from the thread, never a fact's own label.
+  if (definition.label === undefined || definition.on.kind === 'mention') return true
   return fact.action === 'labelled' && typeof fact.label === 'string' && definition.label.includes(fact.label)
 }
 

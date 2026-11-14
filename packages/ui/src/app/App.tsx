@@ -10,8 +10,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RuntimeId } from '@harnessdesk/protocol'
 
 import { useLeadName } from '../components/use-lead-name'
-import { desktop, isDesktop, onOpenGoal, onOpenSession, onShortcut, setWindowTitle } from '../lib/desktop'
-import { sessionLabel, shortLabel } from '../lib/sessions'
+import { useLeadPresence } from '../components/LeadAway'
+import { desktop, isDesktop, onOpenGoal, onOpenSession, onPromptLink, onShortcut, setWindowTitle } from '../lib/desktop'
+import { windowTitleOf } from '../lib/window-title'
 import { startTrayUpdates } from '../lib/tray'
 import { shortcutFor } from '../lib/shortcuts'
 import { effectiveWindowMode, requestAskInChat } from '../editor'
@@ -66,6 +67,8 @@ export const App = () => {
   const snapshot = useSnapshot()
   const session = useActiveSession()
   const leadName = useLeadName()
+  // The window's presence follows the person on every page, not only while the Lead is showing.
+  useLeadPresence(snapshot.leadAvailable)
   const editorAvailable = effectiveWindowMode('editor', snapshot.workbench) === 'editor'
   const editorSubject = editorAvailable ? fixedSubject(snapshot.workbench.main) : null
   useEffect(() => {
@@ -266,6 +269,15 @@ export const App = () => {
   )
   useEffect(() => onOpenGoal(({ goal }) => {store.openGoal(goal)}), [store])
 
+  // A prompt link the OS opened fills a new chat's draft, and nothing else.
+  // Taken only once the desk can say which projects it has, so a link that
+  // started the app waits in the shell rather than resolving against nothing.
+  const linksReady = snapshot.status === 'open' && snapshot.preferencesLoaded
+  useEffect(() => {
+    if (!linksReady) return
+    return onPromptLink((link) => { void store.fillFromPromptLink(link) })
+  }, [linksReady, store])
+
   /**
    * The menu bar's status item.
    *
@@ -352,8 +364,8 @@ export const App = () => {
   // conversation's label is the user's whole opening message, so it is
   // shortened here rather than left to overrun the menu.
   useEffect(() => {
-    setWindowTitle(snapshot.workbench.navigation.current.kind === 'lead' ? leadName === 'lex' ? 'Lex' : leadName === 'dex' ? 'Dex' : 'Lead' : session ? shortLabel(sessionLabel(session.title, session.preview, 'HarnessDesk')) : 'HarnessDesk')
-  }, [session?.title, session?.preview, snapshot.workbench.navigation.current.kind, leadName])
+    setWindowTitle(windowTitleOf(snapshot.workbench.navigation.current, leadName, session ?? null))
+  }, [session?.title, session?.preview, snapshot.workbench.navigation.current, leadName])
 
   // One table decides which chords exist; this dispatches from it, and the
   // Keyboard shortcuts page prints the same rows. Two lists is the

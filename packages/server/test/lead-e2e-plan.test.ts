@@ -3,7 +3,7 @@ import test from 'node:test'
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { leadBudgetProjection } from '@harnessdesk/lead'
+import { canBeginLeadGoal, leadBudgetProjection } from '@harnessdesk/lead'
 import { LeadPlanner } from '../src/lead/planner.js'
 import { LeadRepeats } from '../src/lead/repeats.js'
 import { createLeadRig } from './fixtures/lead-rig.js'
@@ -55,8 +55,8 @@ test('the model gets one standing text for the whole goal, the contract in a mes
   const bodies = rig.provider.requests.map(request => request.body)
   assert.ok(bodies.length >= 3, 'the plan, the request after approval and its tool turns')
   // A provider refuses a replayed reasoning block behind a system prompt that changed, so the bytes never change.
-  const system: string = bodies[0]!.system
-  assert.ok(bodies.every(body => body.system === system), 'one system text from the first request to the last')
+  const system: string = bodies[0]!.system[0].text
+  assert.ok(bodies.every(body => body.system[0].text === system), 'one system text from the first request to the last')
   assert.ok(system.includes(rig.project.path), 'it gives the project root')
   for (const seat of ['rig-writer', 'rig-reviewer']) assert.ok(system.includes(seat), `it gives the seat ${seat}`)
   assert.ok(system.includes('"type":"lead-output"'), 'it gives the plan format')
@@ -126,7 +126,12 @@ test('one repeat approval runs twice and skips a slot while its first result wai
   assert.equal(rig.journal.state.budget!.logicalGoalId, firstGoal)
   await assert.rejects(rig.host.call('lead/repeat/control', { taskId: task.id, action: 'run-now' }))
   await rig.decide(rig.pending('result')!, 'accept')
-  await rig.waitFor(() => !rig.service.requestInFlight && !rig.journal.state.budget!.requests.length, 'first repeat finishes')
+  // Run now begins a goal only when the journal can (`canBeginLeadGoal`), and that also waits for the child's
+  // own desk reads: accepting wakes the child, whose journaled reads are attempts with no model request or
+  // reservation. Waiting on the request alone let Run now land mid-read and be refused lead-request-in-flight.
+  // Settle first, so the Flow's own events after the acceptance have reached the child before the wait reads it.
+  await rig.settle()
+  await rig.waitFor(() => !rig.service.requestInFlight && canBeginLeadGoal(rig.journal.state), 'first repeat finishes')
   await rig.host.call('lead/repeat/control', { taskId: task.id, action: 'run-now' })
   await rig.waitFor(() => !!rig.pending('result'), 'second repeat reviewed result without another plan approval')
   assert.notEqual(rig.journal.state.budget!.logicalGoalId, firstGoal)
@@ -355,6 +360,39 @@ test('restricted conversational Lead delegates ordinary chats with one runtime a
   assert.ok((await rig.workerCalls()).some(call => call.method === 'turn/interrupt'), 'the ordinary stop reaches the actual worker interrupt path')
   assert.ok(rig.children.length > 0, 'the real restricted Lead child ran')
   assert.ok(rig.calls.filter(call => call.method.startsWith('lead/chat/')).length >= 4)
+})
+
+test('the Lead names ordinary chats by handle; the host turns each into its id before any check, so a handle reaches nothing its id could not', async t => {
+  const rig = await createLeadRig({ ordinaryChats: true, ordinaryHandles: true, waitMs: 30000 }); t.after(() => rig.dispose())
+  await rig.sendGoal()
+  const results = () => rig.provider.requests.flatMap(request => request.body.messages.flatMap((message: any) => message.content))
+    .filter((block: any) => block.type === 'tool_result')
+  await rig.waitFor(() => results().some((block: any) => block.tool_use_id === 'ordinary-foreign') || rig.journal.state.phase === 'waiting-for-user', 'ordinary chat handle sequence')
+  const byId = (id: string) => results().find((block: any) => block.tool_use_id === id)
+  assert.ok(byId('ordinary-foreign'), JSON.stringify({ phase: rig.journal.state.phase, reason: rig.journal.state.managementReason, results: results().map((one: any) => one.tool_use_id), calls: rig.calls.filter(call => call.method.startsWith('lead/chat/')) }))
+  const started = JSON.parse(byId('ordinary-start').content)
+  assert.match(started.id, /^rig-writer:/)
+  assert.match(started.handle, /^[a-z][a-z0-9-]{0,31}$/, 'the start receipt carries the handle')
+  assert.notEqual(started.handle, 'lead')
+  const listed = JSON.parse(byId('ordinary-list').content)
+  assert.deepEqual(listed.items.filter((item: any) => item.id === started.id).map((item: any) => item.handle), [started.handle], 'chat_list shows the same handle beside the id')
+  for (const id of ['ordinary-list', 'ordinary-read', 'ordinary-send', 'ordinary-stop']) assert.equal(byId(id)?.is_error, false, JSON.stringify(byId(id)))
+  assert.equal(JSON.parse(byId('ordinary-read').content).handle, started.handle)
+  // Every chat call the desk answered named the chat by its id: the handle never got past resolution.
+  const chatCalls = rig.calls.filter(call => /^lead\/chat\/(read|send|stop)$/.test(call.method)).map(call => (call.params as { id: string }).id)
+  assert.ok(chatCalls.length >= 3)
+  assert.ok(chatCalls.every(id => id.includes(':')), JSON.stringify(chatCalls))
+  assert.ok([...rig.journal.state.attempts.values()].every(attempt => !JSON.stringify(attempt).includes(`"${started.handle}"`)), 'the journal decided on the id alone')
+  // The other project's chat: its handle is refused exactly as its id is.
+  assert.equal(byId('ordinary-foreign-id')?.is_error, true)
+  assert.equal(byId('ordinary-foreign')?.is_error, true, 'a handle for a chat outside the project is refused')
+  assert.equal(byId('ordinary-foreign').content, byId('ordinary-foreign-id').content)
+  // A handle nobody holds is an error that says so and points to chat_list.
+  assert.equal(byId('ordinary-unknown')?.is_error, true)
+  assert.match(byId('ordinary-unknown').content, /no chat has the handle "nobody-here".*chat_list/)
+  assert.equal(rig.calls.filter(call => call.method === 'lead/chat/send').length, 1, 'the unknown handle sent nothing')
+  // A mistaken handle did not park the Lead: the turn after it went on to the other project's chat.
+  assert.ok(results().findIndex((block: any) => block.tool_use_id === 'ordinary-unknown') < results().findIndex((block: any) => block.tool_use_id === 'ordinary-foreign'))
 })
 
 test('ordinary chat continuation stays visibly in flight after the first child result and Stop cancels it', async t => {

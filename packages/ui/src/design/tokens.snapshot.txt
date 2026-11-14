@@ -108,6 +108,7 @@
 --hd-composer-line = 20px
 --hd-composer-max = 320px
 --hd-composer-min = 44px
+--hd-composer-notices-max-height = 60dvh
 --hd-composer-radius = 28px
 --hd-composer-send-size = 30px
 --hd-composer-shell-shadow = 0 4px 20px rgba(0, 0, 0, 0.035)
@@ -208,6 +209,7 @@
 --hd-label-weight = 400
 --hd-lead-dex-ground = rgb(227, 235, 251)
 --hd-lead-lex-ground = rgb(36, 49, 79)
+--hd-leading-reading = 1.625
 --hd-left-menu-gap = 8px
 --hd-left-row-gap = 0px
 --hd-left-row-h = calc(32px + 2px)
@@ -709,6 +711,7 @@
 --hd-composer-line = 20px
 --hd-composer-max = 320px
 --hd-composer-min = 44px
+--hd-composer-notices-max-height = 60dvh
 --hd-composer-radius = 28px
 --hd-composer-send-size = 30px
 --hd-composer-shell-shadow = 0 4px 20px rgba(0, 0, 0, 0.035)
@@ -809,6 +812,7 @@
 --hd-label-weight = 400
 --hd-lead-dex-ground = rgb(227, 235, 251)
 --hd-lead-lex-ground = rgb(36, 49, 79)
+--hd-leading-reading = 1.625
 --hd-left-menu-gap = 8px
 --hd-left-row-gap = 0px
 --hd-left-row-h = calc(32px + 2px)
@@ -1310,6 +1314,7 @@
 --hd-composer-line = 20px
 --hd-composer-max = 320px
 --hd-composer-min = 44px
+--hd-composer-notices-max-height = 60dvh
 --hd-composer-radius = 28px
 --hd-composer-ring = 0 0 0 3px color-mix(in srgb, rgb(52, 88, 240) 45%, transparent)
 --hd-composer-send-size = 30px
@@ -1412,6 +1417,7 @@
 --hd-label-weight = 400
 --hd-lead-dex-ground = rgb(227, 235, 251)
 --hd-lead-lex-ground = rgb(36, 49, 79)
+--hd-leading-reading = 1.625
 --hd-left-menu-gap = 8px
 --hd-left-row-gap = 0px
 --hd-left-row-h = calc(32px + 2px)
@@ -1916,6 +1922,7 @@
 --hd-composer-line = 20px
 --hd-composer-max = 320px
 --hd-composer-min = 44px
+--hd-composer-notices-max-height = 60dvh
 --hd-composer-radius = 28px
 --hd-composer-ring = 0 0 0 3px color-mix(in srgb, rgb(112, 142, 250) 55%, transparent)
 --hd-composer-send-size = 30px
@@ -2018,6 +2025,7 @@
 --hd-label-weight = 400
 --hd-lead-dex-ground = rgb(227, 235, 251)
 --hd-lead-lex-ground = rgb(36, 49, 79)
+--hd-leading-reading = 1.625
 --hd-left-menu-gap = 8px
 --hd-left-row-gap = 0px
 --hd-left-row-h = calc(32px + 2px)

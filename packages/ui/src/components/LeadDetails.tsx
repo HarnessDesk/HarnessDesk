@@ -6,6 +6,7 @@ import { sanitizeText } from '../lib/sanitize'
 import { leadRefusalText } from './lead-refusals'
 import { leadDollars, leadSpendCap } from './LeadCards'
 import { PencilIcon } from './Icons'
+import { LeadWork } from './LeadWork'
 
 /** A Flow role is an id (`implement`); the rail says it in the plan card's word, capitalised for a row title. */
 const roleTitle = (role: string) => { const word = leadRoleWord(sanitizeText(role)); return word.charAt(0).toUpperCase() + word.slice(1) }
@@ -70,13 +71,14 @@ export const LeadDetails = () => {
     {!(contract && phase) && <ToolSection label="Goal">
       <ToolProse variant="note">{state.projectMissing ? 'Open a folder, then send a goal. Its plan, workers and spend show here.' : 'Send a goal. Its plan, workers and spend show here.'}</ToolProse>
     </ToolSection>}
+    <LeadWork />
     {contract && phase && <>
       <ToolSection label="Goal" fold><ToolProse>{sanitizeText(contract.goal)}</ToolProse></ToolSection>
       <ToolSection label="Plan" fold value={planWord(phase, state.progress)}>
         <Checklist surface="panel">{contract.steps.map((step, at) => <ChecklistItem key={step.id} state={stepState(at)}>{sanitizeText(step.title)}</ChecklistItem>)}</Checklist>
       </ToolSection>
       {workers.length > 0 && <ToolSection label="Workers" fold value={workers.length}>
-        <ListRows>{workers.map(role => <ListRow key={role} size="sm" title={role} />)}</ListRows>
+        <ListRows surface="panel">{workers.map(role => <ListRow key={role} size="sm" title={role} />)}</ListRows>
       </ToolSection>}
     </>}
     {caps && <ToolSection label="Spend" value={budget ? known ? leadNoSpendLimit(caps.usdMicros) ? `${leadDollars(spent)} · no limit` : `${leadDollars(spent)} of ${leadDollars(caps.usdMicros)}` : 'Not confirmed' : leadSpendCap(caps.usdMicros)}
