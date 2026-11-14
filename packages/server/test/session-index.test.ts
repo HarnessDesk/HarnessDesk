@@ -527,3 +527,25 @@ test('two-pass pin migration reserves legacy order while respecting later pin ed
     assert.deepEqual(index.pins(), ['fake:late', 'fake:existing', 'fake:late2', 'fake:new', 'fake:repin'])
   } finally { index.close() }
 })
+
+test('interrupted pin migration resumes reserved order without replaying edits', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'hd-pin-resume-'))
+  const file = join(home, 'sessions.sqlite')
+  let index = new SessionIndex(file)
+  for (const id of ['existing', 'repin', 'unpin', 'new']) index.upsert(row(id))
+  index.migratePins(['fake\u0000late', 'fake:existing', 'fake:repin', 'fake:unpin', 'fake:pending-unpin', 'fake:pending-repin'], false)
+  index.setPinned(runtime, idOf('unpin'), false)
+  index.setPinned(runtime, idOf('repin'), false)
+  index.setPinned(runtime, idOf('new'), true)
+  index.setPinned(runtime, idOf('repin'), true)
+  index.setPinned(runtime, idOf('pending-unpin'), false)
+  index.setPinned(runtime, idOf('pending-repin'), true)
+  index.close()
+  index = new SessionIndex(file)
+  try {
+    const pending = index.migratePins(['fake:unpin', 'fake:pending-unpin'], false)
+    index.upsert(row('late')); index.upsert(row('pending-unpin')); index.upsert(row('pending-repin'))
+    index.migratePins(pending)
+    assert.deepEqual(index.pins(), ['fake:late', 'fake:existing', 'fake:new', 'fake:repin', 'fake:pending-repin'])
+  } finally { index.close() }
+})
