@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 const taskSource = resolve('.')
-const taskSha = 'bdff0b1169289b67cdbb9ea138f45d6dd7b46fe4'
+const taskSha = '8d30cf17f720e4014020aac8c345776a4372953e'
 const sha = path => createHash('sha256').update(readFileSync(path)).digest('hex')
 const git = (...args) => execFileSync('git', ['-C',taskSource,...args], {encoding:'utf8'}).trim()
 if (process.platform !== 'darwin' || process.env.GITHUB_ACTIONS !== 'true' || process.env.RUNNER_ENVIRONMENT !== 'github-hosted') throw new Error('hosted macOS runner required')
@@ -14,6 +14,15 @@ if (git('merge-base','HEAD',taskSha)!==taskSha) throw new Error('source base mis
 const changed=git('diff','--name-only',taskSha,'HEAD','--',':(exclude).github/workflows/ci.yml',':(exclude)diagnostic/retention-pilot')
 if (changed || git('status','--porcelain=v1')) throw new Error('production source or checkout changed')
 const fixture=join(taskSource,'diagnostic/retention-pilot/fake-codex-1545.mjs')
+const fixtureHashes={
+ 'packages/adapter-codex/test/fixtures/fake-codex.mjs':'f4d8fcb27e24a3e871dd5660030e4c0fbd718bc429952e98970de81f43e7b1d1',
+ 'packages/adapter-codex/test/fixtures/scripted-flow.mjs':'1b6f58123021ce772025a525aaedabd99784655772631299d27a6dbe4c8099d7',
+ 'packages/adapter-codex/test/fixtures/plugin-icon.svg':'611ca48d4da7767c7cc051442c2e389a2d5a288a2fbb09c5edd3f3b1e7499d79',
+ 'diagnostic/retention-pilot/fake-codex-1545.mjs':'8d06106401fa5076c489d4a879da79e831cde8a1400deb880579739d89d00738',
+ 'diagnostic/retention-pilot/scripted-flow.mjs':'1b6f58123021ce772025a525aaedabd99784655772631299d27a6dbe4c8099d7',
+ 'diagnostic/retention-pilot/plugin-icon.svg':'611ca48d4da7767c7cc051442c2e389a2d5a288a2fbb09c5edd3f3b1e7499d79',
+}
+for(const [path,expected] of Object.entries(fixtureHashes)) if(sha(join(taskSource,path))!==expected) throw new Error('fixture fingerprint mismatch')
 const osHome=homedir()
 for (const path of ['.codex/sessions','.codex/archived_sessions','.codex/auth.json','.codex/config.toml','.codex/history.jsonl','.claude','.cursor','.config/gh','.ssh','.aws','.netrc','.git-credentials','.gemini','.qwen','Library/Application Support/Cursor/User/globalStorage','.local/share/opencode','.config/opencode','.cline','.openclaw','.hermes','.codebuddy','.kimi','.pi','.grok','.copilot','.dsh','.devin','.config/gcloud']) {
  if(existsSync(join(osHome,path))) throw new Error('ambient agent or credential location exists')
