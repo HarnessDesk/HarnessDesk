@@ -866,6 +866,37 @@ test('#2081 R7: a second mismatched closer is left as prose', () => {
     { text: 'Before.\n ] After.', dropped: true })
 })
 
+test('#2081 R8: prose after a recovered nested closer stays whole', () => {
+  for (const [opening, closer] of [
+    ['{"type":"lead-output","refs":[1,', ']'],
+    ['{"type":"lead-output","ask":{"question":', '}'],
+    ['{"type":"lead-output","refs":[{"id":', '}'],
+    ['{"type":"lead-output","refs":[[1,', ']'],
+  ] as const) {
+    for (const prose of ['true story', 'false alarm', 'null result', 'nullable fields', 'trueish result', '1,000 users saw this', '123 more words', '1. First step', '"Quoted prose" said the worker.', '[1] see the docs', '[1]: see the docs']) {
+      assert.deepEqual(lead.stripLeadOutput(`Before.\n${opening}\n${closer} ${prose}`),
+        { text: `Before.\n ${prose}`, dropped: true }, `${opening}: ${prose}`)
+    }
+  }
+})
+
+test('#2081 R8: recovered nested closers accept structural continuations without swallowing comma prose', () => {
+  for (const [opening, continuation] of [
+    ['{"type":"lead-output","refs":[1,', '], "text":"hidden"'],
+    ['{"type":"lead-output","refs":[{"id":', '}, {"id":2}'],
+    ['{"type":"lead-output","ask":{"question":', '} , "text":"hidden"'],
+    ['{"type":"lead-output","refs":[[1,', '], [2]'],
+    ['{"type":"lead-output","refs":[[1,', ']]'],
+  ] as const) {
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n${opening}\n${continuation}\nAfter.`),
+      { text: 'Before.\nAfter.', dropped: true }, `${opening}: ${continuation}`)
+  }
+  for (const prose of [', true story', ', 1,000 users saw this', ', "Quoted prose" said the worker.']) {
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n{"type":"lead-output","refs":[1,\n] ${prose}`),
+      { text: `Before.\n ${prose}`, dropped: true }, prose)
+  }
+})
+
 test('#2081: wrapped JSON continuations stay with a clipped envelope', () => {
   for (const fragment of [
     '{"version":1,"type":"lead-output",\n  "text": "hidden",',

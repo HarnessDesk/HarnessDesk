@@ -158,6 +158,12 @@ const jsonEnd = (text: string, start: number, multiline: boolean): number => {
     else if (char === '}' || char === ']') {
       if (containers.at(-1) !== (char === '}' ? '{' : '[')) return index
       containers.pop(); if (containers.length === 0) return index + 1
+      // Once a nested value ends, only a separator or the parent's matching
+      // closer can continue it on this line. Keep any following prose whole.
+      const rest = text.slice(index + 1).replace(/^[ \t]*/, '')
+      const parentClose = containers.at(-1) === '{' ? '}' : ']'
+      if (rest[0] && rest[0] !== '\r' && rest[0] !== '\n' && rest[0] !== parentClose &&
+          (rest[0] !== ',' || !continuationLine(rest, containers, char))) return index + 1
     }
     else if (/^(?:true|false|null)(?![\p{L}\p{N}_])/u.test(text.slice(index, index + 6))) index += text[index] === 'f' ? 4 : 3
     else if (!/[ \t:,0-9.eE+-]/.test(char)) return index
