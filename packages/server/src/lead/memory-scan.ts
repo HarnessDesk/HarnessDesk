@@ -185,7 +185,7 @@ const STARTS_CJK = /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u
  * a space or a name in Latin letters ("嗯嗯 记住", "Dex记住"). An English remember verb followed immediately by a
  * colon may follow a space instead. "I will remember to…" and "我不记得了" are not requests. */
 const addressed = (address: string, rest: string): boolean =>
-  /[,、:;!~]\s*$/.test(address) || address.startsWith('@') || /\s$/.test(address) && /^(?:remember|keep in mind|note down)\s*:/i.test(rest) || STARTS_CJK.test(rest) && (/\s$/.test(address) || /^[A-Za-z0-9_.-]+$/.test(address))
+  /[,、:;!~]\s*$/.test(address) || address.startsWith('@') || /\s$/.test(address) && !/^(?:i|we)\b/i.test(address) && /^(?:remember|keep in mind|note down)\s*:/i.test(rest) || STARTS_CJK.test(rest) && (/\s$/.test(address) || /^[A-Za-z0-9_.-]+$/.test(address))
 /**
  * The words a person's message asks the Lead to keep, when it opens by asking that ("记住这条：…", "Hey Dex, remember:
  * …"); null for any other message. The text is cleaned first, as a memory entry is, so an invisible character cannot

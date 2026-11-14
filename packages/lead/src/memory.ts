@@ -146,13 +146,16 @@ export const leadMemoryStatus = (status: LeadMemoryStatus, read: LeadMemoryCore,
     const prior = before.get(entry.id)
     return prior !== entry.text || read.format !== 2 && legacyMemoryLine(prior) !== leadMemoryLine(entry.text)
   })
+  const currentCore = new Set(status.core.map(entry => entry.id))
+  const archived = read.entries.filter(entry => now.has(entry.id) && !currentCore.has(entry.id)).map(entry => entry.id)
   const removed = read.entries.filter(entry => !now.has(entry.id)).map(entry => entry.id)
   const changes = [
     ...added.map(entry => `- tag ${entry.id} ${before.has(entry.id) ? 'now reads' : 'now kept'}: ${leadMemoryClean(entry.text, STATUS_TEXT)}`),
+    ...archived.map(id => `- tag ${id} moved out of Core and remains in Archive`),
     ...(removed.length ? [`- no longer in memory: ${removed.map(id => `tag ${id}`).join(', ')}`] : []),
   ]
   // Too many changes to list within the limit: say how many, not which.
-  const counted = [`- ${added.length} notes kept or changed and ${removed.length} no longer in memory; the next summary brings the whole list.`]
+  const counted = [`- ${added.length} notes kept or changed${archived.length ? `, ${archived.length} moved to Archive` : ''} and ${removed.length} no longer in memory; the next summary brings the whole list.`]
   const cleared = status.clearedAt === null ? [] : [`The person cleared all memory on ${day(status.clearedAt)}. Nothing proposed before then is kept.`]
   const build = (shown: readonly string[], listed: readonly string[] = changes) => [
     `${LEAD_MEMORY_STATUS_OPEN} revision="${status.revision}">`,

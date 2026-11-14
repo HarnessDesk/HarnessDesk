@@ -24,6 +24,8 @@ interface StoredVersion {
   readonly changes: readonly StoredChange[]
   readonly tidy?: { readonly merged: number; readonly replaced: number; readonly archived: number }
   readonly undone?: true
+  /** A budget refit cannot be undone without violating the Core byte limit. */
+  readonly refit?: true
   /** Forget took text out of this version, so it can no longer be put back. */
   readonly erased?: true
   /** What the version did, counted before Forget took its words out, so its history row still says so (#2152). */
@@ -115,7 +117,7 @@ const summary = (version: StoredVersion, entries: readonly LeadMemoryEntry[]): L
   const counts = version.forgot !== undefined ? NO_COUNTS : version.counts ?? countsOf(version.changes)
   return { version: version.version, at: version.at, by: version.by, ...counts,
     ...(version.tidy ? { tidy: version.tidy } : {}),
-    undoable: !version.undone && !version.erased && version.changes.length > 0 && version.changes.every(change => sameEntry(current.get(change.id), change.after)),
+    undoable: !version.undone && !version.erased && !version.refit && version.changes.length > 0 && version.changes.every(change => sameEntry(current.get(change.id), change.after)),
     ...(version.undone ? { undone: true as const } : {}),
     ...(version.forgot !== undefined ? { forgotten: version.forgot } : version.erased ? { erased: true as const } : {}) }
 }
@@ -125,9 +127,10 @@ const parseVersion = (value: unknown): StoredVersion => {
   const item = value as StoredVersion
   if (!item || typeof item !== 'object' || !Number.isSafeInteger(item.version) || !Number.isSafeInteger(item.at) || !Array.isArray(item.changes)) throw new Error('lead-memory-store')
   if (!['person', 'lead', 'tidy', 'undo', 'migration'].includes(item.by)) throw new Error('lead-memory-store')
+  if (Object.hasOwn(item, 'refit') && (item.refit !== true || item.by !== 'migration')) throw new Error('lead-memory-store')
   const changes = item.changes.map(change => ({ id: String(change.id), before: change.before === null ? null : parseLeadMemoryEntry(change.before), after: change.after === null ? null : parseLeadMemoryEntry(change.after) }))
   return { version: item.version, at: item.at, by: item.by, changes, ...(item.tidy ? { tidy: { merged: Number(item.tidy.merged) || 0, replaced: Number(item.tidy.replaced) || 0, archived: Number(item.tidy.archived) || 0 } } : {}),
-    ...(item.undone === true ? { undone: true as const } : {}), ...(item.erased === true ? { erased: true as const } : {}),
+    ...(item.refit === true ? { refit: true as const } : {}), ...(item.undone === true ? { undone: true as const } : {}), ...(item.erased === true ? { erased: true as const } : {}),
     ...(item.counts && typeof item.counts === 'object' ? { counts: { added: Number(item.counts.added) || 0, removed: Number(item.counts.removed) || 0, changed: Number(item.counts.changed) || 0 } } : {}),
     ...(Number.isSafeInteger(item.forgot) && item.forgot! > 0 ? { forgot: item.forgot! } : {}) }
 }
@@ -224,7 +227,7 @@ export class LeadMemoryStore {
         this.#state = parsed
         // The source-length renderer can make a formerly valid Core larger. Reuse the normal archive policy,
         // persist its revision before publishing, and leave a valid saved file in place if that write fails.
-        if (diff(parsed.entries, fit(parsed.entries)).length) await this.#commit({ entries: parsed.entries }, 'migration')
+        if (diff(parsed.entries, fit(parsed.entries)).length) await this.#commit({ entries: parsed.entries }, 'migration', { refit: true })
         return
       }
     }
@@ -265,7 +268,7 @@ export class LeadMemoryStore {
     return next
   }
   /** One change: the entries refit to Core's budget, a version when they changed, the revision bumped and saved. */
-  async #commit(next: Partial<StoreState>, by: LeadMemoryChangeBy, extra: Pick<StoredVersion, 'tidy' | 'forgot'> = {}): Promise<number | null> {
+  async #commit(next: Partial<StoreState>, by: LeadMemoryChangeBy, extra: Pick<StoredVersion, 'tidy' | 'forgot' | 'refit'> = {}): Promise<number | null> {
     const before = this.#state.entries, entries = next.entries ? fit(next.entries) : before
     const changes = diff(before, entries)
     let versions = next.versions ?? this.#state.versions, version: number | null = null
