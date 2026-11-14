@@ -7,6 +7,44 @@ the rule is the last line of its section.
 
 ---
 
+## Complete affected coverage can land a low-risk change — 2026-11-14
+
+Core-only PR CI followed by mandatory full CI made even an isolated test repair
+wait for two runs. The owner approved scoped landing proof: Markdown, test files
+and local component/panel source are eligible through an explicit allowlist;
+shared UI, auth/approvals, renderer state, host/adapters, protocol, persistence,
+lifecycle, build/CI and unknown inputs require full validation on the first run.
+The importer graph constrains local UI to TSX and module stylesheets with one
+production component/panel consumer at most. A barrel is not proof of locality,
+and a stylesheet inherits its owner's classification, so a shared glyph or
+Markdown's CSS cannot look local merely because it has one direct importer.
+The shared local/development planner keeps its budget. CI requests a complete
+selection instead: every reached/edited spec runs, no spec is deferred to meet
+a time budget, and missing/stale/unresolvable evidence falls back to full.
+The required checks and core tests are unchanged. Scoped runs skip native smoke;
+full runs retain every browser spec and native smoke. Main and nightly recording
+remain unchanged, and only full proof can publish the exact-tree artifact.
+
+Landing accepts a scoped/full marker only with successful selection and all
+required checks in that same suite at the reviewed head. Bounded samples cannot
+authorize landing; releases and other targets still require full. Newer attempts,
+head movement and base movement retain their existing refusal rules.
+
+The full-ci label now admits the PR event directly instead of dispatching a
+workflow on a mutable branch. Label/synchronize events for the same labelled
+head share a full concurrency group, separate from ordinary PR events. Other
+labels skip under distinct `Label ignored: …` names, so no queued, cancelled or
+failed no-op can shadow a required check, selection or tier marker. Landing needs
+no exception for skipped suites. Main cancellation protection and development's
+per-push range groups remain intact.
+
+This supersedes the ordinary-PR core-only/full-before-every-landing rule and
+the label-dispatch admission described below. Speed is measured separately from
+coverage: removing a second full run reduces repeated work, but local planner
+estimates are not evidence of GitHub wall-clock savings.
+
+---
+
 ## The Lead names chats by short handles, never given twice, resolved before any check — 2026-11-12
 
 A chat id is `runtime:session`, forty-odd characters the model copies from a list into its next call. It mistypes them, and every list and notice pays for them in tokens. The host now gives each chat it shows the Lead a handle, from the project folder and the chat's model, or its agent when the desk does not know the model: `web-opus`, then `web-opus-2` for the next chat on the same base (`packages/lead/src/chat-handles.ts`).
@@ -6208,3 +6246,32 @@ Every runtime reports delegation as `subagent` items, and the transcript drew ea
 - **Settled means ended.** Codex reports nothing more about a child no call addresses. Once a conversation is not busy and the adapter has not said a sub-agent outlived the turn (`subagentsRunning`), a child last called working is shown as Ended, not as working for ever. The same holds per turn: while a later turn runs, a child last named in an earlier one is Ended too, unless the adapter said sub-agents outlived the turn. The exception is a child whose own item is still open: the ACP agents keep one item per child and close it when the child ends, so an open one is the agent's live word, and a background child (Claude Code's) stays Working past a settled turn — `subagentsRunning` cannot carry that, because it also offers Stop, which only an agent whose cancel leaves its children can honour. Only the item that started a child can be its record — a call that addressed an earlier child (a wait) still settles if it never closed. An item a turn left open when it was cut short (interrupted, failed, recovered after a restart) is nobody's live word and settles; so does every item in a read-only copy. The ACP adapter closes such a row itself (member `notFound`, an end nobody can name) once nothing is left that could report on the child — the agent exited, the handle was released, or history was replayed into a fresh one — and the next live list reopens it if the child does still run. The fold is cached per conversation and redone only when a sub-agent item changed, so a streaming reply does not refold every child on each delta. DeepSeek's cancel marks the item failed and the member stopped; the member's word wins, so it reads Stopped.
 - **Four surfaces, one row.** The transcript card (`AgentFlowCard`, placed at the first call of each run of sub-agent calls — a reply from the agent ends a run, so a second batch gets its own card — reading the whole conversation so it keeps up with later waits), the strip over the composer, nested sidebar rows for children still working, and the Agents panel's groups and lanes (`AgentLanes`). The sidebar shows only working children so a finished delegation costs no height.
 - **Rejected:** a node graph of parent and children (delegation here is one level of fan-out and fan-in; a graph would spend a pane on a shape a list already says, and Flows already own the graph idiom); one card per call (the noise this replaces); a new wire method for child state (the items carry it, and a second source would disagree with the transcript).
+
+
+## Optional features belong in Settings — 2026-11-14
+
+Lead and Mobile stay discoverable under Agents and Access while off. Each page
+owns its enable control, and all windows read the host's acknowledged state.
+Explicit partial choices override launch defaults and apply live through one
+serialized lifecycle. A failed or interrupted change fences the feature until
+an explicit repair preserves the artifacts and stops both features. Off keeps
+Lead history and phone pairings. The account service has its own lifetime:
+signing in or out does not toggle either feature, and Mobile does not grant
+account relay access. Account and the existing local profile retain their
+separate identity controls; no new identity unification is part of this change.
+
+Backups carry only acknowledged explicit choices, including false, via an
+optional versioned sidecar. Unknown and live transition state are omitted.
+Import validates before mutation and uses the same lifecycle, surfacing failure
+without a success report; acknowledged matches count as preferences. An absent
+choice stays absent, and old backups leave choices alone. Rejected: backing up
+the raw feature file or its pending/repair state (machine-local uncertainty is
+not portable), folding features into ordinary renderer preferences (that skips
+service admission and shutdown), and another restore-only lifecycle.
+
+Navigation reads Preferences, Agents, Conversations, Access. Lead and Mobile
+stay reachable through older routes. Every Settings glyph uses the shared
+hover motion and reduced-motion policy rather than a page-specific
+animation. The screenshot rig clears feature preferences, preserved repair
+artifacts and feature-owned Lead/phone state only after its existing isolated
+home, ownership and symlink guards pass.

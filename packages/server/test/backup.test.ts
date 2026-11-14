@@ -189,7 +189,7 @@ test('what one host exports, a fresh host restores — and can prove it has', as
   // Nothing credential-shaped travels: the file has exactly the stores a backup owns.
   assert.deepEqual(
     Object.keys(backup).sort(),
-    ['agentFolders', 'agents', 'evidence', 'exportedAt', 'goals', 'hostVersion', 'kind', 'memory', 'preferences', 'provenance', 'seating', 'transcripts', 'version'],
+    ['agentFolders', 'agents', 'evidence', 'exportedAt', 'features', 'goals', 'hostVersion', 'kind', 'memory', 'preferences', 'provenance', 'seating', 'transcripts', 'version'],
   )
   assert.deepEqual(backup.goals, { version: 1, documents: [], lanes: [] })
   assert.deepEqual(backup.memory, { version: 1, objects: [], indexes: [], attachments: [] })
@@ -1820,4 +1820,109 @@ test('restore never arms a trigger', async (t) => {
   assert.equal(view?.state, 'off')
   const goals = await b.host.call('goal/list', {})
   assert.equal(goals.filter((one) => one.goal.origin.kind === 'trigger').length, 0, 'no Goal is reserved for it')
+})
+
+
+test('feature backup carries acknowledged partial choices, including explicit false, without lifecycle markers', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-features-'))
+  const dispose = disposeHostsThenRemove(t, [dir])
+  const { host } = await hostAt(dir); dispose(host)
+  assert.deepEqual((await host.call('backup/export', {})).features, { version: 1, choices: {} })
+  await host.call('app/features/set', { feature: 'lead', enabled: false })
+  const backup = await host.call('backup/export', {})
+  assert.deepEqual(backup.features, { version: 1, choices: { lead: false } })
+  assert.deepEqual(Object.keys(backup.features!).sort(), ['choices', 'version'])
+  assert.deepEqual(Object.keys(backup.features!.choices), ['lead'])
+})
+
+for (const residue of ['unreadable', 'pending', 'repair'] as const) {
+  test(`feature backup omits ${residue} choices rather than guessing`, async t => {
+    const dir = await mkdtemp(join(tmpdir(), 'hd-backup-feature-unknown-'))
+    const dispose = disposeHostsThenRemove(t, [dir])
+    await writeFile(join(dir, 'features.json'), residue === 'unreadable' ? '{' : JSON.stringify({ lead: true }))
+    if (residue === 'pending') await writeFile(join(dir, 'features.json.pending'), JSON.stringify({ previous: { lead: false, mobile: false }, choices: {}, feature: 'lead', enabled: true }))
+    if (residue === 'repair') await writeFile(join(dir, 'features.json.repair'), '{}')
+    const { host } = await hostAt(dir); dispose(host)
+    assert.ok((await host.call('app/features/read', {})).problem)
+    assert.equal('features' in await host.call('backup/export', {}), false)
+  })
+}
+
+test('feature restore applies partial choices through the live host and counts acknowledged preferences', async t => {
+  const desk = await startHarness({ catalogRefreshMs: 0, phoneLink: { host: '127.0.0.1' } })
+  t.after(async () => { await halt(desk); await rm(desk.stateDir, { recursive: true, force: true }) })
+  const report = await desk.host.call('backup/import', { backup: {
+    ...backupWith([]), preferences: { theme: 'dark' }, features: { version: 1, choices: { mobile: true, lead: false } },
+  } })
+  assert.equal(report.preferences, 3)
+  assert.deepEqual(await desk.host.call('app/features/read', {}), { lead: false, mobile: true })
+  assert.equal((await desk.host.call('phone/state', {})).enabled, true)
+  assert.deepEqual((await desk.host.call('backup/export', {})).features, { version: 1, choices: { lead: false, mobile: true } })
+  const legacy = await desk.host.call('backup/import', { backup: backupWith([]) })
+  assert.equal(legacy.preferences, 0)
+  assert.deepEqual(await desk.host.call('app/features/read', {}), { lead: false, mobile: true }, 'old backups preserve local choices')
+  const partial = await desk.host.call('backup/import', { backup: { ...backupWith([]), features: { version: 1, choices: { mobile: false } } } })
+  assert.equal(partial.preferences, 1)
+  assert.deepEqual((await desk.host.call('backup/export', {})).features!.choices, { lead: false, mobile: false })
+  assert.equal((await desk.host.call('phone/state', {})).enabled, false)
+})
+
+for (const features of [null, [], {}, { version: 2, choices: {} }, { version: 1, choices: null }, { version: 1, choices: [] },
+  { version: 1, choices: { lead: 'false' } }, { version: 1, choices: { mobile: 0 } }, { version: 1, choices: { unknown: true } },
+  { version: 1, choices: { lead: false }, pending: {} }, { version: 1, choices: { repair: true } }]) {
+  test(`malformed feature sidecar is rejected before any writes: ${JSON.stringify(features)}`, async t => {
+    const dir = await mkdtemp(join(tmpdir(), 'hd-backup-feature-invalid-'))
+    const dispose = disposeHostsThenRemove(t, [dir])
+    const { host, store } = await hostAt(dir); dispose(host)
+    const before = await readdir(dir)
+    await assert.rejects(host.call('backup/import', { backup: { ...backupWith([]),
+      agents: [{ id: 'fixture-agent', name: 'Fixture Agent', command: 'fixture-agent' }], preferences: { theme: 'dark' }, features,
+    } }), /feature backup/i)
+    assert.deepEqual(store.entries(), [])
+    assert.equal((await host.call('app/state/get', {}))['theme'], undefined)
+    assert.deepEqual(await readdir(dir), before)
+  })
+}
+
+test('invalid Goal preflight cannot activate a valid feature sidecar', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-feature-goal-'))
+  const dispose = disposeHostsThenRemove(t, [dir])
+  const { host } = await hostAt(dir); dispose(host)
+  await assert.rejects(host.call('backup/import', { backup: { ...backupWith([]),
+    features: { version: 1, choices: { mobile: true } }, goals: { version: 1, documents: 'invalid', lanes: [] },
+  } }), /Goal backup/)
+  assert.deepEqual(await host.call('app/features/read', {}), { lead: false, mobile: false })
+  await assert.rejects(readFile(join(dir, 'features.json')))
+})
+
+test('feature activation failure refuses restoration without a success count or ordinary writes', async t => {
+  const desk = await startHarness({ catalogRefreshMs: 0, phoneLink: { host: '127.0.0.1', port: -1 } })
+  t.after(async () => { await halt(desk); await rm(desk.stateDir, { recursive: true, force: true }) })
+  await assert.rejects(desk.host.call('backup/import', { backup: { ...backupWith([]), preferences: { theme: 'dark' },
+    features: { version: 1, choices: { mobile: true } },
+  } }), /feature change did not finish/i)
+  assert.equal((await desk.host.call('phone/state', {})).enabled, false)
+  assert.equal((await desk.host.call('app/state/get', {}))['theme'], undefined)
+  assert.equal('features' in await desk.host.call('backup/export', {}), false)
+})
+
+
+test('backup omits choices while a live feature activation is waiting', async t => {
+  const { PhoneLinkService } = await import('@harnessdesk/phone-link')
+  const desk = await startHarness({ catalogRefreshMs: 0, phoneLink: { host: '127.0.0.1' } })
+  t.after(async () => { await halt(desk); await rm(desk.stateDir, { recursive: true, force: true }) })
+  await desk.host.call('app/features/set', { feature: 'lead', enabled: false })
+  let entered!: () => void, release!: () => void
+  const waiting = new Promise<void>(resolve => { entered = resolve })
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const original = PhoneLinkService.start
+  t.mock.method(PhoneLinkService, 'start', async (...args: Parameters<typeof original>) => {
+    entered(); await gate; return original.apply(PhoneLinkService, args)
+  })
+  const changing = desk.host.call('app/features/set', { feature: 'mobile', enabled: true })
+  try {
+    await waiting
+    assert.equal('features' in await desk.host.call('backup/export', {}), false)
+  } finally { release(); await changing }
+  assert.deepEqual((await desk.host.call('backup/export', {})).features!.choices, { lead: false, mobile: true })
 })

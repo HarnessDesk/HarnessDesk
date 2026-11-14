@@ -20,7 +20,9 @@ export const HarnessDeskAccountPreview = () => {
       ...(pending ? { pending: { userCode: 'ABCD-EFGH', verifyUrl: `https://${stage === 'pending-staging' ? 'staging.example.com' : 'app.harnessdesk.app'}/link#code=ABCD-EFGH`, expiresAt: Math.floor(Date.now() / 1000) + 600 } }
         : stage === 'signed-out' ? {} : { account: { name: 'Jane Doe', email: 'jane@example.com', pictureUrl: null, pictureDataUrl: accountPicture } }),
     }
-    const next = frameDestinationStore(previewStore({ ...fixture.getSnapshot(), harnessDeskAccount: status,
+    const mobile = params.get('feature-mobile')
+    const features = mobile === 'problem' ? { lead: true, mobile: true, problem: { kind: 'preferences' as const, message: 'The saved feature settings need repair.' } } : mobile === 'off' ? { lead: false, mobile: false } : fixture.getSnapshot().features
+    const next = frameDestinationStore(previewStore({ ...fixture.getSnapshot(), harnessDeskAccount: status, features, phoneLink: features?.mobile === true && !features.problem, leadAvailable: features?.lead === true && !features.problem,
       theme: params.get('theme') === 'dark' ? 'dark' : 'light' }))
     // Keep every deletion scenario in this synthetic account preview.
     const request = next.transport.request.bind(next.transport)
@@ -31,7 +33,7 @@ export const HarnessDeskAccountPreview = () => {
       }
       return request(method, args)
     }) as typeof next.transport.request
-    if (stage === 'settings' || stage === 'settings-offline' || stage === 'settings-delete' || stage === 'settings-delete-offline') next.openDestination({ kind: 'settings', route: { kind: 'section', section: 'profile', focus: null } })
+    if (stage === 'settings' || stage === 'settings-offline' || stage === 'settings-delete' || stage === 'settings-delete-offline') next.openDestination({ kind: 'settings', route: { kind: 'section', section: params.get('account-section') === 'mobile' ? 'phone' : 'profile', focus: null } })
     if (stage === 'settings-offline') {
       const signOut = next.signOutOfHarnessDesk.bind(next)
       next.signOutOfHarnessDesk = async localOnly => {

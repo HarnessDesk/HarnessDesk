@@ -1,4 +1,12 @@
-import type { Page } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
+
+/** Stage a retained interface preference without restoring its retired Settings control. */
+export const setFrameLook = async (page: Page, look: 'desk' | 'studio') => {
+  await page.evaluate(value => (window as Window & {
+    __hdFrameWall: { setLook(look: 'desk' | 'studio'): void }
+  }).__hdFrameWall.setLook(value), look)
+  await expect.poll(() => page.locator('body').getAttribute('data-hd-interface')).toBe(look === 'desk' ? null : look)
+}
 
 /** Fixture tickets only: the real preview keeps its opaque sandbox and host
  * contract; this supplies deterministic local HTML bytes to the frame wall. */

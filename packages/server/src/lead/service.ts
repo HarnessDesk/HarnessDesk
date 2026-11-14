@@ -28,6 +28,8 @@ export interface LeadProcess {
   evidenceChanged?(): void
 }
 export interface LeadServiceOptions {
+  /** The host may fence admission while a feature transition needs repair. */
+  readonly available?: () => boolean
   /** The runtimes the child may run on, in order of preference; absent is this host's own. */
   readonly runtimes?: readonly LeadRuntime[]
   /** Test seam for the capability probe; absent is the real, cached one. */
@@ -87,7 +89,7 @@ export class LeadService {
   get step(): string | null { return this.#requestInFlight ? this.#step ?? LEAD_STEP_THINKING : null }
   get requestInFlight(): boolean { return this.#requestInFlight }
   /** Host dispatches, including accepted queued work, must observe lifecycle revocation immediately. */
-  get managementAvailable(): boolean { return this.#enabled && !this.#closed && !this.#changingKeys && !this.#cleanupFailed }
+  get managementAvailable(): boolean { return this.options.available?.() !== false && this.#enabled && !this.#closed && !this.#changingKeys && !this.#cleanupFailed }
   #activity(busy: boolean): void {
     const next = busy && !this.#closed
     if (this.#requestInFlight === next) return
@@ -99,6 +101,7 @@ export class LeadService {
     void this.options.journal.settingsChanged().catch(() => {})
   }
   #closed = false
+  #closing: Promise<void> | null = null
   #generation = 0
   #changingKeys = 0
   readonly #providerSends = new Set<string>()
@@ -326,7 +329,7 @@ export class LeadService {
   }
   #assertOpen(): void {
     if (this.#closed) throw new Error('lead-closed')
-    if (!this.#enabled) throw new Error('lead-disabled')
+    if (!this.#enabled || this.options.available?.() === false) throw new Error('lead-disabled')
     if (this.#cleanupFailed) throw new Error('lead-cleanup-pending')
   }
   async #latch(reason: string): Promise<void> {
@@ -455,7 +458,18 @@ export class LeadService {
     const generation = ++this.#generation
     return this.#queue(async () => {
       if (!enabled) {
+        const hadChild = this.#supervisor.live
         await this.#halt('lead-disabled')
+        // An already absent child has no exit callback to settle its reviewed Flow.
+        // This is also the retry after an earlier stop's cleanup failed.
+        if (!hadChild) {
+          try {
+            await this.options.stopOwned('lead-disabled')
+            await this.#recoverRequests()
+            await this.options.recover()
+            this.#cleanupFailed = false
+          } catch (error) { this.#cleanupFailed = true; throw error }
+        }
       } else if (generation !== this.#generation) return
     })
   }
@@ -547,11 +561,12 @@ export class LeadService {
     return this.#queue(async () => { await this.#halt('lead-request-cancelled', true); await this.#recoverRequests() }).then(() => this.recover())
   }
   close(): Promise<void> {
-    if (this.#closed) return this.#tail.then(() => {})
+    if (this.#closing) return this.#closing
     this.options.onManagementStopped?.('lead-host-shutdown')
     this.#publicProjection = null; this.#closed = true; this.#activity(false); this.#enabled = false; ++this.#generation
-    return this.#queue(async () => {
+    this.#closing = this.#queue(async () => {
       await this.#halt('lead-host-shutdown')
-    })
+    }).catch(error => { this.#closing = null; throw error })
+    return this.#closing
   }
 }

@@ -121,12 +121,12 @@ test('Owner 5 Settings leaves a block gap between Back and Search settings', asy
   const back = settingsNav.getByRole('button', { name: 'Back', exact: true })
   const search = settingsNav.getByRole('searchbox', { name: 'Search settings', exact: true })
   await back.hover()
-  const backBox = await rect(page, '[data-left-settings] > [data-left-row] button')
+  const backBottom = await back.evaluate(element => element.getBoundingClientRect().bottom)
   const searchBox = await search.evaluate(element => {
     const box = element.getBoundingClientRect()
     return { y: box.y, height: box.height }
   })
-  expect(searchBox.y - backBox.bottom).toBeGreaterThan(0)
+  expect(searchBox.y - backBottom).toBeGreaterThan(0)
 })
 
 test('Owner 5 terminal stays available on project pages and retains its shells and height', async ({ page }) => {

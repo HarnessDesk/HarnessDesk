@@ -1,6 +1,7 @@
 import { DEFAULT_DIFF_PREFS, type DiffPrefs } from '../editor'
 import type { BrowserTileMount } from '../lib/browser-tiles'
 import type {
+  DeskFeatureState,
   HarnessDeskAccountStatus,
   HistoryImportState,
   AccountStatus,
@@ -270,6 +271,7 @@ export interface AppSnapshot {
   /** Window-local secondary transcript; never a navigation subject. */
   readonly adjacentSession: { readonly key: SessionKey; readonly subject: string; readonly loading: boolean; readonly error: string | null } | null
   /** Startup capability proved by the host handshake; absent until then. */
+  readonly features: DeskFeatureState | null
   readonly leadAvailable: boolean
   /** The desk was started with the phone link on; the Phone page and its command exist only then. */
   readonly phoneLink: boolean
@@ -913,6 +915,7 @@ export const withClosedTurnFiles = (closed: ReadonlySet<string>, session: string
   new Set(closed).add(closedTurnFilesKey(session, turn))
 
 const EMPTY: AppSnapshot = {
+  features: null,
   leadAvailable: false,
   phoneLink: false,
   seatCarryOn: new Map(),

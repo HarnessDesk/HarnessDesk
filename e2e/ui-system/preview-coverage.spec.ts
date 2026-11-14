@@ -301,8 +301,15 @@ const sweepSelectsForCoverage = (
       // Keep this set local to a collection: each dial value is a distinct
       // page state and can reveal a different mounted subtree.
       const seenFibers = new Set<unknown>()
+      // Mutation records often name both a specimen and many of its nested
+      // descendants. Expand only the outermost roots: deduplicating elements
+      // after querySelectorAll still repeats each descendant's whole subtree.
+      const rootSet = new Set(roots)
       const elements = new Set<Element>()
-      for (const root of roots) {
+      for (const root of rootSet) {
+        let ancestor = root.parentNode
+        while (ancestor && !rootSet.has(ancestor)) ancestor = ancestor.parentNode
+        if (ancestor) continue
         if (root instanceof Element) elements.add(root)
         for (const element of root.querySelectorAll('*')) elements.add(element)
       }
@@ -378,7 +385,10 @@ const sweepSelectsForCoverage = (
     // React receives the `change` synchronously, then may place an effect's
     // state-gated subtree in the next render. Two animation frames make that
     // rendered state observable without a timing guess per option.
-    const settle = (): Promise<void> => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+    // Let change-handler microtasks register their frames first. Otherwise
+    // our second-frame continuation can collect before an effect's second
+    // frame appends its portal, and the neutral reset hides the missed state.
+    const settle = (): Promise<void> => new Promise((resolve) => queueMicrotask(() => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
     const setValue = (select: HTMLSelectElement, value: string): void => {
       const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')!.set!
       setter.call(select, value)
@@ -454,6 +464,99 @@ test('a dial sweep visits only changed specimens after its initial inventory', a
   const result = await sweepSelectsForCoverage(page, { delayedRevealProbe: true })
   expect(result.delayedReveal).toBe(true)
   expect(result.stateElementsVisited).toBeLessThanOrEqual(10)
+})
+
+test('a dial sweep expands each changed DOM subtree only once per state', async ({ page }) => {
+  await page.goto('/preview.html')
+  await settleCoveragePage(page)
+  const size = await page.evaluate(() => {
+    const frame = document.createElement('section')
+    frame.dataset.frameId = 'synthetic-overlapping-changes'
+    const select = document.createElement('select')
+    select.add(new Option('off', 'off'))
+    select.add(new Option('on', 'on'))
+    frame.append(select)
+    let parent: Element = frame
+    const branches: Element[] = [frame]
+    for (let index = 0; index < 20; index++) {
+      const branch = document.createElement('div')
+      parent.append(branch)
+      branches.push(branch)
+      parent = branch
+    }
+    for (let index = 0; index < 200; index++) parent.append(document.createElement('span'))
+    select.addEventListener('change', () => {
+      for (const branch of branches) branch.setAttribute('data-state', select.value)
+    })
+    document.body.replaceChildren(frame)
+    const probe = { expanded: 0 }
+    ;(window as Window & { __coverageExpansionProbe?: typeof probe }).__coverageExpansionProbe = probe
+    const original = Element.prototype.querySelectorAll
+    Element.prototype.querySelectorAll = function(selector: string) {
+      const result = original.call(this, selector)
+      if (selector === '*' && (this === frame || frame.contains(this))) probe.expanded += result.length
+      return result
+    } as typeof original
+    return frame.querySelectorAll('*').length
+  })
+  await page.evaluate(() => { (window as Window & { __coverageExpansionProbe: { expanded: number } }).__coverageExpansionProbe.expanded = 0 })
+  await sweepSelectsForCoverage(page)
+  const expanded = await page.evaluate(() => (window as Window & { __coverageExpansionProbe: { expanded: number } }).__coverageExpansionProbe.expanded)
+  // Each of the two values still gets a complete state scan. A changed
+  // descendant already inside its specimen must not expand that tree again.
+  expect(expanded).toBe(2 * size)
+})
+
+test('coverage preserves hidden leaves, shared ancestors, references and delayed portals', async ({ page }) => {
+  await page.goto('/preview.html')
+  await settleCoveragePage(page)
+  await page.evaluate(async () => {
+    const { coverageRegistry } = await import('/src/preview/coverage-registry.ts')
+    const reference = (file: string, name: string): unknown => coverageRegistry.find(entry => entry.file === file)!.exports[name]
+    const shared = { type: reference('panels/Workbench.tsx', 'Workbench'), return: null, child: null }
+    const attach = (element: Element, type: unknown, parent: unknown = shared): void => {
+      Object.assign(element, { __reactFiber$coverageControl: { type: element.tagName.toLowerCase(), stateNode: element, return: { type, return: parent, child: null }, child: null } })
+    }
+    const frame = document.createElement('section')
+    frame.dataset.frameId = 'synthetic-coverage-controls'
+    const hidden = document.createElement('span')
+    hidden.hidden = true
+    hidden.textContent = 'Hidden leaf'
+    attach(hidden, reference('components/AdjacentTranscript.tsx', 'AdjacentTranscript'))
+    const visible = document.createElement('span')
+    visible.textContent = 'Visible sibling'
+    // This function has the real export's name, but none of its identity.
+    attach(visible, function AdjacentTranscript() {})
+    const select = document.createElement('select')
+    select.add(new Option('off', 'off'))
+    select.add(new Option('on', 'on'))
+    frame.append(hidden, visible, select)
+    const portal = document.createElement('aside')
+    portal.textContent = 'Portal leaf'
+    attach(portal, reference('components/Items.tsx', 'ReadOnlyTranscript'))
+    select.addEventListener('change', () => {
+      if (select.value !== 'on') return
+      queueMicrotask(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+        const delayedPortal = document.createElement('aside')
+        delayedPortal.textContent = 'Delayed portal leaf'
+        attach(delayedPortal, reference('components/PhoneSettings.tsx', 'PhoneAsk'))
+        document.body.append(delayedPortal)
+      })))
+    })
+    document.body.replaceChildren(frame, portal)
+  })
+  const initial = await collectCoverage(page)
+  expect(initial.covered).toContain('panels/Workbench.tsx#Workbench')
+  expect(initial.covered).toContain('components/Items.tsx#ReadOnlyTranscript')
+  expect(initial.covered).not.toContain('components/AdjacentTranscript.tsx#AdjacentTranscript')
+  expect(initial.covered).not.toContain('components/PhoneSettings.tsx#PhoneAsk')
+  const sweep = await sweepSelectsForCoverage(page)
+  expect(sweep.covered).toEqual(expect.arrayContaining([
+    'panels/Workbench.tsx#Workbench',
+    'components/Items.tsx#ReadOnlyTranscript',
+    'components/PhoneSettings.tsx#PhoneAsk',
+  ]))
+  expect(sweep.covered).not.toContain('components/AdjacentTranscript.tsx#AdjacentTranscript')
 })
 
 test('coverage does not spend visibility probes on unrelated DOM leaves', async ({ page }) => {

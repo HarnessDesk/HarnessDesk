@@ -72,10 +72,11 @@ for (const theme of themes) for (const width of widths) {
     await expect(page.getByRole('switch', { name: 'Show hidden' })).toHaveCount(0)
   })
 
-  test(`R11.19 appearance description covers both interface choices at ${width} in ${theme}`, async ({ page }) => {
+  test(`R11.19 ordinary Appearance keeps theme controls and omits foundation selectors at ${width} in ${theme}`, async ({ page }) => {
     await openSettings(page, 'appearance', theme, width)
-    const interfaceRow = page.locator('[data-slot="row"]').filter({ hasText: 'Interface' })
-    await expect(interfaceRow).toContainText('Desk keeps controls compact; Studio reads as a dashboard with filled selection and taller controls.')
+    await expect(page.getByRole('radiogroup', { name: 'Theme', exact: true })).toBeVisible()
+    await expect(page.getByRole('radio', { name: 'Violet', exact: true })).toBeVisible()
+    for (const name of ['Interface', 'Palette']) await expect(page.getByRole('combobox', { name, exact: true })).toHaveCount(0)
   })
 
   test(`R11.20 file search results are in All and their own tab at ${width} in ${theme}`, async ({ page }) => {

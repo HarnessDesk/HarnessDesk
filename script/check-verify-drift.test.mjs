@@ -70,15 +70,16 @@ test('CI keeps the tier selection, label trigger and visible landing proof wired
   const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
   assert.deepEqual(tierProblems(workflow), [])
   for (const token of [
-    'types: [opened, synchronize, reopened]',
+    'types: [opened, synchronize, reopened, labeled]',
     'CI_HEAD_BRANCH: ${{ github.head_ref }}',
+    'CI_BASE_BRANCH: ${{ github.base_ref }}',
     'CI_REF_NAME: ${{ github.ref_name }}',
     'CI_BEFORE: ${{ github.event.before }}',
     'branches: [main, development]',
     'CI_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}',
     'tier: ${{ steps.paths.outputs.tier }}',
-    'name: UI integration inputs',
-    'name: "CI tier: ${{ needs.changes.outputs.tier }}"',
+    `name: "\${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && 'Label ignored: inputs' || 'UI integration inputs' }}"`,
+    `name: "\${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && 'Label ignored' || 'CI tier' }}: \${{ needs.changes.outputs.tier }}"`,
     'UI_SYSTEM_MATRIX: ${{ needs.changes.outputs.matrix }}',
   ]) {
     assert.ok(workflow.includes(token), token)
@@ -93,12 +94,14 @@ const workflowConcurrency = () => {
   const template = concurrency.match(/^  group: (.+)$/m)?.[1]
   assert.ok(template, 'workflow concurrency group')
   const group = (event_name, ref, run_id = '1', sha = 'a'.repeat(40)) => {
-    const github = { workflow: 'CI', event_name, ref, run_id, sha }
+    const github = { workflow: 'CI', event_name, ref, run_id, sha,
+      event: { action: 'synchronize', pull_request: { number: ref.match(/refs\/pull\/(\d+)/)?.[1], head: { sha }, labels: [] } } }
     // These workflow expressions use only property reads, equality and boolean operators,
     // whose values agree with JavaScript for the nonempty strings in this fixture.
     return template.replace(/\$\{\{(.*?)\}\}/g, (_, expression) => {
-      assert.match(expression, /^[\w\s.'=&|/-]+$/)
-      return Function('github', `return (${expression})`)(github)
+      assert.match(expression, /^[\w\s.'=!*(),&|/-]+$/)
+      const js = expression.replaceAll('labels.*.name', 'labels.map(label => label.name)')
+      return Function('github', 'contains', `return (${js})`)(github, (list, value) => list.includes(value))
     })
   }
   return { concurrency, group }

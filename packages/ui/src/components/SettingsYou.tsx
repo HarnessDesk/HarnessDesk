@@ -33,6 +33,7 @@ import {
   Row,
   RowButton,
   Rows,
+  Section,
   SectionHead,
   NativeSelect,
   Switch,
@@ -248,7 +249,9 @@ export const GeneralSection = ({ rows }: { rows: ReactNode }) => (
   <>
     <PageExplanation>Defaults for new conversations, and what this Mac’s HarnessDesk keeps.</PageExplanation>
 
-    <SectionHead level="label" name="Your data" />
+    {rows}
+
+    <Section title="Your data">
     <Rows>
       <Row
         title="HarnessDesk’s data stays on this Mac"
@@ -261,7 +264,7 @@ export const GeneralSection = ({ rows }: { rows: ReactNode }) => (
       />
     </Rows>
 
-    {rows}
+    </Section>
   </>
 )
 
@@ -340,26 +343,6 @@ export const AppearanceSection = () => {
       <SectionHead level="label" name="Theme" />
       <ThemeCards />
       <Rows>
-        <Row
-          title="Interface"
-          desc="Desk keeps controls compact; Studio reads as a dashboard with filled selection and taller controls."
-          control={
-            <PageOptions choices={[{id:"Interface",label:"Interface",value:snapshot.look,items:[
-                { value: 'desk', label: 'Desk' },
-                { value: 'studio', label: 'Studio' },
-              ],change:next => store.setLook((next as typeof snapshot.look))}]}/>
-          }
-        />
-        <Row
-          title="Palette"
-          control={
-            <PageOptions choices={[{id:"Palette",label:"Palette",value:snapshot.palette,items:[
-                { value: 'harnessdesk', label: 'Blueprint' },
-                { value: 'editorial', label: 'Editorial' },
-                { value: 'shadcn', label: 'Neutral' },
-              ],change:next => store.setPalette((next as typeof snapshot.palette))}]}/>
-          }
-        />
         <Row
           title="Accent"
           desc="Focus rings and primary action highlights."
@@ -512,6 +495,7 @@ export const NotificationsSection = () => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [guideOpen, setGuideOpen] = useState(false)
+  const [routingOpen, setRoutingOpen] = useState(false)
   const policy = snapshot.noticePolicy
   const now = Date.now()
   const silenced = NOTICE_KINDS.filter((entry) => policy.muted.includes(entry.kind))
@@ -521,6 +505,36 @@ export const NotificationsSection = () => {
   return (
     <>
       <PageExplanation>Where HarnessDesk tells you things, and which ones.</PageExplanation>
+      <SectionHead level="label" name="On your Mac" />
+      <Rows>
+        <Row
+          title="System notifications"
+          desc="Through macOS, when the window is not in front."
+          control={
+            <Switch
+              aria-label="System notifications"
+              checked={snapshot.systemNotifications['enabled'] !== false}
+              onCheckedChange={(next) => store.setSystemNotification('enabled', next)}
+            />
+          }
+        />
+        {snapshot.systemNotifications['enabled'] !== false &&
+          SYSTEM_NOTIFICATION_KINDS.map((entry) => (
+            <Row
+              key={entry.kind}
+              title={entry.title}
+              desc={entry.detail}
+              control={
+                <Switch
+                  aria-label={`Notify for ${entry.title}`}
+                  checked={systemNotificationOn(snapshot.systemNotifications, entry.kind)}
+                  onCheckedChange={(next) => store.setSystemNotification(entry.kind, next)}
+                />
+              }
+            />
+          ))}
+      </Rows>
+
 <Rows><Row title="Muted messages" desc={silenced.length === 0 ? 'None muted' : `${silenced.length} muted`} control={silenced.length > 0 ? (
             <Button
               variant="outline"
@@ -549,6 +563,10 @@ export const NotificationsSection = () => {
         </>}
       </Rows>
 
+      <Rows><RowButton title="Message routing" chevron={false} aria-expanded={routingOpen}
+        control={<DisclosureChevron open={routingOpen} placement="trailing" />}
+        onClick={() => setRoutingOpen(open => !open)} /></Rows>
+      {routingOpen && <>
       {NOTICE_USES.map((use) => {
         const kinds = NOTICE_KINDS.filter((entry) => entry.use === use.use)
         if (kinds.length === 0) return null
@@ -603,6 +621,7 @@ export const NotificationsSection = () => {
           </section>
         )
       })}
+      </>}
 
       <SectionHead level="label"
         name="Inbox"
@@ -635,35 +654,7 @@ export const NotificationsSection = () => {
         />
       </Rows>
 
-      <SectionHead level="label" name="On your Mac" />
-      <Rows>
-        <Row
-          title="System notifications"
-          desc="Through macOS, when the window is not in front."
-          control={
-            <Switch
-              aria-label="System notifications"
-              checked={snapshot.systemNotifications['enabled'] !== false}
-              onCheckedChange={(next) => store.setSystemNotification('enabled', next)}
-            />
-          }
-        />
-        {snapshot.systemNotifications['enabled'] !== false &&
-          SYSTEM_NOTIFICATION_KINDS.map((entry) => (
-            <Row
-              key={entry.kind}
-              title={entry.title}
-              desc={entry.detail}
-              control={
-                <Switch
-                  aria-label={`Notify for ${entry.title}`}
-                  checked={systemNotificationOn(snapshot.systemNotifications, entry.kind)}
-                  onCheckedChange={(next) => store.setSystemNotification(entry.kind, next)}
-                />
-              }
-            />
-          ))}
-      </Rows>
+
     </>
   )
 }

@@ -1,6 +1,6 @@
 {
-  "productionCommit": "8d30cf17f720e4014020aac8c345776a4372953e",
-  "productionTree": "91453bd4ce3bd5eaec92660487b3b9c60076df6b",
+  "productionCommit": "5abd759361b5357ee4c46555ea8cc7eaad6d3aa4",
+  "productionTree": "41b7a5f6f8489e68e52112db3380334530cb476e",
   "priorFixtureBase": "bdff0b1169289b67cdbb9ea138f45d6dd7b46fe4",
   "productionFixtureSha256": {
     "fake-codex.mjs": "f4d8fcb27e24a3e871dd5660030e4c0fbd718bc429952e98970de81f43e7b1d1",
@@ -11,5 +11,9 @@
     "fake-codex-1545.mjs": "70d44e8a425ca3215ad66f92ec8fcd3f970048c745aba6d3a48054acefbc9fcc",
     "scripted-flow.mjs": "1b6f58123021ce772025a525aaedabd99784655772631299d27a6dbe4c8099d7",
     "plugin-icon.svg": "611ca48d4da7767c7cc051442c2e389a2d5a288a2fbb09c5edd3f3b1e7499d79"
+  },
+  "productionSourceSha256": {
+    "packages/server/src/host.ts": "62e6a86381d746257e3766cf75b56ea31e698d922feec6d61f0b71c8d6bff29e",
+    "packages/server/src/transcripts.ts": "eb9e49eb57b1ec8a539f8e2d778be4e317b2e02377765f932647867fe5becf47"
   }
 }

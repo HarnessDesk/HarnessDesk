@@ -3,7 +3,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { BellIcon, BrainIcon, BranchIcon, FetchIcon, SettingsIcon, SummaryIcon } from '../Icons'
+import { BellIcon, BrainIcon, BranchIcon, FetchIcon, FolderIcon, GlobeIcon, LeadIcon, MobileIcon, ResourceIcon, SettingsIcon, SparkIcon, SummaryIcon, ThemeSystemIcon } from '../Icons'
+import { Database, Folder, Globe, Monitor, Smartphone, Sparkle, type LucideIcon } from 'lucide-react'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -252,4 +253,51 @@ it.each([BrainIcon, SummaryIcon])('inherits caller stroke width on every path wh
   check()
   reduceMotion(true)
   check()
+})
+
+const settingsMotion = [LeadIcon, MobileIcon, ThemeSystemIcon, FolderIcon, ResourceIcon, GlobeIcon, SparkIcon]
+
+it.each(settingsMotion)('wakes and moves the Settings glyph through its shared control (%#)', async (Icon) => {
+  mount(<button type="button"><Icon size={20} /></button>)
+  const before = gear()
+  expect(before.getAttribute('data-glyph')).toBe('animated')
+  hover()
+  expect(gear()).not.toBe(before)
+  await wait(150)
+  const drawing = Icon === LeadIcon ? gear().querySelector('polygon')! : gear()
+  expect(drawing.style.transform).not.toBe('')
+  expect(drawing.style.transform).not.toBe('none')
+  reduceMotion(true)
+  await wait(40)
+  expect(drawing.style.transform).toBe('none')
+})
+
+it.each(settingsMotion)('keeps the Settings glyph asleep under reduced motion or a disabled control (%#)', (Icon) => {
+  lessMotion = true
+  mount(<button type="button"><Icon /></button>)
+  const still = gear()
+  expect(still.getAttribute('data-glyph')).toBe('animated')
+  hover()
+  expect(gear()).toBe(still)
+  lessMotion = false
+  mount(<button type="button" disabled><Icon /></button>)
+  hover()
+  expect(gear()).toBe(still)
+})
+
+it.each([
+  [MobileIcon, Smartphone], [ThemeSystemIcon, Monitor], [FolderIcon, Folder],
+  [ResourceIcon, Database], [GlobeIcon, Globe], [SparkIcon, Sparkle],
+] as const)('keeps the exact Lucide drawing and caller props across the shared motion swap (%#)', (Icon, Still: LucideIcon) => {
+  mount(<button type="button"><Icon size={12} strokeWidth={3} absoluteStrokeWidth nonScalingStroke aria-label="Destination" /></button>)
+  const before = gear()
+  const paths = before.innerHTML
+  const expected = renderToStaticMarkup(<Still size={12} strokeWidth={3} absoluteStrokeWidth nonScalingStroke aria-label="Destination" />)
+  expect(expected).toContain(paths)
+  hover()
+  expect(gear()).not.toBe(before)
+  expect(gear().innerHTML).toBe(paths)
+  expect(gear().getAttribute('width')).toBe('12')
+  expect(gear().getAttribute('stroke-width')).toBe('6')
+  expect(gear().getAttribute('aria-label')).toBe('Destination')
 })
