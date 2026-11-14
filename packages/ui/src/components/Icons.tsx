@@ -3,7 +3,7 @@
 import { IconTile } from '../design/ui/icon-tile'
 import type { ReactNode } from 'react'
 import type { LucideIcon, LucideProps } from 'lucide-react'
-import { Animated, type GlyphProps, ActivityGlyph, ArchiveGlyph, ArrowUpGlyph, AtSignGlyph, BellGlyph, BlocksGlyph, BookTextGlyph, BookmarkGlyph, BotGlyph, BrainGlyph, CalendarDaysGlyph, CheckGlyph, CheckCheckGlyph, ChevronDownGlyph, ChevronLeftGlyph, ChevronRightGlyph, ChevronsDownUpGlyph, ChevronsUpDownGlyph, CircleCheckGlyph, CircleDollarSignGlyph, CircleGaugeGlyph, ClockGlyph, CloudDownloadGlyph, CopyGlyph, CpuGlyph, DownloadGlyph, ExternalLinkGlyph, EyeOffGlyph, FileTextGlyph, FolderGit2Glyph, FolderInputGlyph, FolderOpenGlyph, FolderXGlyph, GaugeGlyph, GitBranchGlyph, GitCommitHorizontalGlyph, GitForkGlyph, GitGraphGlyph, GitMergeGlyph, GripVerticalGlyph, HandGlyph, HistoryGlyph, KeyboardGlyph, LoaderCircleGlyph, LockGlyph, LockOpenGlyph, Maximize2Glyph, MessageSquareGlyph, MessageSquarePlusGlyph, PlusGlyph, RefreshCwGlyph, RotateCcwGlyph, RotateCwGlyph, RouteGlyph, SearchGlyph, ServerGlyph, SettingsGlyph, ShieldCheckGlyph, ShrinkGlyph, SlidersHorizontalGlyph, SquareStackGlyph, UserGlyph, UsersGlyph, UsersRoundGlyph, WebhookGlyph, WorkflowGlyph, WrenchGlyph, XGlyph, ZapGlyph } from './glyphs'
+import { Animated, type GlyphProps, ActivityGlyph, ArchiveGlyph, ArrowUpGlyph, AtSignGlyph, BellGlyph, BlocksGlyph, BookTextGlyph, BookmarkGlyph, BotGlyph, BrainGlyph, CalendarDaysGlyph, CheckGlyph, CheckCheckGlyph, ChevronDownGlyph, ChevronLeftGlyph, ChevronRightGlyph, ChevronsDownUpGlyph, ChevronsUpDownGlyph, CircleCheckGlyph, CircleDollarSignGlyph, CircleGaugeGlyph, ClockGlyph, CloudDownloadGlyph, CompassGlyph, CopyGlyph, CpuGlyph, DatabaseGlyph, DownloadGlyph, ExternalLinkGlyph, EyeOffGlyph, FileTextGlyph, FolderGlyph, FolderGit2Glyph, FolderInputGlyph, FolderOpenGlyph, FolderXGlyph, GaugeGlyph, GitBranchGlyph, GitCommitHorizontalGlyph, GitForkGlyph, GitGraphGlyph, GitMergeGlyph, GlobeGlyph, GripVerticalGlyph, HandGlyph, HistoryGlyph, KeyboardGlyph, LoaderCircleGlyph, LockGlyph, LockOpenGlyph, Maximize2Glyph, MessageSquareGlyph, MessageSquarePlusGlyph, MonitorGlyph, PlusGlyph, RefreshCwGlyph, RotateCcwGlyph, RotateCwGlyph, RouteGlyph, SearchGlyph, ServerGlyph, SettingsGlyph, ShieldCheckGlyph, ShrinkGlyph, SlidersHorizontalGlyph, SmartphoneGlyph, SparkleGlyph, SquareStackGlyph, UserGlyph, UsersGlyph, UsersRoundGlyph, WebhookGlyph, WorkflowGlyph, WrenchGlyph, XGlyph, ZapGlyph } from './glyphs'
 import {
   Compass,
   ArrowLeftRight,
@@ -182,7 +182,9 @@ import {
  *
  * Where lucide-animated has a motion for the glyph (`./glyphs`), the icon is
  * that one: the same Lucide paths, played while the pointer is over the control
- * that holds it, and plain Lucide until then. The rest are Lucide's own, still.
+ * that holds it, and plain Lucide until then. Settings glyphs without an exact
+ * upstream match keep Lucide's drawing through a shared root-motion adapter.
+ * The rest are Lucide's own, still.
  * Either way it is one meaning, one glyph, and the same `IconProps`, so a
  * screen cannot tell which it got.
  */
@@ -281,7 +283,7 @@ export const GripIcon = animated(GripVerticalGlyph, GripVertical, 'GripIcon')
 // --- Files and folders -----------------------------------------------------
 
 export const FileIcon = icon(File, 'FileIcon')
-export const FolderIcon = icon(Folder, 'FolderIcon')
+export const FolderIcon = animated(FolderGlyph, Folder, 'FolderIcon')
 /** Choosing a different folder. */
 export const FolderOpenIcon = animated(FolderOpenGlyph, FolderOpen, 'FolderOpenIcon')
 /** A folder that is no longer on the machine. */
@@ -361,7 +363,7 @@ export const ToolIcon = animated(WrenchGlyph, Wrench, 'ToolIcon')
 /** The agent's own reasoning. */
 export const BrainIcon = animated(BrainGlyph, Brain, 'BrainIcon')
 /** The host-owned Lead has its own navigation glyph. */
-export const LeadIcon = icon(Compass, 'LeadIcon')
+export const LeadIcon = animated(CompassGlyph, Compass, 'LeadIcon')
 /** A saved Agent: its brief, ceiling and preferred seats. Sub-agents qualify this robot with ↳; runtimes use their own marks. */
 export const AgentIcon = animated(BotGlyph, Bot, 'AgentIcon')
 /** The robot with its delegation qualifier, including at navigation size. */
@@ -379,8 +381,8 @@ export const AskAgentIcon = ({ size = 16, className, style, ...rest }: IconProps
 /** An Agent's written brief — its instructions, distinct from the Agent itself. */
 export const BriefIcon = animated(BookTextGlyph, BookText, 'BriefIcon')
 /** A skill, or anything else the agent is handed to work with. */
-export const SparkIcon = icon(Sparkle, 'SparkIcon')
-export const GlobeIcon = icon(Globe, 'GlobeIcon')
+export const SparkIcon = animated(SparkleGlyph, Sparkle, 'SparkIcon')
+export const GlobeIcon = animated(GlobeGlyph, Globe, 'GlobeIcon')
 /** A conversation, as a thing to find and open. */
 export const SessionIcon = icon(MessagesSquare, 'SessionIcon')
 /** Marking up a page: a comment left on the thing it is about. */
@@ -413,7 +415,7 @@ export const PluginIcon = icon(Puzzle, 'PluginIcon')
 /** A runtime's own extension store — apps and connectors. */
 export const ExtensionIcon = animated(BlocksGlyph, Blocks, 'ExtensionIcon')
 export const HookIcon = animated(WebhookGlyph, Webhook, 'HookIcon')
-export const ResourceIcon = icon(Database, 'ResourceIcon')
+export const ResourceIcon = animated(DatabaseGlyph, Database, 'ResourceIcon')
 /** The cross-agent library: what exists on this machine, and who can load it. */
 export const LibraryIcon = icon(LibraryBig, 'LibraryIcon')
 /** A model route. */
@@ -485,7 +487,7 @@ export const CheckAllIcon = animated(CheckCheckGlyph, CheckCheck, 'CheckAllIcon'
 export const SummaryIcon = animated(FileTextGlyph, FileText, 'SummaryIcon')
 /** The whole transcript. */
 export const TranscriptIcon = icon(ScrollText, 'TranscriptIcon')
-export const ThemeSystemIcon = icon(Monitor, 'ThemeSystemIcon')
+export const ThemeSystemIcon = animated(MonitorGlyph, Monitor, 'ThemeSystemIcon')
 /** How hard the model thinks: four steps, low to max. */
 export const EffortLowIcon = icon(SignalLow, 'EffortLowIcon')
 export const EffortMediumIcon = icon(SignalMedium, 'EffortMediumIcon')
@@ -501,7 +503,7 @@ export const EffortMaxIcon = icon(Signal, 'EffortMaxIcon')
  * the system" in the appearance menu, and one meaning gets one glyph.
  */
 export const ResponsiveIcon = icon(MonitorSmartphone, 'ResponsiveIcon')
-export const MobileIcon = icon(Smartphone, 'MobileIcon')
+export const MobileIcon = animated(SmartphoneGlyph, Smartphone, 'MobileIcon')
 export const TabletIcon = icon(Tablet, 'TabletIcon')
 export const DesktopIcon = icon(DesktopIconGlyph, 'DesktopIcon')
 /** Editor mode: the file and code view beside a conversation. */

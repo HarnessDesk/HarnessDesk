@@ -16,3 +16,11 @@ test('desktop startup source guard complements bootstrap-lead-feature.test.ts fl
   assert.ok(/import\s*\{\s*leadEnabled\s*\}\s*from ['"]\.\/lead-feature\.mjs['"]/.test(source), 'main imports the desktop flag parser')
   assert.ok(/createDefaultHost\(\{\s*leadEnabled: leadEnabled\(process\.env\)/.test(source), 'main passes the parsed startup flag')
 })
+
+
+test('desktop passes Mobile defaults and listener options to the single host owner', async () => {
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  assert.match(source, /mobileEnabled: process\.env\['HARNESSDESK_PHONE_LINK'\] === '1'/)
+  assert.match(source, /phoneLink: \{ port: Number\(process\.env\['HARNESSDESK_PHONE_PORT'\]/)
+  assert.doesNotMatch(source, /startPhoneLink|closingPhone|let phoneLink/)
+})

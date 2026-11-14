@@ -1,3 +1,6 @@
+import { FeatureSettings } from './FeatureSettings'
+import { HarnessDeskMobileSection } from './HarnessDeskAccount'
+import { useSnapshot } from '../state/context'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { PhoneDeviceView, PhoneLinkState, PhonePairing, PhonePendingView, PhoneTier } from '@harnessdesk/protocol'
 import { Banner, Button, Chip, ConfirmDialog, InlineParts, QrCode, Row, Rows, Section, Text } from '../design'
@@ -33,7 +36,7 @@ export const PhoneSettings = ({ state, pairing, error, busy, onPair, onAllow, on
   readonly onRevoke: (device: PhoneDeviceView) => void
 }) => {
   const [removing, setRemoving] = useState<PhoneDeviceView | null>(null)
-  if (!state.enabled) return <Banner>The phone link is off on this desk.</Banner>
+  if (!state.enabled) return error ? <Banner role="alert" tone="warning">{error}</Banner> : <Banner>The phone link is off on this desk.</Banner>
   return <>
     {error && <Banner role="alert" tone="warning">{error}</Banner>}
     <Section title="Add a phone">
@@ -64,6 +67,8 @@ const usePhone = () => {
   const store = useStore()
   const state = useSyncExternalStore(store.phone.subscribe, () => store.phone.state)
   const [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false), [pairing, setPairing] = useState<PhonePairing | null>(null)
+  const generation = store.phone.generation
+  useEffect(() => { setPairing(null) }, [store, generation])
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true); setError(null)
     try { await action() } catch (cause) { setError(refusal(cause)) } finally { setBusy(false) }
@@ -71,9 +76,10 @@ const usePhone = () => {
   return { store, state, error, busy, pairing, setPairing, run }
 }
 
-export const PhoneSettingsSection = () => {
+const EnabledPhoneSettingsSection = () => {
   const { store, state, error, busy, pairing, setPairing, run } = usePhone(), active = useDestinationActive()
-  useEffect(() => { if (active) void store.phone.refresh().catch(() => {}) }, [active, store])
+  useEffect(() => { if (active) void run(() => store.phone.refresh()) }, [active, store])
+  if (!state.enabled && !error) return <Banner>Reading phone connections…</Banner>
   return <PhoneSettings state={state} pairing={pairing} error={error} busy={busy}
     onPair={() => void run(async () => setPairing(await store.phone.pairing()))}
     onAllow={pending => void run(() => store.phone.allow(pending.id))} onDeny={pending => void run(() => store.phone.deny(pending.id))}
@@ -90,4 +96,12 @@ export const PhoneAsk = () => {
     <Text role="prose">{ask.name} showed this desk's pairing code. Once allowed, it can read the Lead's conversation, send to it and answer its cards.</Text>
     {error && <Banner role="alert" tone="warning">{error}</Banner>}
   </ConfirmDialog>
+}
+
+export const PhoneSettingsSection = () => {
+  const { features } = useSnapshot()
+  return <><FeatureSettings feature="mobile" />
+    {features?.mobile && !features.problem && <EnabledPhoneSettingsSection />}
+    <HarnessDeskMobileSection />
+  </>
 }
