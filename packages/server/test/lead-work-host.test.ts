@@ -64,9 +64,16 @@ test('a duplicate chat start names the item, and an answered question permits on
   await r.journal.appendReply(question, undefined, { question, retryOf: { item: 'work-1', attempt: created.id }, startsMarked: true,
     options: [{ id: 'start', label: 'Start another chat', starts: true }, { id: 'later', label: 'Not now' }], recommended: 'later' })
   const ask = r.journal.state.messages.at(-1)!.id
-  t.mock.method(r.host.credentials, 'leadStatus', async () => ({ configured: true, protection: 'synthetic cipher' }))
-  t.mock.method(r.host.credentials, 'resolveLead', async () => 'fixture-key')
-  await r.host.call('lead/thread/send', { idempotencyKey: 'retry-answer', text: 'Start another chat', ask, device: { id: 'window:main', label: 'Desktop' } })
+  const device = { id: 'window:main', label: 'Desktop' }
+  // Match the Host's answer/commit boundary while the existing controls rig
+  // uses its scripted service, so this core test needs no Lead child runtime.
+  await r.host.leadPresence.observe()
+  const finish = await r.host.leadPresence.beforeSend(device, 'Start another chat', ask)
+  assert.ok(finish, 'the bound positive option was claimed')
+  const controls = r.controls(async () => ({ status: 'completed', text: '' }))
+  const receipt = await controls.send({ idempotencyKey: 'retry-answer', text: 'Start another chat', ask, device })
+  await finish(true, receipt.messageId)
+  assert.equal(r.host.leadPresence.approvedRetry('work-1', created.id, question), ask, 'the committed answer authorizes this attempt')
   const added = await r.execute({ method: 'lead/chat/start', params: { text: 'Proceed with this task', ledgerItem: 'work-1' } })
   assert.equal(added.outcome, 'succeeded')
   assert.equal((added.value as { ledgerItem?: string }).ledgerItem, 'work-1')
