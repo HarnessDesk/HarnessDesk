@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFile, rm, writeFile } from 'node:fs/promises'
+import { readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
@@ -8,13 +8,15 @@ import type { PhoneTriageList, TriggerArmPreview, TriggerDecision, TriggerDecisi
 
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { commitTriggers, intakeDesk, REVIEW_FLOW, until, type IntakeDesk } from './fixtures/intake-host.js'
-import { Clocks, sha } from './fixtures/intake-forge.js'
+import { Clocks, Gate, sha } from './fixtures/intake-forge.js'
 import { tempDir } from './scratch.js'
 import { writeTriggers } from '../src/authoring/model.js'
 import { Logger } from '../src/log.js'
 import { parseTriggers } from '../src/intake/definition.js'
 import { addressesHandle, asksToStop, parseAssessment, type MentionAssessInput, type MentionAssessor, type WorkItemsPort } from '../src/intake/mentions.js'
 import { PHONE_POLICY } from '../src/phone-link.js'
+import { LeadAutomaticGoals } from '../src/lead/automatic-goals.js'
+import { Admission } from '../src/intake/admission.js'
 
 /*
  * A comment that addresses the desk's handle asks it for work (owner
@@ -626,6 +628,129 @@ const leadThread = async (t: TestContext) => {
   return { d, journal, records, run, team }
 }
 
+test('#2070: stopping a mention drops its busy queued Lead firing without dropping another thread', E2E, async t => {
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  await leadOn(t, d)
+  let busy = true
+  const delivered: string[] = []
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async (input: Parameters<LeadAutomaticGoals['offerTrigger']>[0]) => {
+    if (busy) return { delivered: false as const, reason: 'Lead is busy; this firing waits for the active goal.' }
+    delivered.push(input.key)
+    return { delivered: true as const }
+  })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  await say(d, 2, '@dex please update the documentation')
+  const first = await firingOf(d, 1), other = await firingOf(d, 2)
+  const pending = () => d.host.intakePlane.journal.read().operations.map(one => one.key)
+  assert.ok(pending().includes(first)); assert.ok(pending().includes(other))
+  await say(d, 1, '@dex stop')
+  const page = await decisions(d)
+  assert.equal(page.threads.find(one => one.origin.number === 1)?.state, 'closed')
+  await say(d, 1, '@dex please start fresh on this issue')
+  const ledger = JSON.parse(await readFile(join(d.stateDir, LEDGER), 'utf8')) as { threads: { origin: { number: number }; state: string; firings: string[] }[] }
+  const fresh = ledger.threads.find(one => one.origin.number === 1 && one.state === 'open')?.firings[0]
+  assert.ok(fresh && fresh !== first, 'a new mention has a new firing identity')
+  busy = false
+  await d.host.intakePlane.tick()
+  assert.ok(!pending().includes(first), 'the stopped thread has no queued firing')
+  assert.ok(!delivered.includes(`trigger-${first}`), 'no goal opens for the stopped thread')
+  assert.ok(delivered.includes(`trigger-${other}`), 'another thread may still open its goal')
+  assert.ok(delivered.includes(`trigger-${fresh}`), 'the new lifecycle on the same issue may open its goal')
+  assert.ok(page.decisions.some(one => one.decision === 'stop' && /queued|firing/i.test(one.reason)), 'the stop decision records the dropped firing')
+  const saved = d.host.intakePlane.journal.read().firings[first]!
+  assert.equal(saved.setAside, true, 'the original firing identity is retained as a tombstone')
+  assert.match(saved.attention ?? '', /queued firing was dropped/)
+  await d.host.intakePlane.tick()
+  assert.equal(delivered.filter(key => key === `trigger-${first}`).length, 0, 'recovery does not revive the stopped firing')
+})
+
+test('#2070: a stop waits for an in-flight delivery before stopping the thread', E2E, async t => {
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  await leadOn(t, d)
+  const entered = new Gate(), finish = new Gate(), stopping = new Gate()
+  t.after(() => finish.open())
+  let busy = true, deliveries = 0
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async () => {
+    if (busy) return { delivered: false as const, reason: 'Lead is busy; this firing waits.' }
+    entered.open()
+    await finish.opened
+    deliveries++
+    return { delivered: true as const }
+  })
+  const cancel = Admission.prototype.cancelMentionFirings
+  t.mock.method(Admission.prototype, 'cancelMentionFirings', function (this: Admission, ...args: Parameters<Admission['cancelMentionFirings']>) {
+    stopping.open()
+    return cancel.apply(this, args)
+  })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  busy = false
+  const releasing = d.host.intakePlane.tick()
+  await entered.opened
+  const stop = say(d, 1, '@dex stop')
+  await stopping.opened
+  assert.equal(deliveries, 0, 'stop reached the admission barrier before delivery completed')
+  finish.open()
+  await Promise.all([releasing, stop])
+  assert.equal((await decisions(d)).threads[0]?.state, 'closed')
+  await d.host.intakePlane.tick()
+  assert.equal(deliveries, 1, 'no firing is redelivered after the stop')
+})
+
+test('#2070: a queued firing of a thread closed by its issue is refused and logged', E2E, async t => {
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  await leadOn(t, d)
+  let busy = true
+  const delivered: string[] = []
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async (input: Parameters<LeadAutomaticGoals['offerTrigger']>[0]) => {
+    if (busy) return { delivered: false as const, reason: 'Lead is busy; this firing waits for the active goal.' }
+    delivered.push(input.key)
+    return { delivered: true as const }
+  })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const firing = await firingOf(d, 1)
+  d.forge.issues.find(one => one.number === 1)!.state = 'closed'
+  d.clocks.advance(6 * 60_000)
+  await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).threads[0]?.state, 'closed')
+  busy = false
+  await d.host.intakePlane.tick()
+  assert.ok(!delivered.includes(`trigger-${firing}`), 'the closed thread does not open a goal')
+  await until(async () => (await decisions(d)).decisions.some(one => /closed.*firing|firing.*closed/i.test(one.reason)) ? true : null, 'the refusal in the thread decision log')
+  const refusal = (await decisions(d)).decisions.find(one => /firing was refused because its mention thread is closed/i.test(one.reason))!
+  await assert.rejects(d.host.call('trigger/decision/reevaluate', { root: d.repo.dir, id: 'ask', decision: refusal.id }), /not a comment to re-evaluate/)
+
+  await until(() => !d.host.intakePlane.journal.read().operations.some(one => one.key === firing) ? true : null, 'the refused firing is cleared')
+  await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).decisions.filter(one => /firing was refused because its mention thread is closed/i.test(one.reason)).length, 1, 'recovery records the refusal once')
+})
+
+test('#2070: a closed queued firing remains refused across a Host restart', E2E, async t => {
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  await leadOn(t, d)
+  const delivered: string[] = []
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async (input: Parameters<LeadAutomaticGoals['offerTrigger']>[0]) => {
+    delivered.push(input.key)
+    return { delivered: false as const, reason: 'Lead is busy; this firing waits.' }
+  })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const firing = await firingOf(d, 1)
+  d.forge.issues.find(one => one.number === 1)!.state = 'closed'
+  d.clocks.advance(6 * 60_000)
+  await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).threads[0]?.state, 'closed')
+  assert.ok(d.host.intakePlane.journal.read().operations.some(one => one.key === firing), 'the closed firing is still pending on disk')
+  await d.stop()
+  delivered.length = 0
+  const restarted = await desk(t, LEAD_ASK, { lead: true, arm: false, repo: d.repo, stateDir: d.stateDir, clocks: d.clocks })
+  await until(async () => (await decisions(restarted)).decisions.some(one => /firing was refused because its mention thread is closed/i.test(one.reason)) ? true : null, 'the refusal after restart')
+  await until(() => !restarted.host.intakePlane.journal.read().operations.some(one => one.key === firing) ? true : null, 'the restarted firing is cleared')
+  assert.deepEqual(delivered, [], 'the closed firing never reaches the Lead')
+})
+
 test('an accepted mention is one work item: the thread it came from, and the work it opened', E2E, async (t) => {
   const d = await desk(t, ASK(), { lead: true })
   await leadOn(t, d)
@@ -653,7 +778,7 @@ test('"@dex stop" stops the Lead’s goal the thread opened as the person’s St
   await say(d, 1, '@dex stop')
   const page = await decisions(d)
   const stop = page.decisions.find((one) => one.decision === 'stop')!
-  assert.match(stop.reason, /1 run the Lead started for it and the Lead’s plan for it were stopped, and the thread is closed\.$/)
+  assert.match(stop.reason, /1 run the Lead started for it and the Lead’s plan for it were stopped, and the thread is closed\./)
   assert.equal(d.host.flowsPlane.executionOf(run)?.state, 'stopped', 'the Lead’s run is stopped through the host')
   assert.equal(journal.state.phase, 'stopped', 'the plan is stopped, so the Lead starts nothing more for it')
   const stops = records.filter((one) => one.type === 'stop')
@@ -673,7 +798,7 @@ test('"@dex stop" before the Lead’s plan is approved stops the plan, so it nev
   await say(d, 1, '@dex stop')
   const page = await decisions(d)
   const stop = page.decisions.find((one) => one.decision === 'stop')!
-  assert.match(stop.reason, /the Lead’s plan for it was stopped, and the thread is closed\.$/)
+  assert.match(stop.reason, /the Lead’s plan for it was stopped, and the thread is closed\./)
   assert.equal(journal.state.phase, 'stopped')
   assert.deepEqual([page.threads[0]!.state, page.threads[0]!.closed?.reason], ['closed', 'stopped'])
 })
@@ -683,14 +808,15 @@ test('"@dex stop" never stops a run a person started, even on a Team the Lead st
   // A person stopped the Lead's run, which ends the Lead's goal too, and then ran the Team again by hand.
   await d.host.call('flow/execution/stop', { run, reason: 'Looked enough' })
   assert.equal(journal.state.phase, 'stopped')
-  const again = await d.host.call('flow/preview', { root: d.repo.dir, source: REVIEW_FLOW, continues: run })
+  const canonicalRoot = await realpath(d.repo.dir)
+  const again = await d.host.call('flow/preview', { root: canonicalRoot, source: REVIEW_FLOW, continues: run })
   assert.ok(again.token, JSON.stringify(again.problems))
-  const person = await d.host.call('flow/start-goal', { root: d.repo.dir, source: REVIEW_FLOW, sentence: 'Fix the flaky test', token: again.token!, continues: run })
+  const person = await d.host.call('flow/start-goal', { root: canonicalRoot, source: REVIEW_FLOW, sentence: 'Fix the flaky test', token: again.token!, continues: run })
   assert.equal(person.goal, team, 'the person’s run is on the Lead’s Team')
 
   await say(d, 1, '@dex stop')
   const stop = (await decisions(d)).decisions.find((one) => one.decision === 'stop')!
-  assert.match(stop.reason, /nothing of its work was running, so nothing was stopped; the thread is closed\.$/, 'nothing of the Lead’s was going, and the person’s run is not its')
+  assert.match(stop.reason, /nothing of its work was running, so nothing was stopped; the thread is closed\./, 'nothing of the Lead’s was going, and the person’s run is not its')
   assert.notEqual(d.host.flowsPlane.executionOf(person.id)?.state, 'stopped', 'the person’s run goes on')
 })
 

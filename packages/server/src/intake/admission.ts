@@ -323,6 +323,31 @@ export class Admission {
     })
   }
 
+  /** Set aside only this thread's pending Lead firings, behind any release already in flight. */
+  cancelMentionFirings(firings: readonly string[], reason: string): Promise<number> {
+    return this.#serial.run(async () => {
+      const keys = new Set(firings)
+      let cancelled = 0
+      for (const operation of this.#store.read().operations) {
+        if (keys.has(operation.key) && !operation.dispatched && operation.payload && 'lead' in operation.payload.definition.opens) {
+          await this.#setAside(operation, reason, true)
+          cancelled++
+        }
+      }
+      // A replay of the same stop after a crash still reports what it
+      // already removed, without granting a new firing the old identity.
+      return Math.max(cancelled, firings.filter(key => {
+        const firing = this.#store.read().firings[key]
+        return firing?.setAside === true && firing.attention === reason
+      }).length)
+    })
+  }
+
+  /** A thread closes between complete deliveries, never through one. */
+  closeMentionThread(close: () => Promise<void>): Promise<void> {
+    return this.#serial.run(close)
+  }
+
   /**
    * One fact, offered to one arm. Resolves only with a durable answer; throws
    * — so the monitor keeps its cursor and offers it again — when nothing can

@@ -179,6 +179,8 @@ interface StoredThread extends TriggerWorkThread {
 /** A decision as the desk keeps it: with the digest of the comment it decided, never shown. */
 interface StoredDecision extends TriggerDecision {
   readonly commentDigest?: string
+  /** A host refusal record, not a comment to re-evaluate. */
+  readonly closedFiring?: string
 }
 
 interface LedgerFile {
@@ -235,7 +237,9 @@ export interface MentionPort {
    * when one of the thread's firings opened it, as the person's Stop stops it and recorded as a stop from `comment`.
    * How many runs of each it stopped, and whether the Lead's plan was stopped.
    */
-  stop(work: { readonly goals: readonly string[]; readonly firings: readonly string[]; readonly comment: string }, why: string): Promise<{ readonly own: number; readonly lead: number; readonly plan: boolean }>
+  stop(work: { readonly goals: readonly string[]; readonly firings: readonly string[]; readonly comment: string }, why: string): Promise<{ readonly own: number; readonly lead: number; readonly plan: boolean; readonly queued: number }>
+  /** Commit a natural thread closure between admission deliveries. */
+  closeThread(close: () => Promise<void>): Promise<void>
   /** The pull requests the work on these Goals and firings opened, by number. */
   pullRequests(repository: string, goals: readonly string[], firings: readonly string[]): Promise<readonly number[]>
   readonly workItems: WorkItemsPort
@@ -375,6 +379,34 @@ export class MentionTriage {
     return this.#ledger?.threads.find((one) => one.links.goals.includes(goal))?.origin ?? null
   }
 
+  /** Check without taking the mention queue: admission is to its right. */
+  async closedFiring(key: string): Promise<'open' | 'unrecorded' | 'recorded'> {
+    const ledger = await this.#read()
+    const thread = ledger.threads.find(one => one.state === 'closed' && one.firings.includes(key))
+    if (!thread) return 'open'
+    const id = `d-${digest([thread.id, 'closed-firing', key])}`
+    return ledger.decisions.some(one => one.id === id) ? 'recorded' : 'unrecorded'
+  }
+
+  /** Durable, idempotent decision before admission removes a closed thread's firing. */
+  recordClosedFiring(key: string, fact: TriggerFact): Promise<void> {
+    return this.#serial.run(async () => {
+      const ledger = await this.#read()
+      const thread = ledger.threads.find(one => one.state === 'closed' && one.firings.includes(key))
+      if (!thread) return
+      const id = `d-${digest([thread.id, 'closed-firing', key])}`
+      if (ledger.decisions.some(one => one.id === id)) return
+      const decision: StoredDecision = {
+        id, trigger: thread.trigger, project: thread.project, repository: thread.repository, thread: thread.origin,
+        comment: { id: commentId(fact.url ?? ''), url: fact.url ?? '', at: fact.at, author: fact.login ?? null, excerpt: excerptOf(fact.body ?? '') },
+        decision: 'ignore', reason: 'The firing was refused because its mention thread is closed.', by: 'rules', rules: [],
+        mode: 'act', acted: false, work: thread.id, decidedAt: this.#port.now(), evaluations: 0, closedFiring: key,
+      }
+      await this.#write({ ...ledger, decisions: [...ledger.decisions, decision] })
+      this.#port.changed(thread.project)
+    })
+  }
+
   // --------------------------------------------------------------- judge
 
   /**
@@ -408,7 +440,7 @@ export class MentionTriage {
           const asked = `Asked by ${fact.login ?? 'someone allowed'} to stop the work on ${threadWords(linked.origin.kind, linked.origin.number)}.`
           // Observing, nothing is stopped; acting, what was running is stopped through the host, and the thread says which:
           // the trigger's own runs, and the Lead's goal when a firing of this thread opened it, with the runs it owned.
-          const counts = mode === 'act' ? await this.#port.stop({ goals: linked.links.goals, firings: linked.firings, comment: fact.url! }, STOPPED) : { own: 0, lead: 0, plan: false }
+          const counts = mode === 'act' ? await this.#port.stop({ goals: linked.links.goals, firings: linked.firings, comment: fact.url! }, STOPPED) : { own: 0, lead: 0, plan: false, queued: 0 }
           const parts = stoppedParts(counts)
           const verdict: Verdict = {
             decision: 'stop', by: 'rules',
@@ -420,7 +452,7 @@ export class MentionTriage {
           await this.#thread(linked.id, (one) => mode === 'act'
             ? { ...one, state: 'closed', closed: { reason: parts.length > 0 ? 'stopped' : 'closed', at: this.#port.now() }, seen: remember(one.seen, id) }
             : { ...one, seen: remember(one.seen, id) })
-          await this.#record(arm, fact, verdict, mode, mode === 'act', mode === 'act' ? linked.id : null)
+          await this.#record(arm, fact, counts.queued ? { ...verdict, reason: `${verdict.reason} ${counts.queued} queued ${counts.queued === 1 ? 'firing was' : 'firings were'} dropped.` } : verdict, mode, mode === 'act', mode === 'act' ? linked.id : null)
           return
         }
         // Discussion on the thread asks the desk for nothing: only a comment that addresses the handle resumes the work.
@@ -475,6 +507,7 @@ export class MentionTriage {
     return this.#serial.run(async () => {
       const before = (await this.#read()).decisions.find((one) => one.id === decisionId && one.project === arm.project && one.trigger === arm.id)
       if (!before) throw Object.assign(new Error('There is no such decision on this trigger.'), { code: 'HD_TRIGGER_REFUSED' })
+      if (before.closedFiring) throw Object.assign(new Error('This records a refused firing; it is not a comment to re-evaluate.'), { code: 'HD_TRIGGER_REFUSED' })
       const fact = { ...await this.#port.forge.comment(arm.project, before.repository, Number(before.comment.id), this.#port.signal), project: arm.project }
       if (before.commentDigest !== undefined && bodyDigest(fact.body ?? '') !== before.commentDigest) throw Object.assign(new Error(EDITED), { code: 'HD_TRIGGER_REFUSED' })
       const handle = this.#handle(arm.definition)
@@ -537,7 +570,8 @@ export class MentionTriage {
             if (issues.every((issue) => issue.state === 'closed')) next = { ...next, state: 'closed', closed: { reason: 'closed', at: this.#port.now() } }
           }
           if (next !== thread) {
-            await this.#thread(thread.id, () => next)
+            if (next.state === 'closed') await this.#port.closeThread(() => this.#thread(thread.id, () => next).then(() => {}))
+            else await this.#thread(thread.id, () => next)
             if (next.links !== thread.links) await this.#attach(next)
             this.#port.changed(thread.project)
           } else if (thread.workItem === undefined) {
@@ -720,7 +754,7 @@ const stoppedParts = (counts: { readonly own: number; readonly lead: number; rea
 ]
 
 const publicDecision = (decision: StoredDecision): TriggerDecision => {
-  const { commentDigest: _digest, ...rest } = decision
+  const { commentDigest: _digest, closedFiring: _closedFiring, ...rest } = decision
   return rest
 }
 

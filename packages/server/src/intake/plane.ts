@@ -211,6 +211,7 @@ export class IntakePlane {
   readonly #closures: TriggerClosures
   readonly #mentions: MentionTriage
   readonly #mentionsAbort = new AbortController()
+  readonly #closedFiringLogs = new Set<string>()
   #mentionSwept: number | null = null
   readonly #prefsSerial = new Serial()
   #prefs: Preferences = DEFAULT_PREFERENCES
@@ -327,6 +328,24 @@ export class IntakePlane {
       gate: async (operation) => {
         if (operation.payload && 'lead' in operation.payload.definition.opens) {
           if (this.#closed || this.#prefs.paused || !this.#dispatchReady) return 'Triggers are paused; this firing waits.'
+          if (operation.payload.fact.source === 'mention') {
+            let closed: Awaited<ReturnType<MentionTriage['closedFiring']>>
+            try { closed = await this.#mentions.closedFiring(operation.key) }
+            catch { return 'The mention decisions could not be read; this firing waits.' }
+            if (closed === 'recorded') return { reason: 'The firing was refused because its mention thread is closed.', final: true }
+            if (closed === 'unrecorded') {
+              // Admission cannot wait for the mention queue: a mention may
+              // already be waiting for admission. Keep the firing durable
+              // until its decision is saved, then try its gate again.
+              if (!this.#closedFiringLogs.has(operation.key)) {
+                this.#closedFiringLogs.add(operation.key)
+                void this.#track(this.#mentions.recordClosedFiring(operation.key, operation.payload.fact).then(() => this.#admission.recover())
+                  .catch(error => this.#port.log('a closed mention firing could not be recorded', { error: String(error) }))
+                  .finally(() => this.#closedFiringLogs.delete(operation.key)))
+              }
+              return 'The mention thread is closed; its refusal waits to be recorded.'
+            }
+          }
           try {
             const binding = await this.#consent.binding(operation.project, operation.trigger)
             if (!binding || !consentMatches(operation.payload.binding, binding)) return { reason: 'This trigger changed since it was armed; arm it again.', final: true }
@@ -362,6 +381,9 @@ export class IntakePlane {
       assess: port.mentions?.assess ?? null,
       leadName: () => port.mentions?.leadName?.() ?? 'dex',
       stop: async ({ goals, firings, comment }, why) => {
+        // Serialize with delivery: a firing that already crossed the gate may
+        // have opened the Lead's goal, which stopLead checks afterwards.
+        const queued = await this.#admission.cancelMentionFirings(firings, 'The mention thread was stopped; its queued firing was dropped.')
         // The trigger's own runs, by the host's stop: checks first, then each intake run still going, then any live turn on
         // the Goal's Seats. Never a run a person started on the Goal, and never another trigger's.
         let own = 0
@@ -376,8 +398,9 @@ export class IntakePlane {
         // The Lead's goal, only when a firing of this thread opened it: stopped as the person's Stop stops it.
         const lead = await port.mentions?.stopLead?.({ firings, comment }) ?? { plan: false, runs: 0 }
         this.#schedule()
-        return { own, lead: lead.runs, plan: lead.plan }
+        return { own, lead: lead.runs, plan: lead.plan, queued }
       },
+      closeThread: close => this.#admission.closeMentionThread(close),
       pullRequests: (repository, goals, firings) => port.mentions?.pullRequests?.(repository, goals, firings) ?? Promise.resolve([]),
       workItems: port.mentions?.workItems ?? NO_WORK_ITEMS,
       ask: (arm, decision) => this.#attention.notice(`triage:${arm.project}:${arm.id}`, {
