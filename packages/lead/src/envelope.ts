@@ -133,7 +133,7 @@ const jsonEnd = (text: string, start: number, multiline: boolean): number => {
         ? /^"(?:[^"\\\r\n]|\\.)*"[ \t]*\r?\n[ \t\r\n]*:[ \t\r\n]*(?=\S)/.exec(next) : null
       const splitValue = splitKey ? next.slice(splitKey[0].length) : ''
       const wrappedKey = !!splitKey && /^(?:[\[{\"]|true|false|null|-?(?:0|[1-9]\d*))/.test(splitValue)
-        && continuationLine(splitValue, ['{'], ':')
+        && continuationLine(splitValue, containers, ':')
       // An unfinished object key has no closing quote or colon yet; only take
       // it where the current object expects a key, leaving complete quoted prose.
       const clippedKey = top === '{' && (previous === '{' || previous === ',') && /^"(?:[^"\\\r\n]|\\[^\r\n])*\\?(?=\r|\n|$)/.test(next)

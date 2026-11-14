@@ -897,6 +897,38 @@ test('#2081 R8: recovered nested closers accept structural continuations without
   }
 })
 
+test('#2081 R9: nested split keys allow their ancestor closers', () => {
+  assert.deepEqual(lead.stripLeadOutput('Before.\n{"type":"lead-output","refs":[{\n"id"\n:\n1}]\nAfter.'),
+    { text: 'Before.\nAfter.', dropped: true })
+})
+
+test('#2081 R9: nested split-key lookahead uses every ancestor', () => {
+  const samples = [
+    ['{', '"type"', ':', '"lead-output"', ',', '"refs"', ':', '[', '{', '"id"', ':', '1', '}', ']', '}'],
+    ['{', '"type"', ':', '"lead-output"', ',', '"refs"', ':', '[', '{', '"inner"', ':', '[', '{', '"value"', ':', 'true', '}', ']', '}', ']', '}'],
+    ['{', '"type"', ':', '"lead-output"', ',', '"ask"', ':', '{', '"inner"', ':', '{', '"a\\"b"', ':', '"escaped\\\\value"', '}', '}', '}'],
+  ]
+  for (const tokens of samples) {
+    assert.doesNotThrow(() => JSON.parse(tokens.join('')))
+    for (let i = 4; i < tokens.length - 2; i++) {
+      if (!tokens[i]!.startsWith('"') || tokens[i + 1] !== ':') continue
+      for (const newline of ['\n', ' \r\n  ']) for (const splitValue of [false, true]) {
+        const clipped = tokens.slice(0, -1).map((token, index) => token +
+          (index === i - 1 || index === i || splitValue && index === i + 1 ? newline : '')).join('')
+        assert.deepEqual(lead.stripLeadOutput(`Before.\n${clipped}\nAfter.`),
+          { text: 'Before.\nAfter.', dropped: true }, `key ${tokens[i]}: ${clipped}`)
+      }
+    }
+  }
+})
+
+test('#2081 R9: nested split-key lookahead preserves non-JSON explanations', () => {
+  for (const prose of ['"id"\n:\ntrue, but only sometimes', '"id"\n:\n1,000 users saw this', '"id"\n:\n"quoted", said the worker']) {
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n{"type":"lead-output","refs":[{\n${prose}`),
+      { text: `Before.\n${prose}`, dropped: true }, prose)
+  }
+})
+
 test('#2081: wrapped JSON continuations stay with a clipped envelope', () => {
   for (const fragment of [
     '{"version":1,"type":"lead-output",\n  "text": "hidden",',
