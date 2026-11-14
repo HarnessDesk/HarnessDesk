@@ -28,6 +28,14 @@ test('edited browser specs run immediately instead of waiting for a second full 
   assert.deepEqual(JSON.parse(run.browser_specs), ['e2e/ui-system/row-box.spec.ts'])
 })
 
+test('full PR admission and the browser CLI share the twelve-shard complete deal', () => {
+  const run = ci(['.github/workflows/ci.yml'])
+  assert.equal(run.tier, 'full')
+  assert.equal(run.shard_count, 12)
+  assert.equal(JSON.parse(run.shards).length, 12)
+  assert.equal(run.browser_specs, 'all')
+})
+
 for (const path of [
   'packages/server/src/host.ts', 'packages/protocol/src/wire.ts',
   'packages/crypto/src/e2ee.ts', 'packages/phone-link/src/server.ts',

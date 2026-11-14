@@ -17,6 +17,43 @@ const conversation = (result: string): MessagesTurn[] => [
 ]
 const github = 'ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8'
 
+test('a nested clean request visits each field once while retaining both credential screens', () => {
+  let reads = 0
+  const leaf = { get text() { reads++; return 'ordinary tool output' } }
+  const nested = { messages: [{ content: [{ result: { entries: [leaf] } }] }] }
+  assert.equal(lead.leadContainsSecret(nested), false)
+  assert.equal(reads, 1, 'the shared screen must not rescan each ancestor subtree')
+  // Short provider keys belong to the outbound screen, including encoded strings and field names.
+  for (const value of ['sk-ant-short', { 'sk-ant-short': 'value' }, JSON.stringify(JSON.stringify({ output: 'sk-ant-short' }))])
+    assert.equal(lead.leadContainsSecret(value), true)
+  for (const value of [{ password: 'value' }, JSON.stringify({ authorization: 'value' }), { output: 'synthetic-provider-key' }])
+    assert.equal(lead.leadContainsSecret(value, 'synthetic-provider-key'), true)
+})
+
+test('one traversal agrees with the former two-screen union for structured and encoded values', () => {
+  // The pre-optimization composition is the compatibility oracle. Journal
+  // rules and the outbound short-key rule must remain a union at every depth.
+  const previous = (value: unknown, key?: string): boolean => {
+    if (lead.leadDataContainsCredential(value, key ? [key] : [])) return true
+    if (typeof value === 'string') {
+      if (/sk-ant-[A-Za-z0-9_-]+/.test(value)) return true
+      try { const decoded: unknown = JSON.parse(value); return decoded !== value && previous(decoded, key) }
+      catch { return false }
+    }
+    return !!value && typeof value === 'object' && Object.entries(value).some(([name, child]) => previous(name, key) || previous(child, key))
+  }
+  for (const seed of [null, false, 42, 'ordinary text', clipped, 'sk-ant-short', 'synthetic-provider-key',
+    { password: 'value' }, { authorization: 'broker:reference' }, { next_token: 'page-2' },
+    { 'sk-ant-short': 'ordinary text' }, { output: `token ${github}` }]) {
+    let value: unknown = seed
+    for (let depth = 0; depth < 5; depth++) {
+      for (const input of [value, JSON.stringify(value), JSON.stringify(JSON.stringify(value))])
+        assert.equal(lead.leadContainsSecret(input, 'synthetic-provider-key'), previous(input, 'synthetic-provider-key'))
+      value = { messages: [{ content: [{ output: value }] }] }
+    }
+  }
+})
+
 test('a clipped header line whose value is only the clip marker is not a credential', () => {
   assert.equal(lead.leadDataContainsCredential(clipped), false)
   assert.equal(lead.leadDataContainsCredential('  password=…'), false)

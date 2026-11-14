@@ -5,7 +5,7 @@ import { closeTeamDetails, selectTeamPage, teamSeats } from './team-frame-action
 for (const theme of ['light', 'dark'] as const) {
   test(`general Team Overview gallery passes the whole-document text audit in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
-    await page.goto(`/preview.html?team-overview&theme=${theme}`)
+    await page.goto(`/preview.html?team-overview&isolate&theme=${theme}`)
     await expect(page.locator('#team-overview-answer-approval [data-slot="team-overview"]')).toBeVisible()
     await expect.poll(() => page.locator('body').evaluate(body => body.hasAttribute('data-hd-dark-theme'))).toBe(theme === 'dark')
     expect(textReasons(await page.evaluate(COLLECT), { user: USER })).toEqual([])
@@ -115,7 +115,7 @@ for (const theme of ['light', 'dark'] as const) {
 for (const theme of ['light', 'dark'] as const) {
   test(`Team Overview: precedence, resting ink, faces, fold and pane width in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
-    await page.goto(`/preview.html?team-overview&theme=${theme}`)
+    await page.goto(`/preview.html?team-overview&isolate&theme=${theme}`)
     const wide = page.locator('#team-overview-running [data-slot="team-overview"]')
     await expect(wide).toBeVisible()
     await expect(wide).toHaveAttribute('data-layout', 'table')
@@ -213,7 +213,7 @@ for (const theme of ['light', 'dark'] as const) {
   {
 
     for (const [item0, scene] of (['running', 'narrow']).entries()) test(`Team Overview: attention sentences wrap whole in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
-      await page.goto(`/preview.html?team-overview&theme=${theme}`)
+      await page.goto(`/preview.html?team-overview&isolate&theme=${theme}`)
       const attention = page.locator(`#team-overview-${scene} [aria-label="Needs you"]`)
       const sentence = attention.locator('[data-slot="list-row-subtitle"]')
       await expect(sentence).toHaveText(/choose whether to keep the original payment method/)
@@ -238,7 +238,7 @@ for (const theme of ['light', 'dark'] as const) {
       ['needs-you', 'Beta is waiting for your approval'],
       ['stalled', 'Choose the target before this Run can continue'],
     ]).entries()) test(`Team Work: live status and canonical Seat faces align in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
-      await page.goto(`/preview.html?team-overview&theme=${theme}`)
+      await page.goto(`/preview.html?team-overview&isolate&theme=${theme}`)
       await page.evaluate(() => document.fonts.ready)
       const frame = page.locator(`#team-overview-live-${scene}`)
       const overview = frame.locator('[data-slot="team-overview"]')
@@ -290,7 +290,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 for (const theme of ['light', 'dark'] as const) {
   test(`Team Overview: evidence and unrouted reasons stay visible once in ${theme}`, async ({ page }) => {
-    await page.goto(`/preview.html?team-overview&theme=${theme}`)
+    await page.goto(`/preview.html?team-overview&isolate&theme=${theme}`)
     const waiting = page.locator('#team-overview-live-waiting-evidence [data-slot="team-overview"]')
     await expect(page.locator('#team-overview-live-waiting-evidence [data-topbar="state"] [aria-label="Running"]')).toBeVisible()
     await expect(waiting.locator('[aria-label="Run"]')).toContainText('Waiting for CI to go green at this revision.')
@@ -309,7 +309,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 for (const theme of ['light', 'dark'] as const) {
   test(`Work keeps unknown stopped timing explicit in its Run facts and record in ${theme}`, async ({ page }) => {
-    await page.goto(`/preview.html?team-overview&theme=${theme}`)
+    await page.goto(`/preview.html?team-overview&isolate&theme=${theme}`)
     const frame = page.locator('#team-overview-live-stopped-unknown')
     await teamSeats(frame)
     const facts = frame.locator('[aria-label="Team Run facts"] [data-slot="summary-item"]').filter({ has: page.locator('dt', { hasText: /^Elapsed$/ }) })
@@ -324,7 +324,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(record).not.toContainText('is working')
   })
   test(`Overview keeps findings, posting and pending release reasons once in ${theme}`, async ({ page }) => {
-    await page.goto(`/preview.html?team-overview&theme=${theme}`)
+    await page.goto(`/preview.html?team-overview&isolate&theme=${theme}`)
     const overview = page.locator('#team-overview-live-findings-and-posting [data-slot="team-overview"]')
     const text = await overview.textContent()
     for (const reason of ['Waiting for 3 open blocking findings to be confirmed resolved.', 'This review is waiting to be posted.', 'Waiting for a Seat to finish before releasing its checkout.']) expect(text?.split(reason)).toHaveLength(2)
@@ -337,7 +337,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 for (const theme of ['light', 'dark'] as const) {
   test(`Overview gives the name the available width and drops empty readings in ${theme}`, async ({ page }) => {
-    await page.goto(`/preview.html?team-overview&theme=${theme}`)
+    await page.goto(`/preview.html?team-overview&isolate&theme=${theme}`)
     const overview = page.locator('#team-overview-running [data-slot="team-overview"]')
     const widths = await overview.locator('th').evaluateAll(heads => heads.map(head => head.getBoundingClientRect().width))
     expect(widths[0]).toBeGreaterThan(widths[4]!)
@@ -351,7 +351,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 for (const theme of ['light', 'dark'] as const) {
   test(`an unreadable findings ledger raises attention and opens Findings in ${theme}`, async ({ page }) => {
-    await page.goto(`/preview.html?team-overview&theme=${theme}`)
+    await page.goto(`/preview.html?team-overview&isolate&theme=${theme}`)
     const rig = page.locator('#team-overview-live-unreadable-ledger')
     const overview = rig.locator('[data-slot="team-overview"]')
     const reason = 'Some findings could not be read, so this cannot be ready. A person has to look.'
@@ -369,7 +369,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 for (const theme of ['light', 'dark'] as const) {
   test(`short Seat openers keep a 24px target in both layouts in ${theme}`, async ({ page }) => {
-    await page.goto(`/preview.html?team-overview&theme=${theme}`)
+    await page.goto(`/preview.html?team-overview&isolate&theme=${theme}`)
     for (const width of [1440, 720]) {
       await page.setViewportSize({ width, height: 1100 })
       const opener = page.locator('#team-overview-running [data-slot="team-overview"]').getByRole('button', { name: /^Open / }).filter({ has: page.locator('[data-role="subject"]') }).first()
@@ -385,7 +385,7 @@ for (const theme of ['light', 'dark'] as const) {
   test(`Team news: orange waits, blue clears on opening, and unchecked Overview has no count in ${theme}`, async ({page}) => {
     await page.setViewportSize({width:1200,height:900})
     await page.emulateMedia({colorScheme:theme})
-    await page.goto(`/preview.html?team-overview&theme=${theme}`)
+    await page.goto(`/preview.html?team-overview&isolate&theme=${theme}`)
     await page.evaluate(() => document.fonts.ready)
     const sidebar=page.locator('#team-attention-sidebar')
     const orange=sidebar.getByRole('button',{name:'Room Waiting on you',exact:true}).locator('xpath=ancestor::*[@data-left-row][1]')
@@ -421,7 +421,7 @@ for (const theme of ['light', 'dark'] as const) {
   })
 
   test(`Work keeps attention readable without a duplicate navigation count in ${theme}`, async ({page}) => {
-    await page.goto(`/preview.html?team-overview&theme=${theme}`)
+    await page.goto(`/preview.html?team-overview&isolate&theme=${theme}`)
     for (const scene of ['needs-you','stalled','unrouted','findings-and-posting']) {
       const frame=page.locator(`#team-overview-live-${scene}`)
       if (scene === 'needs-you') {

@@ -33,15 +33,16 @@ for (const theme of ['light', 'dark'] as const) {
   test.describe(`FlowGraph in ${theme}`, () => {
     test.beforeEach(async ({ page }) => {
       await page.emulateMedia({ colorScheme: theme })
-      await page.goto(`/preview.html?flow-graph&theme=${theme}`)
+      await page.goto(`/preview.html?flow-graph&isolate&theme=${theme}`)
       for (const scene of SCENES) await expect(page.locator(`#flow-graph-${scene} .react-flow__node`).first()).toBeVisible()
       if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
       else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme', '')
     })
 
-    {
-
-      for (const [item0, scene] of (SCENES).entries()) test(`no label sits on a card or on another label, and no card on another, in any Flow [item ${[item0].join('-')}]`, async ({ page }) => {
+    // These checks only read disjoint drawings already mounted by beforeEach.
+    // One navigation covers all eight; each scene retains its own diagnostic step.
+    test('no label sits on a card or on another label, and no card on another, in any Flow', async ({ page }) => {
+      for (const scene of SCENES) await test.step(scene, async () => {
 
         await expect(page.locator(`#flow-graph-${scene} .react-flow__edge`)).not.toHaveCount(0)
         const drawn = await measure(page, scene)
@@ -56,11 +57,12 @@ for (const theme of ['light', 'dark'] as const) {
 
 
       })
-    }
+    })
 
-    {
-
-      for (const [item0, scene] of (SCENES).entries()) test(`every arrowhead lands on the card its rule goes to [item ${[item0].join('-')}]`, async ({ page }) => {
+    // These checks only read disjoint drawings already mounted by beforeEach.
+    // One navigation covers all eight; each scene retains its own diagnostic step.
+    test('every arrowhead lands on the card its rule goes to', async ({ page }) => {
+      for (const scene of SCENES) await test.step(scene, async () => {
 
         await expect(page.locator(`#flow-graph-${scene} .react-flow__edge`)).not.toHaveCount(0)
         const drawn = await measure(page, scene)
@@ -77,7 +79,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 
       })
-    }
+    })
 
     test('reads left to right, with a loop under the line, and a person closing the line under what handed it over', async ({ page }) => {
       const { steps } = await measure(page, 'blueprint')
