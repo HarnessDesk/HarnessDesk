@@ -71,8 +71,8 @@ export const ConversationThread = forwardRef<HTMLDivElement, ComponentProps<'div
     const pointers = new Set<number>()
     pressed.set(element, pointers)
     const down = (event: PointerEvent): void => { pointers.add(event.pointerId); mark() }
-    const up = (event: PointerEvent): void => { if (pointers.delete(event.pointerId)) mark() }
-    const blur = (): void => { if (pointers.size) { pointers.clear(); mark() } }
+    const up = (event: PointerEvent): void => { if (pointers.delete(event.pointerId)) { mark(); readScroll(element) } }
+    const blur = (): void => { if (pointers.size) { pointers.clear(); mark(); readScroll(element) } }
     const document = element.ownerDocument
     const window = document.defaultView
     for (const kind of PERSON_SCROLLS) element.addEventListener(kind, mark, { passive: true })

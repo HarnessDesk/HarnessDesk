@@ -169,6 +169,26 @@ it('keeps a completed drag released when the pointerup arrives before its pendin
   expect(thread.scrollTop).toBe(300)
 })
 
+it('records the released drag before a background window delays the next scroll event past the grace period', () => {
+  let now = 0
+  vi.spyOn(performance, 'now').mockImplementation(() => now)
+  act(() => root.render(<ConversationThread keepEnd><p>last message</p></ConversationThread>))
+  const thread = container.firstElementChild as HTMLElement
+  const sizes = { scrollHeight: 1200, clientHeight: 800 }
+  box(thread, sizes)
+  thread.scrollTop = 400
+  act(() => thread.dispatchEvent(new Event('scroll')))
+  act(() => thread.dispatchEvent(pointer('pointerdown')))
+  now = 2000
+  thread.scrollTop = 300
+  sizes.scrollHeight = 1600
+  act(() => document.body.dispatchEvent(pointer('pointerup')))
+  now = 5000
+  expect(threadFollowsEnd(thread)).toBe(false)
+  act(() => resize.forEach(callback => callback()))
+  expect(thread.scrollTop).toBe(300)
+})
+
 it('lets go during a pointer drag longer than the gesture grace period, even while content grows (#2164)', () => {
   let now = 0
   vi.spyOn(performance, 'now').mockImplementation(() => now)
