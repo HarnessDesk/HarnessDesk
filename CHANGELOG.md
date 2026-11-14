@@ -9,6 +9,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Keep saved pins during an upgrade.** Changing how the conversation list is sorted while its history is still loading no longer loses pins saved by an older desk. Unpinning a conversation or pinning another during that load keeps the change you made.
 
+- **A delayed carry-on note is recorded once.** If saving the updated ledger fails after a delayed transcript marker was written, retrying after a restart keeps the original marker instead of inserting it again.
+
 ## 0.7.1 — 2026-11-13
 
 Your phone now hears when something needs you, sealed so the account service cannot read it. Sub-agents show as one flow, and Stop reaches them and what they left running. A conversation or a Team seat can carry on past a usage limit by a rule you set, an MCP server can be tested from the Library, the desk can be used from any MCP client, and a GitHub comment can ask the Lead. The Lead keeps a memory, rules and reminders you can read and correct, and tells you what changed while you were away. Codex 0.167 works.
