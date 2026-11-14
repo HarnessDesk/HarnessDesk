@@ -213,3 +213,10 @@ test('#2174: the allowance tool says to quote the Dashboard\'s reset and age wor
   assert.match(usage.description, /Say resetsIn and readAge as written[^.]*; never round them/)
   assert.match(usage.description, /resetPassed means the figures were read before that reset/)
 })
+
+test('every Lead tool has explicit step words for the shared activity bar', async () => {
+  const { LEAD_TOOLS } = await import('../src/tools.js')
+  const { leadStepWords } = await import('@harnessdesk/protocol')
+  const missing = Object.entries(LEAD_TOOLS).flatMap(([name, tool]) => leadStepWords(tool.method) === null ? [`${name}: ${tool.method}`] : [])
+  assert.deepEqual(missing, [])
+})
