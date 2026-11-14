@@ -1,5 +1,7 @@
 name: CI
 
+# Full-suite performance comparisons keep the same test matrix and proof gates.
+
 # Feature branches are covered by pull_request without duplicating push runs.
 # Development adds reached browser specs on every push; its release PR and main run full CI.
 on:
