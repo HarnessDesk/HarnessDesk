@@ -532,3 +532,34 @@ for (const timing of ['omitted', 'changed'] as const) for (const announces of [t
   const db = new TranscriptDatabase(join(dir, 'sessions.sqlite'))
   try { const stored = db.read(runtime.info.id, sid)!; assert.equal(stored.usage ?? null, null); assert.equal(stored.turns.flatMap(t => t.items).filter(item => item.id === tool.id).length, 1) } finally { db.close() }
 })
+
+test('a newer usage event during a silent advanced read is not cleared', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-advanced-usage-churn-')), sid = sessionId('usage-churn')
+  const runtime = new FakeRuntime()
+  const makeHost = () => new Host({ logger: silent, state: new StateStore(join(dir, 'state.json')), builtinAgents: dir, catalogRefreshMs: 0, idleStopMs: 0 })
+  const host = makeHost(); host.register(runtime); await host.start()
+  let disposed = false, cold: Host | undefined
+  t.after(async () => { if (cold) await cold.dispose().catch(() => {}); if (!disposed) await host.dispose(); await rm(dir, { recursive: true, force: true }) })
+  const base: Session = { ...new FakeSession(runtime, sid, { cwd: dir, model: 'fake-1' }, {}).snapshot(), itemsLoaded: true }
+  const tokens = { totalTokens: 150, inputTokens: 120, cachedInputTokens: 0, outputTokens: 30, reasoningOutputTokens: 0 }
+  const usage = { contextUsed: 120, contextWindow: 1000, total: tokens, last: tokens }, fresh = { ...usage, contextUsed: 200 }
+  const original = [message('u', 'first', 'user'), message('a', 'answer', 'assistant')]
+  runtime.emit({ type: 'session/started', session: { ...base, turns: [turn('one', original)], usage } })
+  await host.dispose(); disposed = true
+  const next = new FakeRuntime()
+  const replay: Session = { ...base, usage: null, turns: [turn('one', [...original, message('a2', 'later answer', 'assistant')])] }
+  next.readSession = async () => replay
+  cold = makeHost(); cold.register(next); await cold.start()
+  const enrich = TranscriptStore.prototype.enrichForRefresh
+  let injected = false
+  t.mock.method(TranscriptStore.prototype, 'enrichForRefresh', async function (this: TranscriptStore, ...args: Parameters<typeof enrich>) {
+    const result = await enrich.apply(this, args)
+    if (!injected) { injected = true; next.emit({ type: 'usage/updated', sessionId: sid, usage: fresh }) }
+    return result
+  })
+  await assert.rejects(cold.call('session/read', { runtime: next.info.id, sessionId: sid }), /protected|verified/i)
+  assert.equal(injected, true)
+  assert.deepEqual(cold.registry.get(next.info.id, sid)?.session.usage, fresh, 'the later event retains ownership')
+  const db = new TranscriptDatabase(join(dir, 'sessions.sqlite'))
+  try { assert.deepEqual(db.read(next.info.id, sid)!.usage, fresh, 'the later event reaches durable storage') } finally { db.close() }
+})

@@ -9349,20 +9349,17 @@ export class Host {
       // The index owns the desk's display location, not proof of a runtime
       // transcript's scope. Check the body being returned before replacing cwd.
       await admitCwd?.(raw.cwd)
-      // A silent read has no runtime announcement to clear the old usage in
-      // the registry. Fold the proven advance after scope admission so the
-      // ordinary registry fallback cannot restore the superseded figure.
-      if (advancedWithoutUsage && this.registry.get(runtime.info.id, id) === advancedWithoutUsage.record &&
-          advancedWithoutUsage.record.bodyRevision === advancedWithoutUsage.revision && advancedWithoutUsage.record.bodyAuthorityEpoch === advancedWithoutUsage.epoch) {
-        this.#onEvent(runtime.info.id, { type: 'session/started', session: raw }, runtime)
-        const record = this.registry.get(runtime.info.id, id)
-        if (record?.transcriptIncomplete) {
-          if (admitCwd) throw Object.assign(new Error('The chat project location cannot be verified while its history is unsaved.'), { wireCode: 'historyUnavailable' })
-          return this.#pendingTranscriptView(record)
-        }
-      }
       this.#admitFirstReadBase(raw)
       const enriched = await this.#transcripts.enrichForRefresh(raw)
+      // A silent read must not let the registry carry an older usage value
+      // forward. Clear only that fact after enrichment, under the same owner
+      // fence. Synthesizing a session event here would enqueue a body write
+      // before refresh has obtained its durable base and protection path.
+      if (advancedWithoutUsage && this.registry.get(runtime.info.id, id) === advancedWithoutUsage.record &&
+          advancedWithoutUsage.record.bodyRevision === advancedWithoutUsage.revision && advancedWithoutUsage.record.bodyAuthorityEpoch === advancedWithoutUsage.epoch &&
+          advancedWithoutUsage.record.session.usage) {
+        advancedWithoutUsage.record.session = { ...advancedWithoutUsage.record.session, usage: null }
+      }
       const session = { ...enriched.session,
         ...(runtime.info.capabilities.sourceTranscript ? { deskCopy: false } : {}) }
       if (this.#sessionIndex.fillMissingMetadata(session)) this.#sessionIndexRepos.read(session.cwd)
