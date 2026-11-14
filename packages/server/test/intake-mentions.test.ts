@@ -1075,6 +1075,63 @@ test('#2070 R1: a historical thread with no pending firing keeps its existing fo
   assert.equal((await triage.page('/fixture', 'ask', null)).threads[0]?.state, 'closed', 'an unrelated historical thread is still followed')
 })
 
+test('#2070: disarming finalizes an unverified pending firing and releases its reservation', E2E, async t => {
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  await leadOn(t, d)
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async () => ({ delivered: false as const, reason: 'Lead is busy; this firing waits.' }))
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const key = await firingOf(d, 1)
+  const operation = await until(() => {
+    const one = d.host.intakePlane.journal.read().operations.find(item => item.key === key)
+    return one && /busy/i.test(one.attention ?? '') ? one : null
+  }, 'the firing waits on the busy Lead')
+  assert.equal(d.host.intakePlane.journal.read().groups[operation.group]?.open, true, 'the pending firing holds its group')
+  d.forge.fail = path => path === 'repos/acme/widgets/issues/1' ? 'malformed' : null
+  d.clocks.advance(6 * 60_000)
+  await d.host.intakePlane.tick()
+  assert.ok(d.host.intakePlane.journal.read().operations.some(one => one.key === key), 'the still-armed firing waits when its observation cannot be checked')
+  await d.host.call('trigger/disarm', { root: d.repo.dir, id: 'ask' })
+  await d.host.intakePlane.tick()
+  const snapshot = d.host.intakePlane.journal.read()
+  assert.ok(!snapshot.operations.some(one => one.key === key), 'disarm finalizes the pending operation')
+  assert.equal(snapshot.firings[key]?.setAside, true, 'the refusal is recorded against the original firing')
+  assert.match(snapshot.firings[key]?.attention ?? '', /trigger changed since it was armed/i)
+  assert.equal(snapshot.groups[operation.group]?.open, false, 'the reserved group is released')
+})
+
+test('#2070: disarm during the mention check is rechecked before Lead delivery', E2E, async t => {
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  await leadOn(t, d)
+  let busy = true, hold = false, delivered = false
+  const entered = new Gate(), release = new Gate()
+  t.after(() => release.open())
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async () => {
+    if (busy) return { delivered: false as const, reason: 'Lead is busy; this firing waits.' }
+    delivered = true
+    return { delivered: true as const }
+  })
+  const check = MentionTriage.prototype.closedFiring
+  t.mock.method(MentionTriage.prototype, 'closedFiring', async function (this: MentionTriage, key: string) {
+    if (hold) { entered.open(); await release.opened }
+    return check.call(this, key)
+  })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const key = await firingOf(d, 1)
+  await until(() => d.host.intakePlane.journal.read().operations.find(one => one.key === key && /busy/i.test(one.attention ?? '')), 'the firing waits on the busy Lead')
+  busy = false; hold = true
+  const retry = d.host.intakePlane.tick()
+  await entered.opened
+  await d.host.call('trigger/disarm', { root: d.repo.dir, id: 'ask' })
+  release.open()
+  await retry
+  const snapshot = d.host.intakePlane.journal.read()
+  assert.equal(delivered, false, 'a disarmed firing never reaches the Lead')
+  assert.ok(!snapshot.operations.some(one => one.key === key), 'the invalidated operation is finalized')
+  assert.equal(snapshot.firings[key]?.setAside, true)
+})
+
 test('an accepted mention is one work item: the thread it came from, and the work it opened', E2E, async (t) => {
   const d = await desk(t, ASK(), { lead: true })
   await leadOn(t, d)

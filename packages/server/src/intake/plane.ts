@@ -328,10 +328,17 @@ export class IntakePlane {
       gate: async (operation) => {
         if (operation.payload && 'lead' in operation.payload.definition.opens) {
           if (this.#closed || this.#prefs.paused || !this.#dispatchReady) return 'Triggers are paused; this firing waits.'
+          let closed: Awaited<ReturnType<MentionTriage['closedFiring']>> | 'read-failed' | undefined
           if (operation.payload.fact.source === 'mention') {
-            let closed: Awaited<ReturnType<MentionTriage['closedFiring']>>
             try { closed = await this.#mentions.closedFiring(operation.key) }
-            catch { return 'The mention decisions could not be read; this firing waits.' }
+            catch { closed = 'read-failed' }
+          }
+          try {
+            const binding = await this.#consent.binding(operation.project, operation.trigger)
+            if (!binding || !consentMatches(operation.payload.binding, binding)) return { reason: 'This trigger changed since it was armed; arm it again.', final: true }
+          } catch { return 'The trigger arm could not be read; this firing waits.' }
+          if (operation.payload.fact.source === 'mention') {
+            if (closed === 'read-failed') return 'The mention decisions could not be read; this firing waits.'
             if (closed === 'recorded') return { reason: 'The firing was refused because its mention thread is closed.', final: true }
             if (closed === 'unknown') {
               // A new admission reaches here before its thread is written.
@@ -359,10 +366,6 @@ export class IntakePlane {
               return 'The mention thread is closed; its refusal waits to be recorded.'
             }
           }
-          try {
-            const binding = await this.#consent.binding(operation.project, operation.trigger)
-            if (!binding || !consentMatches(operation.payload.binding, binding)) return { reason: 'This trigger changed since it was armed; arm it again.', final: true }
-          } catch { return 'The trigger arm could not be read; this firing waits.' }
           return null
         }
         const run = port.flows.execution(operation.run)
