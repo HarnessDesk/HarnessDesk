@@ -294,8 +294,12 @@ const useComposerItems = (
   }, [trigger, commands, files, snapshot])
 }
 
-const usePendingPlanNote = (key: ReturnType<typeof useSessionKey>, session: ReturnType<typeof useActiveSession>, planEdits: ReturnType<typeof useSnapshot>['planEdits']) =>
-  useMemo(() => (key ? planEditNote(sessionPlan(session) ?? [], planEdits[key] ?? []) : null), [key, session, planEdits])
+const usePendingPlan = (key: ReturnType<typeof useSessionKey>, session: ReturnType<typeof useActiveSession>, planEdits: ReturnType<typeof useSnapshot>['planEdits']) =>
+  useMemo(() => {
+    if (!key) return { currentPlan: null, pendingPlanNote: null }
+    const currentPlan = sessionPlan(session)
+    return { currentPlan, pendingPlanNote: planEditNote(currentPlan ?? [], planEdits[key] ?? []) }
+  }, [key, session, planEdits])
 
 // Folder selection can replace the composer before its send has settled.
 // Every incarnation of the new-session draft shares one submission hold.
@@ -308,7 +312,6 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
   const { goals, workbench, windowWidth, health, draftHandoff, contributions, planEdits, workspace, activeRuntime, history, skills, recoverableDrafts } = snapshot
   const session = useActiveSession()
   const sessionPresent = Boolean(session)
-  const currentPlan = sessionPlan(session)
   const key = useSessionKey()
   const pane = usePane()
   const record = isRecordConversation(goals.values(), key)
@@ -488,7 +491,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
    * person's wording, which needs no sentence around it — and without this the
    * only way to deliver a correction was to type filler beside it.
    */
-  const pendingPlanNote = usePendingPlanNote(key, session, planEdits)
+  const { currentPlan, pendingPlanNote } = usePendingPlan(key, session, planEdits)
   const canSend =
     canType &&
     (Boolean(session) || ready) &&
