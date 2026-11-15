@@ -11,6 +11,7 @@ export const captureMetricDeltas=(start,end)=>{
 }
 const protectedState=s=>s.visibleMounted===true&&s.visibleLoaded===true&&s.draftPresent===true&&s.draftLoaded===true&&s.pendingPresent===true&&s.pendingLoaded===true&&s.pendingActive===true&&s.pendingMounted===false&&s.pendingCloseSent===0&&s.pendingCloseResolved===0&&s.pendingCloseRejected===0&&s.knownMissing===0
 const quiet=s=>s.enabled===true&&s.pressureRunning===false&&s.pressureDirty===false
+const qualifies=s=>s.recovery===0&&s.eligibilityKnown===false
 /** Supplemental observation only; accepts no result/checkpoint object and cannot turn a failure into a pass. */
 export async function observeLateFailure({read,collect,heap,now,sleep}) {
  const start=now(),deadline=start+60000
@@ -25,11 +26,19 @@ export async function observeLateFailure({read,collect,heap,now,sleep}) {
   lastState=state
   lastProtected=protectedState(state)
   if(!lastProtected)return result('protection-lost')
+  if(!qualifies(state))return result('nonqualifying')
   if(quiet(state)&&previous!==null&&JSON.stringify(previous)===JSON.stringify(state)) {
    if(now()>=deadline)return result('timeout')
    try {
     await collect(Math.min(2000,Math.max(1,deadline-now())))
-    if(now()>=deadline)return result('quiescent',{heapUnavailable:true})
+    if(now()>=deadline)return result('timeout')
+    let after
+    try {after=stageRecord('quiescence',await read(Math.min(2000,Math.max(1,deadline-now())))).state}
+    catch {return result('unavailable')}
+    samples++;lastState=after;lastProtected=protectedState(after)
+    if(!lastProtected)return result('protection-lost')
+    if(!quiet(after)||!qualifies(after)||JSON.stringify(state)!==JSON.stringify(after))return result('changed-after-gc')
+    if(now()>=deadline)return result('timeout')
     const value=await heap(Math.min(2000,Math.max(1,deadline-now())))
     if(!finite(value?.usedSize,Number.MAX_SAFE_INTEGER))return result('quiescent',{heapUnavailable:true})
     return result('quiescent',{heap:{usedBytes:value.usedSize,backingBytes:finite(value.backingStorageSize,Number.MAX_SAFE_INTEGER)?value.backingStorageSize:null}})

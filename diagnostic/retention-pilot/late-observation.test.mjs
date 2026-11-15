@@ -16,7 +16,7 @@ test('late observation keeps original failure unchanged and takes one heap only 
  assert.deepEqual(r.original,before)
  assert.equal(late.outcome,'quiescent');assert.equal(late.protection,true);assert.equal(late.quiescent,true)
  assert.deepEqual(late.counts,{metadata:12,loaded:9,released:3,recovery:0,knownLoaded:9,knownMissing:0})
- assert.deepEqual(late.heap,{usedBytes:40,backingBytes:5});assert.deepEqual(r.counts(),{gc:1,heaps:1,reads:2})
+ assert.deepEqual(late.heap,{usedBytes:40,backingBytes:5});assert.deepEqual(r.counts(),{gc:1,heaps:1,reads:3})
 })
 test('late observer times out with no heap and preserves a failure',async()=>{
  const r=rig(()=>({...protectedState,pressureRunning:true})),before=structuredClone(r.original)
@@ -56,5 +56,18 @@ test('a failed heap read is an unavailable late measurement and does not change 
  await recordLateFailure(r.original,r.options)
  assert.equal(r.original.lateObservation.outcome,'quiescent');assert.equal(r.original.lateObservation.heapUnavailable,true)
  const {lateObservation,...original}=r.original;assert.deepEqual(original,before)
- assert.deepEqual(r.counts(),{gc:1,heaps:1,reads:2});assert.doesNotMatch(JSON.stringify(lateObservation),/private/)
+ assert.deepEqual(r.counts(),{gc:1,heaps:1,reads:3});assert.doesNotMatch(JSON.stringify(lateObservation),/private/)
+})
+
+test('late heap refuses nonzero recovery or known eligibility',async()=>{
+ for(const changed of [{recovery:1},{eligibilityKnown:true}]){
+  const r=rig(()=>({...protectedState,...changed})),late=await observeLateFailure(r.options)
+  assert.equal(late.outcome,'nonqualifying');assert.equal(r.counts().gc,0);assert.equal(r.counts().heaps,0)
+ }
+})
+test('after GC late heap requires the same protected quiet scalar state',async()=>{
+ for(const [changed,outcome] of [[{pendingPresent:false},'protection-lost'],[{loaded:10},'changed-after-gc'],[{pressureRunning:true},'changed-after-gc'],[{recovery:1},'changed-after-gc']]) {
+  const r=rig(n=>n<3?protectedState:{...protectedState,...changed}),late=await observeLateFailure(r.options)
+  assert.equal(late.outcome,outcome);assert.equal(r.counts().gc,1);assert.equal(r.counts().heaps,0)
+ }
 })
