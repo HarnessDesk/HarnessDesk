@@ -136,6 +136,10 @@ per step. Diff hunks carry at most 400 lines per file and 1,500 per turn,
 transcript text, with absolute paths rewritten to project paths and
 key-shaped strings and addresses redacted. A serialized thread is capped at
 512 KB, retaining recent entries and bounded recent hunks so it fits the relay.
+Conversation row IDs and phone approval aliases are full SHA-256 digests of
+tagged identifiers; predictable inputs can still be guessed. An approval alias
+is matched against the target session’s pending requests on the desk, and an
+ambiguous alias or legacy ID is refused.
 With Run it can create a session in an admitted project or a fresh chat folder,
 send text to an active ordinary session, and interrupt a supported running
 turn. These actions reuse the desk's host methods without changing session

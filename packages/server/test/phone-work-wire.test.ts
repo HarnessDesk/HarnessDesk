@@ -224,7 +224,8 @@ test('a phone that may read gets the snapshot and a conversation, and both scrub
     assert.equal(thread.result.status, 'asksYou')
     assert.deepEqual(thread.result.turns.map((turn: any) => turn.type), ['you', 'work', 'agent', 'approval'])
     const ask = thread.result.turns.at(-1)
-    assert.deepEqual([ask.id, ask.state, ask.highRisk, ask.command, ask.sessionGrant !== undefined], ['ap-1', 'pending', false, 'pnpm test', true])
+    assert.notEqual(ask.id, 'ap-1')
+    assert.deepEqual([ask.state, ask.highRisk, ask.command, ask.sessionGrant !== undefined], ['pending', false, 'pnpm test', true])
     for (const [name, reply] of Object.entries({ snapshot, thread })) assert.deepEqual(leaks(reply.result), [], name)
     phone.close()
   } finally { await d.done() }
@@ -395,6 +396,39 @@ for (const canDelete of [false, true]) test(`phone wire advertises ready-agent d
   try {
     const phone = await d.pair(['read'])
     assert.equal((await phone.request('workspace/read', {})).result.capabilities.delete, canDelete)
+    phone.close()
+  } finally { await d.done() }
+})
+
+test('a phone echoes an approval alias and the desk answers the original pending request', async () => {
+  const d = await door()
+  try {
+    const phone = await d.pair(['read', 'answer'])
+    const result = await phone.request('workspace/thread/read', { id: KEY })
+    const ask = result.result.turns.find((turn: any) => turn.type === 'approval')
+    assert.notEqual(ask.id, 'ap-1')
+    const answered = await phone.request('workspace/approval/decide', { id: ask.id, session: KEY, allow: true })
+    assert.equal(answered.ok, true, JSON.stringify(answered))
+    assert.equal(d.state.responded[0].approvalId, 'ap-1')
+    const receipt = await phone.request('workspace/thread/read', { id: KEY })
+    assert.equal(receipt.result.turns.find((turn: any) => turn.type === 'approval').id, ask.id)
+    phone.close()
+  } finally { await d.done() }
+})
+
+test('a phone cannot use an ambiguous alias or a foreign session to answer an approval', async () => {
+  const d = await door()
+  try {
+    const phone = await d.pair(['read', 'answer'])
+    const first = await phone.request('workspace/thread/read', { id: KEY })
+    const alias = first.result.turns.find((turn: any) => turn.type === 'approval').id
+    d.state.pending.push({ ...asked(), id: approvalId(alias) })
+    const ambiguous = await phone.request('workspace/approval/decide', { id: alias, session: KEY, allow: true })
+    assert.equal(ambiguous.ok, false)
+    assert.match(ambiguous.error.message, /ambiguous/)
+    const foreign = await phone.request('workspace/approval/decide', { id: alias, session: `${RT}:foreign`, allow: true })
+    assert.equal(foreign.ok, false)
+    assert.deepEqual(d.state.responded, [])
     phone.close()
   } finally { await d.done() }
 })
