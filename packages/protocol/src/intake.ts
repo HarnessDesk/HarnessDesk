@@ -311,6 +311,14 @@ export interface TriggerProjectView {
   readonly workingCopyChanged: boolean
   readonly triggers: readonly TriggerView[]
   readonly problems: readonly TriggerProblem[]
+  /** Retained stop history whose original mention definition is no longer present. */
+  readonly retainedStopTriggers?: readonly {
+    readonly id: string
+    readonly unconfirmedStops: readonly TriggerUnconfirmedStop[]
+    readonly stopHistoryFull: boolean
+  }[]
+  /** Protected stop history has reached its storage limit. */
+  readonly stopHistoryFull?: boolean
 }
 
 // -------------------------------------------------------------- monitoring
