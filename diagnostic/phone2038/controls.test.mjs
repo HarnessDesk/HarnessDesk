@@ -42,3 +42,17 @@ test('listener guard accepts only the app-owned known phone port outside loopbac
  assert.deepEqual(checkListeners(valid,owned,2000,1000),{total:3,nonloopback:1,owned:true})
  for(const bad of [valid+'n*:9999\n',valid.replace('p17\nn127','p18\nn127').replace('n*:2000','p17\nn*:2000'),valid.replace('*:2000','*:9999'),valid+'p19\nn127.0.0.1:3\n'])assert.throws(()=>checkListeners(bad,owned,2000,1000))
 })
+
+test('listener refusal reports bounded categories without leaking listener addresses', async()=>{
+ const {checkListeners}=await import('./listener-guard.mjs')
+ const owned=new Set([17,18])
+ for(const [raw,expected] of [
+  ['p17\nn127.0.0.1:1000\nn*:2000\nn*:9999\n','unexpected_nonloopback'],
+  ['p17\nn127.0.0.1:1000\np18\nn*:2000\n','wrong_phone_owner'],
+  ['p17\nn127.0.0.1:1000\n','phone_listener_count'],
+  ['p19\nn127.0.0.1:1000\np17\nn*:2000\n','foreign_owner'],
+ ]) {
+  try {checkListeners(raw,owned,2000,1000);assert.fail('must reject')}
+  catch(error) {assert.equal(error.code,expected);assert.equal(typeof error.counts.total,'number');assert.doesNotMatch(JSON.stringify(error.counts),/127|9999|1000|2000/)}
+ }
+})

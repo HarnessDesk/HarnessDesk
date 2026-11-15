@@ -10,5 +10,5 @@
   "diagnostic/phone2038/scripted-flow.mjs": "1b6f58123021ce772025a525aaedabd99784655772631299d27a6dbe4c8099d7",
   "diagnostic/phone2038/plugin-icon.svg": "611ca48d4da7767c7cc051442c2e389a2d5a288a2fbb09c5edd3f3b1e7499d79",
   "diagnostic/phone2038/ambient-shape.mjs": "d73b2956892802e0203bf1a6c6fc3a1c1161ad7a15f4ff7403c6630d19eb2343",
-  "diagnostic/phone2038/listener-guard.mjs": "456fb42371a6f9196f1b779560e788e8ed0c3a52ed38232fe6b8ef5fcc719220"
+  "diagnostic/phone2038/listener-guard.mjs": "29828beb00cd49a8a2d40f7398c275cd94b41ec83aabb5ba5fa9afecc745713a"
 }
