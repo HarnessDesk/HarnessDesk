@@ -156,3 +156,18 @@ test('the actual startup resumes repair after a failed install without overlappi
   pending.shift()(0); await tick(); assert.equal(dialogs.length,4); assert.equal(maxActive,1)
   pending.shift()(2); await tick(); assert.equal(quits,1); assert.equal(dialogs.length,4)
 })
+
+test('repair retries after an updater throws after entering checking', async () => {
+  const { EventEmitter } = await import('node:events')
+  const { attachAppUpdates } = await import('./app-updates.mjs')
+  const updater = new EventEmitter(); let checks = 0, status = null, quits = 0
+  updater.checkForUpdates = () => { checks++; updater.emit('checking-for-update'); if (checks === 1) throw new Error('synthetic'); return Promise.resolve(null) }
+  updater.quitAndInstall = () => {}; updater.setFeedURL = () => {}
+  const flow = attachAppUpdates({updater,env:{},packaged:true,version:'1',onMenu:()=>{},showDialog:async()=>0,onCheckResult:value=>{status=value}})
+  const dialogs = [], choices = [1,1,2]
+  const result = await repairMissingInterface({updates:flow,showDialog:async request=>{dialogs.push(request);return choices.shift()},
+    openExternal:async()=>{},quit:()=>{quits++},status:()=>status,onCheck:()=>{status=null}})
+  assert.equal(result,'quit'); assert.equal(checks,2); assert.equal(quits,1)
+  assert.match(dialogs[1].detail,/update check failed/i); assert.equal(dialogs[1].buttons[1],'Check for Updates')
+  flow.dispose()
+})

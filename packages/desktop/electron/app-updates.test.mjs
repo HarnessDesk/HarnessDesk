@@ -483,3 +483,46 @@ test('a later background download replaces an older up-to-date repair status', (
   updater.emit('update-not-available'); updater.emit('checking-for-update'); updater.emit('update-downloaded',{version:'2'})
   assert.equal(statuses.at(-1),'ready'); assert.equal(flow.menu().action,'install'); flow.dispose()
 })
+
+test('a rejected checking request restores retry and answers an interactive check', async () => {
+  const updater = fakeUpdater(), dialogs = [], statuses = []; let calls = 0
+  updater.checkForUpdates = () => { calls++; updater.emit('checking-for-update'); return calls === 1 ? Promise.reject(new Error('synthetic rejection')) : Promise.resolve(null) }
+  const flow = attachAppUpdates({updater, env:{}, packaged:true, version:'1', onMenu:()=>{},
+    showDialog:async request=>{dialogs.push(request); return 0}, onCheckResult:status=>statuses.push(status)})
+  flow.check(true); await new Promise(resolve=>setImmediate(resolve))
+  assert.equal(flow.menu().enabled,true); assert.equal(flow.menu().action,'check')
+  assert.equal(dialogs.length,1); assert.match(dialogs[0].message,/check failed/i)
+  assert.equal(statuses.at(-1),'failed'); flow.check(true); assert.equal(calls,2); flow.dispose()
+})
+
+test('a synchronously thrown checking request restores retry without duplicate dialogs', async () => {
+  const updater = fakeUpdater(), dialogs = []; let calls = 0
+  updater.checkForUpdates = () => { calls++; updater.emit('checking-for-update'); if(calls===1) throw new Error('synthetic throw'); return Promise.resolve(null) }
+  const flow = attachAppUpdates({updater, env:{}, packaged:true, version:'1', onMenu:()=>{}, showDialog:async request=>{dialogs.push(request); return 0}})
+  assert.doesNotThrow(()=>flow.check(true)); await new Promise(resolve=>setImmediate(resolve))
+  assert.equal(flow.menu().enabled,true); assert.equal(flow.menu().action,'check'); assert.equal(dialogs.length,1)
+  flow.check(true); assert.equal(calls,2); flow.dispose()
+})
+
+test('an error event followed by rejection answers one interactive check once', async () => {
+  const updater = fakeUpdater(), dialogs = [], statuses = []; let calls = 0
+  updater.checkForUpdates = () => {
+    calls++; updater.emit('checking-for-update'); const error = new Error('synthetic')
+    updater.emit('error', error); return Promise.reject(error)
+  }
+  const flow = attachAppUpdates({updater, env:{}, packaged:true, version:'1', onMenu:()=>{},
+    showDialog:async request=>{dialogs.push(request); return 0}, onCheckResult:status=>statuses.push(status)})
+  flow.check(true); await new Promise(resolve=>setImmediate(resolve))
+  assert.equal(dialogs.length,1); assert.deepEqual(statuses,['checking','failed'])
+  assert.equal(flow.menu().action,'check'); assert.equal(flow.menu().enabled,true); assert.equal(calls,1); flow.dispose()
+})
+
+test('an old rejection cannot undo a later retry after an error event', async () => {
+  const updater = fakeUpdater(), statuses = []; let rejectFirst, calls = 0
+  updater.checkForUpdates = () => { calls++; updater.emit('checking-for-update'); return calls===1 ? new Promise((_,reject)=>{rejectFirst=reject}) : Promise.resolve(null) }
+  const flow = attachAppUpdates({updater,env:{},packaged:true,version:'1',onMenu:()=>{},showDialog:async()=>0,onCheckResult:value=>statuses.push(value)})
+  flow.check(false); updater.emit('error',new Error('first'))
+  flow.check(false); updater.emit('update-downloaded',{version:'2'})
+  rejectFirst(new Error('late')); await new Promise(resolve=>setImmediate(resolve))
+  assert.equal(calls,2); assert.equal(flow.menu().action,'install'); assert.equal(statuses.at(-1),'ready'); flow.dispose()
+})

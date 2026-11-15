@@ -176,6 +176,24 @@ export const attachAppUpdates = ({
     )
   }
 
+  /** A rejected check, whether emitted, thrown or returned as a rejection, makes retry possible again. */
+  const checkFailed = (error) => {
+    // A downloaded update stays downloaded; anything earlier starts over.
+    if (phase !== 'ready') phase = 'idle'
+    reportedGeneration = checkGeneration
+    onCheckResult('failed')
+    log('app update check failed', { error: String(error?.message ?? error) })
+    publish()
+    if (interactive) {
+      interactive = false
+      ask({
+        message: 'The update check failed',
+        detail: String(error?.message ?? error),
+        buttons: ['OK'],
+      })
+    }
+  }
+
   const check = (wanted = false) => {
     if (phase === 'checking' || phase === 'downloading') return
     /* A downloaded update is the newest there is to find, and checking again
@@ -189,9 +207,11 @@ export const attachAppUpdates = ({
     }
     interactive = Boolean(wanted)
     const generation = ++checkGeneration
-    updater.checkForUpdates()?.catch?.(() => {
-      if (generation === checkGeneration && reportedGeneration !== generation) onCheckResult('failed')
-    })
+    const failed = (error) => {
+      if (generation === checkGeneration && reportedGeneration !== generation) checkFailed(error)
+    }
+    try { updater.checkForUpdates()?.catch?.(failed) }
+    catch (error) { failed(error) }
   }
 
   updater.on('checking-for-update', () => {
@@ -240,20 +260,7 @@ export const attachAppUpdates = ({
       installFailed(error)
       return
     }
-    // A downloaded update stays downloaded; anything earlier starts over.
-    if (phase !== 'ready') phase = 'idle'
-    reportedGeneration = checkGeneration
-    onCheckResult('failed')
-    log('app update check failed', { error: String(error?.message ?? error) })
-    publish()
-    if (interactive) {
-      interactive = false
-      ask({
-        message: 'The update check failed',
-        detail: String(error?.message ?? error),
-        buttons: ['OK'],
-      })
-    }
+    checkFailed(error)
   })
 
   publish()
