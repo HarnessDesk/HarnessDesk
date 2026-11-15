@@ -9,6 +9,7 @@ import { compareReceipt, compareSnapshot } from './receipt-diagnostics.mjs'
 import { listenerCounts } from './listener-diagnostics.mjs'
 import { canonicalBytes, summarize, pendingAfterNavigation } from './profile-scalars.mjs'
 import { stageRecord } from './profile-stage.mjs'
+import { createRpcObserver, classifyProfileError } from './profile-rpc-observer.mjs'
 
 const taskSource = resolve('.')
 const taskSha = 'b5dad1cac3b5c26a563413d0e586b44508374b5c'
@@ -134,6 +135,7 @@ const mark400 = async (count, stage, selected=null) => {
  } catch {state={stateUnavailable:true}}
  result.diagnostic=stageRecord(stage,state)
 }
+const rpcSnapshot = async () => cdp.json(`(()=>{const m=window.__hd1545Closes,keys=${JSON.stringify(keys)};return window.__hd1545Rpc.snapshot(ref=>{if(!ref)return -1;const i=keys.findIndex(key=>m.get(key)===ref);return i<0?-1:i+1})})()`)
 const compareRepresentative = async key => {
  const a=addr(key)
  return cdp.json(`(async()=>{const t=window.__hdStore.transport,a=${JSON.stringify(a)};const s=await t.request('session/cache-snapshot',a);if(!s)return {present:false};const r=await t.request('session/prepare-eviction',{...a,identity:s.identity});return {present:!!r,identity:!!r&&r.identity===s.identity,epoch:!!r&&r.epoch===s.watermark.epoch,generation:!!r&&r.generation===s.watermark.generation,revision:!!r&&r.revision===s.watermark.revision,sequence:!!r&&r.sequence===s.watermark.sequence}})()`)
@@ -152,7 +154,11 @@ try {
   t.request=function(method,params,...rest){const key=method==='session/close'&&params?.runtime&&params?.sessionId?params.runtime+String.fromCharCode(0)+params.sessionId:null;
    let v;if(key){v=m.get(key)??{sent:0,resolved:0,rejected:0};v.sent++;m.set(key,v)}
    try{const answer=Reflect.apply(original,this,[method,params,...rest]);if(v)Promise.resolve(answer).then(()=>v.resolved++,()=>v.rejected++);return answer}catch(e){if(v)v.rejected++;throw e}
-  };return true})()`)
+  };
+  const observe=${createRpcObserver.toString()};
+  const rpc=observe(t.request,()=>performance.now(),params=>m.get(params?.runtime+String.fromCharCode(0)+params?.sessionId));
+  t.request=rpc.request;window.__hd1545Rpc=rpc;return true})()`)
+
  result.phase='sentinels'
  visible=await newTurn();await closeCurrent(visible)
  draft=await newTurn()
@@ -197,10 +203,19 @@ try {
   if(count===400)await mark400(count,'heap');await cdp.send('HeapProfiler.collectGarbage');const heap=await cdp.send('Runtime.getHeapUsage')
   if(!Number.isFinite(heap.usedSize))throw new Error('missing renderer heap')
   if(count===400)await mark400(count,'target');const sameTarget=(await cdp.send('Target.getTargetInfo')).targetInfo?.targetId===target;if(!sameTarget)throw new Error('renderer target changed')
-  result.checkpoints.push({completed:count,...state,mountedPressure,representatives,heapUsedBytes:heap.usedSize,backingStorageBytes:Number.isFinite(heap.backingStorageSize)?heap.backingStorageSize:null,sameTarget})
+  let rpc;try{rpc=await rpcSnapshot()}catch{}
+  result.checkpoints.push({completed:count,...state,...(rpc?{rpc}:{rpcUnavailable:true}),mountedPressure,representatives,heapUsedBytes:heap.usedSize,backingStorageBytes:Number.isFinite(heap.backingStorageSize)?heap.backingStorageSize:null,sameTarget})
   if(count===400)await mark400(count,'listeners');await observedListeners(`listenersAt${count}`)
   if(count!==400)await closeCurrent(visible)
  }
  result.phase='passed'
-} catch {result.error='profile failed';process.exitCode=1}
+} catch (error) {
+ result.error='profile failed';result.errorCode=classifyProfileError(error);process.exitCode=1
+ if(result.phase==='checkpoint-400'&&result.diagnostic&&cdp){
+  const before=result.diagnostic
+  try{await mark400(400,before.stage);result.endState=result.diagnostic.state}catch{result.endState={stateUnavailable:true}}
+  result.diagnostic=before
+  try{result.rpcEnd=await rpcSnapshot()}catch{result.rpcEndUnavailable=true}
+ }
+}
 finally {let stopped=true;try{await closeDesk(desk??{})}catch{stopped=false;result.cleanupError=true;process.exitCode=1}console.log(JSON.stringify(result));if(stopped)rmSync(taskRoot,{recursive:true,force:true})}
