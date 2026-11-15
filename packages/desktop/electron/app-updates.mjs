@@ -73,6 +73,8 @@ export const attachAppUpdates = ({
   version,
   onMenu,
   showDialog,
+  onInstallFailed = () => {},
+  onCheckResult = () => {},
   log = () => {},
 }) => {
   if (!updatesAllowed({ packaged, env })) {
@@ -102,6 +104,8 @@ export const attachAppUpdates = ({
   // answers a failed one with an `error` event, and nothing sets `interactive`
   // on the way to an install (review of #221, round 2).
   let installing = false
+  let checkGeneration = 0
+  let reportedGeneration = -1
 
   const menu = () =>
     menuFor(phase, readyVersion) === null
@@ -118,13 +122,14 @@ export const attachAppUpdates = ({
   /* Every dialog goes through here. The shell treats an unhandled rejection
      as a crash and relaunches, so a dialog that fails, say because its window
      closed under it, is logged and read as no answer (review, round 1). */
-  const ask = (request, onAnswer = () => {}) => {
+  const ask = (request, onAnswer = () => {}, onError = () => {}) => {
     /* An answer that throws is caught the same way: the only one calls
        quitAndInstall, and a throw from it read as a crash too (#175). */
     void showDialog(request)
       .then(onAnswer)
       .catch((error) => {
         log('app update dialog failed', { error: String(error?.message ?? error) })
+        onError()
       })
   }
 
@@ -142,7 +147,7 @@ export const attachAppUpdates = ({
     installing = false
     const reason = String(error?.message ?? error)
     log('app update install failed', { error: reason })
-    ask({ type: 'error', message: "The update couldn't be installed.", detail: reason, buttons: ['OK'] })
+    ask({ type: 'error', message: "The update couldn't be installed.", detail: reason, buttons: ['OK'] }, onInstallFailed, onInstallFailed)
   }
   const install = () => {
     installing = true
@@ -183,10 +188,14 @@ export const attachAppUpdates = ({
       return
     }
     interactive = Boolean(wanted)
-    updater.checkForUpdates()?.catch?.(() => {})
+    const generation = ++checkGeneration
+    updater.checkForUpdates()?.catch?.(() => {
+      if (generation === checkGeneration && reportedGeneration !== generation) onCheckResult('failed')
+    })
   }
 
   updater.on('checking-for-update', () => {
+    onCheckResult('checking')
     phase = 'checking'
     publish()
   })
@@ -198,6 +207,8 @@ export const attachAppUpdates = ({
   })
 
   updater.on('update-not-available', () => {
+    reportedGeneration = checkGeneration
+    onCheckResult('up-to-date')
     phase = 'idle'
     publish()
     if (interactive) {
@@ -211,6 +222,8 @@ export const attachAppUpdates = ({
   })
 
   updater.on('update-downloaded', (info) => {
+    onCheckResult('ready')
+    reportedGeneration = checkGeneration
     phase = 'ready'
     readyVersion = info?.version ?? 'update'
     log('app update downloaded', { version: readyVersion })
@@ -229,6 +242,8 @@ export const attachAppUpdates = ({
     }
     // A downloaded update stays downloaded; anything earlier starts over.
     if (phase !== 'ready') phase = 'idle'
+    reportedGeneration = checkGeneration
+    onCheckResult('failed')
     log('app update check failed', { error: String(error?.message ?? error) })
     publish()
     if (interactive) {

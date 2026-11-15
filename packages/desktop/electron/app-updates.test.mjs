@@ -414,3 +414,72 @@ test('the registered update action invokes the existing updater check and ready 
     assert.equal(updater.calls.installs, 1)
   } finally { flow.dispose() }
 })
+
+test('an install failure returns the repair surface after its error is answered', async () => {
+  const updater = fakeUpdater()
+  let resumed = 0
+  updater.quitAndInstall = () => { throw new Error('synthetic install failed') }
+  const flow = attachAppUpdates({ updater, env: {}, packaged: true, version: '1.0.0', onMenu: () => {},
+    showDialog: async () => 0, onInstallFailed: () => { resumed++ } })
+  updater.emit('update-downloaded', { version: '1.2.3' })
+  flow.menu().click()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(resumed, 1)
+  flow.dispose()
+})
+
+test('repair can report a background check result without opening another dialog', () => {
+  const updater = fakeUpdater(), statuses = [], dialogs = []
+  const flow = attachAppUpdates({ updater, env: {}, packaged: true, version:'1.0', onMenu:()=>{},
+    showDialog: async request => { dialogs.push(request); return 0 }, onCheckResult: status => statuses.push(status) })
+  flow.check(false); updater.emit('update-not-available')
+  flow.check(false); updater.emit('error', new Error('synthetic'))
+  assert.deepEqual(statuses, ['up-to-date', 'failed'])
+  assert.deepEqual(dialogs, [])
+  flow.dispose()
+})
+
+test('install failure resumes repair even when its error dialog rejects', async () => {
+  const updater = fakeUpdater(); let resumed = 0
+  updater.quitAndInstall = () => { throw new Error('synthetic') }
+  const flow = attachAppUpdates({updater, env:{}, packaged:true, version:'1', onMenu:()=>{},
+    showDialog:async()=>{throw new Error('synthetic dialog')}, onInstallFailed:()=>{resumed++}})
+  updater.emit('update-downloaded',{version:'2'}); flow.menu().click()
+  await new Promise(resolve=>setImmediate(resolve)); assert.equal(resumed,1); flow.dispose()
+})
+
+test('a rejected check without an updater error event still reports failure to repair', async () => {
+  const updater = fakeUpdater(), statuses = []
+  updater.checkForUpdates = () => Promise.reject(new Error('synthetic'))
+  const flow = attachAppUpdates({updater, env:{}, packaged:true, version:'1', onMenu:()=>{}, showDialog:async()=>0,
+    onCheckResult:status=>statuses.push(status)})
+  flow.check(false); await new Promise(resolve=>setImmediate(resolve))
+  assert.deepEqual(statuses,['failed']); flow.dispose()
+})
+
+test('a late rejected older check cannot replace a newer completed result', async () => {
+  const updater = fakeUpdater(), statuses = []; let rejectFirst
+  updater.checkForUpdates = () => rejectFirst ? Promise.resolve(null) : new Promise((_,reject)=>{rejectFirst=reject})
+  const flow = attachAppUpdates({updater, env:{}, packaged:true, version:'1', onMenu:()=>{}, showDialog:async()=>0,
+    onCheckResult:status=>statuses.push(status)})
+  flow.check(false); flow.check(false); updater.emit('update-not-available')
+  rejectFirst(new Error('synthetic')); await new Promise(resolve=>setImmediate(resolve))
+  assert.deepEqual(statuses,['up-to-date']); flow.dispose()
+})
+
+test('a late rejection after a downloaded update does not report a failed check', async () => {
+  const updater = fakeUpdater(), statuses = []; let rejectCheck
+  updater.checkForUpdates = () => new Promise((_,reject)=>{rejectCheck=reject})
+  const flow = attachAppUpdates({updater, env:{}, packaged:true, version:'1', onMenu:()=>{}, showDialog:async()=>0,
+    onCheckResult:status=>statuses.push(status)})
+  flow.check(false); updater.emit('update-downloaded',{version:'2'}); rejectCheck(new Error('synthetic'))
+  await new Promise(resolve=>setImmediate(resolve)); assert.deepEqual(statuses,['ready']); assert.equal(flow.menu().action,'install'); flow.dispose()
+})
+
+test('a later background download replaces an older up-to-date repair status', () => {
+  const updater = fakeUpdater(), statuses = []
+  const flow = attachAppUpdates({updater, env:{}, packaged:true, version:'1', onMenu:()=>{}, showDialog:async()=>0,
+    onCheckResult:status=>statuses.push(status)})
+  updater.emit('update-not-available'); updater.emit('checking-for-update'); updater.emit('update-downloaded',{version:'2'})
+  assert.equal(statuses.at(-1),'ready'); assert.equal(flow.menu().action,'install'); flow.dispose()
+})
