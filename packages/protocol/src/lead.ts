@@ -510,6 +510,8 @@ export type LeadAction =
 export interface LeadActionInput { readonly id: string; readonly contractDigest: string; readonly choice: 'yes-once' | 'yes-goal' | 'no' | 'run' }
 /** Window projection adds the host's guarded way out; child observations grant no control. */
 export interface LeadWindowProjection extends LeadHostProjection {
+  /** This Host accepts a new person-authorized Stop for the current goal, even if its prior stop is unconfirmed. */
+  readonly canStop?: boolean
   /** Absent on older desks. */
   readonly stage?: LeadStage
   readonly stageReason?: string
