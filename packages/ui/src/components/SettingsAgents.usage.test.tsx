@@ -34,6 +34,7 @@ afterEach(() => {
   act(() => root.unmount())
   container.remove()
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 const CLAUDE = runtimeId('claude')
@@ -237,6 +238,20 @@ describe('an account row in Settings', () => {
     const row = (name: string) => [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent?.includes(name))!
     expect(row('olivia@acme.dev').textContent).not.toContain('100% left')
     expect(row('olivia@acme.dev').textContent).not.toContain(`in ${describeLane(known, now, [known]).countdown}`)
+  })
+
+  it('updates an idle account countdown as the clock passes its reset', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    const now = Date.now()
+    const personal = lane({ id: 'session', usedPercent: 12, resetsAt: now + 2 * 60_000 })
+    await mount([report('olivia@acme.dev', [personal])])
+    const row = () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent?.includes('olivia@acme.dev'))!
+    expect(row().textContent).toContain('in 2m')
+    await act(async () => { vi.advanceTimersByTime(60_000) })
+    expect(row().textContent).toContain('in 1m')
+    await act(async () => { vi.advanceTimersByTime(60_000) })
+    expect(row().textContent).not.toMatch(/resets|in \d/)
+    expect(row().textContent).toContain('88% left')
   })
 
   it('does not present an absent or elapsed reset as a future time', async () => {
