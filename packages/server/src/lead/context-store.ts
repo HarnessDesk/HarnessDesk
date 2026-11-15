@@ -9,7 +9,7 @@ import {
   type LeadMessagesResult, type MessagesText, type MessagesTurn, leadClip, LEAD_WAKE_REFERENCE
 } from '@harnessdesk/lead'
 import { parseLeadContextFacts, type LeadCheckpointPerson, type LeadContextCheckpoint, type LeadContextFacts, type LeadMessage } from '@harnessdesk/protocol'
-import { readBoundedJson, writeAtomicJson } from './bounded-json.js'
+import { readBoundedJson, readBoundedJsonResult, writeAtomicJson } from './bounded-json.js'
 
 /**
  * The Lead's stored conversation, owned by the host: provider-shaped turns with their tool pairs, the desk context
@@ -24,9 +24,31 @@ const readableCheckpoints = (list: readonly unknown[]): LeadContextCheckpoint[] 
   try { return [...parseLeadContextFacts({ version: 1, windowTokens: 1, usedTokens: null, cacheHitRate: null, compacting: false, checkpoints: [one] }).checkpoints] }
   catch { return [] }
 })
-const FILE = 'context.jsonl', NEXT = 'context.next.jsonl', CHECKPOINTS = 'context-checkpoints.json'
+const FILE = 'context.jsonl', NEXT = 'context.next.jsonl', CHECKPOINTS = 'context-checkpoints.json', CHECKPOINT_STAGE = 'context-checkpoints.next.json'
 const PERSON_REFERENCE = 'Desk reference for the preceding person message: '
 const KNOWN = 1024, CHECKPOINT_LIST = 8, READ_BYTES = 1_000_000
+
+interface CheckpointStage {
+  readonly version: 1
+  readonly id: string
+  readonly epoch: number
+  readonly count: number
+  readonly checkpoints: readonly LeadContextCheckpoint[]
+}
+
+/** Recovery data is authority: reject the whole stage rather than dropping a bad entry. */
+const checkpointStageOf = (value: unknown): CheckpointStage => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('lead-context-checkpoint-stage')
+  const raw = value as Record<string, unknown>
+  if (Object.keys(raw).sort().join(',') !== 'checkpoints,count,epoch,id,version' || raw.version !== 1 ||
+    typeof raw.id !== 'string' || !raw.id || raw.id.length > 128 || !Number.isSafeInteger(raw.epoch) || (raw.epoch as number) < 1 ||
+    !Number.isSafeInteger(raw.count) || (raw.count as number) < 0 || !Array.isArray(raw.checkpoints) ||
+    raw.checkpoints.length < 1 || raw.checkpoints.length > CHECKPOINT_LIST) throw new Error('lead-context-checkpoint-stage')
+  const checkpoints = parseLeadContextFacts({ version: 1, windowTokens: 1, usedTokens: null, cacheHitRate: null,
+    compacting: false, checkpoints: raw.checkpoints }).checkpoints
+  if (checkpoints.at(-1)?.id !== raw.id || (raw.count as number) < checkpoints.length) throw new Error('lead-context-checkpoint-stage')
+  return { version: 1, id: raw.id, epoch: raw.epoch as number, count: raw.count as number, checkpoints }
+}
 
 interface Header {
   readonly type: 'header'; readonly version: 1; readonly epoch: number
@@ -88,6 +110,10 @@ export class LeadContextStore {
   #softAt: number = LEAD_CONTEXT.softShare
   #measured: RecordLine['measured'] = null
   #checkpoints: LeadContextCheckpoint[] = []
+  /** Current-format views require screening of the complete displayed prose. */
+  #checkpointScreening = false
+  /** A current-format view is hidden until its latest screen completes. */
+  #viewScreenPending = false
   /** Every summary applied, where `#checkpoints` keeps the latest eight: what Settings counts, as the thread marks them. */
   #count = 0
   #compacting = false
@@ -97,6 +123,8 @@ export class LeadContextStore {
   #connections: LeadContextConnections = {}
   #fileBytes = 0
   #needsRecovery = false
+  /** The conversation committed, but its separate checkpoint view still needs a durable copy. */
+  #checkpointPending = false
   #tail: Promise<unknown> = Promise.resolve()
   private constructor(private readonly options: LeadContextStoreOptions) {}
 
@@ -110,12 +138,36 @@ export class LeadContextStore {
     this.#connections = { ...this.#connections, ...connections }
     const screen = connections.screen
     if (!screen) return Promise.resolve()
+    if (this.#checkpointPending || this.#checkpointScreening) this.#viewScreenPending = true
     // Checkpoints kept from before the screen was wired pass it too before they are shown.
     return this.#serial(async () => {
-      this.#checkpoints = await Promise.all(this.#checkpoints.map(async checkpoint => {
-        if (checkpoint.text === null) return checkpoint
-        try { await screen(checkpoint.text); return checkpoint } catch { return { ...checkpoint, text: null } }
+      const previous = this.#checkpoints
+      const complete = this.#checkpointPending || this.#checkpointScreening
+      const next = await Promise.all(previous.map(async checkpoint => {
+        const parts = [...(complete ? checkpoint.person?.messages.map(message => message.text) ?? [] : []),
+          ...(checkpoint.text === null ? [] : [checkpoint.text])]
+        if (!parts.length) return checkpoint
+        try { await screen(parts.join('\n')); return checkpoint } catch (error) {
+          if (!complete) return { ...checkpoint, text: null }
+          if ((error as { wireCode?: unknown })?.wireCode !== 'lead-secret-refused') throw error
+          const { person: _person, ...withheld } = checkpoint
+          return { ...withheld, text: null }
+        }
       }))
+      if (complete && screen !== this.#connections.screen) throw Object.assign(new Error('lead-protection-unavailable'), { wireCode: 'lead-protection-unavailable' })
+      if (complete && JSON.stringify(previous) !== JSON.stringify(next)) {
+        // Do not acknowledge a newly withheld view while an older staged copy
+        // could be promoted after restart. An uncertain rewrite needs replay.
+        this.#checkpoints = next
+        this.#needsRecovery = true
+        if (this.#checkpointPending) await this.#persistWithheldCheckpointView(previous, next)
+        else await this.#persistCurrentCheckpointView(previous, next)
+        this.#needsRecovery = false
+      } else this.#checkpoints = next
+      if (complete) {
+        if (screen !== this.#connections.screen) throw Object.assign(new Error('lead-protection-unavailable'), { wireCode: 'lead-protection-unavailable' })
+        this.#viewScreenPending = false
+      }
     })
   }
   get epoch(): number { return this.#epoch }
@@ -133,8 +185,132 @@ export class LeadContextStore {
   }
   #path(name: string) { return join(this.options.directory, name) }
 
+  async #persistCurrentCheckpointView(previous: readonly LeadContextCheckpoint[], next: readonly LeadContextCheckpoint[]): Promise<void> {
+    const canonical = await readBoundedJsonResult(this.#path(CHECKPOINTS), 600_000), context = this.options.journal.state.context
+    if (canonical.kind !== 'value' || !canonical.value || typeof canonical.value !== 'object' ||
+        (canonical.value as { version?: unknown }).version !== 1 || (canonical.value as { screeningVersion?: unknown }).screeningVersion !== 1 ||
+        (canonical.value as { count?: unknown }).count !== this.#count ||
+        JSON.stringify((canonical.value as { checkpoints?: unknown }).checkpoints) !== JSON.stringify(previous))
+      throw new Error('lead-context-recovery-required')
+    await writeAtomicJson(this.#path(CHECKPOINTS), { version: 1, screeningVersion: 1, count: this.#count, checkpoints: next }, async () => {
+      const again = await readBoundedJsonResult(this.#path(CHECKPOINTS), 600_000)
+      const stage = await readBoundedJsonResult(this.#path(CHECKPOINT_STAGE), 600_000)
+      const current = this.options.journal.state.context
+      if (stage.kind !== 'missing' || again.kind !== 'value' || JSON.stringify(again.value) !== JSON.stringify(canonical.value) ||
+          current.epoch !== context.epoch || current.last?.id !== context.last?.id) throw new Error('lead-context-recovery-required')
+    })
+  }
+
+  async #removeCheckpointStage(): Promise<void> {
+    await rm(this.#path(CHECKPOINT_STAGE), { force: true })
+    const directory = await open(this.options.directory, 'r')
+    try { await directory.sync() } finally { await directory.close() }
+  }
+
+  async #persistWithheldCheckpointView(previous: readonly LeadContextCheckpoint[], next: readonly LeadContextCheckpoint[]): Promise<void> {
+    const read = await readBoundedJsonResult(this.#path(CHECKPOINT_STAGE), 600_000), context = this.options.journal.state.context
+    if (read.kind === 'value') {
+      const stage = checkpointStageOf(read.value)
+      if (stage.epoch !== context.epoch || stage.id !== context.last?.id || stage.count !== this.#count ||
+          JSON.stringify(stage.checkpoints) !== JSON.stringify(previous)) throw new Error('lead-context-recovery-required')
+      const withheld = checkpointStageOf({ ...stage, checkpoints: next })
+      await writeAtomicJson(this.#path(CHECKPOINT_STAGE), withheld, async () => {
+        const again = await readBoundedJsonResult(this.#path(CHECKPOINT_STAGE), 600_000)
+        const current = this.options.journal.state.context
+        if (again.kind !== 'value' || JSON.stringify(again.value) !== JSON.stringify(read.value) ||
+            current.epoch !== stage.epoch || current.last?.id !== stage.id) throw new Error('lead-context-recovery-required')
+      })
+      return
+    }
+    if (read.kind !== 'missing') throw new Error('lead-context-recovery-required')
+    const canonical = await readBoundedJsonResult(this.#path(CHECKPOINTS), 600_000)
+    if (canonical.kind !== 'value' || !canonical.value || typeof canonical.value !== 'object' ||
+        (canonical.value as { version?: unknown }).version !== 1 || (canonical.value as { screeningVersion?: unknown }).screeningVersion !== 1 ||
+        (canonical.value as { count?: unknown }).count !== this.#count ||
+        JSON.stringify((canonical.value as { checkpoints?: unknown }).checkpoints) !== JSON.stringify(previous))
+      throw new Error('lead-context-recovery-required')
+    await writeAtomicJson(this.#path(CHECKPOINTS), { version: 1, screeningVersion: 1, count: this.#count, checkpoints: next }, async () => {
+      const stage = await readBoundedJsonResult(this.#path(CHECKPOINT_STAGE), 600_000)
+      const again = await readBoundedJsonResult(this.#path(CHECKPOINTS), 600_000)
+      const current = this.options.journal.state.context
+      if (stage.kind !== 'missing' || again.kind !== 'value' || JSON.stringify(again.value) !== JSON.stringify(canonical.value) ||
+          current.epoch !== context.epoch || current.last?.id !== context.last?.id) throw new Error('lead-context-recovery-required')
+    })
+    this.#checkpointPending = false
+  }
+
+  /** Finish only the same still-authorized view; never restore a view a later screen withheld. */
+  async #finishCheckpointView(): Promise<void> {
+    const read = await readBoundedJsonResult(this.#path(CHECKPOINT_STAGE), 600_000)
+    const context = this.options.journal.state.context
+    // If unlink succeeded but its directory sync failed, the already-durable
+    // canonical view can establish the same authority without recreating it.
+    const missing = read.kind === 'missing'
+    if (read.kind !== 'value' && !missing) throw new Error('lead-context-recovery-required')
+    const stage = checkpointStageOf(missing ? { version: 1, id: context.last?.id, epoch: context.epoch,
+      count: this.#count, checkpoints: this.#checkpoints } : read.value)
+    if (stage.epoch !== context.epoch || stage.id !== context.last?.id || stage.count !== this.#count ||
+        JSON.stringify(stage.checkpoints) !== JSON.stringify(this.#checkpoints)) throw new Error('lead-context-recovery-required')
+    if (missing) {
+      const canonical = await readBoundedJsonResult(this.#path(CHECKPOINTS), 600_000)
+      if (canonical.kind !== 'value' || !canonical.value || typeof canonical.value !== 'object' ||
+          (canonical.value as { version?: unknown }).version !== 1 || (canonical.value as { screeningVersion?: unknown }).screeningVersion !== 1 ||
+          (canonical.value as { count?: unknown }).count !== stage.count ||
+          JSON.stringify((canonical.value as { checkpoints?: unknown }).checkpoints) !== JSON.stringify(stage.checkpoints))
+        throw new Error('lead-context-recovery-required')
+    }
+    const screen = this.#connections.screen
+    const prose = stage.checkpoints.flatMap(checkpoint => {
+      const parts = [...(checkpoint.person?.messages.map(message => message.text) ?? []),
+        ...(checkpoint.text === null ? [] : [checkpoint.text])]
+      return parts.length ? [parts.join('\n')] : []
+    })
+    if (prose.length && !screen) throw new Error('lead-context-recovery-required')
+    try { for (const entry of prose) await screen!(entry) } catch { throw new Error('lead-context-recovery-required') }
+    if (screen !== this.#connections.screen) throw new Error('lead-context-recovery-required')
+    if (missing) {
+      const directory = await open(this.options.directory, 'r')
+      try { await directory.sync() } finally { await directory.close() }
+      if (screen !== this.#connections.screen || JSON.stringify(stage.checkpoints) !== JSON.stringify(this.#checkpoints))
+        throw new Error('lead-context-recovery-required')
+      this.#checkpointPending = false
+      return
+    }
+    await writeAtomicJson(this.#path(CHECKPOINTS), { version: 1, screeningVersion: 1, count: stage.count, checkpoints: stage.checkpoints }, async () => {
+      if (screen !== this.#connections.screen || JSON.stringify(stage.checkpoints) !== JSON.stringify(this.#checkpoints))
+        throw new Error('lead-context-recovery-required')
+    })
+    if (screen !== this.#connections.screen || JSON.stringify(stage.checkpoints) !== JSON.stringify(this.#checkpoints))
+      throw new Error('lead-context-recovery-required')
+    await this.#removeCheckpointStage()
+    this.#checkpointPending = false
+  }
+
+  async #recoverCheckpointStage(): Promise<void> {
+    const read = await readBoundedJsonResult(this.#path(CHECKPOINT_STAGE), 600_000)
+    if (read.kind === 'missing') return
+    if (read.kind !== 'value') throw new Error('lead-context-checkpoint-recovery')
+    const stage = checkpointStageOf(read.value), context = this.options.journal.state.context
+    if (stage.epoch === context.epoch && context.last?.id === stage.id) {
+      // Keep the stage until the canonical file and its directory are durable.
+      await writeAtomicJson(this.#path(CHECKPOINTS), { version: 1, screeningVersion: 1, count: stage.count, checkpoints: stage.checkpoints }, async () => {})
+      await this.#removeCheckpointStage()
+      return
+    }
+    if (stage.epoch === context.epoch + 1 && context.pending?.id === stage.id) {
+      await this.#removeCheckpointStage()
+      return
+    }
+    throw new Error('lead-context-checkpoint-recovery')
+  }
+
   async #open(): Promise<void> {
     const { journal } = this.options
+    // A newer canonical format is never overwritten by otherwise valid recovery.
+    const original = await readBoundedJsonResult(this.#path(CHECKPOINTS), 600_000)
+    if (original.kind === 'value' && original.value && typeof original.value === 'object' &&
+        Object.hasOwn(original.value, 'screeningVersion') && (original.value as { screeningVersion?: unknown }).screeningVersion !== 1)
+      throw new Error('lead-context-checkpoint-recovery')
     const settled = journal.state.context.epoch
     // A compaction written but not yet in place: the journal says which side of it the desk is on.
     const next = await this.#load(NEXT)
@@ -143,8 +319,12 @@ export class LeadContextStore {
     const current = await this.#load(FILE)
     if (current && current.header.epoch === settled) { this.#adopt(current.header, current.turns, current.measured); this.#fileBytes = current.bytes }
     else await this.#seed(settled)
-    const kept = await readBoundedJson(this.#path(CHECKPOINTS), 600_000) as { version?: unknown; checkpoints?: unknown; count?: unknown } | undefined
+    await this.#recoverCheckpointStage()
+    const kept = await readBoundedJson(this.#path(CHECKPOINTS), 600_000) as { version?: unknown; screeningVersion?: unknown; checkpoints?: unknown; count?: unknown } | undefined
+    if (kept && Object.hasOwn(kept, 'screeningVersion') && kept.screeningVersion !== 1) throw new Error('lead-context-checkpoint-recovery')
     if (kept?.version === 1 && Array.isArray(kept.checkpoints)) {
+      this.#checkpointScreening = kept.screeningVersion === 1
+      this.#viewScreenPending = this.#checkpointScreening
       this.#checkpoints = readableCheckpoints(kept.checkpoints.slice(-CHECKPOINT_LIST))
       if (Number.isSafeInteger(kept.count) && (kept.count as number) >= 0) this.#count = kept.count as number
     }
@@ -236,6 +416,11 @@ export class LeadContextStore {
       }
     }
     if (!screened.withheld.length) return
+    // Withholding advances the journal epoch. Resolve an earlier checkpoint view
+    // first, or keep the original conversation and stage intact for recovery.
+    if (this.#checkpointPending) {
+      try { await this.#finishCheckpointView() } catch { throw new Error('lead-context-recovery-required') }
+    }
     const epoch = this.#epoch + 1
     const turns = await this.#snapshot(NEXT, epoch, screened.messages)
     await this.options.journal.contextWithheld()
@@ -424,9 +609,15 @@ export class LeadContextStore {
    * reading, checked, and retried twice; after three failures, or while the breaker is open, written by the desk.
    */
   async compact(trigger: LeadCompactionTrigger, send: LeadContextSend): Promise<LeadCompactionOutcome> {
+    if (this.#needsRecovery) throw new Error('lead-context-recovery-required')
     if (this.#compacting || this.options.journal.state.context.pending) return 'busy'
     this.#compacting = true
-    try { return await this.#compact(trigger, send) }
+    try {
+      if (this.#checkpointPending) await this.#serial(async () => {
+        try { await this.#finishCheckpointView() } catch { throw new Error('lead-context-recovery-required') }
+      })
+      return await this.#compact(trigger, send)
+    }
     finally { this.#compacting = false }
   }
   get compacting(): boolean { return this.#compacting }
@@ -519,23 +710,22 @@ export class LeadContextStore {
       const afterTokens = this.tokens(after), afterShare = share(after)
       const revisions = personIds(region).flatMap(person => journal.state.messages.find(message => message.id === person)?.revision ?? [])
       const fromSeq = revisions.length ? Math.min(...revisions) : 0, toSeq = revisions.length ? Math.max(...revisions) : fromSeq
-      this.#remember(personIds(region))
+      // A missing or failing screen cannot authorize new display bytes on disk.
+      let shown: string | null = null
+      const displayScreen = this.#connections.screen
+      if (displayScreen) {
+        const candidate = leadClip(text, 32_768, '')
+        try { await displayScreen(candidate); shown = candidate } catch { /* keep the refusal representation */ }
+      }
+      const display: LeadContextCheckpoint = { id, at: now(), fallback, beforeTokens, afterTokens,
+        text: shown === null ? null : leadCheckpointModelPart(shown), ...(shown === null ? {} : { person: quotes }) }
       await this.#replace(id, current => [checkpoint, ...tailOf(current)], () => journal.contextCompactionApplied({ id, at: now(), fromSeq, toSeq, beforeTokens, afterTokens,
-        model: this.options.model, usdMicros, fallback }), afterShare)
+        model: this.options.model, usdMicros, fallback }), afterShare, display, displayScreen, personIds(region))
       // Still past the hard line with the smallest tail: stop compacting until it grows by the hysteresis, and say so.
       this.#fullAt = afterShare >= LEAD_CONTEXT.hardShare ? afterShare : null
-      // Shown only once it passes the same screen a reply does; the conversation keeps it either way. A view draws the
-      // person's words from `person`, the data the desk built them from, and only the model's sections from the text.
-      let shown: string | null = leadClip(text, 32_768, '')
-      try { await this.#connections.screen?.(shown) } catch { shown = null }
-      this.#checkpoints = [...this.#checkpoints, { id, at: now(), fallback, beforeTokens, afterTokens, text: shown === null ? null : leadCheckpointModelPart(shown),
-        ...(shown === null ? {} : { person: quotes }) }].slice(-CHECKPOINT_LIST)
-      // The journal has already marked this one in the thread.
-      this.#count = Math.max(this.#count + 1, this.#counted())
-      await writeAtomicJson(this.#path(CHECKPOINTS), { version: 1, count: this.#count, checkpoints: this.#checkpoints }, async () => {}).catch(() => {})
       return 'applied'
     } catch (error) {
-      if (journal.state.context.pending?.id === id) await journal.contextCompactionFailed(id, 'interrupted').catch(() => {})
+      if (!this.#needsRecovery && journal.state.context.pending?.id === id) await journal.contextCompactionFailed(id, 'interrupted').catch(() => {})
       throw error
     }
   }
@@ -544,19 +734,75 @@ export class LeadContextStore {
    * is moved into place. `build` makes it from the conversation as it stands then, so turns recorded while the model
    * was writing follow the tail they came after.
    */
-  async #replace(id: string, build: (current: readonly MessagesTurn[]) => readonly MessagesTurn[], commit: () => Promise<void>, share: number): Promise<void> {
+  async #replace(id: string, build: (current: readonly MessagesTurn[]) => readonly MessagesTurn[], commit: () => Promise<void>, share: number,
+    display?: LeadContextCheckpoint, displayScreen?: LeadContextConnections['screen'], remember?: readonly string[]): Promise<void> {
     await this.#serial(async () => {
+      if (this.#checkpointPending) throw new Error('lead-context-recovery-required')
       const turns = leadMergedTurns(build(this.#turns))
       const epoch = this.#epoch + 1
+      if (display) {
+        const screen = this.#connections.screen
+        if (display.text !== null && (!screen || screen !== displayScreen)) throw new Error('lead-context-checkpoint-screen')
+        // A legacy file can predate screening. Do not copy its prose into a new
+        // stage without authorizing both the model text and the person's quotes.
+        const prose = this.#checkpoints.slice(-(CHECKPOINT_LIST - 1)).flatMap(checkpoint => {
+          // The person section is displayed before the model sections. Screen
+          // them together so a credential split across sections cannot pass.
+          const parts = [...(checkpoint.person?.messages.map(message => message.text) ?? []),
+            ...(checkpoint.text === null ? [] : [checkpoint.text])]
+          return parts.length ? [parts.join('\n')] : []
+        })
+        if (prose.length && !screen) throw new Error('lead-context-checkpoint-screen')
+        try { for (const entry of prose) await screen!(entry) } catch { throw new Error('lead-context-checkpoint-screen') }
+        if (screen !== this.#connections.screen) throw new Error('lead-context-checkpoint-screen')
+      }
+      let stage: CheckpointStage | undefined
+      if (display) {
+        const existing = await readBoundedJsonResult(this.#path(CHECKPOINT_STAGE), 600_000)
+        if (existing.kind !== 'missing') { this.#needsRecovery = true; throw new Error('lead-context-checkpoint-recovery') }
+        stage = checkpointStageOf({ version: 1, id, epoch, count: this.#counted() + 1,
+          checkpoints: [...this.#checkpoints, display].slice(-CHECKPOINT_LIST) })
+        if (Buffer.byteLength(JSON.stringify(stage)) > 600_000 ||
+            Buffer.byteLength(JSON.stringify({ version: 1, screeningVersion: 1, count: stage.count, checkpoints: stage.checkpoints })) > 600_000)
+          throw new Error('lead-context-checkpoint-stage')
+      }
+      if (remember) this.#remember(remember)
       this.#softAt = leadNextSoftShare(share)
       await this.#snapshot(NEXT, epoch, turns)
+      if (stage) {
+        // An error can follow the stage rename; replay determines whether the journal committed.
+        this.#needsRecovery = true
+        await writeAtomicJson(this.#path(CHECKPOINT_STAGE), stage, async () => {
+          const existing = await readBoundedJsonResult(this.#path(CHECKPOINT_STAGE), 600_000)
+          if (existing.kind !== 'missing') throw new Error('lead-context-checkpoint-recovery')
+        })
+      }
       await commit()
       if (this.options.journal.state.context.epoch !== epoch) throw new Error(`lead-context-epoch-${id}`)
       this.#epoch = epoch
       this.#turns = turns
       await rename(this.#path(NEXT), this.#path(FILE))
+      const directory = await open(this.options.directory, 'r')
+      try { await directory.sync() } finally { await directory.close() }
       this.#fileBytes = Buffer.byteLength(await readFile(this.#path(FILE), 'utf8'))
       this.#measured = null
+      if (stage) {
+        this.#checkpoints = [...stage.checkpoints]
+        this.#count = stage.count
+        this.#checkpointScreening = true
+        // A screen installed while the commit was in flight has not seen this
+        // new view yet, even if the preceding legacy view needed no mask.
+        if (this.#connections.screen !== displayScreen) this.#viewScreenPending = true
+        // The journal and conversation file are now known committed; failure
+        // below concerns only the independently recoverable checkpoint view.
+        this.#needsRecovery = false
+        this.#checkpointPending = true
+        try {
+          await writeAtomicJson(this.#path(CHECKPOINTS), { version: 1, screeningVersion: 1, count: stage.count, checkpoints: stage.checkpoints }, async () => {})
+          await this.#removeCheckpointStage()
+          this.#checkpointPending = false
+        } catch { /* reopen resolves the durable stage or already-durable canonical file */ }
+      }
     })
   }
 
@@ -568,8 +814,23 @@ export class LeadContextStore {
   facts(): LeadContextFacts {
     const wakes = this.options.journal.state.wakes.flatMap(wake => wake.tokens ? [wake.tokens] : [])
     const total = wakes.reduce((sum, tokens) => sum + tokens.input + tokens.cacheRead + tokens.cacheWrite, 0)
+    const checkpoints = this.#viewScreenPending ? this.#checkpoints.map(checkpoint => {
+      const { person: _person, ...hidden } = checkpoint
+      return { ...hidden, text: null }
+    }) : this.#checkpoints
     return parseLeadContextFacts({ version: 1, windowTokens: this.window, usedTokens: this.#turns.length ? Math.min(100_000_000, Math.round(this.tokens())) : null,
-      cacheHitRate: total ? wakes.reduce((sum, tokens) => sum + tokens.cacheRead, 0) / total : null, compacting: this.#compacting, checkpoints: readableCheckpoints(this.#checkpoints),
+      cacheHitRate: total ? wakes.reduce((sum, tokens) => sum + tokens.cacheRead, 0) / total : null, compacting: this.#compacting, checkpoints: readableCheckpoints(checkpoints),
       count: this.#counted(), ...(this.#fullAt !== null ? { full: true } : {}) })
+  }
+
+  /** A view read retries a temporary screen outage; synchronous consumers remain masked. */
+  async readFacts(): Promise<LeadContextFacts> {
+    if (this.#viewScreenPending) {
+      const screen = this.#connections.screen
+      if (!screen) throw Object.assign(new Error('lead-protection-unavailable'), { wireCode: 'lead-protection-unavailable' })
+      await this.connect({ screen })
+      if (this.#viewScreenPending) throw Object.assign(new Error('lead-protection-unavailable'), { wireCode: 'lead-protection-unavailable' })
+    }
+    return this.facts()
   }
 }

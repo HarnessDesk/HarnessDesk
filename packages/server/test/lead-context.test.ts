@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import * as lead from '@harnessdesk/lead'
 import { LEAD_LIMITS, parseLeadAcceptanceContract } from '@harnessdesk/protocol'
 import { LeadContextStore } from '../src/lead/context-store.js'
+import { LeadFileJournal } from '../src/lead/journal.js'
 import { cachingProvider } from './fixtures/caching-provider.js'
 
 // The context engine end to end, in one process: the host's stored conversation, the Lead's own loop and Messages
@@ -71,13 +72,13 @@ const PLAN = 'The person approved your plan. Approved contract: {"steps":[{"id":
 
 /** One Lead, the way the host runs it: a loop with the desk's context port, and the host's request built from the store. */
 const harness = async (t: any, settings: { readonly window: number; readonly failCheckpoints?: boolean; readonly ledgerIds?: readonly string[]; readonly records?: lead.LeadJournalRecord[]; readonly home?: string;
-  readonly plan?: boolean; readonly screen?: (text: string) => Promise<void>; readonly contract?: boolean; readonly readOnWake?: boolean; readonly deskNow?: () => Promise<string | null>
+  readonly plan?: boolean; readonly screen?: (text: string) => Promise<void>; readonly contract?: boolean; readonly readOnWake?: boolean; readonly deskNow?: () => Promise<string | null>; readonly journal?: lead.LeadJournal
   /** The fake model's ordinary answer and what the desk answers a read, in place of the defaults. */
   readonly reply?: (body: any) => { readonly content: unknown[]; readonly stop_reason?: string }; readonly read?: (method: string) => unknown
   /** The desk context of the moment each person request carries, in place of the one observation line. */
   readonly moment?: (said: number) => readonly string[] }) => {
   const home = settings.home ?? await directory(t)
-  const { journal, records } = await journalOver(settings.records)
+  const { journal, records } = settings.journal ? { journal: settings.journal, records: [] as lead.LeadJournalRecord[] } : await journalOver(settings.records)
   if (settings.contract) {
     await journal.offerCard({ version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: CONTRACT.digest, contract: CONTRACT })
     await journal.decideCard({ version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 1, contractDigest: CONTRACT.digest, choice: 'approve' }, 1000)
@@ -85,7 +86,7 @@ const harness = async (t: any, settings: { readonly window: number; readonly fai
   let id = 0
   const run = ++harnesses
   const store = await LeadContextStore.open({ directory: home, journal, model: MODEL, now: () => 1000 + id, nextId: () => `checkpoint-${run}-${++id}`, window: settings.window })
-  await store.connect({ ...(settings.ledgerIds ? { ledgerIds: async () => settings.ledgerIds! } : {}), ...(settings.screen ? { screen: settings.screen } : {}), ...(settings.deskNow ? { deskNow: settings.deskNow } : {}) })
+  await store.connect({ ...(settings.ledgerIds ? { ledgerIds: async () => settings.ledgerIds! } : {}), screen: settings.screen ?? (async () => {}), ...(settings.deskNow ? { deskNow: settings.deskNow } : {}) })
   const provider = cachingProvider(body => {
     const last = body.messages.at(-1).content.map((block: any) => block.text ?? '').join('\n')
     if (last.includes(INSTRUCTION)) return { content: [text(settings.failCheckpoints ? 'Here is a short summary without headings.' : checkpointAnswer(body))] }
@@ -274,6 +275,379 @@ test('Settings counts every summary the thread marks, past the eight it keeps, a
   assert.equal(third.store.facts().count, dividers(third))
 })
 
+test('checkpoint persistence survives restart when the saved summary write fails after journal apply (#2060)', async t => {
+  const stateDirectory = await directory(t)
+  const disk = await LeadFileJournal.open(stateDirectory, 'thread-1')
+  t.after(() => disk.close())
+  const journal = await lead.createLeadJournal(disk)
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'goal-1', caps: { usdMicros: LEAD_LIMITS.maxUsdMicros, rounds: 16 }, freshnessMs: 60_000 })
+  const first = await harness(t, { window: 200_000, home: join(stateDirectory, 'lead'), journal, screen: async () => {} })
+  for (let n = 1; n <= 5; n++) await first.say(`Synthetic message ${n}.${filler(n)}`)
+  const destination = join(first.home, 'context-checkpoints.json')
+  // A directory at this test-owned path makes the final atomic file rename fail.
+  // The conversation and journal writes still use their real implementation.
+  await mkdir(destination)
+  assert.equal(await first.store.compact('manual', first.send), 'applied')
+  const notice = first.journal.state.messages.find(message => message.checkpoint)?.checkpoint
+  assert.ok(notice, 'journal committed the checkpoint notice')
+  const visible = first.store.facts().checkpoints.find(checkpoint => checkpoint.id === notice.id)
+  assert.ok(visible?.text, 'the screened summary exists in memory before restart')
+  assert.equal(first.store.epoch, 1)
+  const stage = join(first.home, 'context-checkpoints.next.json')
+  assert.ok((await stat(stage)).isFile(), 'a durable staged copy remains after the canonical write fails')
+  const { messageId } = await journal.appendMessage('post-checkpoint-person', 'A later synthetic question.', 'person')
+  const built = await first.store.request()
+  assert.ok(built.persons.includes(messageId))
+  await journal.appendModelReply('A later synthetic reply.')
+  await first.store.settle(built.persons)
+  await first.store.record({ epoch: built.epoch, base: first.store.turns.length, extend: [],
+    turns: [{ role: 'user', content: [text('A later synthetic record.')] }], usage: null })
+  const read = await first.store.read(0)
+  assert.equal(read?.epoch, first.store.epoch)
+  assert.match(JSON.stringify(read?.messages), /A later synthetic question/)
+  assert.match(JSON.stringify(read?.messages), /A later synthetic record/)
+  let sends = 0
+  await assert.rejects(first.store.compact('manual', async (...args) => { sends++; return first.send(...args) }), /lead-context-recovery-required/)
+  assert.equal(sends, 0, 'the pending view blocks another compaction before provider spend')
+  await rm(destination, { recursive: true })
+  await first.loop.close()
+  await disk.close()
+  const reopenedDisk = await LeadFileJournal.open(stateDirectory, 'thread-1')
+  t.after(() => reopenedDisk.close())
+  const reopenedJournal = await lead.createLeadJournal(reopenedDisk)
+  const reopened = await harness(t, { window: 200_000, home: first.home, journal: reopenedJournal, screen: async () => {} })
+  assert.equal(reopened.journal.state.context.epoch, 1)
+  assert.ok(reopened.journal.state.messages.some(message => message.checkpoint?.id === notice.id))
+  assert.deepEqual(reopened.store.facts().checkpoints.find(checkpoint => checkpoint.id === notice.id), visible,
+    'the notice can still resolve the same screened summary after restart')
+  assert.match(JSON.stringify((await reopened.store.read(0))?.messages), /A later synthetic record/)
+  await assert.rejects(stat(stage), { code: 'ENOENT' })
+  const reopenedAgain = await LeadContextStore.open({ directory: first.home, journal: reopenedJournal, model: MODEL, now: () => 1000, nextId: () => 'again', window: 200_000 })
+  await reopenedAgain.connect({ screen: async () => {} })
+  assert.deepEqual(reopenedAgain.facts().checkpoints.find(checkpoint => checkpoint.id === notice.id), visible, 'recovery is idempotent')
+})
+
+for (const unlinked of [false, true]) test(`pending checkpoint view resolves before credential withholding advances the epoch (unlinked=${unlinked}; #2060)`, async t => {
+  const stateDirectory = await directory(t), disk = await LeadFileJournal.open(stateDirectory, 'thread-1')
+  t.after(() => disk.close())
+  const journal = await lead.createLeadJournal(disk)
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'goal-1', caps: { usdMicros: LEAD_LIMITS.maxUsdMicros, rounds: 16 }, freshnessMs: 60_000 })
+  const first = await harness(t, { window: 200_000, home: join(stateDirectory, 'lead'), journal, screen: async () => {} })
+  for (let n = 1; n <= 5; n++) await first.say(`Synthetic message ${n}.${filler(n)}`)
+  const destination = join(first.home, 'context-checkpoints.json'), stage = join(first.home, 'context-checkpoints.next.json')
+  await mkdir(destination)
+  assert.equal(await first.store.compact('manual', first.send), 'applied')
+  const savedStage = await readFile(stage), notice = journal.state.context.last!
+  const secret = 'password=hunter2' // hd-secrets-ok: synthetic credential-shaped fixture
+  await first.store.record({ epoch: first.store.epoch, base: first.store.turns.length, extend: [], turns: [{ role: 'user', content: [text(secret)] }], usage: null })
+  await assert.rejects(first.store.request(), /lead-context-recovery-required/)
+  assert.equal(journal.state.context.epoch, 1, 'a failed view write does not advance the withholding epoch')
+  assert.deepEqual(await readFile(stage), savedStage, 'the recovery authority is unchanged')
+  await rm(destination, { recursive: true })
+  if (unlinked) {
+    // The reachable state after canonical replacement and unlink, before the
+    // stage removal's directory sync reports success.
+    const staged = JSON.parse(savedStage.toString())
+    await writeFile(destination, JSON.stringify({ version: 1, screeningVersion: 1, count: staged.count, checkpoints: staged.checkpoints }))
+    await rm(stage)
+  }
+  const request = await first.store.request()
+  assert.equal(journal.state.context.epoch, 2)
+  assert.ok(!JSON.stringify(request.messages).includes(secret))
+  await assert.rejects(stat(stage), { code: 'ENOENT' })
+  await first.loop.close(); await disk.close()
+  const reopenedDisk = await LeadFileJournal.open(stateDirectory, 'thread-1')
+  t.after(() => reopenedDisk.close())
+  const reopenedJournal = await lead.createLeadJournal(reopenedDisk)
+  const reopened = await LeadContextStore.open({ directory: first.home, journal: reopenedJournal, model: MODEL, now: () => 1000, nextId: () => 'reopened', window: 200_000 })
+  await reopened.connect({ screen: async () => {} })
+  assert.equal(reopened.epoch, 2)
+  assert.ok(reopened.facts().checkpoints.find(checkpoint => checkpoint.id === notice.id)?.text)
+  assert.ok(!JSON.stringify((await reopened.request()).messages).includes(secret))
+})
+
+test('pending checkpoint is not promoted over a subsequently withheld view (#2060)', async t => {
+  const first = await harness(t, { window: 200_000, screen: async () => {} })
+  for (let n = 1; n <= 5; n++) await first.say(`Synthetic message ${n}.${filler(n)}`)
+  const destination = join(first.home, 'context-checkpoints.json'), stage = join(first.home, 'context-checkpoints.next.json')
+  await mkdir(destination)
+  assert.equal(await first.store.compact('manual', first.send), 'applied')
+  const staged = await readFile(stage)
+  let deny = true
+  await first.store.connect({ screen: async value => { if (deny && value.includes('Decisions made and why')) throw Object.assign(new Error('refused'), { wireCode: 'lead-secret-refused' }) } })
+  deny = false
+  assert.equal(first.store.facts().checkpoints.at(-1)?.text, null)
+  const protectedStage = JSON.parse(await readFile(stage, 'utf8'))
+  assert.equal(protectedStage.checkpoints.at(-1).text, null, 'withholding must survive a restart and a later relaxed screen')
+  assert.equal(protectedStage.checkpoints.at(-1).person, undefined)
+  assert.notDeepEqual(await readFile(stage), staged)
+  await rm(destination, { recursive: true })
+  await first.store.request()
+  await first.loop.close()
+  const reopened = await harness(t, { window: 200_000, home: first.home, records: first.records, screen: async () => {} })
+  assert.equal(reopened.store.facts().checkpoints.at(-1)?.text, null, 'recovery does not resurrect redacted prose')
+  assert.equal(reopened.store.facts().checkpoints.at(-1)?.person, undefined)
+})
+
+test('failed pending-view redaction keeps the view hidden and cannot advance the epoch (#2060)', async t => {
+  const first = await harness(t, { window: 200_000, screen: async () => {} })
+  for (let n = 1; n <= 5; n++) await first.say(`Synthetic message ${n}.${filler(n)}`)
+  const destination = join(first.home, 'context-checkpoints.json'), stage = join(first.home, 'context-checkpoints.next.json')
+  await mkdir(destination)
+  assert.equal(await first.store.compact('manual', first.send), 'applied')
+  const saved = await readFile(stage), parked = `${stage}.parked`
+  let changed = false
+  await assert.rejects(first.store.connect({ screen: async value => {
+    if (!changed && value.includes('Decisions made and why')) {
+      changed = true
+      await rename(stage, parked); await mkdir(stage)
+      throw Object.assign(new Error('refused'), { wireCode: 'lead-secret-refused' })
+    }
+  } }), /lead-context-recovery-required/)
+  assert.equal(first.store.facts().checkpoints.at(-1)?.text, null)
+  assert.equal(first.journal.state.context.epoch, 1)
+  await assert.rejects(first.store.request(), /lead-context-recovery-required/)
+  assert.deepEqual(await readFile(parked), saved)
+  await rm(stage, { recursive: true }); await rename(parked, stage)
+})
+
+test('a recovered pending view re-screens person-only prose and durably withholds it (#2060)', async t => {
+  const stateDirectory = await directory(t), disk = await LeadFileJournal.open(stateDirectory, 'thread-1')
+  t.after(() => disk.close())
+  const journal = await lead.createLeadJournal(disk)
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'goal-1', caps: { usdMicros: LEAD_LIMITS.maxUsdMicros, rounds: 16 }, freshnessMs: 60_000 })
+  const first = await harness(t, { window: 200_000, home: join(stateDirectory, 'lead'), journal, screen: async () => {} })
+  const marker = 'synthetic-person-private-marker'
+  for (let n = 1; n <= 5; n++) await first.say(`${n === 1 ? marker : 'Synthetic message'}.${filler(n)}`)
+  const destination = join(first.home, 'context-checkpoints.json'), stage = join(first.home, 'context-checkpoints.next.json')
+  await mkdir(destination)
+  assert.equal(await first.store.compact('manual', first.send), 'applied')
+  const before = await readFile(stage), parked = `${stage}.parked`
+  const checkpoint = first.store.facts().checkpoints.at(-1)!
+  assert.ok(checkpoint.person?.messages.some(message => message.text.includes(marker)))
+  assert.ok(!checkpoint.text?.includes(marker), 'the model section alone is safe')
+  let changed = false
+  await assert.rejects(first.store.connect({ screen: async value => {
+    if (!changed && value.includes(marker)) {
+      changed = true
+      await rename(stage, parked); await mkdir(stage)
+      throw Object.assign(new Error('refused'), { wireCode: 'lead-secret-refused' })
+    }
+  } }), /lead-context-recovery-required/)
+  assert.equal(journal.state.context.epoch, 1)
+  assert.deepEqual(await readFile(parked), before)
+  await rm(stage, { recursive: true }); await rename(parked, stage); await rm(destination, { recursive: true })
+  await first.loop.close(); await disk.close()
+  const recoveredDisk = await LeadFileJournal.open(stateDirectory, 'thread-1')
+  t.after(() => recoveredDisk.close())
+  const recoveredJournal = await lead.createLeadJournal(recoveredDisk)
+  const options = { directory: first.home, journal: recoveredJournal, model: MODEL, now: () => 1000, nextId: () => 'later', window: 200_000 }
+  const recovered = await LeadContextStore.open(options)
+  await recovered.connect({ screen: async value => { if (value.includes(marker)) throw Object.assign(new Error('refused'), { wireCode: 'lead-secret-refused' }) } })
+  assert.equal(recovered.facts().checkpoints.at(-1)?.text, null)
+  assert.equal(recovered.facts().checkpoints.at(-1)?.person, undefined)
+  const reopened = await LeadContextStore.open(options)
+  await reopened.connect({ screen: async () => {} })
+  assert.equal(reopened.facts().checkpoints.at(-1)?.text, null, 'relaxing the screen cannot resurrect the refused view')
+  assert.equal(reopened.facts().checkpoints.at(-1)?.person, undefined)
+})
+
+test('failed current-view redaction stays hidden and does not acknowledge persistence (#2060)', async t => {
+  const first = await harness(t, { window: 200_000, screen: async () => {} })
+  for (let n = 1; n <= 5; n++) await first.say(`Synthetic message ${n}.${filler(n)}`)
+  assert.equal(await first.store.compact('manual', first.send), 'applied')
+  const canonical = join(first.home, 'context-checkpoints.json'), parked = `${canonical}.parked`
+  const original = await readFile(canonical), epoch = first.store.epoch
+  let changed = false
+  await assert.rejects(first.store.connect({ screen: async value => {
+    if (!changed && value.includes('Decisions made and why')) {
+      changed = true
+      await rename(canonical, parked); await mkdir(canonical)
+      throw Object.assign(new Error('refused'), { wireCode: 'lead-secret-refused' })
+    }
+  } }), /lead-context-recovery-required/)
+  assert.equal(first.store.facts().checkpoints.at(-1)?.text, null)
+  assert.equal(first.store.facts().checkpoints.at(-1)?.person, undefined)
+  assert.equal(first.journal.state.context.epoch, epoch)
+  await assert.rejects(first.store.request(), /lead-context-recovery-required/)
+  assert.deepEqual(await readFile(parked), original)
+  await rm(canonical, { recursive: true }); await rename(parked, canonical)
+})
+
+test('an unsupported checkpoint screening marker fails closed (#2060)', async t => {
+  const first = await harness(t, { window: 200_000, screen: async () => {} })
+  for (let n = 1; n <= 5; n++) await first.say(`Synthetic message ${n}.${filler(n)}`)
+  assert.equal(await first.store.compact('manual', first.send), 'applied')
+  const canonical = join(first.home, 'context-checkpoints.json'), raw = JSON.parse(await readFile(canonical, 'utf8'))
+  raw.screeningVersion = 2
+  await writeFile(canonical, JSON.stringify(raw))
+  const bytes = await readFile(canonical)
+  await assert.rejects(LeadContextStore.open({ directory: first.home, journal: first.journal, model: MODEL, now: () => 1000, nextId: () => 'later', window: 200_000 }), /lead-context-checkpoint-recovery/)
+  assert.deepEqual(await readFile(canonical), bytes)
+})
+
+test('an unsupported canonical marker blocks staged recovery before either file changes (#2060)', async t => {
+  const stateDirectory = await directory(t), disk = await LeadFileJournal.open(stateDirectory, 'thread-1')
+  t.after(() => disk.close())
+  const journal = await lead.createLeadJournal(disk)
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'goal-1', caps: { usdMicros: LEAD_LIMITS.maxUsdMicros, rounds: 16 }, freshnessMs: 60_000 })
+  const first = await harness(t, { window: 200_000, home: join(stateDirectory, 'lead'), journal, screen: async () => {} })
+  for (let n = 1; n <= 5; n++) await first.say(`Synthetic message ${n}.${filler(n)}`)
+  const canonical = join(first.home, 'context-checkpoints.json'), stage = join(first.home, 'context-checkpoints.next.json')
+  await mkdir(canonical)
+  assert.equal(await first.store.compact('manual', first.send), 'applied')
+  const staged = await readFile(stage), parsed = JSON.parse(staged.toString())
+  await rm(canonical, { recursive: true })
+  await writeFile(canonical, JSON.stringify({ version: 1, screeningVersion: 2, count: parsed.count, checkpoints: parsed.checkpoints }))
+  const original = await readFile(canonical)
+  await first.loop.close(); await disk.close()
+  const reopenedDisk = await LeadFileJournal.open(stateDirectory, 'thread-1')
+  t.after(() => reopenedDisk.close())
+  const reopenedJournal = await lead.createLeadJournal(reopenedDisk)
+  await assert.rejects(LeadContextStore.open({ directory: first.home, journal: reopenedJournal, model: MODEL, now: () => 1000, nextId: () => 'later', window: 200_000 }), /lead-context-checkpoint-recovery/)
+  assert.deepEqual(await readFile(canonical), original)
+  assert.deepEqual(await readFile(stage), staged)
+})
+
+test('a temporary screen outage hides a recovered view without rewriting it and the view read retries (#2060)', async t => {
+  const stateDirectory = await directory(t), disk = await LeadFileJournal.open(stateDirectory, 'thread-1')
+  t.after(() => disk.close())
+  const journal = await lead.createLeadJournal(disk)
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'goal-1', caps: { usdMicros: LEAD_LIMITS.maxUsdMicros, rounds: 16 }, freshnessMs: 60_000 })
+  const first = await harness(t, { window: 200_000, home: join(stateDirectory, 'lead'), journal, screen: async () => {} })
+  for (let n = 1; n <= 5; n++) await first.say(`Synthetic message ${n}.${filler(n)}`)
+  assert.equal(await first.store.compact('manual', first.send), 'applied')
+  const canonical = join(first.home, 'context-checkpoints.json'), original = await readFile(canonical), expected = first.store.facts().checkpoints.at(-1)!
+  await first.loop.close(); await disk.close()
+  const reopenedDisk = await LeadFileJournal.open(stateDirectory, 'thread-1')
+  t.after(() => reopenedDisk.close())
+  const reopenedJournal = await lead.createLeadJournal(reopenedDisk)
+  const reopened = await LeadContextStore.open({ directory: first.home, journal: reopenedJournal, model: MODEL, now: () => 1000, nextId: () => 'later', window: 200_000 })
+  let unavailable = true
+  const screen = async () => { if (unavailable) throw Object.assign(new Error('unavailable'), { wireCode: 'lead-protection-unavailable' }) }
+  await assert.rejects(reopened.connect({ screen }), (error: any) => error.wireCode === 'lead-protection-unavailable')
+  assert.deepEqual(await readFile(canonical), original, 'the temporary outage does not rewrite the saved view')
+  assert.equal(reopened.facts().checkpoints.at(-1)?.text, null, 'unverified prose is hidden from synchronous consumers')
+  await reopened.record({ epoch: reopened.epoch, base: reopened.turns.length, extend: [], turns: [], usage: null })
+  await reopened.settle([])
+  const { LeadControls } = await import('../src/lead/controls.js')
+  const controls = new LeadControls({ journal: reopenedJournal, project: { id: 'demo', path: '/workspace/demo' }, model: 'fixture-model', now: () => 1000, nextId: () => 'card',
+    push() {}, decidePerson: async () => {}, decideResult: async () => {}, context: reopened,
+    service: { async status() { return { configured: true, protection: 'synthetic cipher' } }, async setKey() {}, async deleteKey() {}, async assertPublic() {}, async send() { throw new Error('unused') } } as any })
+  t.after(() => controls.close())
+  await assert.rejects(controls.readContext(), (error: any) => error.wireCode === 'lead-protection-unavailable')
+  unavailable = false
+  assert.deepEqual((await controls.readContext()).checkpoints.at(-1), expected, 'the existing view read retries the screen')
+  assert.deepEqual(await readFile(canonical), original)
+})
+
+test('a superseded view screen cannot expose a stale result, and queued records survive retry (#2060)', async t => {
+  const first = await harness(t, { window: 200_000, screen: async () => {} })
+  for (let n = 1; n <= 5; n++) await first.say(`Synthetic message ${n}.${filler(n)}`)
+  assert.equal(await first.store.compact('manual', first.send), 'applied')
+  const expected = first.store.facts().checkpoints.at(-1)!
+  let release!: () => void, entered!: () => void
+  const held = new Promise<void>(resolve => { release = resolve }), called = new Promise<void>(resolve => { entered = resolve })
+  const old = first.store.connect({ screen: async () => { entered(); await held } })
+  await called
+  let unavailable = true
+  const next = first.store.connect({ screen: async () => { if (unavailable) throw Object.assign(new Error('unavailable'), { wireCode: 'lead-protection-unavailable' }) } })
+  const recorded = first.store.record({ epoch: first.store.epoch, base: first.store.turns.length, extend: [],
+    turns: [{ role: 'user', content: [text('A queued synthetic record.')] }], usage: null })
+  assert.equal(first.store.facts().checkpoints.at(-1)?.text, null)
+  release()
+  await assert.rejects(old, (error: any) => error.wireCode === 'lead-protection-unavailable')
+  await assert.rejects(next, (error: any) => error.wireCode === 'lead-protection-unavailable')
+  await recorded
+  assert.equal(first.store.facts().checkpoints.at(-1)?.text, null)
+  await assert.rejects(first.store.readFacts(), (error: any) => error.wireCode === 'lead-protection-unavailable')
+  unavailable = false
+  assert.deepEqual((await first.store.readFacts()).checkpoints.at(-1), expected)
+  assert.match(JSON.stringify(first.store.turns), /A queued synthetic record/)
+})
+
+test('a temporary screen outage preserves a pending checkpoint stage and can retry without restart (#2060)', async t => {
+  const first = await harness(t, { window: 200_000, screen: async () => {} })
+  for (let n = 1; n <= 5; n++) await first.say(`Synthetic message ${n}.${filler(n)}`)
+  const canonical = join(first.home, 'context-checkpoints.json'), stage = join(first.home, 'context-checkpoints.next.json')
+  await mkdir(canonical)
+  assert.equal(await first.store.compact('manual', first.send), 'applied')
+  const expected = first.store.facts().checkpoints.at(-1)!, original = await readFile(stage)
+  let unavailable = true
+  const screen = async () => { if (unavailable) throw Object.assign(new Error('unavailable'), { wireCode: 'lead-protection-unavailable' }) }
+  await assert.rejects(first.store.connect({ screen }), (error: any) => error.wireCode === 'lead-protection-unavailable')
+  assert.deepEqual(await readFile(stage), original)
+  assert.equal(first.store.facts().checkpoints.at(-1)?.text, null)
+  await first.store.record({ epoch: first.store.epoch, base: first.store.turns.length, extend: [], turns: [], usage: null })
+  await assert.rejects(first.store.readFacts(), (error: any) => error.wireCode === 'lead-protection-unavailable')
+  unavailable = false
+  assert.deepEqual((await first.store.readFacts()).checkpoints.at(-1), expected)
+  assert.deepEqual(await readFile(stage), original)
+  await rm(canonical, { recursive: true })
+  await first.loop.close()
+  const reopened = await harness(t, { window: 200_000, home: first.home, records: first.records, screen: async () => {} })
+  assert.deepEqual(reopened.store.facts().checkpoints.at(-1), expected)
+})
+
+test('a new screen installed during a checkpoint commit masks the new view until screened (#2060)', async t => {
+  const first = await harness(t, { window: 200_000, screen: async () => {} })
+  for (let n = 1; n <= 5; n++) await first.say(`Synthetic message ${n}.${filler(n)}`)
+  let commitStarted!: () => void, releaseCommit!: () => void, screenStarted!: () => void, releaseScreen!: () => void
+  const commitCalled = new Promise<void>(resolve => { commitStarted = resolve }), commitHeld = new Promise<void>(resolve => { releaseCommit = resolve })
+  const screenCalled = new Promise<void>(resolve => { screenStarted = resolve }), screenHeld = new Promise<void>(resolve => { releaseScreen = resolve })
+  const commit = first.journal.contextCompactionApplied.bind(first.journal)
+  first.journal.contextCompactionApplied = async applied => { commitStarted(); await commitHeld; await commit(applied) }
+  const compacting = first.store.compact('manual', first.send)
+  await commitCalled
+  const connecting = first.store.connect({ screen: async () => {
+    screenStarted(); await screenHeld
+    throw Object.assign(new Error('unavailable'), { wireCode: 'lead-protection-unavailable' })
+  } })
+  releaseCommit()
+  assert.equal(await compacting, 'applied')
+  await screenCalled
+  try { assert.equal(first.store.facts().checkpoints.at(-1)?.text, null, 'the changed screen has not yet approved the new view') }
+  finally { releaseScreen() }
+  await assert.rejects(connecting, (error: any) => error.wireCode === 'lead-protection-unavailable')
+})
+
+test('a durable journal append that reports failure is recovered without assuming rollback (#2060)', async t => {
+  const stateDirectory = await directory(t)
+  const disk = await LeadFileJournal.open(stateDirectory, 'thread-1')
+  t.after(() => disk.close())
+  const journal = await lead.createLeadJournal(disk)
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'goal-1', caps: { usdMicros: LEAD_LIMITS.maxUsdMicros, rounds: 16 }, freshnessMs: 60_000 })
+  const first = await harness(t, { window: 200_000, home: join(stateDirectory, 'lead'), journal, screen: async () => {} })
+  for (let n = 1; n <= 5; n++) await first.say(`Synthetic message ${n}.${filler(n)}`)
+  const append = disk.append.bind(disk)
+  disk.append = async record => {
+    await append(record)
+    if (record.type === 'context-compaction-applied') throw new Error('synthetic post-append failure')
+  }
+  await assert.rejects(first.store.compact('manual', first.send), /lead-journal-append-failed/)
+  assert.equal(journal.state.context.epoch, 0, 'the caller did not observe a successful append')
+  const stage = join(first.home, 'context-checkpoints.next.json')
+  assert.ok((await stat(stage)).isFile(), 'the uncertain checkpoint remains durable')
+  await assert.rejects(first.store.compact('manual', first.send), /lead-context-recovery-required/)
+  await first.loop.close()
+  await disk.close()
+  const reopenedDisk = await LeadFileJournal.open(stateDirectory, 'thread-1')
+  t.after(() => reopenedDisk.close())
+  const reopenedJournal = await lead.createLeadJournal(reopenedDisk)
+  const reopened = await harness(t, { window: 200_000, home: first.home, journal: reopenedJournal, screen: async () => {} })
+  assert.equal(reopenedJournal.state.context.epoch, 1, 'replay determines that the append was durable')
+  const notice = reopenedJournal.state.messages.find(message => message.checkpoint)?.checkpoint
+  assert.ok(notice)
+  assert.ok(reopened.store.facts().checkpoints.find(checkpoint => checkpoint.id === notice.id)?.text)
+  await assert.rejects(stat(stage), { code: 'ENOENT' })
+})
+
 test('a restart during a compaction keeps the old conversation, and one after the journal applied it moves the new one in', async t => {
   const first = await harness(t, { window: 20_000 })
   let n = 0
@@ -300,11 +674,15 @@ test('a restart during a compaction keeps the old conversation, and one after th
   const commit = second.journal.contextCompactionApplied.bind(second.journal)
   second.journal.contextCompactionApplied = async applied => { await commit(applied); throw new Error('stopped') }
   await assert.rejects(second.store.compact('manual', second.send))
+  assert.ok((await stat(join(second.home, 'context-checkpoints.next.json'))).isFile(), 'ambiguous append preserves the staged checkpoint')
   const third = await harness(t, { window: 20_000, records: second.records, home: second.home })
   assert.equal(third.store.epoch, 1)
   assert.equal(third.journal.state.context.epoch, 1)
   const opening = third.store.turns[0]!.content[0]
   assert.ok(opening?.type === 'text' && opening.text.startsWith('<checkpoint id="'), 'the checkpoint was moved in')
+  const appliedId = third.journal.state.context.last?.id
+  assert.ok(appliedId && third.store.facts().checkpoints.find(checkpoint => checkpoint.id === appliedId)?.text, 'the same journaled checkpoint is viewable')
+  await assert.rejects(stat(join(third.home, 'context-checkpoints.next.json')), { code: 'ENOENT' })
   await assert.rejects(stat(join(third.home, 'context.next.jsonl')))
 })
 
@@ -318,7 +696,7 @@ const controlsRig = async (replies: (RigReply | ((journal: lead.LeadJournal) => 
   const facts = { version: 1 as const, windowTokens: 200_000, usedTokens: 120_000, cacheHitRate: 0.9, compacting: false, checkpoints: [] }
   const sends: any[] = [], compactions: string[] = [], checks: (() => void)[] = []
   let due: 'soft' | 'hard' | null = null
-  const context = { compacting: false, epoch: 3, facts: () => facts, due: () => due,
+  const context = { compacting: false, epoch: 3, facts: () => facts, readFacts: async () => facts, due: () => due,
     async request() {
       const messages = stored ? stored(journal) : [{ role: 'user' as const, content: [text('Stored words'), text(`${REFERENCE}message-1`)] }]
       const mark = lead.leadContextMarkOf(messages)!
@@ -371,11 +749,13 @@ test('Summarise now compacts on request and both context methods answer with the
 })
 
 /** A store on its own, fed turns directly, with a checkpoint writer the test controls. */
-const bareStore = async (t: any, window: number) => {
+const bareStore = async (t: any, window: number, approveScreen = true, legacy?: object) => {
   const home = await directory(t)
+  if (legacy) await writeFile(join(home, 'context-checkpoints.json'), JSON.stringify({ version: 1, count: 1, checkpoints: [legacy] }))
   const { journal, records } = await journalOver()
   let id = 0
   const store = await LeadContextStore.open({ directory: home, journal, model: MODEL, now: () => 1000 + id, nextId: () => `cp-${++id}`, window })
+  if (approveScreen) await store.connect({ screen: async () => {} })
   const turn = (role: 'user' | 'assistant', words: string) => ({ role, content: [text(words)] })
   const feed = async (pairs: number, size: number, from = 0) => {
     for (let n = from; n < from + pairs; n++) {
@@ -387,7 +767,7 @@ const bareStore = async (t: any, window: number) => {
   }
   const written = (words: string) => async () => ({ status: 'completed' as const, text: ['## Decisions made and why', words, '## Work and where each piece stands', 'None.',
     '## Waiting on the person', 'None.', '## Facts learned', 'None.', '## Open questions / next step', 'None.'].join('\n') })
-  return { journal, records, store, feed, written, turn }
+  return { home, journal, records, store, feed, written, turn }
 }
 
 test('a refused, cut short or unreachable checkpoint request ends the run uncounted, and the breaker counts only the model\'s failures', async t => {
@@ -518,6 +898,79 @@ test('a person message cut at its bound across an emoji keeps the facts readable
   assert.deepEqual(reopened.facts().checkpoints.map(one => one.id), ['cp-a', 'cp-b'])
 })
 
+test('checkpoint stage write failure leaves the old epoch recoverable (#2060)', async t => {
+  const s = await bareStore(t, 20_000)
+  await s.feed(40, 1500)
+  const before = JSON.stringify(s.store.turns), stage = join(s.home, 'context-checkpoints.next.json')
+  await mkdir(stage)
+  await assert.rejects(s.store.compact('manual', s.written('Safe summary.')))
+  assert.equal(s.records.some(record => record.type === 'context-compaction-applied'), false)
+  await assert.rejects(s.store.compact('manual', s.written('Safe summary.')), /lead-context-recovery-required/)
+  await rm(stage, { recursive: true })
+  const recovered = await LeadContextStore.open({ directory: s.home, journal: s.journal, model: MODEL, now: () => 1, nextId: () => 'later', window: 20_000 })
+  assert.equal(recovered.epoch, 0)
+  assert.equal(JSON.stringify(recovered.turns), before)
+  assert.equal(recovered.facts().checkpoints.length, 0)
+  assert.equal(s.journal.state.context.pending, null)
+})
+
+test('a durable canonical checkpoint plus retained stage reopens without duplication (#2060)', async t => {
+  const s = await bareStore(t, 20_000)
+  await s.feed(40, 1500)
+  const canonical = join(s.home, 'context-checkpoints.json'), stage = join(s.home, 'context-checkpoints.next.json')
+  await mkdir(canonical)
+  assert.equal(await s.store.compact('manual', s.written('Safe summary.')), 'applied')
+  const staged = JSON.parse(await readFile(stage, 'utf8'))
+  await rm(canonical, { recursive: true })
+  // The reachable state after canonical replacement and before staged-copy removal.
+  await writeFile(canonical, JSON.stringify({ version: 1, count: staged.count, checkpoints: staged.checkpoints }))
+  const recovered = await LeadContextStore.open({ directory: s.home, journal: s.journal, model: MODEL, now: () => 1, nextId: () => 'later', window: 20_000 })
+  assert.equal(recovered.facts().checkpoints.length, 1)
+  assert.equal(recovered.facts().checkpoints[0]!.id, staged.id)
+  await assert.rejects(stat(stage), { code: 'ENOENT' })
+})
+
+test('a staged checkpoint without a journal commit is discarded after replay (#2060)', async t => {
+  const s = await bareStore(t, 20_000)
+  await s.feed(40, 1500)
+  const before = JSON.stringify(s.store.turns)
+  s.journal.contextCompactionApplied = async () => { throw new Error('synthetic precommit failure') }
+  await assert.rejects(s.store.compact('manual', s.written('Safe staged summary.')), /synthetic precommit failure/)
+  assert.ok((await stat(join(s.home, 'context-checkpoints.next.json'))).isFile())
+  const recovered = await LeadContextStore.open({ directory: s.home, journal: s.journal, model: MODEL, now: () => 1, nextId: () => 'later', window: 20_000 })
+  assert.equal(recovered.epoch, 0)
+  assert.equal(JSON.stringify(recovered.turns), before)
+  assert.equal(recovered.facts().checkpoints.length, 0)
+  assert.equal(s.journal.state.context.pending, null)
+  await assert.rejects(stat(join(s.home, 'context-checkpoints.next.json')), { code: 'ENOENT' })
+})
+
+test('a valid but unattributed checkpoint stage is not promoted or discarded (#2060)', async t => {
+  const s = await bareStore(t, 20_000)
+  await s.feed(40, 1500)
+  assert.equal(await s.store.compact('manual', s.written('First safe summary.')), 'applied')
+  const canonical = join(s.home, 'context-checkpoints.json'), original = await readFile(canonical)
+  const kept = JSON.parse(original.toString()), stage = join(s.home, 'context-checkpoints.next.json')
+  const staged = JSON.stringify({ version: 1, id: kept.checkpoints.at(-1).id, epoch: s.store.epoch + 1,
+    count: kept.count, checkpoints: kept.checkpoints })
+  await writeFile(stage, staged)
+  await assert.rejects(LeadContextStore.open({ directory: s.home, journal: s.journal, model: MODEL, now: () => 1, nextId: () => 'later', window: 20_000 }), /lead-context-checkpoint-recovery/)
+  assert.deepEqual(await readFile(canonical), original)
+  assert.equal(await readFile(stage, 'utf8'), staged)
+})
+
+test('a malformed checkpoint stage fails closed without rewriting the canonical file (#2060)', async t => {
+  const s = await bareStore(t, 20_000)
+  await s.feed(40, 1500)
+  assert.equal(await s.store.compact('manual', s.written('First safe summary.')), 'applied')
+  const canonical = join(s.home, 'context-checkpoints.json'), original = await readFile(canonical)
+  const stage = join(s.home, 'context-checkpoints.next.json')
+  await writeFile(stage, '{ malformed')
+  await assert.rejects(LeadContextStore.open({ directory: s.home, journal: s.journal, model: MODEL, now: () => 1, nextId: () => 'later', window: 20_000 }), /lead-context-checkpoint-recovery/)
+  assert.deepEqual(await readFile(canonical), original)
+  assert.equal(await readFile(stage, 'utf8'), '{ malformed')
+})
+
 test('a step recorded against an earlier epoch lands after the turns the checkpoint kept, whatever its base', async t => {
   const s = await bareStore(t, 20_000)
   await s.feed(40, 1500)
@@ -531,6 +984,86 @@ test('a step recorded against an earlier epoch lands after the turns the checkpo
   assert.deepEqual(turns.at(-1), late[0])
   assert.deepEqual(turns.at(-2)!.content.at(-1), text('[Desk context at that time, left out: a wake]'))
   assert.equal(lead.parseLeadContextTurns(turns).turns.length, turns.length, 'no two turns of one role in a row')
+})
+
+for (const mode of ['missing screen', 'refused person'] as const) test(`legacy checkpoint prose is preserved when ${mode} cannot authorize staging (#2060)`, async t => {
+  const legacy = { id: 'legacy', at: 1, fallback: false, beforeTokens: 10, afterTokens: 5, text: 'Earlier safe summary.',
+    person: { messages: [{ id: 'person-old', text: 'Synthetic forbidden person quote.' }], leftOut: [] } }
+  const s = await bareStore(t, 20_000, mode !== 'missing screen', legacy)
+  if (mode === 'refused person') await s.store.connect({ screen: async text => { if (text.includes('Synthetic forbidden person quote.')) throw new Error('refused') } })
+  const destination = join(s.home, 'context-checkpoints.json'), old = await readFile(destination)
+  await s.feed(40, 1500)
+  await assert.rejects(s.store.compact('manual', s.written('New safe summary.')), /lead-context-checkpoint-screen/)
+  assert.deepEqual(await readFile(destination), old, 'legacy canonical file is unchanged')
+  await assert.rejects(stat(join(s.home, 'context-checkpoints.next.json')), { code: 'ENOENT' })
+  assert.equal(s.journal.state.context.epoch, 0)
+  assert.equal(s.records.some(record => record.type === 'context-compaction-applied'), false)
+})
+
+test('cross-part credentials in retained display prose are screened together (#2060)', async t => {
+  const personText = 'password=', modelText = 'syntheticvalue'
+  assert.equal(lead.leadContainsSecret(personText), false)
+  assert.equal(lead.leadContainsSecret(modelText), false)
+  assert.equal(lead.leadContainsSecret(`${personText}\n${modelText}`), true)
+  const legacy = { id: 'legacy', at: 1, fallback: false, beforeTokens: 10, afterTokens: 5, text: modelText,
+    person: { messages: [{ id: 'person-old', text: personText }], leftOut: [] } }
+  const s = await bareStore(t, 20_000, true, legacy)
+  await s.store.connect({ screen: async value => { if (lead.leadContainsSecret(value)) throw new Error('refused') } })
+  const canonical = join(s.home, 'context-checkpoints.json'), original = await readFile(canonical)
+  await s.feed(40, 1500)
+  await assert.rejects(s.store.compact('manual', s.written('New safe summary.')), /lead-context-checkpoint-screen/)
+  assert.deepEqual(await readFile(canonical), original)
+  await assert.rejects(stat(join(s.home, 'context-checkpoints.next.json')), { code: 'ENOENT' })
+  assert.equal(s.records.some(record => record.type === 'context-compaction-applied'), false)
+})
+
+test('a refused new summary never enters the durable checkpoint stage (#2060)', async t => {
+  const s = await bareStore(t, 20_000)
+  await s.store.connect({ screen: async text => { if (text.includes('synthetic-private-marker')) throw new Error('refused') } })
+  await s.feed(40, 1500)
+  const destination = join(s.home, 'context-checkpoints.json')
+  await mkdir(destination)
+  assert.equal(await s.store.compact('manual', s.written('synthetic-private-marker')), 'applied')
+  const staged = await readFile(join(s.home, 'context-checkpoints.next.json'), 'utf8')
+  assert.equal(staged.includes('synthetic-private-marker'), false)
+  const [checkpoint] = s.store.facts().checkpoints
+  assert.equal(checkpoint!.text, null)
+  assert.equal(checkpoint!.person, undefined)
+})
+
+test('changing the screen while retained prose is being checked prevents staging (#2060)', async t => {
+  const legacy = { id: 'legacy', at: 1, fallback: false, beforeTokens: 10, afterTokens: 5, text: 'Earlier safe summary.' }
+  const s = await bareStore(t, 20_000, true, legacy)
+  let release!: () => void, entered!: () => void
+  const held = new Promise<void>(resolve => { release = resolve }), called = new Promise<void>(resolve => { entered = resolve })
+  const screen = async (text: string) => { if (text === 'Earlier safe summary.') { entered(); await held } }
+  // Connect on the empty screen first; install the held checker only after its initial rescreen.
+  let block = false
+  const gated = async (text: string) => { if (block) await screen(text) }
+  await s.store.connect({ screen: gated })
+  await s.feed(40, 1500)
+  block = true
+  const compacting = s.store.compact('manual', s.written('New safe summary.'))
+  await called
+  const changing = s.store.connect({ screen: async () => {} })
+  release()
+  await assert.rejects(compacting, /lead-context-checkpoint-screen/)
+  await changing
+  await assert.rejects(stat(join(s.home, 'context-checkpoints.next.json')), { code: 'ENOENT' })
+  assert.equal(s.records.some(record => record.type === 'context-compaction-applied'), false)
+})
+
+test('a checkpoint made without an available screen does not persist display text or person quotes (#2060)', async t => {
+  const s = await bareStore(t, 20_000, false)
+  await s.feed(40, 1500)
+  await mkdir(join(s.home, 'context-checkpoints.json'))
+  assert.equal(await s.store.compact('manual', s.written('Synthetic display content.')), 'applied')
+  const staged = await readFile(join(s.home, 'context-checkpoints.next.json'), 'utf8')
+  assert.equal(staged.includes('Synthetic display content.'), false)
+  const [checkpoint] = s.store.facts().checkpoints
+  assert.ok(checkpoint)
+  assert.equal(checkpoint.text, null)
+  assert.equal(checkpoint.person, undefined)
 })
 
 test('checkpoints are listed oldest first, and one that fails the reply screen keeps its place without its text', async t => {

@@ -89,7 +89,7 @@ interface LeadControlsOptions {
   /** Told once the Lead's reply to the person is stored, with the `settingsShownAt` the request that got it read. */
   readonly settingsShown?: (at: number) => Promise<void>
   /** The stored conversation. Absent, each request is rebuilt from the words the person can read, as before. */
-  readonly context?: Pick<LeadContextStore, 'request' | 'due' | 'compact' | 'facts' | 'compacting' | 'epoch'> & Partial<Pick<LeadContextStore, 'settle'>>
+  readonly context?: Pick<LeadContextStore, 'request' | 'due' | 'compact' | 'facts' | 'readFacts' | 'compacting' | 'epoch'> & Partial<Pick<LeadContextStore, 'settle'>>
   /** Test seam for the idle check after a step was recorded. */
   readonly scheduleContextCheck?: (run: () => void) => void
   /** The Lead's current step in plain words, from the desk call in flight; null while it has named none. */
@@ -594,7 +594,7 @@ export class LeadControls {
   }
   async readContext(): Promise<LeadContextFacts> {
     if (!this.options.context) throw leadRefusal('lead-unavailable')
-    return this.options.context.facts()
+    return this.options.context.readFacts()
   }
   /** The person's "Summarise now": refused while the Lead is answering, so it never cuts a turn in half. */
   compactContext(): Promise<LeadContextFacts> {
