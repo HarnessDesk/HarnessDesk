@@ -249,7 +249,10 @@ export class LeadControls {
     const steers = this.#steers.list.slice(-64)
     const auditFailed = state.managementReason === 'lead-worker-audit-failed'
     const approvalHistory = boundLeadApprovalHistory(state.workerApprovals.map(rule => ({ ...rule, entries: auditFailed ? leadWorkerApprovalEntries(rule) : rule.entries ?? [] })))
-    const requestInFlight = this.#inFlight()
+    // A recorded desk call can outlive the model request. A new goal also
+    // waits for these attempts to finish, so keep the projection busy until
+    // their actual result is journaled.
+    const requestInFlight = this.#inFlight() || [...state.attempts.values()].some(attempt => attempt.phase !== 'finished')
     if (!requestInFlight) this.#replySince = null
     else this.#replySince ??= this.options.now()
     const step = this.options.readActiveStep?.() ?? null

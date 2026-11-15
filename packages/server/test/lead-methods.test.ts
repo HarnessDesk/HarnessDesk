@@ -51,6 +51,55 @@ const rig = async (over: { configured?: boolean; manage?: boolean; service?: Rec
 }
 const code = (reason: string) => (error: any) => error.wireCode === reason
 
+test('a held recorded desk read keeps scheduled-goal readiness busy until it settles', async () => {
+  const s = await rig({ configured: true, controls: { readRequestInFlight: () => false } })
+  let release!: () => void, entered!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  const started = new Promise<void>(resolve => { entered = resolve })
+  const task = { id: 'fixture', title: 'Synthetic', goal: 'Synthetic', enabled: true, every: 'daily', at: '09:00', zone: 'UTC' } as any
+  let execution: Promise<any> | undefined
+  try {
+    await s.journal.stop(); await s.journal.runStopEffects(async () => {})
+    assert.equal(canBeginLeadGoal(s.journal.state), true)
+    assert.equal((await s.controls.readThread()).requestInFlight, false)
+    execution = s.journal.execute({ id: 'held-desk-read', request: { method: 'library/usage', params: {}, project: null, runId: null, start: null },
+      context: { desk: policy, projectPolicy: null, project: null, approved: null, budget: null, now: 100, policyInterpretation: 'idle' } },
+    async () => { entered(); await held; return { value: null, identity: null } })
+    await started
+    assert.equal(s.journal.state.attempts.get('held-desk-read')?.phase, 'started')
+    assert.equal(canBeginLeadGoal(s.journal.state), false)
+    await assert.rejects(s.controls.runScheduled(task, 100), code('lead-request-in-flight'))
+    assert.equal((await s.controls.readThread()).requestInFlight, true, 'the projection must show the held recorded read')
+    await s.controls.idle()
+    assert.equal((s.notifications.at(-1) as any).params.requestInFlight, true, 'subscribers see the held read')
+    release(); assert.equal((await execution).outcome, 'succeeded')
+    assert.equal(canBeginLeadGoal(s.journal.state), true)
+    assert.equal((await s.controls.readThread()).requestInFlight, false)
+    await s.controls.idle()
+    assert.equal((s.notifications.at(-1) as any).params.requestInFlight, false, 'subscribers see the settled read')
+    assert.equal((await s.controls.runScheduled(task, 101)).approved, false)
+  } finally { release(); await execution; await s.controls.idle(); s.controls.close() }
+})
+
+test('a recorded read is busy on an open thread and a finished failed read is not live', async () => {
+  const s = await rig({ controls: { readRequestInFlight: () => false } })
+  let release!: () => void, entered!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  const started = new Promise<void>(resolve => { entered = resolve })
+  let execution: Promise<any> | undefined
+  try {
+    assert.equal(s.journal.state.phase, 'draft')
+    execution = s.journal.execute({ id: 'open-desk-read', request: { method: 'library/usage', params: {}, project: null, runId: null, start: null },
+      context: { desk: policy, projectPolicy: null, project: null, approved: null, budget: null, now: 100, policyInterpretation: 'idle' } },
+    async () => { entered(); await held; throw new Error('synthetic read failed') })
+    await started
+    assert.equal((await s.controls.readThread()).requestInFlight, true)
+    release(); assert.equal((await execution).outcome, 'failed')
+    assert.equal(s.journal.state.attempts.get('open-desk-read')?.phase, 'finished')
+    assert.equal((await s.controls.readThread()).requestInFlight, false)
+  } finally { release(); await execution; await s.controls.idle(); s.controls.close() }
+})
+
 test('repeat readiness includes the controls continuation, not only service activity', async () => {
   let starts = 0
   const s = await rig({ configured: true, service: { requestInFlight: false, async send() { starts++; return { status: 'completed', text: '' } } },
