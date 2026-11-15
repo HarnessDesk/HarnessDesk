@@ -1,3 +1,5 @@
+import { refreshComposerToastOffset } from './composer-toast-offset'
+
 /**
  * A floating result must not take a page's pointer targets. Reserve the visible
  * stack's measured expanded extent, so hovering an older result cannot cover
@@ -51,7 +53,13 @@ const observe = (): void => {
 export const registerToastRegion = (region: HTMLElement): (() => void) => {
   if (!resize) {
     resize = new ResizeObserver(publish)
-    mutation = new MutationObserver(() => { observe(); publish() })
+    mutation = new MutationObserver(records => {
+      const addedToast = records.some(record => Array.from(record.addedNodes).some(node =>
+        node instanceof Element && (node.matches('[data-sonner-toast]') || node.querySelector('[data-sonner-toast]'))))
+      if (addedToast) refreshComposerToastOffset()
+      observe()
+      publish()
+    })
     window.addEventListener('resize', publish)
   }
   regions.add(region)

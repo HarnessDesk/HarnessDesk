@@ -63,6 +63,60 @@ for (const theme of ['light', 'dark'] as const) {
     }
   })
 
+  test(`a toast clears a dock moved without a resize · ${theme}`, async ({ page }) => {
+    await openFrame(page, 'project-polish', theme, 1024)
+    const docks = page.locator('[data-slot="composer-dock"], [data-slot="conversation-dock"]')
+    await expect(docks.first()).toBeAttached()
+    const index = await docks.evaluateAll(nodes => nodes.reduce((best, node, index) => {
+      const box = node.getBoundingClientRect()
+      return box.width > 0 && box.height > 0 && getComputedStyle(node).visibility !== 'hidden' && box.top < best.top
+        ? { index, top: box.top } : best
+    }, { index: -1, top: Infinity }).index)
+    expect(index).toBeGreaterThanOrEqual(0)
+    const dock = docks.nth(index)
+    await dock.evaluate(node => node.classList.add('test-position-shift'))
+    await page.evaluate(() => window.dispatchEvent(new Event('resize')))
+    await expect.poll(async () => {
+      const current = (await dock.boundingBox())!
+      const clearance = Number.parseFloat(await page.evaluate(() => document.body.style.getPropertyValue('--hd-composer-clearance')))
+      return Math.abs(clearance - (900 - current.y))
+    }).toBeLessThan(1)
+    // Drain the frame scheduled by the setup resize and any body-style feedback
+    // it caused before introducing an otherwise unobserved movement.
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))))
+    const before = (await dock.boundingBox())!
+    const oldClearance = await page.evaluate(() => document.body.style.getPropertyValue('--hd-composer-clearance'))
+    // A CSSOM rule moves the dock without changing its size or observed attributes.
+    await page.evaluate(() => {
+      const sheet = document.createElement('style')
+      document.head.append(sheet)
+      sheet.sheet!.insertRule('.test-position-shift { transform: translateY(-80px) !important; }')
+    })
+    const moved = (await dock.boundingBox())!
+    expect(moved.y).toBeCloseTo(before.y - 80, 0)
+    expect(moved.width).toBeCloseTo(before.width, 0)
+    expect(moved.height).toBeCloseTo(before.height, 0)
+    expect(await page.evaluate(() => document.body.style.getPropertyValue('--hd-composer-clearance'))).toBe(oldClearance)
+    await page.evaluate(() => {
+      const state = window as unknown as { firstToastFrame?: Promise<number>; projectPolishStore: { resultNotice(level: string, text: string): void } }
+      state.firstToastFrame = new Promise(resolve => {
+        const observer = new MutationObserver(() => {
+          if (!document.querySelector('[data-sonner-toast]')) return
+          observer.disconnect()
+          requestAnimationFrame(() => resolve(Number.parseFloat(document.body.style.getPropertyValue('--hd-composer-clearance'))))
+        })
+        observer.observe(document.body, { childList: true, subtree: true })
+      })
+      state.projectPolishStore.resultNotice('info', 'Moved dock saved.')
+    })
+    const toast = page.locator('[data-sonner-toast]').filter({ hasText: 'Moved dock saved.' })
+    await expect(toast).toHaveAttribute('data-mounted', 'true')
+    const firstFrame = await page.evaluate(() => (window as unknown as { firstToastFrame: Promise<number> }).firstToastFrame)
+    expect(firstFrame).toBeCloseTo(900 - moved.y, 0)
+    await expect.poll(async () => Number.parseFloat(await page.evaluate(() => document.body.style.getPropertyValue('--hd-composer-clearance')))).toBeCloseTo(900 - moved.y, 0)
+    await expect.poll(async () => (await toast.boundingBox())!.y + (await toast.boundingBox())!.height).toBeLessThan(moved.y)
+  })
+
   test(`expanded toasts grow upward inside the window · ${theme}`, async ({ page }) => {
     await openFrame(page, 'project-polish', theme, 1024)
     await page.evaluate(() => {

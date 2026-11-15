@@ -7,6 +7,7 @@
 const docks = new Set<HTMLElement>()
 let observer: ResizeObserver | undefined
 let visibility: MutationObserver | undefined
+let frame: number | undefined
 
 const publish = (): void => {
   let clearance = 0
@@ -29,6 +30,21 @@ const publish = (): void => {
   }
 }
 
+// Observer bursts during a pane drag need only one geometry read per frame.
+const schedulePublish = (): void => {
+  if (frame !== undefined) return
+  frame = requestAnimationFrame(() => { frame = undefined; publish() })
+}
+
+// A newly shown toast needs current geometry before it is painted, even when
+// the dock moved without any observable resize or attribute change.
+export const refreshComposerToastOffset = (): void => {
+  if (!docks.size) return
+  if (frame !== undefined) cancelAnimationFrame(frame)
+  frame = undefined
+  publish()
+}
+
 // Retained work panes keep their size while hidden. Observe their ancestors'
 // visibility attributes as well as size.
 const watchVisibility = (): void => {
@@ -42,9 +58,9 @@ const watchVisibility = (): void => {
 
 export const registerComposerDock = (dock: HTMLElement): (() => void) => {
   if (!observer) {
-    observer = new ResizeObserver(publish)
-    visibility = new MutationObserver(publish)
-    window.addEventListener('resize', publish)
+    observer = new ResizeObserver(schedulePublish)
+    visibility = new MutationObserver(schedulePublish)
+    window.addEventListener('resize', schedulePublish)
   }
   docks.add(dock)
   watchVisibility()
@@ -57,9 +73,11 @@ export const registerComposerDock = (dock: HTMLElement): (() => void) => {
     publish()
     if (docks.size === 0) {
       observer?.disconnect()
+      if (frame !== undefined) cancelAnimationFrame(frame)
+      frame = undefined
       observer = undefined
       visibility = undefined
-      window.removeEventListener('resize', publish)
+      window.removeEventListener('resize', schedulePublish)
     }
   }
 }
