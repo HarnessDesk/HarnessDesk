@@ -1,0 +1,19 @@
+{
+  "productionCommit": "4e7bd84547a52d8bacd2d14e661873edba797c35",
+  "productionTree": "8453b3650aa1ab2bfeef140e5f279e902f0c6e50",
+  "priorFixtureBase": "bdff0b1169289b67cdbb9ea138f45d6dd7b46fe4",
+  "productionFixtureSha256": {
+    "fake-codex.mjs": "f4d8fcb27e24a3e871dd5660030e4c0fbd718bc429952e98970de81f43e7b1d1",
+    "scripted-flow.mjs": "1b6f58123021ce772025a525aaedabd99784655772631299d27a6dbe4c8099d7",
+    "plugin-icon.svg": "611ca48d4da7767c7cc051442c2e389a2d5a288a2fbb09c5edd3f3b1e7499d79"
+  },
+  "diagnosticFixtureSha256": {
+    "fake-codex-1545.mjs": "70d44e8a425ca3215ad66f92ec8fcd3f970048c745aba6d3a48054acefbc9fcc",
+    "scripted-flow.mjs": "1b6f58123021ce772025a525aaedabd99784655772631299d27a6dbe4c8099d7",
+    "plugin-icon.svg": "611ca48d4da7767c7cc051442c2e389a2d5a288a2fbb09c5edd3f3b1e7499d79"
+  },
+  "productionSourceSha256": {
+    "packages/server/src/host.ts": "e317c3f48909534740669eaef6fe338b2272433b7b769f43c2ab85b0e2d1cdda",
+    "packages/server/src/transcripts.ts": "eb9e49eb57b1ec8a539f8e2d778be4e317b2e02377765f932647867fe5becf47"
+  }
+}
