@@ -73,7 +73,7 @@ const LeadWorkCoverage = () => {
 const MentionTriageCoverage = () => {
   const triage = useMemo<MentionTriageState>(() => ({
     page: triggerDecisionsPage(), problem: null, busy: false,
-    reload: () => {}, setMode: async () => {}, reevaluate: async () => {},
+    reload: () => {}, setMode: async () => {}, reevaluate: async () => {}, reviewStop: async () => {},
   }), [])
   return <Section title="Mention triage" level="heading"><MentionDecisionRows triage={triage} /></Section>
 }

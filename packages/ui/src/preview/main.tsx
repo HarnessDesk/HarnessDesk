@@ -384,6 +384,7 @@ let previewTriggers = { ...baseTriggers, triggers: [...baseTriggers.triggers, tr
 let previewDecisions = triggerDecisionsPage()
 Object.assign(store as unknown as Record<string, unknown>, {
   projectTriggers: async () => previewTriggers,
+  triggerStopHistory: async () => ({ retainedStopTriggers: [], stopHistoryFull: false }),
   triggerDecisions: async () => previewDecisions,
   setTriggerMode: async (_root: string, _id: string, mode: 'observe' | 'act') => {
     previewDecisions = { ...previewDecisions, mode }

@@ -46,6 +46,7 @@ const mount = (overrides: Partial<AppStore> = {}, snapshotOverrides: Partial<App
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     projectTriggers: vi.fn(async () => triggerProjectView()),
+    triggerStopHistory: vi.fn(async () => ({})),
     previewTrigger: vi.fn(async () => { throw new Error('not exercised') }),
     armTrigger: vi.fn(async () => { throw new Error('not exercised') }),
     disarmTrigger: vi.fn(async () => triggerView({ armed: false, state: 'off' })),
@@ -401,10 +402,159 @@ it('a comment’s excerpt is shown as plain text, never as markup', async () => 
   expect(container.textContent).toContain('<img src=x onerror="alert(1)">')
 })
 
-it('a mention trigger this machine has not armed reads no decisions', async () => {
-  const triggerDecisions = vi.fn(async () => triggerDecisionsPage())
-  mount({ projectTriggers: vi.fn(async () => mentionView(false)), triggerDecisions })
+it('an inactive mention trigger reads retained stop warnings without exposing ordinary decision controls', async () => {
+  const stop = { id: `u-${'d'.repeat(64)}`, trigger: 'ask-dex', project: ROOT, repository: 'example/storefront', thread: { kind: 'issue' as const, number: 42 }, author: null, excerpt: '', url: 'https://example.com', createdAt: 1, state: 'unconfirmed' as const, progress: { queuedCancelled: 0, runsMarkedStopped: 0, interruptRequestsIssued: 0, leadRunsMarkedStopped: 0, leadPlanStopped: false }, summary: 'Could not confirm interruption.' }
+  const triggerDecisions = vi.fn(async () => triggerDecisionsPage({ stopHistoryFull: true, unconfirmedStops: [stop] }))
+  const reviewTriggerStop = vi.fn(async () => ({ ...stop, state: 'reviewed' as const }))
+  const reevaluateTriggerDecision = vi.fn()
+  const leadStop = vi.fn()
+  mount({ projectTriggers: vi.fn(async () => mentionView(false)), triggerDecisions, reviewTriggerStop, reevaluateTriggerDecision, lead: { stop: leadStop } as unknown as AppStore['lead'] })
   await settle()
-  expect(triggerDecisions).not.toHaveBeenCalled()
+  expect(triggerDecisions).toHaveBeenCalledWith(ROOT, 'ask-dex')
+  expect(container.textContent).toContain('Stop unconfirmed')
+  expect(container.textContent).toContain('Stop history cannot safely hold this request.')
   expect(container.textContent).not.toContain('Observing')
+  expect(container.textContent).not.toContain('Re-evaluate')
+  act(() => button('Mark reviewed').click()); await settle()
+  expect(reviewTriggerStop).toHaveBeenCalledWith(ROOT, 'ask-dex', stop.id)
+  expect(leadStop).not.toHaveBeenCalled()
+  expect(reevaluateTriggerDecision).not.toHaveBeenCalled()
+  expect(container.textContent).not.toContain('Stop unconfirmed')
+  expect(container.textContent).toContain('Stop history cannot safely hold this request.')
+  act(() => button('History').click()); await settle()
+  expect(container.textContent).toContain('Reviewed · Stop unconfirmed')
+  expect(container.textContent).not.toContain('Re-evaluate')
+})
+
+const unconfirmedStop = (state: 'inFlight' | 'unconfirmed' | 'reviewed' = 'unconfirmed') => ({
+  id: `u-${'a'.repeat(64)}`, trigger: 'ask-dex', project: ROOT, repository: 'example/storefront',
+  thread: { kind: 'issue' as const, number: 42 }, author: 'jane-doe', excerpt: '@dex <img src=x> stop',
+  url: 'https://example.com/comment', createdAt: 1, state,
+  progress: { queuedCancelled: 1, runsMarkedStopped: 1, interruptRequestsIssued: 1, leadRunsMarkedStopped: 0, leadPlanStopped: false },
+  summary: '1 queued cancelled; 1 runs marked stopped; 1 interrupt requests issued; 0 Lead runs marked stopped; Lead plan not confirmed stopped. Check the work before taking further action.',
+})
+
+it('shows unreviewed stop uncertainty without opening history and keeps reviewed records in history', async () => {
+  const records = [unconfirmedStop('inFlight'), { ...unconfirmedStop('unconfirmed'), id: `u-${'b'.repeat(64)}` }, { ...unconfirmedStop('reviewed'), id: `u-${'c'.repeat(64)}` }]
+  mount({ projectTriggers: vi.fn(async () => mentionView()), triggerDecisions: vi.fn(async () => triggerDecisionsPage({ decisions: [], threads: [], unconfirmedStops: records })) })
+  await settle()
+  expect(container.textContent).toContain('Stopping…')
+  expect(container.textContent).toContain('Stop unconfirmed')
+  expect(container.textContent).toContain('example/storefront')
+  expect(container.textContent).toContain('1 interrupt requests issued')
+  expect(container.textContent).toContain('Check the work before taking further action.')
+  expect(container.textContent).not.toContain('Reviewed · Stop unconfirmed')
+  expect(container.textContent).not.toContain('No mentions yet')
+  expect(container.querySelector('img')).toBeNull()
+  expect([...container.querySelectorAll('button')].filter(one => one.textContent?.trim() === 'Mark reviewed')).toHaveLength(1)
+  expect(container.textContent).not.toContain('Re-evaluate')
+  act(() => button('History').click()); await settle()
+  expect(container.textContent).toContain('Reviewed · Stop unconfirmed')
+  expect(container.textContent).not.toContain('No mentions yet')
+})
+
+it('keeps full-history attention visible with no stop records or decisions', async () => {
+  mount({ projectTriggers: vi.fn(async () => mentionView()), triggerDecisions: vi.fn(async () => triggerDecisionsPage({ decisions: [], threads: [], stopHistoryFull: true })) })
+  await settle()
+  expect(container.textContent).toContain('Stop history cannot safely hold this request. Stop the work directly before taking further action.')
+  act(() => button('History').click()); await settle()
+  expect(container.textContent).toContain('Stop history cannot safely hold this request.')
+})
+
+it('marks an unconfirmed stop reviewed without re-evaluating and keeps errors honest', async () => {
+  const stop = unconfirmedStop()
+  const triggerDecisions = vi.fn(async () => triggerDecisionsPage({ decisions: [], threads: [], unconfirmedStops: [stop] }))
+  const reviewTriggerStop = vi.fn().mockRejectedValueOnce(new Error('Review unavailable')).mockResolvedValueOnce({ ...stop, state: 'reviewed' })
+  const reevaluateTriggerDecision = vi.fn()
+  mount({ projectTriggers: vi.fn(async () => mentionView()), triggerDecisions, reviewTriggerStop, reevaluateTriggerDecision })
+  await settle();act(() => button('Mark reviewed').click());await settle()
+  expect(container.textContent).toContain('Review unavailable')
+  expect(container.textContent).toContain('Stop unconfirmed')
+  act(() => button('Mark reviewed').click());await settle()
+  expect(reviewTriggerStop).toHaveBeenCalledWith(ROOT, 'ask-dex', stop.id)
+  expect(reevaluateTriggerDecision).not.toHaveBeenCalled()
+  expect(container.textContent).not.toContain('Stop unconfirmed')
+  act(() => button('History').click());await settle()
+  expect(container.textContent).toContain('Reviewed · Stop unconfirmed')
+})
+
+it.each([false, true])('keeps removed or changed mention stop history visible when trigger file exists: %s', async exists => {
+  const stop = unconfirmedStop()
+  const triggerDecisions = vi.fn(async () => triggerDecisionsPage({ decisions: [], threads: [], unconfirmedStops: [stop] }))
+  const reviewTriggerStop = vi.fn(async () => ({ ...stop, state: 'reviewed' as const }))
+  const projectTriggers = vi.fn(async () => triggerProjectView({ exists, triggers: [], stopHistoryFull: true, retainedStopTriggers: [{ id: 'ask-dex', stopHistoryFull: true, unconfirmedStops: [stop] }] }))
+  const triggerStopHistory = vi.fn(async () => ({ stopHistoryFull: true, retainedStopTriggers: [{ id: 'ask-dex', stopHistoryFull: true, unconfirmedStops: [stop] }] }))
+  mount({ projectTriggers, triggerStopHistory, triggerDecisions, reviewTriggerStop })
+  await settle()
+  expect(container.textContent).toContain('ask-dex')
+  expect(container.textContent).toContain('Stop unconfirmed')
+  expect(container.textContent).toContain('Stop history cannot safely hold this request.')
+  expect(container.textContent).not.toContain('Re-evaluate')
+  act(() => button('Mark reviewed').click()); await settle()
+  expect(reviewTriggerStop).toHaveBeenCalledWith(ROOT, 'ask-dex', stop.id)
+  expect(container.textContent).not.toContain('Stop unconfirmed')
+  expect(container.textContent).toContain('Stop history cannot safely hold this request.')
+  act(() => button('History').click()); await settle()
+  expect(container.textContent).toContain('Reviewed · Stop unconfirmed')
+})
+
+it('shows project-wide full stop history even without a trigger file or retained row', async () => {
+  mount({ projectTriggers: vi.fn(async () => triggerProjectView({ exists: false, triggers: [] })), triggerStopHistory: vi.fn(async () => ({ stopHistoryFull: true, retainedStopTriggers: [] })) })
+  await settle()
+  expect(container.textContent).toContain('Stop history cannot safely hold this request. Stop the work directly before taking further action.')
+  expect(container.textContent).not.toContain('Re-evaluate')
+})
+
+
+it('reads retained stop history independently when trigger configuration fails', async () => {
+  const stop = unconfirmedStop()
+  const triggerStopHistory = vi.fn(async () => ({ stopHistoryFull: true, retainedStopTriggers: [{ id: 'ask-dex', stopHistoryFull: true, unconfirmedStops: [stop] }] }))
+  const triggerDecisions = vi.fn(async () => triggerDecisionsPage({ decisions: [], threads: [], unconfirmedStops: [stop] }))
+  const reviewTriggerStop = vi.fn(async () => ({ ...stop, state: 'reviewed' as const }))
+  mount({ projectTriggers: vi.fn(async () => { throw new Error('Configuration unavailable') }), triggerStopHistory, triggerDecisions, reviewTriggerStop })
+  await settle()
+  expect(container.textContent).toContain('Configuration unavailable')
+  expect(container.textContent).toContain('Stop unconfirmed')
+  expect(container.textContent).toContain('Stop history cannot safely hold this request.')
+  act(() => button('Mark reviewed').click()); await settle()
+  expect(reviewTriggerStop).toHaveBeenCalledWith(ROOT, 'ask-dex', stop.id)
+  expect(triggerStopHistory).toHaveBeenCalledTimes(2)
+})
+
+it('does not duplicate retained warnings for a visible current mention trigger', async () => {
+  const stop = unconfirmedStop()
+  mount({ projectTriggers: vi.fn(async () => mentionView()), triggerStopHistory: vi.fn(async () => ({ retainedStopTriggers: [{ id: 'ask-dex', stopHistoryFull: false, unconfirmedStops: [stop] }] })), triggerDecisions: vi.fn(async () => triggerDecisionsPage({ decisions: [], threads: [], unconfirmedStops: [stop] })) })
+  await settle()
+  expect([...container.querySelectorAll('button')].filter(one => one.textContent?.trim() === 'Mark reviewed')).toHaveLength(1)
+})
+
+it('keeps the independent warning when the visible mention history read fails', async () => {
+  const stop = unconfirmedStop()
+  mount({ projectTriggers: vi.fn(async () => mentionView()), triggerStopHistory: vi.fn(async () => ({ retainedStopTriggers: [{ id: 'ask-dex', stopHistoryFull: false, unconfirmedStops: [stop] }] })), triggerDecisions: vi.fn(async () => { throw new Error('History unavailable') }) })
+  await settle()
+  expect(container.textContent).toContain('Stop unconfirmed')
+  expect(button('Mark reviewed')).toBeTruthy()
+})
+
+it('does not show a delayed stop-history reply from the previously selected project', async () => {
+  let finish!: (value: { stopHistoryFull: boolean }) => void
+  const oldRead = new Promise<{ stopHistoryFull: boolean }>(resolve => { finish = resolve })
+  const triggerStopHistory = vi.fn((path: string) => path === ROOT ? oldRead : Promise.resolve({ stopHistoryFull: false }))
+  const snapshot = { ...emptySnapshot(), status: 'open', home: '/home/dev' } as AppSnapshot
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, projectTriggers: vi.fn(async () => triggerProjectView({ exists: false, triggers: [] })), triggerStopHistory } as unknown as AppStore
+  await act(async () => { root.render(<StoreProvider store={store}><ProjectTriggers root={ROOT} /></StoreProvider>) })
+  await act(async () => { root.render(<StoreProvider store={store}><ProjectTriggers root="/home/dev/code/other" /></StoreProvider>) })
+  await act(async () => { finish({ stopHistoryFull: true }) })
+  expect(container.textContent).not.toContain('Stop history cannot safely hold this request.')
+  expect(triggerStopHistory).toHaveBeenCalledWith('/home/dev/code/other')
+})
+
+it('shows the Host stop summary with its check-work sentence exactly once', async () => {
+  const summary = '1 queued cancelled; 1 runs marked stopped; 1 interrupt requests issued; 0 Lead runs marked stopped; Lead plan not confirmed stopped. Check the work before taking further action.'
+  const stop = { ...unconfirmedStop(), summary }
+  mount({ projectTriggers: vi.fn(async () => mentionView()), triggerDecisions: vi.fn(async () => triggerDecisionsPage({ decisions: [], threads: [], unconfirmedStops: [stop] })) })
+  await settle()
+  const row = [...container.querySelectorAll('[data-slot="list-row"]')].find(item => item.textContent?.includes('Stop unconfirmed'))
+  expect(row).toBeTruthy()
+  expect((row?.textContent ?? '').split('Check the work before taking further action.')).toHaveLength(2)
 })

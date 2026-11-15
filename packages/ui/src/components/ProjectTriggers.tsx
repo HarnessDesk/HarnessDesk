@@ -1,14 +1,14 @@
 import { useDestinationActive } from '../panels/destination-page'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
-import type { FlowEntry, TriggerFiring, TriggerHistoryPage, TriggerView } from '@harnessdesk/protocol'
+import type { FlowEntry, TriggerFiring, TriggerHistoryPage, TriggerDecisionsPage, TriggerProjectView, TriggerView } from '@harnessdesk/protocol'
 
 import { Button, Chip, Dialog, EmptyState, Field, ListRow, ListRows, NativeSelect, Note, Row, Rows, Section, Switch, ToolBodyControls } from '../design'
 import { triggerProblemPlace, triggerRowWords, triggerSkipWords } from '../lib/intake'
 import { shortPath } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
 import { ClockIcon } from './Icons'
-import { MentionDecisionRows, useMentionTriage } from './MentionDecisions'
+import { MentionDecisionRows, MentionStopAttention, useMentionTriage } from './MentionDecisions'
 import { TriggerArm } from './TriggerArm'
 import { TriggerCreate } from './TriggerCreate'
 import { useLeadLabel } from './use-lead-name'
@@ -49,6 +49,17 @@ export const ProjectTriggers = ({ root, flow, embedded = false }: ProjectTrigger
   const [chosenFlow, setChosenFlow] = useState<string>('')
   const [creating, setCreating] = useState<{ readonly flow: string } | null>(null)
 
+  const [stopRead, setStopRead] = useState<{ root: string; view: Pick<TriggerProjectView, 'retainedStopTriggers' | 'stopHistoryFull'> } | { root: string; problem: string } | null>(null)
+  const [mentionPages, setMentionPages] = useState<ReadonlyMap<string, TriggerDecisionsPage>>(new Map())
+  const rememberMention = useCallback((key: string, page: TriggerDecisionsPage | null): void => {
+    setMentionPages(current => {
+      if ((current.get(key) ?? null) === page) return current
+      const next = new Map(current)
+      if (page) next.set(key, page); else next.delete(key)
+      return next
+    })
+  }, [])
+  const stopGeneration = useRef(0)
   const generation = useRef(0)
   const activeRead = useRef(destinationActive)
   activeRead.current = destinationActive
@@ -64,6 +75,20 @@ export const ProjectTriggers = ({ root, flow, embedded = false }: ProjectTrigger
       (error: unknown) => { if (activeRead.current && generation.current === epoch) setRead({ root, problem: error instanceof Error ? error.message : String(error) }) },
     )
   }, [store, root])
+
+  const loadStopHistory = useCallback((): void => {
+    if (!activeRead.current) return
+    const epoch = ++stopGeneration.current
+    store.triggerStopHistory(root).then(
+      view => { if (activeRead.current && stopGeneration.current === epoch) setStopRead({ root, view }) },
+      () => { if (activeRead.current && stopGeneration.current === epoch) setStopRead({ root, problem: 'Stop history could not be read.' }) },
+    )
+  }, [store, root])
+  useEffect(() => {
+    if (!destinationActive) return
+    loadStopHistory()
+    return () => { stopGeneration.current++ }
+  }, [destinationActive, loadStopHistory, revision])
 
   useEffect(() => { if (!destinationActive) { setDialog(null); setChoosingFlow(false); setCreating(null) } }, [destinationActive])
 
@@ -137,11 +162,26 @@ export const ProjectTriggers = ({ root, flow, embedded = false }: ProjectTrigger
     }
   }
 
-  if (!read || read.root !== root) return null
+  const listedMentions = new Set<string>()
+  if (stopRead?.root === root && 'view' in stopRead && read?.root === root && 'view' in read && read.view.exists) {
+    for (const item of stopRead.view.retainedStopTriggers ?? []) {
+      const trigger = read.view.triggers.find(one => one.id === item.id && one.definition?.on.kind === 'mention' && (!flow || ('flow' in one.definition.opens && one.definition.opens.flow === flow)))
+      const page = mentionPages.get(`${root}\u0000${item.id}`)
+      if (trigger && page && (!item.stopHistoryFull || page.stopHistoryFull) && item.unconfirmedStops.every(stop => page.unconfirmedStops?.some(current => current.id === stop.id && current.state === stop.state))) listedMentions.add(item.id)
+    }
+  }
+  const retained = stopRead?.root === root && 'view' in stopRead
+    ? <RetainedStops root={root} view={stopRead.view} excluded={listedMentions} onReviewed={loadStopHistory} />
+    : stopRead?.root === root && 'problem' in stopRead
+      ? <ListRows><ListRow density="compact" title={stopRead.problem} wrapTitle /></ListRows>
+      : null
+
+  if (!read || read.root !== root) return retained ? <TriggerSection embedded={embedded}>{retained}</TriggerSection> : null
 
   if ('problem' in read) {
     return (
       <TriggerSection embedded={embedded}>
+        {retained}
         <Rows>
           <Row title="Its triggers could not be read" desc={read.problem} />
         </Rows>
@@ -156,6 +196,7 @@ export const ProjectTriggers = ({ root, flow, embedded = false }: ProjectTrigger
   if (!view.exists) {
     return (
       <TriggerSection embedded={embedded} action={<Button size="sm" variant="outline" onClick={openChooser}>New trigger…</Button>}>
+        {retained}
         <Rows>
           <EmptyState
             variant="row"
@@ -199,6 +240,7 @@ export const ProjectTriggers = ({ root, flow, embedded = false }: ProjectTrigger
           Your working copy of this file is not what is committed. Only the committed file can be armed.
         </Note>
       )}
+      {retained}
       <ListRows>
         {view.problems.map((problem) => (
           <ListRow
@@ -215,6 +257,8 @@ export const ProjectTriggers = ({ root, flow, embedded = false }: ProjectTrigger
             key={trigger.id}
             trigger={trigger}
             root={root}
+            onStopReviewed={loadStopHistory}
+            onMentionPage={rememberMention}
             busy={pending.has(trigger.id)}
             rowProblem={rowProblem?.id === trigger.id ? rowProblem.message : null}
             expanded={expanded.has(trigger.id)}
@@ -319,8 +363,28 @@ const FlowChooser = ({
   )
 }
 
+/** Stop records remain reviewable when their source definition no longer exists. */
+const RetainedStops = ({ root, view, excluded, onReviewed }: { readonly root: string; readonly view: Pick<TriggerProjectView, 'retainedStopTriggers' | 'stopHistoryFull'>; readonly excluded: ReadonlySet<string>; readonly onReviewed: () => void }) => {
+  if (!view.stopHistoryFull && !view.retainedStopTriggers?.length) return null
+  return <ListRows>
+    {view.stopHistoryFull && <ListRow density="compact" title="Stop history cannot safely hold this request. Stop the work directly before taking further action." wrapTitle />}
+    {view.retainedStopTriggers?.filter(item => !excluded.has(item.id)).map(item => <RetainedStopGroup key={item.id} root={root} item={item} projectFull={view.stopHistoryFull === true} onReviewed={onReviewed} />)}
+  </ListRows>
+}
+
+const RetainedStopGroup = ({ root, item, projectFull, onReviewed }: { readonly root: string; readonly item: NonNullable<TriggerProjectView['retainedStopTriggers']>[number]; readonly projectFull: boolean; readonly onReviewed: () => void }) => {
+  const [expanded, setExpanded] = useState(false)
+  const revision = useSnapshot().triggerRevisions[root]
+  const triage = useMentionTriage(root, item.id, true, revision, { mode: 'observe', decisions: [], threads: [], unconfirmedStops: item.unconfirmedStops, stopHistoryFull: !projectFull && item.stopHistoryFull }, onReviewed)
+  return <>
+    <ListRow density="compact" title={`${item.id} · Retained stop history`} trail={<Button variant="ghost" size="icon-sm" onClick={() => setExpanded(value => !value)} aria-label="History" title="History" aria-expanded={expanded}><ClockIcon size={14} /></Button>} />
+    <MentionStopAttention triage={triage} expanded={expanded} />
+    {expanded && <MentionDecisionRows triage={triage} stopsOnly />}
+  </>
+}
+
 const TriggerRowGroup = ({
-  trigger, root, busy, rowProblem, expanded, onToggleHistory, onSwitch, onRearm, onWatchFromNow,
+  trigger, root, busy, rowProblem, expanded, onToggleHistory, onStopReviewed, onMentionPage, onSwitch, onRearm, onWatchFromNow,
 }: {
   readonly trigger: TriggerView
   readonly root: string
@@ -328,6 +392,8 @@ const TriggerRowGroup = ({
   readonly rowProblem: string | null
   readonly expanded: boolean
   readonly onToggleHistory: () => void
+  readonly onStopReviewed: () => void
+  readonly onMentionPage: (key: string, page: TriggerDecisionsPage | null) => void
   readonly onSwitch: (checked: boolean) => void
   readonly onRearm: () => void
   readonly onWatchFromNow: () => void
@@ -345,9 +411,13 @@ const TriggerRowGroup = ({
   const stale = trigger.state === 'changed' || trigger.state === 'refused'
   const gap = trigger.source?.state === 'gap' ? trigger.source : null
   // A mention trigger records what it would do until this machine switches it to act.
-  const mention = trigger.definition?.on.kind === 'mention' && trigger.armed
+  const isMention = trigger.definition?.on.kind === 'mention'
+  const mention = isMention && trigger.armed
   const revision = useSnapshot().triggerRevisions[root]
-  const triage = useMentionTriage(root, trigger.id, mention, revision)
+  const triage = useMentionTriage(root, trigger.id, isMention, revision, undefined, onStopReviewed)
+  const mentionKey = `${root}\u0000${trigger.id}`
+  useEffect(() => { onMentionPage(mentionKey, isMention ? triage.page : null) }, [onMentionPage, mentionKey, isMention, triage.page])
+  useEffect(() => () => onMentionPage(mentionKey, null), [onMentionPage, mentionKey])
   const observing = mention && triage.page?.mode === 'observe'
   const stateChip = trigger.state === 'changed' ? <Chip tone="warning">Changed</Chip>
     : trigger.state === 'refused' ? <Chip tone="danger">Refused</Chip>
@@ -404,7 +474,8 @@ const TriggerRowGroup = ({
           )}
         />
       )}
-      {expanded && mention && <MentionDecisionRows triage={triage} />}
+      {isMention && <MentionStopAttention triage={triage} expanded={expanded} />}
+      {expanded && isMention && <MentionDecisionRows triage={triage} stopsOnly={!mention} />}
       {expanded && <TriggerHistory root={root} id={trigger.id} />}
     </>
   )

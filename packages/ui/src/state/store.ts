@@ -109,6 +109,7 @@ import {
   type TriggerArmPreview,
   type TriggerDecision,
   type TriggerDecisionsPage,
+  type TriggerUnconfirmedStop,
   type TriggerGoalStatus,
   type TriggerMode,
   type TriggerHistoryPage,
@@ -580,6 +581,16 @@ export class AppStore {
   /** Judge one decision's comment again, as it reads now; an accept in act mode opens work at most once. */
   reevaluateTriggerDecision(root: string, id: string, decision: string): Promise<TriggerDecision> {
     return this.transport.request('trigger/decision/reevaluate', { root, id, decision })
+  }
+
+  /** Read locally retained stop history independently of trigger configuration. */
+  triggerStopHistory(root: string): Promise<Pick<TriggerProjectView, 'retainedStopTriggers' | 'stopHistoryFull'>> {
+    return this.transport.request('trigger/stop-unconfirmed/list', { root })
+  }
+
+  /** Acknowledge uncertainty without retrying or claiming a stop succeeded. */
+  reviewTriggerStop(root: string, id: string, stop: string): Promise<TriggerUnconfirmedStop> {
+    return this.transport.request('trigger/stop-unconfirmed/review', { root, id, stop })
   }
 
   /** Switch a mention trigger between recording what it would do and acting on it. */
