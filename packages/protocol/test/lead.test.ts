@@ -704,3 +704,11 @@ test('Lead window manual stop capability normalizes optional input and validates
   assert.equal(protocol.parseLeadWindowProjection({ ...old, canStop: null }).canStop, undefined)
   for (const canStop of [0, 'true', {}, []]) assert.throws(() => protocol.parseLeadWindowProjection({ ...old, canStop }))
 })
+
+test('Lead recorded-step readiness is optional for older hosts and validates booleans', () => {
+  const old = { version: 1, revision: 2, thread, settings, requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null }
+  assert.equal(protocol.parseLeadWindowProjection(old).recordedStepInFlight, undefined)
+  assert.equal(protocol.parseLeadWindowProjection({ ...old, recordedStepInFlight: true }).recordedStepInFlight, true)
+  assert.equal(protocol.parseLeadWindowProjection({ ...old, recordedStepInFlight: false }).recordedStepInFlight, false)
+  for (const value of [0, 'true', {}, []]) assert.throws(() => protocol.parseLeadWindowProjection({ ...old, recordedStepInFlight: value }))
+})
