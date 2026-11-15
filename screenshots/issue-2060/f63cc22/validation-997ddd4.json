@@ -1,0 +1,18 @@
+{
+  "featureHead": "997ddd4ae2a1d2d165315bec9a82bd8e91807155",
+  "validationBase": "9939dbf6a1f36d902c50ffbe82be78c8b8a53439",
+  "originalFrameSource": "f63cc22f9c9d41e0365ffde46929cdee1f006e4c",
+  "scope": "The original split disk-recovery and synthetic Electron checkpoint-view frames remain unchanged. No new app launch is claimed.",
+  "checkpointComponentSha256": "484804a29c049051bcddfaa97f43d5f8ec1e0ba0cbf497e6608562bdbf7b28ef",
+  "componentByteIdenticalToFrameSource": true,
+  "recoveredNoticeAndVisibleCheckpointIdentical": true,
+  "originalFullFixtureSha256": "2c0fc8694b433b475a0da25810b5a67bb0225d8a67958839ff3b79b0f5091bc8",
+  "repairedFullFixtureSha256": "a15f9cb1c1bf6e07a255810266e2859b7770b0d8734f4b3773debe7f4f27861e",
+  "fixtureDifference": "Full fixtures differ because the repaired test exercises later conversation operations; equality is limited to the selected notice and visible checkpoint.",
+  "validation": {
+    "nodeVersion": "22.23.4",
+    "affectedFile": {"passed":69,"failed":0,"skipped":0},
+    "linuxNormal": {"passed":true,"seconds":423.502,"serverTestsPassed":7247,"serverTestsSkipped":4,"retentionPassed":67,"retentionSkipped":0},
+    "localPlannerSkipped": ["CLI", "Node end-to-end", "browser", "native smoke", "unrelated script checks"]
+  }
+}
