@@ -11477,7 +11477,7 @@ export class Host {
     // any interval.
     if (event.type === 'turn/completed') {
       this.#loadouts.turnCompleted(runtime, event.sessionId)
-      void this.#usageService.refresh(runtime).catch(() => undefined)
+      this.#usageService.invalidate(runtime)
     }
     const bodyEvent = event.type === 'session/started' || event.type.startsWith('turn/') || event.type.startsWith('item/') || event.type === 'notice' || event.type === 'error'
     if (record?.transcriptIncomplete && bodyEvent) this.#invalidateTranscriptCache(record)

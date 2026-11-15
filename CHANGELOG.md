@@ -7,8 +7,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
-- **Keep remembered notes whole.** Angle brackets no longer consume extra space in a note’s character limit, and older saved memories remain available after an upgrade.
-- **Recognize a direct reminder.** The Lead now checks “Hey Dex remember: …” like other requests to remember, including its existing safety checks.
+- **Old quota readings no longer look current.** The account menu stops showing stale percentages as current allowance and labels the last known figures with their age. Usage refreshes through an existing agent process when supported, without starting a conversation; repeated requests share a read and failures back off. An independent account reads its own cache, and a previous login's cache cannot supply its allowance.
 
 - **Keep steered replies readable after reopening.** Matching prose replayed in separate turns no longer repeats messages from the saved conversation. If the histories cannot be matched safely, the saved copy stays protected with its history warning.
 
@@ -19,6 +18,9 @@ move is real work and is not news to a person weighing an upgrade.
 - **Settings follows the work.** Preferences, Agents, Conversations and Access group the pages in that order, with Lead under Agents and Mobile first in Access. Existing links still arrive, and every navigation glyph shares the app's hover motion, respecting reduced motion.
 
 - **The Lead names the task it is doing.** Setting or canceling a reminder no longer leaves the previous task on its activity line. An action without its own label shows Working.
+
+- **Keep remembered notes whole.** Angle brackets no longer consume extra space in a note’s character limit, and older saved memories remain available after an upgrade.
+- **Recognize a direct reminder.** The Lead now checks “Hey Dex remember: …” like other requests to remember, including its existing safety checks.
 
 - **Keep earlier answered messages in order.** Earlier answered reminders and follow-up messages stay in order when a step’s saved record is missing.
 

@@ -10,7 +10,7 @@ import { sidebarPlacement } from '../state/workbench'
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 
 import { SidebarNotices, useAccountQuotaWarning, useInboxMessages } from './Notices'
-import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
+import { usageIsFresh, type Account, type RuntimeId, type RuntimeInfo, type UsageReport } from '@harnessdesk/protocol'
 import { useActiveSession, useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
 import type { AppStore } from '../state/store'
 import { AgentIcon, BranchIcon, CaretIcon, CrossIcon, FolderOpenIcon, PlusIcon, SearchIcon, SettingsIcon, SignInIcon, SignOutIcon, TeamIcon, UsageIcon, UserIcon } from './Icons'
@@ -638,8 +638,19 @@ export const AccountFooter = ({
 
 /** Usage has its own level; roster growth never adds rows to the root menu. */
 const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime?: RuntimeId) => void; onSignIn: (runtime: RuntimeId) => void }) => {
+  const store = useStore()
   const snapshot = useSnapshot()
+  const [usageOpen, setUsageOpen] = useState(false)
   const [now, setNow] = useState(Date.now)
+  useEffect(() => setNow(Date.now()), [snapshot.usage])
+  useEffect(() => {
+    if (!usageOpen) return
+    const read = () => { if (document.visibilityState !== 'hidden') void store.loadUsage() }
+    read()
+    const timer = window.setInterval(read, 60_000)
+    window.addEventListener('focus', read)
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', read) }
+  }, [usageOpen, store])
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 60_000); return () => window.clearInterval(timer) }, [])
   const view = describeStrip({ runtimes: snapshot.runtimes, usage: snapshot.usage, accountsByRuntime: snapshot.accountsByRuntime,
     accountPrefs: snapshot.accountPrefs, health: snapshot.health, activeRuntime: snapshot.activeRuntime, sessionRuntime: null, now,
@@ -658,7 +669,7 @@ const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime?: RuntimeId) => 
     const collision = others.some(other => other !== meter && other.name === meter.name && shortAccountName(other) === short)
     return collision ? meter.account ?? short : short
   }
-  return <Submenu icon={<UsageIcon size={16} />} label="Usage" icons="all"
+  return <Submenu icon={<UsageIcon size={16} />} label="Usage" icons="all" onOpenChange={setUsageOpen}
     value={current ? <Text role="muted" tone={usageReadingTone(current.tone)} numeric>{current.figure.endsWith('%') ? `${current.figure} left` : current.figure}</Text> : undefined}>
     {current ? <SeatUsageFacts meter={current} now={now} account={current.report.account && shownAccountLabel(current.runtime, current.report.account, snapshot)} /> : <MenuNote>No usage reported for this account.</MenuNote>}
     {view.anchor?.kind === 'signIn' && <MenuItem icon={<RuntimeMark runtime={view.anchor.info} size={16} />}
@@ -681,8 +692,9 @@ const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime?: RuntimeId) => 
 }
 
 const SeatUsageFacts = ({ meter, now, account }: { meter: StripMeter; now: number; account: string | null }) => <div data-usage-details>
-  <MenuLabel size="compact">{meter.name}{meter.report.plan ? ` · ${meter.report.plan}` : ''}</MenuLabel>
+  <MenuLabel size="compact">{meter.name}{meter.report.planLabel ?? meter.report.plan ? ` · ${meter.report.planLabel ?? meter.report.plan}` : ''}</MenuLabel>
   {account && <MenuNote><Text as="div" role="meta" truncate title={account}>{account}</Text></MenuNote>}
+  {(!usageIsFresh(meter.report, now) || meter.report.error) && <MenuNote>{meter.report.error ? "Couldn't refresh · last known values" : 'Outdated reading · last known values'}</MenuNote>}
   <MenuFacts rows={meter.report.lanes.map(raw => {
     const lane = describeLane(raw, now, meter.report.lanes)
     return { id: lane.id, name: lane.title, percent: lane.remainingPercent,

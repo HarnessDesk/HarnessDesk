@@ -883,7 +883,7 @@ export const localUsageFor = (
   const base = ((): { meter?: UsageMeter; corpus?: CorpusKind; root?: string; remote?: RemoteEventsSource; deskTurns?: boolean } => {
   switch (named ? commandName(named) : null) {
     case 'claude':
-      return { meter: new ClaudeFileMeter(), corpus: 'claude' }
+      return { meter: new ClaudeFileMeter(join(env['CLAUDE_CONFIG_DIR']?.trim() || home, '.claude.json')), ...records('claude') }
     case 'cursor-agent':
       // Cursor keeps no local transcript (rule 3): its tokens, requests and
       // Value come from its own account-wide usage events, not a corpus. Its

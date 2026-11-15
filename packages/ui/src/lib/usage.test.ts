@@ -732,6 +732,7 @@ describe('formatting', () => {
 
   it('says just now before it says a number', () => {
     expect(formatAge(NOON - 10_000, NOON)).toBe('just now')
+    expect(formatAge(0, NOON)).toBe('read time unknown')
     expect(formatAge(NOON - 2 * MINUTE, NOON)).toBe('2m ago')
   })
 
