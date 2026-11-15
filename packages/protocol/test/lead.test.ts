@@ -695,3 +695,12 @@ test('#2183: a trigger-opened turn carries what opened it; the thread line is ma
   assert.equal(protocol.leadTriggerLine({ ...event, event: 'brand-new' } as never), 'Brand new on issue #7')
   assert.equal(protocol.leadTriggerLine({ source: 'schedule', event: 'tick', subject: '1700000000000', url: null }), 'Scheduled run')
 })
+
+test('Lead window manual stop capability normalizes optional input and validates booleans', () => {
+  const old = { version: 1, revision: 2, thread, settings, requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null }
+  assert.equal(protocol.parseLeadWindowProjection(old).canStop, undefined)
+  assert.equal(protocol.parseLeadWindowProjection({ ...old, canStop: true }).canStop, true)
+  assert.equal(protocol.parseLeadWindowProjection({ ...old, canStop: false }).canStop, false)
+  assert.equal(protocol.parseLeadWindowProjection({ ...old, canStop: null }).canStop, undefined)
+  for (const canStop of [0, 'true', {}, []]) assert.throws(() => protocol.parseLeadWindowProjection({ ...old, canStop }))
+})

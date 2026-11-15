@@ -510,6 +510,8 @@ export type LeadAction =
 export interface LeadActionInput { readonly id: string; readonly contractDigest: string; readonly choice: 'yes-once' | 'yes-goal' | 'no' | 'run' }
 /** Window projection adds the host's guarded way out; child observations grant no control. */
 export interface LeadWindowProjection extends LeadHostProjection {
+  /** This Host accepts a new person-authorized Stop for the current goal, even if its prior stop is unconfirmed. */
+  readonly canStop?: boolean
   /** Absent on older desks. */
   readonly stage?: LeadStage
   readonly stageReason?: string
@@ -1078,7 +1080,7 @@ const parseLeadAction: Validator<LeadAction> = (value, path = '') => {
     : object<Extract<LeadAction, { kind: 'check' }>>({ ...actionBase, kind: literalUnion('check'), name: text(40), command: boundedText(2000, false, proseControls) })(value, path)
 }
 export const parseLeadWindowProjection: Validator<LeadWindowProjection> = ipc(object({
-  version, revision, stage: optional(literalUnion(...LEAD_STAGES)), stageReason: optional(text(80)), thread: parseLeadThread, settings: parseLeadSettingsProjection, requestInFlight: isBoolean, activity: optional(object({ since: integer(0, Number.MAX_SAFE_INTEGER), method: nullable(text(120)), step: optional(text(80)) })), wayOut: nullable(literalUnion('resume', 'decide-plan')),
+  version, revision, canStop: optional(isBoolean), stage: optional(literalUnion(...LEAD_STAGES)), stageReason: optional(text(80)), thread: parseLeadThread, settings: parseLeadSettingsProjection, requestInFlight: isBoolean, activity: optional(object({ since: integer(0, Number.MAX_SAFE_INTEGER), method: nullable(text(120)), step: optional(text(80)) })), wayOut: nullable(literalUnion('resume', 'decide-plan')),
   waitReason: nullable(literalUnion(...LEAD_MANAGEMENT_REASONS)), failure: optional(object<LeadRequestFailure>({ reason: literalUnion(...LEAD_REQUEST_FAILURES), detail: text(400) })), planConsentExpiresAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)), progress: optional(parseLeadProgress), team: optional(id),
   savedApprovals: optional(list(object<LeadSavedApproval>({ id, target: text(240), count: integer(), uncertain: optional((value, path) => value === true ? true : fail(path ?? '', 'expected true')), entries: optional(parseLeadApprovalEntries) }), 128, 0, rule => rule.id)),
   revokedApprovals: optional(list(object<LeadSavedApproval>({ id, target: text(240), count: integer(), uncertain: optional((value, path) => value === true ? true : fail(path ?? '', 'expected true')), entries: optional(parseLeadApprovalEntries) }), 128, 0, rule => rule.id)),

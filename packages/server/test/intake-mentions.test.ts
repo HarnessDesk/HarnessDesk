@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
@@ -17,6 +18,7 @@ import { addressesHandle, asksToStop, parseAssessment, MentionTriage, type Menti
 import { PHONE_POLICY } from '../src/phone-link.js'
 import { LeadAutomaticGoals } from '../src/lead/automatic-goals.js'
 import { Admission } from '../src/intake/admission.js'
+import { TriggerClosures } from '../src/intake/consent.js'
 
 /*
  * A comment that addresses the desk's handle asks it for work (owner
@@ -344,8 +346,10 @@ test('"@dex stop" from someone allowed stops the thread’s work and closes it, 
   await say(d, 1, '@dex please fix the flaky test')
   await say(d, 1, '@dex stop')
   const page = await decisions(d)
-  const stop = page.decisions.find((one) => one.decision === 'stop')
-  assert.deepEqual([stop?.by, stop?.acted], ['rules', true])
+  const stop = page.unconfirmedStops?.[0]
+  assert.equal(stop?.state, 'unconfirmed')
+  assert.equal(stop?.progress.runsMarkedStopped, 1)
+  assert.equal(page.decisions.some(one => one.decision === 'stop'), false)
   assert.deepEqual([page.threads[0]!.state, page.threads[0]!.closed?.reason], ['closed', 'stopped'])
   assert.equal(d.model.inputs.length, 1, 'stopping needs no assessment')
 })
@@ -425,8 +429,9 @@ test('"@dex stop" stops the running work through the host, and says so; with not
   assert.ok(flowRuns(d, first!.goal!).some((run) => run.state !== 'stopped'), 'the work is running')
   await say(d, 1, '@dex stop')
   let page = await decisions(d)
-  const stop = page.decisions.find((one) => one.decision === 'stop')!
-  assert.match(stop.reason, /1 run of its work was stopped/)
+  const stop = page.unconfirmedStops?.[0]
+  assert.equal(stop?.state, 'unconfirmed')
+  assert.equal(stop?.progress.runsMarkedStopped, 1)
   assert.ok(flowRuns(d, first!.goal!).every((run) => run.state === 'stopped'))
   assert.deepEqual([page.threads[0]!.state, page.threads[0]!.closed?.reason], ['closed', 'stopped'])
 
@@ -435,8 +440,9 @@ test('"@dex stop" stops the running work through the host, and says so; with not
   for (const run of flowRuns(d, second.goal!)) await d.host.call('flow/execution/stop', { run: run.id, reason: 'Done by hand.' })
   await say(d, 2, '@dex stop')
   page = await decisions(d)
-  const idle = page.decisions.find((one) => one.decision === 'stop' && one.thread.number === 2)!
-  assert.match(idle.reason, /nothing of its work was running, so nothing was stopped/)
+  const idle = page.unconfirmedStops?.find(one => one.thread.number === 2)
+  assert.equal(idle?.state, 'unconfirmed')
+  assert.equal(idle?.progress.runsMarkedStopped, 0)
   const thread = page.threads.find((one) => one.origin.number === 2)!
   assert.deepEqual([thread.state, thread.closed?.reason], ['closed', 'closed'], 'never recorded as stopped when nothing stopped')
 })
@@ -461,6 +467,8 @@ test('a thread with no pull request closes when its issue closes', E2E, async (t
   d.clocks.advance(10 * 60_000)
   await d.host.intakePlane.tick()
   assert.equal((await decisions(d)).threads[0]!.state, 'open', 'an open issue keeps it open')
+  const goal = (await history(d)).items[0]!.goal!
+  for (const run of flowRuns(d, goal)) await d.host.call('flow/execution/stop', { run: run.id, reason: 'Work finished.' })
   d.forge.issues.find((one) => one.number === 1)!.state = 'closed'
   d.clocks.advance(10 * 60_000)
   await d.host.intakePlane.tick()
@@ -550,7 +558,7 @@ test('a mentions file the desk cannot read is kept as it is, and comments wait u
 // ------------------------------------------------------------ one thread of work
 
 /** The Lead on this desk, journaled in memory: its work ledger is the host's own. No child, model or vendor traffic. */
-const leadOn = async (t: TestContext, d: IntakeDesk): Promise<{ readonly journal: LeadJournal; readonly records: LeadJournalRecord[] }> => {
+const leadOn = async (t: TestContext, d: IntakeDesk, hold?: { resolve(policy: string): void; authorizeStop(): void; requestStop(): void }): Promise<{ readonly journal: LeadJournal; readonly records: LeadJournalRecord[] }> => {
   const records: LeadJournalRecord[] = []
   const journal = await createLeadJournal({ read: async () => [], append: async (record) => { records.push(structuredClone(record)) } })
   await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
@@ -560,7 +568,8 @@ const leadOn = async (t: TestContext, d: IntakeDesk): Promise<{ readonly journal
   const service = d.host.createLeadService({ journal, project, prices: {},
     resolveTool: async () => ({ project, runId: null, start: null, stepId: null, context: context() }),
     freezePlan: async (proposal) => proposal, readEvidence: async () => { throw new Error('unused') },
-    createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }),
+    createSupervisor: () => ({ live: !!hold, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {},
+      ...(hold ? { holdMentionExit: () => ({ ...hold, done: Promise.resolve() }) } : {}) }),
   })
   await service.setEnabled(true)
   t.after(() => service.setEnabled(false).catch(() => {}))
@@ -615,7 +624,7 @@ const LEAD_ASK = `- id: ask
 /** The Lead's goal for issue 1, from a comment through a person's approval to a running Team. */
 const leadThread = async (t: TestContext) => {
   const d = await desk(t, LEAD_ASK, { lead: true })
-  const { journal, records } = await leadOn(t, d)
+  const { journal, records } = await leadOn(t, d, { resolve() {}, authorizeStop() {}, requestStop() {} })
   await act(d)
   await say(d, 1, '@dex please fix the flaky test')
   const [thread] = (await decisions(d)).threads
@@ -659,7 +668,7 @@ test('#2070: stopping a mention drops its busy queued Lead firing without droppi
   assert.ok(!delivered.includes(`trigger-${first}`), 'no goal opens for the stopped thread')
   assert.ok(delivered.includes(`trigger-${other}`), 'another thread may still open its goal')
   assert.ok(delivered.includes(`trigger-${fresh}`), 'the new lifecycle on the same issue may open its goal')
-  assert.ok(page.decisions.some(one => one.decision === 'stop' && /queued|firing/i.test(one.reason)), 'the stop decision records the dropped firing')
+  assert.equal(page.unconfirmedStops?.[0]?.progress.queuedCancelled, 1, 'the saved receipt records the dropped firing')
   const saved = d.host.intakePlane.journal.read().firings[first]!
   assert.equal(saved.setAside, true, 'the original firing identity is retained as a tombstone')
   assert.match(saved.attention ?? '', /queued firing was dropped/)
@@ -680,10 +689,10 @@ test('#2070: a stop waits for an in-flight delivery before stopping the thread',
     deliveries++
     return { delivered: true as const }
   })
-  const cancel = Admission.prototype.cancelMentionFirings
-  t.mock.method(Admission.prototype, 'cancelMentionFirings', function (this: Admission, ...args: Parameters<Admission['cancelMentionFirings']>) {
+  const close = Admission.prototype.closeMentionThread
+  t.mock.method(Admission.prototype, 'closeMentionThread', function (this: Admission, ...args: Parameters<Admission['closeMentionThread']>) {
     stopping.open()
-    return cancel.apply(this, args)
+    return close.apply(this, args)
   })
   await act(d)
   await say(d, 1, '@dex please fix the flaky test')
@@ -1096,7 +1105,7 @@ test('#2070 R1: a historical thread with no pending firing keeps its existing fo
     resumes: 0, observations: 0, openedAt: 0, firings: [key], seen: [], workItem: 'work-fixture' }
   await writeFile(join(home, LEDGER), JSON.stringify({ version: 1, decisions: [], threads: [thread], modes: {}, assessed: { day: '', count: 0 } }))
   const triage = new MentionTriage({ home, forge: { thread: async () => ({ number: 1, pull: false, state: 'closed', labels: [], title: 'Fixture' }) },
-    assess: null, leadName: () => 'dex', pendingFirings: () => [], knowsFirings: () => false,
+    assess: null, leadName: () => 'dex', pendingFirings: () => [], knowsFirings: () => false, activeWork: () => false,
     observationWindowMs: 300_000, pullRequests: async () => [], closeThread: (close: () => Promise<void>) => close(),
     now: () => 1000, signal: new AbortController().signal, changed() {}, log() {},
   } as any)
@@ -1182,24 +1191,26 @@ test('an accepted mention is one work item: the thread it came from, and the wor
   assert.deepEqual(after.items.map((one) => one.id), [item!.id])
 })
 
-test('"@dex stop" stops the Lead’s goal the thread opened as the person’s Stop does, and says what it stopped', E2E, async (t) => {
+test('"@dex stop" records the Lead plan and leaves an unproven run untouched', E2E, async (t) => {
   const { d, journal, records, run } = await leadThread(t)
 
   await say(d, 1, '@dex stop')
   const page = await decisions(d)
-  const stop = page.decisions.find((one) => one.decision === 'stop')!
-  assert.match(stop.reason, /1 run the Lead started for it and the Lead’s plan for it were stopped, and the thread is closed\./)
-  assert.equal(d.host.flowsPlane.executionOf(run)?.state, 'stopped', 'the Lead’s run is stopped through the host')
+  const stop = page.unconfirmedStops?.[0]
+  assert.equal(stop?.state, 'unconfirmed')
+  assert.equal(stop?.progress.leadPlanStopped, true)
+  assert.equal(stop?.progress.leadRunsMarkedStopped, 0, 'the fake Lead view is not stored ownership')
+  assert.notEqual(d.host.flowsPlane.executionOf(run)?.state, 'stopped', 'a person-started run is not stopped from a fake ownership view')
   assert.equal(journal.state.phase, 'stopped', 'the plan is stopped, so the Lead starts nothing more for it')
-  const stops = records.filter((one) => one.type === 'stop')
+  const stops = records.filter((one) => one.type === 'mention-stop-once')
   assert.equal(stops.length, 1, 'one stop, journaled')
-  assert.deepEqual((stops[0] as { from?: unknown }).from, { kind: 'mention', comment: stop.comment.url }, 'as a stop from the comment that asked')
+  assert.deepEqual((stops[0] as { from?: unknown }).from, { kind: 'mention', comment: stop?.url }, 'as a stop from the comment that asked')
   assert.deepEqual([page.threads[0]!.state, page.threads[0]!.closed?.reason], ['closed', 'stopped'])
 })
 
 test('"@dex stop" before the Lead’s plan is approved stops the plan, so it never starts', E2E, async (t) => {
   const d = await desk(t, LEAD_ASK, { lead: true })
-  const { journal } = await leadOn(t, d)
+  const { journal } = await leadOn(t, d, { resolve() {}, authorizeStop() {}, requestStop() {} })
   await act(d)
   await say(d, 1, '@dex please fix the flaky test')
   // The Lead is drafting the plan this thread's firing asked for; nothing of it runs yet.
@@ -1207,8 +1218,9 @@ test('"@dex stop" before the Lead’s plan is approved stops the plan, so it nev
 
   await say(d, 1, '@dex stop')
   const page = await decisions(d)
-  const stop = page.decisions.find((one) => one.decision === 'stop')!
-  assert.match(stop.reason, /the Lead’s plan for it was stopped, and the thread is closed\./)
+  const stop = page.unconfirmedStops?.[0]
+  assert.equal(stop?.state, 'unconfirmed')
+  assert.equal(stop?.progress.leadPlanStopped, true)
   assert.equal(journal.state.phase, 'stopped')
   assert.deepEqual([page.threads[0]!.state, page.threads[0]!.closed?.reason], ['closed', 'stopped'])
 })
@@ -1225,8 +1237,9 @@ test('"@dex stop" never stops a run a person started, even on a Team the Lead st
   assert.equal(person.goal, team, 'the person’s run is on the Lead’s Team')
 
   await say(d, 1, '@dex stop')
-  const stop = (await decisions(d)).decisions.find((one) => one.decision === 'stop')!
-  assert.match(stop.reason, /nothing of its work was running, so nothing was stopped; the thread is closed\./, 'nothing of the Lead’s was going, and the person’s run is not its')
+  const stop = (await decisions(d)).unconfirmedStops?.[0]
+  assert.equal(stop?.state, 'unconfirmed')
+  assert.equal(stop?.progress.leadRunsMarkedStopped, 0, 'the person’s run is not the Lead’s')
   assert.notEqual(d.host.flowsPlane.executionOf(person.id)?.state, 'stopped', 'the person’s run goes on')
 })
 
@@ -1260,8 +1273,9 @@ test('a stop on one trigger’s thread leaves another trigger’s work on the sa
 
   await say(d, 1, '@triager stop')
   const page = await d.host.call('trigger/decisions', { root: d.repo.dir, id: 'triage' }) as TriggerDecisionsPage
-  const stop = page.decisions.find((one) => one.decision === 'stop')!
-  assert.match(stop.reason, /1 run of its work was stopped, and the thread is closed\.$/)
+  const stop = page.unconfirmedStops?.[0]
+  assert.equal(stop?.state, 'unconfirmed')
+  assert.equal(stop?.progress.runsMarkedStopped, 1)
   assert.ok(flowRuns(d, triage).every((one) => one.state === 'stopped'), 'its own work is stopped')
   assert.ok(flowRuns(d, fix).some((one) => one.state !== 'stopped'), 'the other trigger’s work goes on')
 })
@@ -1282,4 +1296,418 @@ test('a thread the work ledger cannot take is said once, and tried again after a
   await d.host.intakePlane.tick()
   assert.equal(tries, 2, 'tried again once an hour has passed')
   assert.equal(warned.mock.calls.filter((call) => call.arguments[0] === 'a mention thread could not be attached to the work ledger').length, 1, 'and said once')
+})
+
+test('#2065: a closed issue keeps its thread open while its own run is active', E2E, async t => {
+  const d = await desk(t)
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const goal = (await history(d)).items[0]!.goal!
+  assert.ok(flowRuns(d, goal).some(run => run.intake && (run.state === 'running' || run.state === 'stalled')))
+  d.forge.issues.find(one => one.number === 1)!.state = 'closed'
+  d.clocks.advance(10 * 60_000)
+  await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).threads[0]!.state, 'open', 'active own work keeps the issue thread available')
+  await say(d, 1, '@dex stop')
+  assert.ok(flowRuns(d, goal).every(run => run.state === 'stopped'))
+  assert.equal((await decisions(d)).unconfirmedStops?.[0]?.state, 'unconfirmed')
+})
+
+test('#2065: reevaluation refreshes an earlier denied collaborator permission', E2E, async t => {
+  const triggers = ASK().replace('  people: [a-teammate]\n', '  from: collaborators\n')
+  const d = await desk(t, triggers)
+  await act(d)
+  await say(d, 1, '@dex please fix the build', STRANGER)
+  const [denied] = (await decisions(d)).decisions
+  assert.equal(denied!.decision, 'ignore')
+  d.forge.permissions.set(STRANGER.login, { id: STRANGER.id, permission: 'write' })
+  const checked = await d.host.call('trigger/decision/reevaluate', { root: d.repo.dir, id: 'ask', decision: denied!.id }) as TriggerDecision
+  assert.deepEqual([checked.decision, checked.acted, checked.evaluations], ['accept', true, 1])
+})
+
+test('#2065: an uncertain stop is visible separately and the comment is never attempted twice', E2E, async t => {
+  const d = await desk(t)
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  let attempts = 0
+  t.mock.method(d.host.flowsPlane, 'markMentionRun', async () => { attempts++; throw new Error('synthetic run mark failure') })
+  await say(d, 1, '@dex stop')
+  const page = await decisions(d) as TriggerDecisionsPage & { unconfirmedStops?: readonly { state: string }[] }
+  assert.equal(page.decisions.some(one => one.decision === 'stop'), false, 'uncertainty is never an ordinary stop decision')
+  assert.equal(page.unconfirmedStops?.[0]?.state, 'unconfirmed')
+  assert.equal(attempts, 1, 'the failed effect was attempted exactly once')
+  const first = attempts
+  for (let n = 0; n < 3; n++) { d.clocks.advance(60_000); await d.host.intakePlane.tick() }
+  assert.equal(attempts, first, 'polling must not repeat the stop')
+})
+
+test('#2065: an owned run mark is saved while an unproven turn remains untouched', E2E, async t => {
+  const d = await desk(t)
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const firing = (await history(d)).items[0]!
+  const run = flowRuns(d, firing.goal!)[0]!
+  const record = await until(() => d.host.registry.all().find(one => one.live && one.running.size > 0) ?? null, 'the firing has a live turn')
+  const live = record.live!, interrupt = live.interrupt.bind(live)
+  let requests = 0
+  live.interrupt = async () => { requests++; await interrupt() }
+  t.after(() => { live.interrupt = interrupt; return Promise.resolve() })
+  await say(d, 1, '@dex stop')
+  const stop = (await decisions(d)).unconfirmedStops?.[0]
+  assert.equal(stop?.state, 'unconfirmed')
+  assert.equal(stop?.progress.runsMarkedStopped, 1)
+  assert.equal(stop?.progress.interruptRequestsIssued, 0)
+  assert.equal(d.host.flowsPlane.executionOf(run.id)?.state, 'stopped')
+  assert.equal(d.host.flowsPlane.protectedMentionStop(run.id), true)
+  assert.equal(requests, 0, 'a current Seat turn without original-run ownership is not interrupted')
+  for (let n = 0; n < 3; n++) { d.clocks.advance(60_000); await d.host.intakePlane.tick() }
+  assert.equal((await decisions(d)).unconfirmedStops?.[0]?.progress.runsMarkedStopped, 1)
+  assert.equal(requests, 0, 'polling never repeats the one-shot effect')
+})
+
+test('#2065: a one-shot run mark excludes another trigger on the same issue', E2E, async t => {
+  const d = await desk(t, TWO)
+  await act(d)
+  const preview = await d.host.call('trigger/preview', { root: d.repo.dir, id: 'triage' }) as TriggerArmPreview
+  await d.host.call('trigger/arm', { root: d.repo.dir, id: 'triage', token: preview.token! })
+  await d.host.call('trigger/mode', { root: d.repo.dir, id: 'triage', mode: 'act' })
+  await say(d, 1, '@fixer please fix the flaky test')
+  await say(d, 1, '@triager please sort the failing logs')
+  const fix = (await history(d)).items[0]!.goal!
+  const other = ((await d.host.call('trigger/history', { root: d.repo.dir, id: 'triage' })) as TriggerHistoryPage).items[0]!.goal!
+  await say(d, 1, '@fixer stop')
+  assert.equal((await decisions(d)).unconfirmedStops?.[0]?.progress.runsMarkedStopped, 1)
+  assert.ok(flowRuns(d, fix).every(run => run.state === 'stopped'))
+  assert.ok(flowRuns(d, other).some(run => run.state !== 'stopped'), 'the other trigger retains its work')
+})
+
+test('#2065: a frozen queued Lead firing is cancelled once and recorded as partial progress', E2E, async t => {
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  await leadOn(t, d)
+  let deliveries = 0
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async () => {
+    deliveries++
+    return { delivered: false as const, reason: 'Synthetic busy Lead.' }
+  })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const pending = await until(() => d.host.intakePlane.journal.read().operations.find(one => !one.dispatched) ?? null, 'the Lead firing to wait')
+  await say(d, 1, '@dex stop')
+  const stop = (await decisions(d)).unconfirmedStops?.[0]
+  assert.equal(stop?.state, 'unconfirmed')
+  assert.equal(stop?.progress.queuedCancelled, 1)
+  assert.equal(d.host.intakePlane.journal.read().firings[pending.key]?.setAside, true)
+  const before = deliveries
+  for (let n = 0; n < 3; n++) { d.clocks.advance(60_000); await d.host.intakePlane.tick() }
+  assert.equal(deliveries, before, 'the cancelled firing is never delivered on polling')
+})
+
+test('#2065: failed queued cancellation stays held through review and polling', E2E, async t => {
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  await leadOn(t, d)
+  let deliveries = 0, attempts = 0
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async () => {
+    deliveries++
+    return { delivered: false as const, reason: 'Synthetic busy Lead.' }
+  })
+  t.mock.method(Admission.prototype, 'cancelMentionFiringOnce', async () => { attempts++; throw new Error('Synthetic cancellation failure') })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const pending = await until(() => d.host.intakePlane.journal.read().operations.find(one => !one.dispatched) ?? null, 'the Lead firing to wait')
+  await say(d, 1, '@dex stop')
+  const stop = (await decisions(d)).unconfirmedStops?.[0]
+  assert.equal(stop?.state, 'unconfirmed')
+  assert.equal(stop?.progress.queuedCancelled, 0)
+  assert.equal(attempts, 1)
+  await d.host.call('trigger/stop-unconfirmed/review', { root: d.repo.dir, id: 'ask', stop: stop!.id })
+  const before = deliveries
+  for (let n = 0; n < 3; n++) { d.clocks.advance(60_000); await d.host.intakePlane.tick() }
+  assert.equal(attempts, 1, 'review and polling never repeat cancellation')
+  assert.equal(deliveries, before, 'the protected firing is not delivered')
+  assert.ok(d.host.intakePlane.journal.read().operations.some(one => one.key === pending.key), 'failed cancellation remains held')
+  await d.stop()
+  const restarted = await desk(t, LEAD_ASK, { lead: true, arm: false, repo: d.repo, stateDir: d.stateDir, clocks: d.clocks, forge: d.forge })
+  await restarted.host.intakePlane.tick()
+  assert.equal((await decisions(restarted)).unconfirmedStops?.[0]?.state, 'reviewed')
+  assert.ok(restarted.host.intakePlane.journal.read().operations.some(one => one.key === pending.key), 'restart retains the protected firing')
+  assert.equal(attempts, 1, 'restart never repeats cancellation')
+  assert.equal(deliveries, before, 'restart does not deliver the protected firing')
+})
+
+test('#2065: a matching Lead marker is receipted before one shutdown request', E2E, async t => {
+  const events: string[] = []
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  const { journal } = await leadOn(t, d, { resolve: policy => { events.push(`resolve:${policy}`) },
+    authorizeStop: () => { events.push('authorize') }, requestStop: () => {
+      const disk = JSON.parse(readFileSync(join(d.stateDir, LEDGER), 'utf8'))
+      assert.equal(disk.stopIntents[0].receipts.leadPlan, true, 'the Lead marker receipt precedes shutdown')
+      events.push('shutdown')
+    } })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  await journal.setOrigin({ source: 'issue', event: 'commented', subject: 'acme/widgets#1', url: 'https://example.invalid/issue/1' }, `trigger-${await firingOf(d, 1)}`)
+  assert.ok(journal.state.originKey?.startsWith('trigger-'), 'the Lead goal belongs to the firing')
+  await say(d, 1, '@dex stop')
+  const stop = (await decisions(d)).unconfirmedStops?.[0]
+  assert.equal(stop?.state, 'unconfirmed')
+  assert.equal(stop?.progress.leadPlanStopped, true)
+  assert.equal(journal.state.mentionStopOneShot, true)
+  assert.deepEqual(events, ['resolve:one-shot', 'authorize', 'shutdown'])
+})
+
+test('#2065: a new Lead goal after the saved marker never receives the old child shutdown', E2E, async t => {
+  const events: string[] = []
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  const { journal } = await leadOn(t, d, { resolve: policy => { events.push(`resolve:${policy}`) },
+    authorizeStop: () => { events.push('authorize') }, requestStop: () => { events.push('shutdown') } })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  await journal.setOrigin({ source: 'issue', event: 'commented', subject: 'acme/widgets#1', url: 'https://example.invalid/issue/1' }, `trigger-${await firingOf(d, 1)}`)
+  const stop = journal.stopMentionOnce.bind(journal)
+  t.mock.method(journal, 'stopMentionOnce', async (...args: Parameters<typeof stop>) => {
+    const saved = await stop(...args)
+    if (saved) await journal.beginGoal('new-person-goal', Date.now())
+    return saved
+  })
+  await say(d, 1, '@dex stop')
+  assert.equal((await decisions(d)).unconfirmedStops?.[0]?.progress.leadPlanStopped, true)
+  assert.equal(journal.state.budget?.logicalGoalId, 'new-person-goal')
+  assert.deepEqual(events, ['resolve:one-shot'], 'the captured old child never receives a shutdown for the new goal')
+})
+
+test('#2065: a Lead goal replaced before the marker releases its hold without taking ownership', E2E, async t => {
+  const events: string[] = []
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  const { journal } = await leadOn(t, d, { resolve: policy => { events.push(`resolve:${policy}`) },
+    authorizeStop: () => { events.push('authorize') }, requestStop: () => { events.push('shutdown') } })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  await journal.setOrigin({ source: 'issue', event: 'commented', subject: 'acme/widgets#1', url: 'https://example.invalid/issue/1' }, `trigger-${await firingOf(d, 1)}`)
+  const mark = journal.stopMentionOnce.bind(journal)
+  t.mock.method(journal, 'stopMentionOnce', async (...args: Parameters<typeof mark>) => {
+    await journal.stop(async () => {})
+    await journal.beginGoal('new-person-goal', Date.now())
+    return mark(...args)
+  })
+  await say(d, 1, '@dex stop')
+  assert.equal((await decisions(d)).unconfirmedStops?.[0]?.progress.leadPlanStopped, false)
+  assert.equal(journal.state.budget?.logicalGoalId, 'new-person-goal')
+  assert.deepEqual(events, ['resolve:ordinary'], 'a definitive no-append leaves the new goal’s ordinary cleanup intact')
+})
+
+test('#2065: an ambiguous Lead marker does not signal or start later effects', E2E, async t => {
+  const events: string[] = []
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  const { journal } = await leadOn(t, d, { resolve: policy => { events.push(`resolve:${policy}`) },
+    authorizeStop: () => { events.push('authorize') }, requestStop: () => { events.push('shutdown') } })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  await journal.setOrigin({ source: 'issue', event: 'commented', subject: 'acme/widgets#1', url: 'https://example.invalid/issue/1' }, `trigger-${await firingOf(d, 1)}`)
+  const mark = journal.stopMentionOnce.bind(journal)
+  t.mock.method(journal, 'stopMentionOnce', async (...args: Parameters<typeof mark>) => {
+    assert.equal(await mark(...args), true)
+    throw new Error('Synthetic ambiguous append')
+  })
+  await say(d, 1, '@dex stop')
+  const stop = (await decisions(d)).unconfirmedStops?.[0]
+  assert.equal(stop?.state, 'unconfirmed')
+  assert.equal(stop?.progress.leadPlanStopped, false, 'only the saved receipt can claim progress')
+  assert.equal(journal.state.mentionStopOneShot, true, 'the marker may have committed')
+  assert.deepEqual(events, ['resolve:one-shot'])
+  for (let n = 0; n < 3; n++) { d.clocks.advance(60_000); await d.host.intakePlane.tick() }
+  assert.deepEqual(events, ['resolve:one-shot'], 'polling does not repeat the ambiguous attempt')
+})
+
+test('#2065: protected run leaves a parked firing until the person explicitly stops', E2E, async t => {
+  const d = await desk(t)
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const goal = (await history(d)).items[0]!.goal!
+  const run = flowRuns(d, goal)[0]!
+  const freeze = TriggerClosures.prototype.freeze
+  t.mock.method(TriggerClosures.prototype, 'freeze', async function (this: TriggerClosures, ...args: Parameters<TriggerClosures['freeze']>) {
+    const closure = await freeze.apply(this, args)
+    return { ...closure, availability: [{ at: 'seats', text: 'Synthetic temporary seat hold', fix: 'Wait for the seat.' }] }
+  })
+  await say(d, 1, '@dex also inspect the docs')
+  const pending = await until(() => d.host.intakePlane.journal.read().operations.find(one => one.run === run.id && !one.dispatched) ?? null,
+    'the follow-up firing to remain parked on this run')
+  await say(d, 1, '@dex stop')
+  assert.equal(d.host.flowsPlane.protectedMentionStop(run.id), true)
+  await d.host.intakePlane.tick()
+  assert.ok(d.host.intakePlane.journal.read().operations.some(one => one.key === pending.key),
+    `one-shot notification does not settle the parked firing: ${JSON.stringify(d.host.intakePlane.journal.read().firings[pending.key])}`)
+  await d.host.call('flow/execution/stop', { run: run.id, reason: 'Person explicitly stopped the work' })
+  await until(() => !d.host.intakePlane.journal.read().operations.some(one => one.key === pending.key) ? true : null,
+    'the explicit person stop to reconcile the parked firing')
+  assert.equal(d.host.flowsPlane.protectedMentionStop(run.id), false)
+})
+
+test('#2065: a saved stop holds non-Lead firing recovery while its run mark waits', E2E, async t => {
+  const d = await desk(t)
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const goal = (await history(d)).items[0]!.goal!, run = flowRuns(d, goal)[0]!
+  let holdSeats = true
+  const freeze = TriggerClosures.prototype.freeze
+  t.mock.method(TriggerClosures.prototype, 'freeze', async function (this: TriggerClosures, ...args: Parameters<TriggerClosures['freeze']>) {
+    const closure = await freeze.apply(this, args)
+    return holdSeats ? { ...closure, availability: [{ at: 'seats', text: 'Synthetic temporary seat hold', fix: 'Wait for the seat.' }] } : closure
+  })
+  await say(d, 1, '@dex also inspect the docs')
+  const pending = await until(() => d.host.intakePlane.journal.read().operations.find(one => one.run === run.id && !one.dispatched) ?? null,
+    'the follow-up firing to remain parked')
+  const entered = new Gate(), release = new Gate()
+  t.after(() => { release.open(); return Promise.resolve() })
+  let admission: Admission | null = null, resumes = 0
+  const close = Admission.prototype.closeMentionThread
+  t.mock.method(Admission.prototype, 'closeMentionThread', function (this: Admission, ...args: Parameters<Admission['closeMentionThread']>) {
+    admission = this
+    return close.apply(this, args)
+  })
+  const mark = d.host.flowsPlane.markMentionRun.bind(d.host.flowsPlane)
+  t.mock.method(d.host.flowsPlane, 'markMentionRun', async (...args: Parameters<typeof mark>) => {
+    entered.open()
+    await release.opened
+    return mark(...args)
+  })
+  const resume = d.host.flowsPlane.resumeTriggered.bind(d.host.flowsPlane)
+  t.mock.method(d.host.flowsPlane, 'resumeTriggered', async (...args: Parameters<typeof resume>) => { resumes++; return resume(...args) })
+  const stopping = say(d, 1, '@dex stop')
+  try {
+    await entered.opened
+    holdSeats = false
+    assert.ok(admission)
+    await (admission as Admission).recover()
+    assert.ok(d.host.intakePlane.journal.read().operations.some(one => one.key === pending.key), 'the saved intent holds the old firing')
+    assert.equal(resumes, 0, 'recovery does not resume work outside the frozen stop scope')
+  } finally { release.open(); await stopping }
+})
+
+test('#2065: retained stop history stays readable and reviewable after disarm and deletion', E2E, async t => {
+  const d = await desk(t)
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  await say(d, 1, '@dex stop')
+  const stop = (await decisions(d)).unconfirmedStops?.[0]
+  assert.ok(stop)
+  await d.host.call('trigger/disarm', { root: d.repo.dir, id: 'ask' })
+  assert.equal((await decisions(d)).unconfirmedStops?.[0]?.id, stop.id)
+  await assert.rejects(d.host.call('trigger/stop-unconfirmed/review', { root: d.repo.dir, id: 'other', stop: stop.id }))
+  await assert.rejects(d.host.call('trigger/stop-unconfirmed/review', { root: '/not-an-authorized-project', id: 'ask', stop: stop.id }))
+  const preview = await d.host.call('trigger/preview', { root: d.repo.dir, id: 'ask' }) as TriggerArmPreview
+  await d.host.call('trigger/arm', { root: d.repo.dir, id: 'ask', token: preview.token! })
+  assert.equal((await decisions(d)).unconfirmedStops?.[0]?.id, stop.id, 'rearming does not replace the old record')
+  await d.host.call('trigger/disarm', { root: d.repo.dir, id: 'ask' })
+  await d.stop()
+  await commitTriggers(d.repo, '- id: ask\n  on: pull-request\n  opens: { flow: review-pr }\n  again: { role: reviewer }\n')
+  const restarted = await desk(t, ASK(), { arm: false, repo: d.repo, stateDir: d.stateDir, clocks: d.clocks, forge: d.forge })
+  const changed = await restarted.host.call('trigger/list', { root: d.repo.dir })
+  assert.equal(changed.triggers.find(one => one.id === 'ask')?.armed, false)
+  assert.equal(changed.retainedStopTriggers?.find(one => one.id === 'ask')?.unconfirmedStops[0]?.id, stop.id)
+  // Existing trigger/list resolves the account while inspecting a declaration.
+  // Measure the stored-history reads below independently of that existing work.
+  const forgeReads = d.forge.calls.length
+  const independent = await restarted.host.call('trigger/stop-unconfirmed/list', { root: d.repo.dir })
+  assert.equal(independent.retainedStopTriggers?.find(one => one.id === 'ask')?.unconfirmedStops[0]?.id, stop.id)
+  await assert.rejects(restarted.host.call('trigger/stop-unconfirmed/list', { root: '/not-an-authorized-project' }))
+  await commitTriggers(d.repo, '')
+  const list = await restarted.host.call('trigger/list', { root: d.repo.dir })
+  const retained = list.retainedStopTriggers?.find(one => one.id === 'ask')
+  assert.equal(retained?.unconfirmedStops[0]?.id, stop.id)
+  const reviewed = await restarted.host.call('trigger/stop-unconfirmed/review', { root: d.repo.dir, id: 'ask', stop: stop.id })
+  assert.equal(reviewed.state, 'reviewed')
+  assert.equal((await decisions(restarted)).unconfirmedStops?.[0]?.state, 'reviewed')
+  assert.equal((await restarted.host.call('trigger/list', { root: d.repo.dir })).retainedStopTriggers?.[0]?.unconfirmedStops[0]?.state, 'reviewed')
+  assert.equal(d.forge.calls.length, forgeReads, `history and acknowledgement do not read the forge: ${d.forge.calls.slice(forgeReads).join(', ')}`)
+})
+
+test('#2065: a closed issue fences queued work while its active Lead run remains followable', E2E, async t => {
+  const { d, run } = await leadThread(t)
+  let busy = true
+  const delivered: string[] = []
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async (input: Parameters<LeadAutomaticGoals['offerTrigger']>[0]) => {
+    if (busy) return { delivered: false as const, reason: 'Lead busy' }
+    delivered.push(input.key)
+    return { delivered: true as const }
+  })
+  await say(d, 1, '@dex also check the docs')
+  const pending = d.host.intakePlane.journal.read().operations.map(one => one.key)
+  assert.ok(pending.length > 0, 'the follow-up is queued')
+  d.forge.issues.find(one => one.number === 1)!.state = 'closed'
+  d.clocks.advance(6 * 60_000)
+  await d.host.intakePlane.tick()
+  assert.equal(d.host.flowsPlane.executionOf(run)?.state, 'running')
+  assert.equal((await decisions(d)).threads[0]?.state, 'open', 'the running work remains followable')
+  busy = false
+  await d.host.intakePlane.tick()
+  for (const key of pending) assert.ok(!delivered.includes(`trigger-${key}`), 'closed issue refuses queued firing')
+})
+
+test('#2065: a late open pull request restores admission on its still-active closed-issue thread', E2E, async t => {
+  const d = await desk(t)
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const goal = (await history(d)).items[0]!.goal!
+  d.forge.issues.find(one => one.number === 1)!.state = 'closed'
+  d.clocks.advance(6 * 60_000)
+  await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).threads[0]!.state, 'open')
+  d.links.set(goal, [5])
+  d.forge.pulls.push({ number: 5, head: sha('c'), state: 'open', merged: false, created: d.clocks.wall, updated: d.clocks.wall })
+  d.clocks.advance(6 * 60_000)
+  await d.host.intakePlane.tick()
+  const [thread] = (await decisions(d)).threads
+  assert.deepEqual([thread!.state, thread!.links.pulls], ['open', [5]])
+  const saved = JSON.parse(await readFile(join(d.stateDir, LEDGER), 'utf8')) as { threads: { issueClosed?: boolean }[] }
+  assert.equal(saved.threads[0]!.issueClosed, false, 'an open linked pull clears the issue-only fence')
+})
+
+
+test('#2065: an unavailable Lead journal keeps delivered work unknown on issue closure', E2E, async t => {
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async () => ({ delivered: true as const }))
+  await act(d)
+  await say(d, 1, '@dex please fix the build')
+  const firing = await firingOf(d, 1)
+  assert.ok(!d.host.intakePlane.journal.read().operations.some(one => one.key === firing), 'the firing is delivered')
+  d.forge.issues.find(one => one.number === 1)!.state = 'closed'
+  d.clocks.advance(6 * 60_000)
+  await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).threads[0]!.state, 'open', 'unknown Lead activity does not close the thread')
+})
+
+test('#2065: reevaluation still reuses a positive collaborator permission within its TTL', E2E, async t => {
+  const triggers = ASK().replace('  people: [a-teammate]\n', '  from: collaborators\n')
+  const d = await desk(t, triggers)
+  d.forge.permissions.set(STRANGER.login, { id: STRANGER.id, permission: 'write' })
+  await say(d, 1, '@dex please fix the build', STRANGER)
+  const [allowed] = (await decisions(d)).decisions
+  assert.equal(allowed!.decision, 'accept')
+  d.forge.permissions.delete(STRANGER.login)
+  const checked = await d.host.call('trigger/decision/reevaluate', { root: d.repo.dir, id: 'ask', decision: allowed!.id }) as TriggerDecision
+  assert.equal(checked.decision, 'accept')
+})
+
+test('#2065: a closed issue does not admit a new flow firing while active work remains followable', E2E, async t => {
+  const d = await desk(t)
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  assert.equal((await history(d)).items.length, 1)
+  d.forge.issues.find(one => one.number === 1)!.state = 'closed'
+  d.clocks.advance(6 * 60_000)
+  await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).threads[0]!.state, 'open')
+  await say(d, 1, '@dex also update the docs')
+  assert.equal((await history(d)).items.length, 1, 'closed issue cannot start another firing')
+})
+
+test('#2065: unknown work activity never closes the issue thread', async () => {
+  const home = tempDir('hd-mention-unknown-activity-')
+  const thread = { id: 'w-unknown', trigger: 'ask', project: '/fixture', repository: 'acme/widgets', origin: { kind: 'issue', number: 1 }, links: { issues: [1], pulls: [], goals: [] }, state: 'open', closed: null, resumes: 0, observations: 0, openedAt: 0, firings: ['a'.repeat(64)], seen: [] }
+  await writeFile(join(home, LEDGER), JSON.stringify({ version: 1, decisions: [], threads: [thread], modes: {}, assessed: { day: '', count: 0 } }))
+  const triage = new MentionTriage({ home, forge: { thread: async () => ({ number: 1, pull: false, state: 'closed', labels: [], title: 'Fixture' }) }, pendingFirings: () => [], knowsFirings: () => true,
+    pullRequests: async () => [], closeThread: (close: () => Promise<void>) => close(), now: () => 1000, signal: new AbortController().signal, changed() {}, log() {} } as never)
+  await triage.sweep()
+  assert.equal((await triage.page('/fixture', 'ask', null)).threads[0]!.state, 'open')
 })

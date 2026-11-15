@@ -47,6 +47,67 @@ const prepare = async (storage: ReturnType<typeof memory>) => {
   return journal
 }
 
+test('a mention stop journals only the captured goal and never arms retry on replay', async () => {
+  const storage = memory(), journal = await open(storage)
+  await journal.setOrigin({ source: 'issue', event: 'mentioned', subject: 'acme/widgets#7', url: 'https://example.invalid/issue/7' }, 'trigger-firing-1')
+  await initializeBudget(journal)
+  const originKey = journal.state.originKey, goalStartedSeq = journal.state.goalStartedSeq
+  const from = { kind: 'mention', comment: 'https://example.invalid/issue#issuecomment-1' }
+  assert.equal(await journal.stopMentionOnce(from, { originKey, goalStartedSeq: goalStartedSeq + 1 }), false)
+  assert.equal(journal.state.phase, 'draft')
+  assert.equal(await journal.stopMentionOnce(from, { originKey, goalStartedSeq }), true)
+  assert.equal(journal.state.mentionStopOneShot, true)
+  assert.equal(journal.state.stopEffectsPending, null)
+  const recovered = await open(storage)
+  assert.equal(recovered.state.mentionStopOneShot, true)
+  assert.equal(recovered.state.stopEffectsPending, null)
+  let retries = 0
+  await recovered.runStopEffects(async () => { retries++ })
+  assert.equal(retries, 0)
+})
+
+test('person cleanup authority survives replay and a checkpoint until its effects finish', async () => {
+  const storage = memory(), journal = await open(storage)
+  await journal.setOrigin({ source: 'issue', event: 'mentioned', subject: 'demo/project#1', url: 'https://example.invalid/issue/1' }, 'trigger-firing-1')
+  await initializeBudget(journal)
+  await journal.stopMentionOnce({ kind: 'mention', comment: 'https://example.invalid/issue#issuecomment-1' },
+    { originKey: 'trigger-firing-1', goalStartedSeq: journal.state.goalStartedSeq })
+  await journal.stopAfterMention()
+  assert.equal(journal.state.personStopAfterMention, true)
+  const reopened = await open(storage)
+  assert.equal(reopened.state.personStopAfterMention, true)
+  const checkpoint = lead.leadCheckpoint(reopened.state, 'a'.repeat(64))
+  assert.equal(checkpoint.state.personStopAfterMention, true)
+  assert.equal(lead.parseLeadCheckpoint(checkpoint).state.personStopAfterMention, true)
+  await reopened.runStopEffects(async () => {})
+  assert.equal(reopened.state.personStopAfterMention, false)
+  assert.equal(Object.hasOwn(lead.leadCheckpoint(reopened.state, 'a'.repeat(64)).state, 'personStopAfterMention'), false)
+})
+
+test('person process completion is fenced to the latest authorization and survives replay', async () => {
+  const storage = memory(), journal = await open(storage)
+  await journal.setOrigin({ source: 'issue', event: 'mentioned', subject: 'demo/project#1', url: 'https://example.invalid/issue/1' }, 'trigger-firing-1')
+  await initializeBudget(journal)
+  await journal.stopMentionOnce({ kind: 'mention', comment: 'https://example.invalid/issue#issuecomment-1' },
+    { originKey: 'trigger-firing-1', goalStartedSeq: journal.state.goalStartedSeq })
+  await journal.stopAfterMention()
+  const first = journal.state.personStopProcessSeq, generation = journal.state.goalStartedSeq
+  await journal.runStopEffects(async () => {})
+  assert.equal(lead.canBeginLeadGoal(journal.state), false)
+  await journal.retryPersonStopProcess()
+  const latest = journal.state.personStopProcessSeq
+  assert.notEqual(first, latest)
+  const recovered = await open(storage)
+  assert.equal(recovered.state.personStopProcessSeq, latest)
+  const checkpoint = lead.leadCheckpoint(recovered.state, 'a'.repeat(64))
+  assert.equal(lead.parseLeadCheckpoint(checkpoint).state.personStopProcessSeq, latest)
+  await assert.rejects(recovered.completePersonStopProcess(first, generation), /changed/)
+  await assert.rejects(recovered.completePersonStopProcess(latest, generation + 1), /changed/)
+  await recovered.completePersonStopProcess(latest, generation)
+  assert.equal(recovered.state.personStopProcessSeq, null)
+  assert.equal(Object.hasOwn(lead.leadCheckpoint(recovered.state, 'a'.repeat(64)).state, 'personStopProcessSeq'), false)
+})
+
 test('refreshes with no outstanding result do not keep journaling invalidations', async () => {
   const journal = await prepare(memory()), seq = journal.state.seq
   await journal.invalidateResults(); await journal.invalidateResults()

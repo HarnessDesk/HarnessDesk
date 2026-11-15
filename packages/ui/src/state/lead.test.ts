@@ -319,3 +319,20 @@ for (const upgrade of [false, true]) it(`automatically re-reads an escalated I/O
     lead.reset()
   } finally { vi.useRealTimers() }
 })
+
+it('tracks manual stop capability across projections at the same revision and clears it when omitted', async () => {
+  const { createLeadState } = await load()
+  const facade = createLeadState({ request: vi.fn() }, () => true)
+  const stopped = projection(7, 'stopped')
+  facade.changed({ method: 'lead/changed', params: stopped })
+  expect(facade.state.canStop).toBeUndefined()
+  facade.changed({ method: 'lead/changed', params: { ...stopped, canStop: true } })
+  expect(facade.state.canStop).toBe(true)
+  facade.changed({ method: 'lead/changed', params: { ...stopped, canStop: false } })
+  expect(facade.state.canStop).toBe(false)
+  facade.changed({ method: 'lead/changed', params: stopped })
+  expect(facade.state.canStop).toBeUndefined()
+  facade.changed({ method: 'lead/changed', params: { ...stopped, canStop: true } })
+  facade.changed({ method: 'lead/changed', params: { version: 1, revision: 8, error: 'lead-projection-failed' } })
+  expect(facade.state.canStop).toBeUndefined()
+})

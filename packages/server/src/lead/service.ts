@@ -26,6 +26,14 @@ export interface LeadProcess {
   stop(reason?: string): Promise<void>
   ownershipWithdrawn(runId: string): void
   evidenceChanged?(): void
+  holdMentionExit?(): LeadMentionHold | null
+  releaseMentionExitForPerson?(guard: () => boolean): void
+}
+export interface LeadMentionHold {
+  readonly done: Promise<void>
+  resolve(policy: 'ordinary' | 'one-shot'): void
+  authorizeStop(): void
+  requestStop(): void
 }
 export interface LeadServiceOptions {
   /** The host may fence admission while a feature transition needs repair. */
@@ -90,6 +98,10 @@ export class LeadService {
   get requestInFlight(): boolean { return this.#requestInFlight }
   /** Host dispatches, including accepted queued work, must observe lifecycle revocation immediately. */
   get managementAvailable(): boolean { return this.options.available?.() !== false && this.#enabled && !this.#closed && !this.#changingKeys && !this.#cleanupFailed }
+  holdMentionExit(): LeadMentionHold | null {
+    if (!this.managementAvailable || this.#exiting) return null
+    return this.#supervisor.holdMentionExit?.() ?? null
+  }
   #activity(busy: boolean): void {
     const next = busy && !this.#closed
     if (this.#requestInFlight === next) return
@@ -314,7 +326,7 @@ export class LeadService {
       ...(options.compactContext ? { compactContext: async trigger => { this.#assertOpen(); return options.compactContext!(trigger) } } : {}),
       ...(options.readMemoryStatus ? { readMemoryStatus: async () => { this.#assertOpen(); return options.readMemoryStatus!() } } : {}),
       onStarted: () => { this.#endLive = options.childStarted() },
-      onExit: reason => this.#exited(reason),
+      onExit: (reason, policy) => this.#exited(reason, policy ?? 'ordinary'),
       onFailure: failure => {
         // A failure the child caught and carried on from is only logged; one that stopped the child also keys its exit.
         if (failure.stopped) this.#stoppedBy = { stage: failure.stage, code: failure.code }
@@ -361,7 +373,7 @@ export class LeadService {
     try { await door?.close() }
     finally { this.#registration?.close(); this.#registration = null }
   }
-  #exited(reason: string): Promise<void> {
+  #exited(reason: string, policy: 'ordinary' | 'one-shot'): Promise<void> {
     this.#activity(false)
     // Taken on every exit, before the guard below, so a failure never attaches to a later exit it did not cause.
     const stoppedBy = this.#stoppedBy; this.#stoppedBy = null
@@ -370,6 +382,9 @@ export class LeadService {
     // have rejected. Recovery never races a live dispatch from that child.
     const task = (async () => {
       try {
+        // This child belongs to a saved one-shot mention attempt. Dynamic
+        // cleanup and recovery read the current goal and could stop newer work.
+        if (policy === 'one-shot') return
         try { await this.#latch(['lead-disabled', 'lead-key-changed', 'lead-host-shutdown', 'lead-send-deadline'].includes(reason) ? this.#expectedExit(reason) : this.#unexpectedExit(reason, stoppedBy)) }
         finally { await this.options.stopOwned(reason) }
         this.#endLive?.(); this.#endLive = null
@@ -556,6 +571,16 @@ export class LeadService {
   /** A check or other evidence landed on a Team this goal owns; no desk event carries it to the loop. */
   evidenceChanged(): void { this.#supervisor.evidenceChanged?.() }
   /** Stop the model process too, so no old reply or dispatch can reach a new goal. */
+  /** The caller has durably recorded a new person Stop for this goal. */
+  stopGoalForPerson(guard: () => boolean): Promise<void> {
+    ++this.#generation
+    return this.#queue(async () => {
+      if (!guard()) throw new Error('lead-person-stop-goal-changed')
+      this.#supervisor.releaseMentionExitForPerson?.(guard)
+      await this.#halt('lead-request-cancelled', true)
+      await this.#recoverRequests()
+    }).then(() => this.recover())
+  }
   stopGoal(): Promise<void> {
     ++this.#generation
     return this.#queue(async () => { await this.#halt('lead-request-cancelled', true); await this.#recoverRequests() }).then(() => this.recover())

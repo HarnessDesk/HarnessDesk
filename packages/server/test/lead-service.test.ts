@@ -74,6 +74,21 @@ test('a runtime that fails the probe reports unavailable, with its reason, witho
   await assert.rejects(s.service.send(input), /lead-disabled/)
 })
 
+test('a captured one-shot child exit does not run dynamic goal cleanup', async t => {
+  const s = await rig(t, { probeRuntime: async () => ({ supported: true }) })
+  await s.journal.setOrigin({ source: 'issue', event: 'mentioned', subject: 'acme/widgets#7', url: 'https://example.invalid/issue/7' }, 'trigger-firing-1')
+  await s.service.setEnabled(true)
+  await s.service.send(input)
+  assert.equal(await s.journal.stopMentionOnce({ kind: 'mention', comment: 'https://example.invalid/issue#issuecomment-1' },
+    { originKey: 'trigger-firing-1', goalStartedSeq: s.journal.state.goalStartedSeq }), true)
+  await s.journal.beginGoal('new-person-goal', 101)
+  const before = s.journal.state
+  s.process().live = false
+  await s.options().onExit('lead-child-exited', 'one-shot')
+  assert.equal(s.stopped(), 0, 'the old child must not stop whatever the journal names now')
+  assert.equal(s.journal.state.seq, before.seq, 'the old child must not latch or recover the current goal')
+})
+
 // #2085: every Resume started a child that stopped at the same step, and the Lead went back and forth between a Resume
 // wait and an unexpected stop without ever saying why. The second identical stop names itself instead.
 const failingChild = (s: Awaited<ReturnType<typeof rig>>) => {
@@ -587,6 +602,18 @@ for (const failure of [false, true]) test(`real Messages reservation round-trip 
     assert.equal(s.journal.state.budget?.reservedUsdMicros, 0)
     assert.equal(s.replies[2]?.ok, true, 'settlement crossed budget IPC')
   }
+})
+
+test('a stale person Stop cannot release the captured child hold', async t => {
+  const s = await providerRig(t, async () => ({ status: 200, body: '{}' }))
+  const hold = s.service.holdMentionExit()
+  assert.ok(hold)
+  try {
+    await assert.rejects(s.service.stopGoalForPerson(() => false), /lead-person-stop-goal-changed/)
+    assert.equal(s.supervisor.live, true)
+    assert.equal(s.killed(), false)
+    assert.equal(s.supervisor.holdMentionExit(), null, 'the original hold remains in place')
+  } finally { hold.resolve('one-shot') }
 })
 
 test('killing a child aborts its held provider send before exit arrives', async t => {

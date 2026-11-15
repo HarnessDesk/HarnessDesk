@@ -313,6 +313,8 @@ export interface FlowExecution {
   /** Structured cause of the current departure; reason retains its existing sentence. */
   readonly end?: FlowExecutionEnd | null
   readonly state: 'running' | 'settled' | 'stopped' | 'stalled'
+  /** A person may finish cleanup of this protected stopped run; absent for ordinary ended runs. */
+  readonly canStop?: true
   readonly rounds: readonly FlowRoundState[]
   readonly operations: readonly FlowOperation[]
   readonly legacyRun: FlowRun | null

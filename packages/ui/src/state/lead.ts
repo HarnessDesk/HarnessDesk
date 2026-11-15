@@ -28,6 +28,8 @@ export interface LeadState {
   readonly settings: LeadSettingsProjection | null
   readonly requestInFlight: boolean
   readonly activity?: LeadWindowProjection['activity']
+  /** The host explicitly allows a manual stop even when the goal is already stopped. */
+  readonly canStop?: LeadWindowProjection['canStop']
   readonly wayOut: 'resume' | 'decide-plan' | null
   readonly waitReason: LeadWindowProjection['waitReason']
   readonly planConsentExpiresAt: number | null
@@ -81,12 +83,12 @@ export const createLeadState = (source: LeadTransport, available: () => boolean)
       // Worker approvals are live host relays. Their cards may change while
       // the journal revision used by settings and Resume stays unchanged.
       const approvals = (thread: LeadThread | null) => thread?.cards.filter(card => card.type === 'waiting' && card.kind === 'worker-approval') ?? []
-      if (JSON.stringify(projection.activity) === JSON.stringify(state.activity) && projection.requestInFlight === state.requestInFlight && projection.stage === state.stage && projection.stageReason === state.stageReason && JSON.stringify(approvals(projection.thread)) === JSON.stringify(approvals(state.thread)) && JSON.stringify(projection.personActions ?? []) === JSON.stringify(state.personActions)) return
+      if (projection.canStop === state.canStop && JSON.stringify(projection.activity) === JSON.stringify(state.activity) && projection.requestInFlight === state.requestInFlight && projection.stage === state.stage && projection.stageReason === state.stageReason && JSON.stringify(approvals(projection.thread)) === JSON.stringify(approvals(state.thread)) && JSON.stringify(projection.personActions ?? []) === JSON.stringify(state.personActions)) return
     }
     state = 'error' in projection
-      ? { ...state, revision: projection.revision, wayOut: null, error: projection.error }
+      ? { ...state, revision: projection.revision, canStop: undefined, wayOut: null, error: projection.error }
       : structuredClone({ chats: state.chats, chatControlProblem: state.chatControlProblem, wakes: state.wakes ?? [], work: state.work ?? null, memory: state.memory ?? null, autonomy: state.autonomy ?? null, savedApprovals: projection.savedApprovals ?? [], revokedApprovals: projection.revokedApprovals ?? [], personActions: projection.personActions ?? [], stage: projection.stage, stageReason: projection.stageReason, revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
-        requestInFlight: projection.requestInFlight, activity: projection.activity, waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt, progress: projection.progress ?? null, team: projection.team ?? null, presence: projection.presence ?? null, steers: projection.steers ?? null, error: null })
+        requestInFlight: projection.requestInFlight, activity: projection.activity, canStop: projection.canStop, waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt, progress: projection.progress ?? null, team: projection.team ?? null, presence: projection.presence ?? null, steers: projection.steers ?? null, error: null })
     for (const listener of listeners) listener()
   }
   // Every board the host sends is whole, so the latest one simply replaces the last.

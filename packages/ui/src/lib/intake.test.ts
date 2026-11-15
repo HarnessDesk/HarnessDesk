@@ -4,7 +4,7 @@ import type { TriggerBudgetState, TriggerGoalStatus } from '@harnessdesk/protoco
 
 import { prDefinition, issueDefinition, scheduleDefinition } from '../preview/intake-fixture'
 
-import { budgetMeterWords, formatMeterUsd, isRequestTrigger, originHoverWords, originSubject, triggerRowWords } from './intake'
+import { budgetMeterWords, formatMeterUsd, isRequestTrigger, originHoverWords, originSubject, triggerRowWords, triageWords } from './intake'
 
 const status = (over: Partial<TriggerGoalStatus>): TriggerGoalStatus => ({
   goal: 'g1',
@@ -160,4 +160,16 @@ describe('triggerRowWords', () => {
   it('names an arbitrary declared shape honestly without inventing what it does', () => {
     expect(triggerRowWords(prDefinition({ opens: { flow: 'custom-work' } })).title).toBe('When a pull request opens or is pushed, open custom-work')
   })
+})
+
+it.each(['act', 'observe'] as const)('an unacted stop says Would stop in %s mode', mode => {
+  expect(triageWords({ decision: 'stop', mode, acted: false })).toBe('Would stop')
+})
+
+it('an unacted stop with an unknown legacy mode still says Would stop', () => {
+  expect(triageWords({ decision: 'stop', mode: undefined as never, acted: false })).toBe('Would stop')
+})
+
+it('an acted stop says Stopped', () => {
+  expect(triageWords({ decision: 'stop', mode: 'act', acted: true })).toBe('Stopped')
 })

@@ -311,6 +311,14 @@ export interface TriggerProjectView {
   readonly workingCopyChanged: boolean
   readonly triggers: readonly TriggerView[]
   readonly problems: readonly TriggerProblem[]
+  /** Retained stop history whose original mention definition is no longer present. */
+  readonly retainedStopTriggers?: readonly {
+    readonly id: string
+    readonly unconfirmedStops: readonly TriggerUnconfirmedStop[]
+    readonly stopHistoryFull: boolean
+  }[]
+  /** Protected stop history has reached its storage limit. */
+  readonly stopHistoryFull?: boolean
 }
 
 // -------------------------------------------------------------- monitoring
@@ -537,11 +545,42 @@ export interface TriggerWorkThread {
   readonly openedAt: number
 }
 
+/** Confirmed receipts kept for one stop attempt. An issued interrupt is not proof a turn ended. */
+export interface TriggerStopProgress {
+  readonly queuedCancelled: number
+  readonly runsMarkedStopped: number
+  readonly interruptRequestsIssued: number
+  readonly leadRunsMarkedStopped: number
+  readonly leadPlanStopped: boolean
+}
+
+/** A stop whose complete effects have not been established, separate from ordinary decisions. */
+export interface TriggerUnconfirmedStop {
+  readonly id: string
+  readonly trigger: string
+  readonly project: string
+  readonly repository: string
+  readonly thread: { readonly kind: 'issue' | 'pull-request'; readonly number: number }
+  readonly author: string | null
+  /** The comment's bounded, secret-screened text, rendered as untrusted text. */
+  readonly excerpt: string
+  readonly url: string
+  readonly createdAt: number
+  readonly state: 'inFlight' | 'unconfirmed' | 'reviewed'
+  readonly progress: TriggerStopProgress
+  /** Fixed, host-made description of the receipts and remaining uncertainty. */
+  readonly summary: string
+}
+
 /** A mention trigger's decisions, newest first, its mode on this machine, and its work threads. */
 export interface TriggerDecisionsPage {
   readonly mode: TriggerMode
   readonly decisions: readonly TriggerDecision[]
   readonly threads: readonly TriggerWorkThread[]
+  /** Absent on older desks; this separate list never claims an uncertain stop was completed. */
+  readonly unconfirmedStops?: readonly TriggerUnconfirmedStop[]
+  /** The desk cannot safely retain another requested stop; no new effect was started. */
+  readonly stopHistoryFull?: boolean
 }
 
 /** At most this many decisions, and this many work threads, are kept per machine; the oldest go first. */

@@ -5,10 +5,11 @@ import { join } from 'node:path'
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { readChecks } from '../src/evidence/checks-file.js'
 import { readLeadEvidence } from '../src/lead/assembly.js'
-import { createLeadLoop, createLeadJournal, leadBudgetProjection, leadCheckpoint, parseLeadCheckpoint, type LeadJournalRecord } from '@harnessdesk/lead'
-import { LEAD_LIMITS, parseLeadAcceptanceContract, type LeadCard, type WireNotification } from '@harnessdesk/protocol'
+import { createLeadLoop, createLeadJournal, canBeginLeadGoal, leadBudgetProjection, leadCheckpoint, parseLeadCheckpoint, type LeadJournalRecord } from '@harnessdesk/lead'
+import { LEAD_LIMITS, parseLeadAcceptanceContract, parseLeadWindowProjection, type LeadCard, type WireNotification } from '@harnessdesk/protocol'
 import { dispatch, type HostContext } from '../src/methods/index.js'
 import { leadProgress, leadRunTeam } from '../src/lead/projection.js'
+import { LeadBudgets } from '../src/lead/budgets.js'
 
 const key = 'sk-test-not-real-0000'
 const project = { id: 'demo', path: '/workspace/demo' }
@@ -49,6 +50,90 @@ const rig = async (over: { configured?: boolean; manage?: boolean; service?: Rec
   return { controls, journal, records, storage, notifications, sends, answers, service, call }
 }
 const code = (reason: string) => (error: any) => error.wireCode === reason
+
+test('repeat readiness includes the controls continuation, not only service activity', async () => {
+  let starts = 0
+  const s = await rig({ configured: true, service: { requestInFlight: false, async send() { starts++; return { status: 'completed', text: '' } } },
+    controls: { readRequestInFlight: () => false } })
+  try {
+    // The controls owner schedules its continuation for a later timer; the
+    // service has not received a request in this deterministic gap.
+    await s.controls.send({ idempotencyKey: 'synthetic', text: 'Inspect' })
+    await s.journal.stop(); await s.journal.runStopEffects(async () => {})
+    assert.equal(starts, 0)
+    assert.equal(canBeginLeadGoal(s.journal.state), true)
+    const oldReady = !(s.service as { requestInFlight?: boolean }).requestInFlight && canBeginLeadGoal(s.journal.state)
+    assert.equal(oldReady, true, 'the old test predicate reports ready before the controls continuation settles')
+    assert.equal((await s.controls.readThread()).requestInFlight, true)
+    await assert.rejects(s.controls.runScheduled({ id: 'fixture', title: 'Synthetic', goal: 'Synthetic', enabled: true, every: 'daily', at: '09:00', zone: 'UTC' } as any, 100), code('lead-request-in-flight'))
+    await s.controls.idle()
+    assert.equal((await s.controls.readThread()).requestInFlight, false)
+  } finally { await s.controls.idle(); s.controls.close() }
+})
+
+test('an unconfirmed mention stop exposes a new person-authorized cleanup without replay', async () => {
+  let effects = 0, requests = 0
+  const s = await rig({ controls: { stopEffects: async () => { effects++ }, stopRequest: async () => { requests++ } } })
+  await s.journal.setOrigin({ source: 'issue', event: 'commented', subject: 'demo/project#1', url: 'https://example.invalid/issue/1' }, 'trigger-firing-1')
+  assert.equal(await s.journal.stopMentionOnce({ kind: 'mention', comment: 'https://example.invalid/issue#issuecomment-1' },
+    { originKey: 'trigger-firing-1', goalStartedSeq: s.journal.state.goalStartedSeq }), true)
+  const view = await s.call('lead/thread/read')
+  assert.equal(parseLeadWindowProjection(JSON.parse(JSON.stringify(view))).canStop, true)
+  await assert.rejects(s.call('lead/stop', { expectedRevision: view.revision - 1 }), code('lead-revision-stale'))
+  assert.equal(effects, 0)
+  const stopped = await s.call('lead/stop', { expectedRevision: view.revision })
+  assert.equal(effects, 1, 'the new person Stop authorizes ordinary cleanup')
+  assert.equal(requests, 1)
+  assert.equal(s.journal.state.mentionStopOneShot, false)
+  assert.notEqual(stopped.canStop, true)
+  await assert.rejects(s.call('lead/stop', { expectedRevision: stopped.revision }), code('lead-thread-closed'))
+  assert.equal(effects, 1, 'no old mention replay or duplicate cleanup')
+})
+
+test('a person Stop settles a mention-stopped draft with no contract or owned runs', async () => {
+  let budgets!: LeadBudgets, childRequests = 0
+  const s = await rig({ controls: {
+    stopEffects: () => budgets.cleanup('logical'),
+    personStopRequest: async (goalStartedSeq: number, stopSeq: number | null) => {
+      assert.equal(s.journal.state.goalStartedSeq, goalStartedSeq)
+      assert.equal(s.journal.state.personStopProcessSeq, stopSeq)
+      assert.equal(s.journal.state.phase, 'stopped')
+      childRequests++
+    },
+  } })
+  budgets = new LeadBudgets({ now: () => 100, runs: () => [], member: async () => true,
+    interruptChecks: () => { throw new Error('there is no run to interrupt') },
+    stop: async () => { throw new Error('there is no run to stop') }, schedule: () => () => {} })
+  const unregister = budgets.register(s.journal)
+  try {
+    await s.journal.setOrigin({ source: 'issue', event: 'commented', subject: 'demo/project#1', url: 'https://example.invalid/issue/1' }, 'trigger-firing-1')
+    assert.equal(s.journal.state.contract, null)
+    assert.equal(s.journal.state.runs.length, 0)
+    assert.equal(await s.journal.stopMentionOnce({ kind: 'mention', comment: 'https://example.invalid/issue#issuecomment-1' },
+      { originKey: 'trigger-firing-1', goalStartedSeq: s.journal.state.goalStartedSeq }), true)
+    await s.call('lead/stop', { expectedRevision: s.journal.state.seq })
+    await budgets.idle()
+    assert.equal(childRequests, 1, 'the new person authorization still reaches child cleanup')
+    assert.equal(s.journal.state.stopEffectsPending, null)
+    assert.equal(s.journal.state.personStopAfterMention, false)
+    assert.equal(s.journal.state.personStopProcessSeq, null)
+    assert.equal(canBeginLeadGoal(s.journal.state), true)
+  } finally { unregister() }
+})
+
+test('a failed person child stop retains fresh retry authority without replaying the mention', async () => {
+  let attempts = 0
+  const s = await rig({ controls: { stopEffects: async () => {}, stopRequest: async () => { if (++attempts === 1) throw new Error('synthetic child stop failure') } } })
+  await s.journal.setOrigin({ source: 'issue', event: 'commented', subject: 'demo/project#1', url: 'https://example.invalid/issue/1' }, 'trigger-firing-1')
+  await s.journal.stopMentionOnce({ kind: 'mention', comment: 'https://example.invalid/issue#issuecomment-1' },
+    { originKey: 'trigger-firing-1', goalStartedSeq: s.journal.state.goalStartedSeq })
+  await assert.rejects(s.call('lead/stop', { expectedRevision: s.journal.state.seq }))
+  const pending = await s.call('lead/thread/read')
+  assert.equal(pending.canStop, true)
+  await s.call('lead/stop', { expectedRevision: pending.revision })
+  assert.equal(attempts, 2)
+  assert.notEqual((await s.call('lead/thread/read')).canStop, true)
+})
 
 test('an unsupported Lead runtime is readable and refuses sends before recording work', async () => {
   const s = await rig({ configured: true, service: { async status() { return { configured: true, protection: 'synthetic cipher', unavailable: 'runtime' } } } })
