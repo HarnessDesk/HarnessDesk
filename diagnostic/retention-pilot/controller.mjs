@@ -9,14 +9,14 @@ import { compareReceipt, compareSnapshot } from './receipt-diagnostics.mjs'
 import { listenerCounts } from './listener-diagnostics.mjs'
 
 const taskSource = resolve('.')
-const taskSha = '06b12d140c950b0c4c44695f142bd0c988344157'
+const taskSha = '76708d7f2b4536b3e0bdb24a49e09450fabd3a3c'
 const sha = path => createHash('sha256').update(readFileSync(path)).digest('hex')
 const git = (...args) => execFileSync('git', ['-C',taskSource,...args], {encoding:'utf8'}).trim()
 if (process.platform !== 'darwin' || process.env.GITHUB_ACTIONS !== 'true' || process.env.RUNNER_ENVIRONMENT !== 'github-hosted') throw new Error('hosted macOS runner required')
 if (git('merge-base','HEAD',taskSha)!==taskSha) throw new Error('source base mismatch')
 const changed=git('diff','--name-only',taskSha,'HEAD','--',':(exclude).github/workflows/ci.yml',':(exclude)diagnostic/retention-pilot')
 if (changed || git('status','--porcelain=v1')) throw new Error('production source or checkout changed')
-if(sha(join(taskSource,'packages/server/src/host.ts'))!=='edf5ebf9eaa5a4b0e1c883323a4d026d433c739735c6a99f37242388cd355002' || sha(join(taskSource,'packages/server/src/transcripts.ts'))!=='eb9e49eb57b1ec8a539f8e2d778be4e317b2e02377765f932647867fe5becf47') throw new Error('production source fingerprint changed')
+if(sha(join(taskSource,'packages/server/src/host.ts'))!=='fcb9807fd0545c3dabb7341250ea36fe7f5cd1426a3b6dbad5360ffb0d034925' || sha(join(taskSource,'packages/server/src/transcripts.ts'))!=='eb9e49eb57b1ec8a539f8e2d778be4e317b2e02377765f932647867fe5becf47') throw new Error('production source fingerprint changed')
 const fixture=join(taskSource,'diagnostic/retention-pilot/fake-codex-1545.mjs')
 const fixtureHashes={
  'packages/adapter-codex/test/fixtures/fake-codex.mjs':'f4d8fcb27e24a3e871dd5660030e4c0fbd718bc429952e98970de81f43e7b1d1',

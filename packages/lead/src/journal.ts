@@ -564,13 +564,15 @@ export class LeadJournal {
   receipt(text: string): Promise<void> { return this.#queue(async () => this.#append({ type: 'receipt', text: leadReceiptText(text) })) }
   /** Host only. Core changed in the memory store; a revision already journaled is not written twice. */
   memoryCore(memory: LeadMemoryCore): Promise<void> { return this.#queue(async () => {
-    const parsed = parseLeadMemoryCore(memory)
+    if (memory.format !== undefined && memory.format !== 2) throw new Error('lead-memory-core')
+    const parsed = parseLeadMemoryCore({ ...memory, format: 2 })
     if (parsed.revision <= this.#state.memory.revision) return
     return this.#append({ type: 'memory-core', memory: parsed })
   }) }
   /** The Core and the person's rule sections an epoch's instructions were first built with. Written once per goal and
    * epoch; a later call for the same pair is a no-op, so the first build is the one a restart repeats. */
   memoryEpoch(goal: string, epoch: number, memory: LeadMemoryCore, rules?: LeadAutonomyRecord['rules']): Promise<void> { return this.#queue(async () => {
+    if (memory.format === undefined && JSON.stringify(memory) !== JSON.stringify(this.#state.memory)) throw new Error('lead-memory-epoch-stale')
     const at = { goal: leadMemoryEpochGoal(goal), epoch: integer(epoch), memory: parseLeadMemoryCore(memory), ...(rules === undefined ? {} : { rules: parseLeadAutonomyRules(rules) }) }
     const held = this.#state.memoryEpoch
     if (held && held.goal === at.goal && held.epoch === at.epoch) return

@@ -24,6 +24,8 @@ interface StoredVersion {
   readonly changes: readonly StoredChange[]
   readonly tidy?: { readonly merged: number; readonly replaced: number; readonly archived: number }
   readonly undone?: true
+  /** A budget refit cannot be undone without violating the Core byte limit. */
+  readonly refit?: true
   /** Forget took text out of this version, so it can no longer be put back. */
   readonly erased?: true
   /** What the version did, counted before Forget took its words out, so its history row still says so (#2152). */
@@ -90,7 +92,7 @@ export const leadMemoryCoreOrder = (entries: readonly LeadMemoryEntry[]): LeadMe
     ...core.filter(entry => entry.by === 'lead').sort((a, b) => lastUse(b) - lastUse(a) || numberOf(b.id) - numberOf(a.id))]
 }
 export const leadMemoryCoreOf = (revision: number, entries: readonly LeadMemoryEntry[]): LeadMemoryCore =>
-  ({ revision, entries: leadMemoryCoreOrder(entries).map(entry => ({ id: entry.id, text: entry.text, kind: entry.kind, by: entry.by })) })
+  ({ revision, format: 2, entries: leadMemoryCoreOrder(entries).map(entry => ({ id: entry.id, text: entry.text, kind: entry.kind, by: entry.by })) })
 /**
  * Core held to its budget: while it reads larger than `coreBytes`, the Lead's least recently used entry moves to
  * Archive, and only when none of the Lead's is left, the person's newest. Nothing is deleted. Measured at the widest
@@ -115,7 +117,7 @@ const summary = (version: StoredVersion, entries: readonly LeadMemoryEntry[]): L
   const counts = version.forgot !== undefined ? NO_COUNTS : version.counts ?? countsOf(version.changes)
   return { version: version.version, at: version.at, by: version.by, ...counts,
     ...(version.tidy ? { tidy: version.tidy } : {}),
-    undoable: !version.undone && !version.erased && version.changes.length > 0 && version.changes.every(change => sameEntry(current.get(change.id), change.after)),
+    undoable: !version.undone && !version.erased && !version.refit && version.changes.length > 0 && version.changes.every(change => sameEntry(current.get(change.id), change.after)),
     ...(version.undone ? { undone: true as const } : {}),
     ...(version.forgot !== undefined ? { forgotten: version.forgot } : version.erased ? { erased: true as const } : {}) }
 }
@@ -125,9 +127,10 @@ const parseVersion = (value: unknown): StoredVersion => {
   const item = value as StoredVersion
   if (!item || typeof item !== 'object' || !Number.isSafeInteger(item.version) || !Number.isSafeInteger(item.at) || !Array.isArray(item.changes)) throw new Error('lead-memory-store')
   if (!['person', 'lead', 'tidy', 'undo', 'migration'].includes(item.by)) throw new Error('lead-memory-store')
+  if (Object.hasOwn(item, 'refit') && (item.refit !== true || item.by !== 'migration')) throw new Error('lead-memory-store')
   const changes = item.changes.map(change => ({ id: String(change.id), before: change.before === null ? null : parseLeadMemoryEntry(change.before), after: change.after === null ? null : parseLeadMemoryEntry(change.after) }))
   return { version: item.version, at: item.at, by: item.by, changes, ...(item.tidy ? { tidy: { merged: Number(item.tidy.merged) || 0, replaced: Number(item.tidy.replaced) || 0, archived: Number(item.tidy.archived) || 0 } } : {}),
-    ...(item.undone === true ? { undone: true as const } : {}), ...(item.erased === true ? { erased: true as const } : {}),
+    ...(item.refit === true ? { refit: true as const } : {}), ...(item.undone === true ? { undone: true as const } : {}), ...(item.erased === true ? { erased: true as const } : {}),
     ...(item.counts && typeof item.counts === 'object' ? { counts: { added: Number(item.counts.added) || 0, removed: Number(item.counts.removed) || 0, changed: Number(item.counts.changed) || 0 } } : {}),
     ...(Number.isSafeInteger(item.forgot) && item.forgot! > 0 ? { forgot: item.forgot! } : {}) }
 }
@@ -193,6 +196,8 @@ export interface LeadMemoryStoreOptions {
   /** `<home>/lead`. */
   readonly dir: string
   readonly now?: () => number
+  /** Atomic writer, injectable for interrupted-write recovery tests. */
+  readonly write?: typeof writeAtomicJson
   /** The person-edited lines kept before this store: migrated once, with nothing lost. */
   readonly legacy?: () => Promise<LeadMemory | null>
   /** Forget reaches past the store: the texts of a forgotten entry, every version of it, or `'all'` for Forget all,
@@ -216,7 +221,15 @@ export class LeadMemoryStore {
   async #open(): Promise<void> {
     const file = join(this.options.dir, FILE), read = await readBoundedJsonResult(file, FILE_BYTES)
     if (read.kind === 'value') {
-      try { this.#state = parseStore(read.value); return } catch { /* Kept aside below, never overwritten. */ }
+      let parsed: StoreState | undefined
+      try { parsed = parseStore(read.value) } catch { /* Kept aside below, never overwritten. */ }
+      if (parsed) {
+        this.#state = parsed
+        // The source-length renderer can make a formerly valid Core larger. Reuse the normal archive policy,
+        // persist its revision before publishing, and leave a valid saved file in place if that write fails.
+        if (diff(parsed.entries, fit(parsed.entries)).length) await this.#commit({ entries: parsed.entries }, 'migration', { refit: true })
+        return
+      }
     }
     if (read.kind === 'io') throw new Error('lead-memory-unreadable')
     // A file the desk cannot read is set aside rather than written over, so nothing in it is lost.
@@ -248,14 +261,14 @@ export class LeadMemoryStore {
     // Nothing to carry across writes nothing: the file appears with the first change.
     if (this.#state.revision > 0) await this.#save()
   }
-  async #save(): Promise<void> { await writeAtomicJson(join(this.options.dir, FILE), this.#state, async () => {}) }
+  async #save(): Promise<void> { await (this.options.write ?? writeAtomicJson)(join(this.options.dir, FILE), this.#state, async () => {}) }
   #serial<T>(operation: () => Promise<T>): Promise<T> {
     const next = this.#tail.then(operation)
     this.#tail = next.catch(() => {})
     return next
   }
   /** One change: the entries refit to Core's budget, a version when they changed, the revision bumped and saved. */
-  async #commit(next: Partial<StoreState>, by: LeadMemoryChangeBy, extra: Pick<StoredVersion, 'tidy' | 'forgot'> = {}): Promise<number | null> {
+  async #commit(next: Partial<StoreState>, by: LeadMemoryChangeBy, extra: Pick<StoredVersion, 'tidy' | 'forgot' | 'refit'> = {}): Promise<number | null> {
     const before = this.#state.entries, entries = next.entries ? fit(next.entries) : before
     const changes = diff(before, entries)
     let versions = next.versions ?? this.#state.versions, version: number | null = null

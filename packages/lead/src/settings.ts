@@ -1,6 +1,6 @@
 import { LEAD_AUTONOMY_DEFAULTS, LEAD_AUTONOMY_KINDS, LEAD_AUTONOMY_LABELS, LEAD_RULE_LIMITS, LEAD_RULE_TITLES, type LeadAutonomyChange, type LeadAutonomyMode, type LeadAutonomyView, type LeadRuleSectionId, type LeadSettingsProposal } from '@harnessdesk/protocol'
 import { leadClock, leadMemoryClean } from './memory.js'
-import { leadCleanUntrusted } from './untrusted.js'
+import { leadCleanUntrusted, leadCleanUntrustedLegacy } from './untrusted.js'
 import type { LeadState } from './state.js'
 
 export const LEAD_SETTINGS_STATUS_OPEN = '<desk-settings-status>'
@@ -60,7 +60,7 @@ export const LEAD_SETTINGS_STATUS_BYTES = 2560
  * instructions; the note stays within `limit` UTF-8 bytes, dropping the oldest proposals first and then clipping the
  * printed words, which then say "(shortened)".
  */
-export const leadSettingsStatus = (view: LeadAutonomyView, limit: number = LEAD_SETTINGS_STATUS_BYTES, since: number | null = null, held: LeadRulesHeld | null = null): string | null => {
+export const leadSettingsStatus = (view: LeadAutonomyView, limit: number = LEAD_SETTINGS_STATUS_BYTES, since: number | null = null, held: LeadRulesHeld | null = null, legacyHeld = false): string | null => {
   const proposals = (view.proposals ?? []).filter(proposal => proposal.state === 'pending' || proposal.state === 'declined')
   const changes = view.changes ?? []
   const changedModes = LEAD_AUTONOMY_KINDS.some(kind => view.modes[kind] !== LEAD_AUTONOMY_DEFAULTS[kind])
@@ -80,7 +80,7 @@ export const leadSettingsStatus = (view: LeadAutonomyView, limit: number = LEAD_
     const change = changes.find(one => one.what === 'rules' && one.section === rule.id && one.version === version)
     const which = rule.custom ? `version ${version}` : 'the shipped words'
     // What the instructions hold for the section: the person's words, or none. Equal, the words are not sent again.
-    if (held && carried(rule.custom ? rule.text : null) === carried(held[rule.id])) return [`- ${title}, ${which}, same as your instructions.${last(change, since)}`]
+    if (held && carried(rule.custom ? rule.text : null) === (held[rule.id] && legacyHeld ? leadCleanUntrustedLegacy(held[rule.id]!, LEAD_RULE_LIMITS.chars) || null : carried(held[rule.id]))) return [`- ${title}, ${which}, same as your instructions.${last(change, since)}`]
     const whole = leadCleanUntrusted(rule.text, LEAD_RULE_LIMITS.chars), words = leadCleanUntrusted(rule.text, chars)
     return [`- ${title}, ${which}.${last(change, since)} Your instructions ${held ? 'hold' : 'may hold'} other words; these hold now:`,
       ...(words ? words.split('\n').map(line => `  ${line}`) : ['  (none)']), ...(words !== whole ? ['  (shortened)'] : [])]

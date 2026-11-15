@@ -332,7 +332,7 @@ export class LeadControls {
     if (leadContainsSecret(input)) throw leadRefusal('lead-secret-refused')
     // A request to keep words aimed at an agent is refused here, before the model reads it: memory is read on every
     // later turn, so the scan every proposal passes runs on the person's request too (docs/decisions.md).
-    const kept = automaticOrigin ? null : leadRememberRequest(input.text)
+    const kept = automaticOrigin ? null : leadRememberRequest(input.text, leadDisplayName(journal.state.name))
     if (kept !== null) {
       const scan = leadMemoryScan(kept)
       if (!scan.ok && scan.reason === 'instruction') throw leadRefusal('lead-memory-instruction-refused')

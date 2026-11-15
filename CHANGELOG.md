@@ -22,6 +22,9 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **The Lead names the task it is doing.** Setting or canceling a reminder no longer leaves the previous task on its activity line. An action without its own label shows Working.
 
+- **Keep remembered notes whole.** Angle brackets no longer consume extra space in a note’s character limit, and older saved memories remain available after an upgrade.
+- **Recognize a direct reminder.** The Lead now checks “Hey Dex remember: …” like other requests to remember, including its existing safety checks.
+
 - **Keep earlier answered messages in order.** Earlier answered reminders and follow-up messages stay in order when a step’s saved record is missing.
 
 - **A delayed carry-on note is recorded once.** If saving the updated ledger fails after a delayed transcript marker was written, retrying after a restart keeps the original marker instead of inserting it again.
