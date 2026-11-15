@@ -121,6 +121,7 @@ export class UsageService {
   readonly #history: UsageHistory | null
   readonly #historical = new Map<RuntimeId, HistoricalUsage>()
   readonly #historicalShell = new Map<RuntimeId, UsageReport>()
+  readonly #fileHistoryIdentities = new Map<RuntimeId, string | null>()
   /** The agents a read has finished for since this service started, whether or not anything answered. */
   readonly #asked = new Set<RuntimeId>()
   readonly #watchers: FSWatcher[] = []
@@ -175,6 +176,7 @@ export class UsageService {
   async forgetHistory(id: RuntimeId): Promise<void> {
     this.#historical.delete(id)
     this.#historicalShell.delete(id)
+    this.#fileHistoryIdentities.delete(id)
     if (this.#options.historyAllowed?.(id) === false) {
       await this.#history?.forgetWithoutRead(id)
     } else await this.#history?.forget(id)
@@ -322,7 +324,7 @@ export class UsageService {
   /** Activity invalidates one source; bursts share a trailing read within its retry budget. */
   invalidate(id: RuntimeId, source: 'activity' | 'file' = 'activity'): void {
     if (this.#disposed) return
-    if (source === 'file' && this.#asked.has(id) && this.#history) void this.forgetHistory(id)
+    if (source === 'file' && this.#options.meters.get(id)?.source.kind !== 'file' && this.#asked.has(id) && this.#history) void this.forgetHistory(id)
     // Only a local file meter is an observation to ingest. A credential-file change for an HTTP/CLI meter
     // still asks its producer and must respect the network/process floor. New sign-in evidence
     // can shorten an authentication failure's backoff without allowing rewrite storms to bypass it.
@@ -378,20 +380,26 @@ export class UsageService {
     const historyAllowed = () => this.#options.historyAllowed?.(id) !== false && !this.#disposed
     let historyToken: string | null = null
     const first = !this.#asked.has(id)
-    const building = this.#history && !fileOnly && this.#options.historyAllowed?.(id) !== false
-      ? this.#history.begin(id, historyAllowed).then(token => { historyToken = token; return this.#build(runtime, fileOnly) })
+    const building = this.#history && this.#options.historyAllowed?.(id) !== false
+      ? this.#history.begin(id, historyAllowed).then(token => { historyToken = token; return historyAllowed() ? this.#build(runtime, fileOnly) : null })
       : this.#build(runtime, fileOnly)
     const work = building
       .catch((cause: unknown) => this.#failed(id, cause))
       .then(async (report) => {
-        if (!fileOnly && first && historyToken && this.#readFailed.has(id) && this.#options.historyAllowed?.(id) !== false && (!report || (!report.lanes.length && !report.credits && !report.unverified))) {
+        if (!historyAllowed()) return null
+        // A file meter can carry both quota and account data. Ordinary quota
+        // writes keep history; a disappeared or changed account fences it.
+        if (!this.#disposed && fileOnly && cached && this.#history?.epoch(id) === epoch && (!report || (cached.account?.trim() ?? '') !== (report.account?.trim() ?? ''))) {
+          await this.forgetHistory(id)
+        }
+        if (!this.#disposed && !fileOnly && first && historyToken && this.#readFailed.has(id) && this.#options.historyAllowed?.(id) !== false && (!report || (!report.lanes.length && !report.credits && !report.unverified))) {
           const history = await this.#history?.read(id, historyAllowed)
-          if (history && this.#history?.epoch(id) === epoch && this.#options.historyAllowed?.(id) !== false) this.#historical.set(id, history)
+          if (!this.#disposed && history && this.#history?.epoch(id) === epoch && this.#options.historyAllowed?.(id) !== false) this.#historical.set(id, history)
         } else if (report && !report.error && (report.lanes.length > 0 || report.credits)) {
           this.#historical.delete(id)
           this.#historicalShell.delete(id)
         }
-        if (!this.#disposed && !fileOnly && report && !report.error && !this.#readFailed.has(id) && this.#options.historyAllowed?.(id) !== false && (report.lanes.length > 0 || report.credits)) {
+        if (!this.#disposed && report && !report.error && !this.#readFailed.has(id) && this.#options.historyAllowed?.(id) !== false && (report.lanes.length > 0 || report.credits)) {
           await this.#history?.write(id, historyToken, { lanes: report.lanes, credits: report.credits, fetchedAt: report.fetchedAt }, historyAllowed)
         }
         if (!fileOnly) {
@@ -546,6 +554,12 @@ export class UsageService {
       }
       const reading = read.reading
       if (!reading) return
+      if (!this.#disposed && this.#history && candidate.source.kind === 'file' && 'historyIdentity' in reading) {
+        const identity = reading.historyIdentity ?? null
+        const previousIdentity = this.#fileHistoryIdentities.get(id)
+        if (this.#fileHistoryIdentities.has(id) && previousIdentity !== null && previousIdentity !== identity) await this.forgetHistory(id)
+        this.#fileHistoryIdentities.set(id, identity)
+      }
       answered = true
       // Reading an older file is not recovery from a failed live refresh. Keep the newer observation for this
       // account, including its source clock and the failure; a different account must still replace it.

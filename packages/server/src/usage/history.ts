@@ -45,13 +45,22 @@ const normalize = (raw: HistoricalUsage, now: number): HistoricalUsage | null =>
 /** A global generation fences stale writers; a leftover lock after a crash fails closed. */
 export class UsageHistory {
   #queue: Promise<void> = Promise.resolve()
+  #locks: Promise<void> = Promise.resolve()
   readonly #epochs = new Map<RuntimeId, number>()
   readonly #suppressed = new Set<RuntimeId>()
   constructor(readonly path: string, readonly now: () => number = Date.now, readonly warning: (id: RuntimeId) => void = () => {}) {}
   epoch(id: RuntimeId): string { return String(this.#epochs.get(id) ?? 0) }
-  async flush(): Promise<void> { await this.#queue }
+  async flush(): Promise<void> {
+    await this.#queue
+    await this.#locks
+  }
   #file(id: RuntimeId): string { return join(`${this.path}.d`, `${createHash('sha256').update(id).digest('hex')}.json`) }
-  async #locked<T>(mutating: boolean, action: () => Promise<T>): Promise<T> {
+  #locked<T>(mutating: boolean, action: () => Promise<T>): Promise<T> {
+    const operation = this.#locks.then(() => this.#runLocked(mutating, action))
+    this.#locks = operation.then(() => {}, () => {})
+    return operation
+  }
+  async #runLocked<T>(mutating: boolean, action: () => Promise<T>): Promise<T> {
     await mkdir(dirname(this.path), { recursive: true })
     const lock = `${this.path}.lock`, handle = await open(lock, 'wx', 0o600)
     let success = false

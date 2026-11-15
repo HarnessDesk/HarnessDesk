@@ -82,3 +82,27 @@ test('an interrupted owner leaves history unavailable rather than replaying an u
   assert.equal(await restarted.begin(one), null)
   assert.equal(await restarted.read(one), null)
 })
+
+test('flush waits for an in-flight history read to release its lock', { skip: process.platform === 'win32' }, async () => {
+  const { execFileSync } = await import('node:child_process')
+  const { open, stat } = await import('node:fs/promises')
+  const path = join(tempDir('hd-history-flush-'), 'history')
+  execFileSync('mkfifo', [`${path}.epoch`])
+  const store = new UsageHistory(path)
+  const begun = store.begin(one)
+  let locked = false
+  for (let attempt = 0; attempt < 100; attempt++) {
+    try { await stat(`${path}.lock`); locked = true; break } catch {}
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.equal(locked, true, 'begin owns the lock while its epoch read is blocked')
+  let flushed = false
+  const flushing = store.flush().then(() => { flushed = true })
+  await new Promise(resolve => setImmediate(resolve))
+  const returnedBeforeRelease = flushed
+  const stillLocked = await stat(`${path}.lock`).then(() => true, () => false)
+  const writer = await open(`${path}.epoch`, 'w'); await writer.close()
+  await begun; await flushing
+  assert.equal(stillLocked, true)
+  assert.equal(returnedBeforeRelease, false, 'flush must await the active lock owner')
+})

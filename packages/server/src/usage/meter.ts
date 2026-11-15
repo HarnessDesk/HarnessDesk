@@ -10,6 +10,8 @@ import type { UsageBilling, UsageCredits, UsageLane, UsageSource } from '@harnes
  */
 
 export interface MeterReading {
+  /** Optional in-process identity for fencing old history; never persisted or returned in a report. */
+  readonly historyIdentity?: string | null
   /** Which account, when the source names one. */
   readonly account: string | null
   readonly plan: string | null

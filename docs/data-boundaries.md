@@ -471,7 +471,9 @@ after restart fails. The reading is dated and its account is unverified; it
 never decides whether a runtime may work. The private local cache stores only
 normalized numerical quota and balance facts, not account labels, credentials,
 provider error text or plan prices. It keeps at most 128 runtime readings and
-1 MiB of observations, with at most 32 windows per reading. Turning usage
+1 MiB of observations, with at most 32 windows per reading. For a file-backed
+reading, the source account identifier may be compared in memory to detect a
+change of sign-in; it is not saved in this cache. Turning usage
 tracking off does not read its saved reading. Signing out or removing an agent
 forgets its reading; if the local cache cannot be cleared, sign-out still
 proceeds and the desk warns that the anonymous reading may remain on this
