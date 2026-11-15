@@ -1,0 +1,23 @@
+{
+  "issue": 2208,
+  "sourceHead": "6a4bc36594d0509df2986d321a290be5ac2a55b2",
+  "scope": "Owned packaged helper; fake updater; no full startup or real update",
+  "frames": [
+    {
+      "name": "check.png",
+      "sha256": "2852fd43ee6d351e007a18589edb3c7133795042478ef729476c98ac00c7499b",
+      "bytes": 61359,
+      "width": 520,
+      "height": 604,
+      "caption": "Packaged fake-updater helper: initial repair dialog"
+    },
+    {
+      "name": "ready.png",
+      "sha256": "c9132c1400969448d1b0b3e850ad79136ea109fdbe41d9d9850fd181ef809c84",
+      "bytes": 61710,
+      "width": 520,
+      "height": 604,
+      "caption": "Packaged fake-updater helper: ready update dialog"
+    }
+  ]
+}
