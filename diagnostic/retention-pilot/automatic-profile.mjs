@@ -11,6 +11,7 @@ import { canonicalBytes, summarize, pendingAfterNavigation } from './profile-sca
 import { stageRecord } from './profile-stage.mjs'
 import { createRpcObserver, classifyProfileError } from './profile-rpc-observer.mjs'
 import { captureFailure } from './profile-failure.mjs'
+import { captureMetricDeltas, recordLateFailure } from './late-observation.mjs'
 import { createNotificationObserver, installNotificationObserver, sanitizeWaitObservation } from './profile-notification-observer.mjs'
 
 const taskSource = resolve('.')
@@ -92,7 +93,13 @@ const observedListeners=async (name) => {
 // Keys and fingerprints stay inside this disposable controller; no body or CDP
 // remote handle is returned by a measurement expression.
 const keys=[]
-let cdp, runtime, visible, draft, pending
+let cdp, runtime, visible, draft, pending, performanceStart
+const finishPerformance = async () => {
+ if(!performanceStart)return
+ try {const end=await cdp.send('Performance.getMetrics',{},2000);result.performanceDeltas=captureMetricDeltas(performanceStart,end)}
+ catch {result.performanceUnavailable=true}
+ performanceStart=undefined
+}
 const addr = key => { const [runtime,sessionId]=key.split(String.fromCharCode(0)); if(runtime!=='codex'||!sessionId)throw new Error('session ownership'); return {runtime,sessionId} }
 const closeCurrent = async key => {
  const before=await cdp.json(`(()=>{const x=window.__hd1545Closes.get(${JSON.stringify(key)});return x?{...x}:{sent:0,resolved:0,rejected:0}})()`)
@@ -128,8 +135,8 @@ const sample = async () => {
   return {metadata:snap.sessions.size,loadedFullBodies:stats.loadedFullBodies,releasedBodies:stats.releasedBodies,trackedRecoveryRecords:stats.trackedRecoveryRecords,enabled:stats.enabled,pressureRunning:stats.pressureRunning,pressureDirty:stats.pressureDirty,eligibleBodies:stats.eligibleBodies,eligibleBytes:stats.eligibleBytes,...measured,mounted,draft:true,pending:true}})()`)
 }
 // One shared scalar read is used before 400 assertions and after any checkpoint failure.
-const readScalarState = async (selected=null) => cdp.json(`(()=>{const s=window.__hdStore,snap=s.getSnapshot(),stats=s.transcriptCacheStats(),keys=${JSON.stringify(keys)},p=n=>!n?[]:n.kind==='pane'?[n]:n.kind==='split'?[...p(n.first),...p(n.second)]:[],panes=p(snap.layout.root),pending=${JSON.stringify(pending)},visible=${JSON.stringify(visible)},draft=${JSON.stringify(draft)},selected=${JSON.stringify(selected)};
-   return {metadata:snap.sessions.size,loaded:stats.loadedFullBodies,released:stats.releasedBodies,recovery:stats.trackedRecoveryRecords,pressureRunning:stats.pressureRunning,pressureDirty:stats.pressureDirty,enabled:stats.enabled,eligibilityKnown:stats.eligibleBodies!==null||stats.eligibleBytes!==null,visibleMounted:panes.some(x=>x.view?.kind==='conversation'&&x.view.session===visible),visibleLoaded:snap.sessions.get(visible)?.itemsLoaded===true,draftPresent:!!s.drafts.live(draft),draftLoaded:snap.sessions.get(draft)?.itemsLoaded===true,pendingPresent:snap.approvals.some(a=>a.key===pending),pendingLoaded:snap.sessions.get(pending)?.itemsLoaded===true,pendingActive:!!snap.sessions.get(pending)?.turns.some(t=>t.status==='inProgress'),pendingMounted:panes.some(x=>x.view?.kind==='conversation'&&x.view.session===pending),pendingCloseSent:window.__hd1545Closes.get(pending)?.sent??0,knownLoaded:keys.filter(k=>snap.sessions.get(k)?.itemsLoaded===true).length,knownMissing:keys.filter(k=>!snap.sessions.has(k)).length,...(selected?{selectedPresent:snap.sessions.has(selected),selectedLoaded:snap.sessions.get(selected)?.itemsLoaded===true}:{})}})()` )
+const readScalarState = async (selected=null,timeout=30000,late=false) => cdp.json(`(()=>{const s=window.__hdStore,snap=s.getSnapshot(),stats=s.transcriptCacheStats(),keys=${JSON.stringify(keys)},p=n=>!n?[]:n.kind==='pane'?[n]:n.kind==='split'?[...p(n.first),...p(n.second)]:[],panes=p(snap.layout.root),pending=${JSON.stringify(pending)},visible=${JSON.stringify(visible)},draft=${JSON.stringify(draft)},selected=${JSON.stringify(selected)};
+   return {metadata:snap.sessions.size,loaded:stats.loadedFullBodies,released:stats.releasedBodies,recovery:stats.trackedRecoveryRecords,pressureRunning:stats.pressureRunning,pressureDirty:stats.pressureDirty,enabled:stats.enabled,eligibilityKnown:stats.eligibleBodies!==null||stats.eligibleBytes!==null,visibleMounted:panes.some(x=>x.view?.kind==='conversation'&&x.view.session===visible),visibleLoaded:snap.sessions.get(visible)?.itemsLoaded===true,draftPresent:!!s.drafts.live(draft),draftLoaded:snap.sessions.get(draft)?.itemsLoaded===true,pendingPresent:snap.approvals.some(a=>a.key===pending),pendingLoaded:snap.sessions.get(pending)?.itemsLoaded===true,pendingActive:!!snap.sessions.get(pending)?.turns.some(t=>t.status==='inProgress'),pendingMounted:panes.some(x=>x.view?.kind==='conversation'&&x.view.session===pending),pendingCloseSent:window.__hd1545Closes.get(pending)?.sent??0,...(${JSON.stringify(late)}?{pendingCloseResolved:window.__hd1545Closes.get(pending)?.resolved??0,pendingCloseRejected:window.__hd1545Closes.get(pending)?.rejected??0}:{}),knownLoaded:keys.filter(k=>snap.sessions.get(k)?.itemsLoaded===true).length,knownMissing:keys.filter(k=>!snap.sessions.has(k)).length,...(selected?{selectedPresent:snap.sessions.has(selected),selectedLoaded:snap.sessions.get(selected)?.itemsLoaded===true}:{})}})()`,timeout )
 const mark400 = async (count, stage, selected=null) => {
  if(count!==400)return
  let state
@@ -187,9 +194,13 @@ try {
   result.phase=`checkpoint-${count}`;delete result.lastWait;delete result.lastWaitUnavailable;if(count===400)await mark400(count,'open-visible');if(count!==0)await openVisible()
   if(count===400)await mark400(count,'pending');if(!await pendingCheck())throw new Error('pending sentinel did not survive navigation')
   if(count===400)await mark400(count,'quiescence');let state,waitObservation
+  if(count===400)try{await cdp.send('Performance.enable',{},2000);performanceStart=await cdp.send('Performance.getMetrics',{},2000)}catch{result.performanceUnavailable=true}
   await cdp.eval('window.__hd1545Wait.begin()')
   try{state=await waitFor('quiescent pressure',async()=>{const first=await sample();if(!first.enabled||first.pressureRunning||first.pressureDirty)return false;await cdp.eval('new Promise(resolve=>setTimeout(()=>resolve(true),0))');const second=await sample();return JSON.stringify(first)===JSON.stringify(second)?second:false},30000)}
-  finally{try{waitObservation=sanitizeWaitObservation(await cdp.json('window.__hd1545Wait.end()'));result.lastWait={checkpoint:count,kind:'quiescence',...waitObservation}}catch{result.lastWaitUnavailable=true}}
+  finally{
+   try{waitObservation=sanitizeWaitObservation(await cdp.json('window.__hd1545Wait.end()'));result.lastWait={checkpoint:count,kind:'quiescence',...waitObservation}}catch{result.lastWaitUnavailable=true}
+  }
+  await finishPerformance()
 
   if(count===400){await mark400(count,'eligibility');result.diagnostic=stageRecord('eligibility',{...result.diagnostic.state,sampledEligibilityKnown:state.eligibleBodies!==null||state.eligibleBytes!==null})}if(state.eligibleBodies!==null||state.eligibleBytes!==null)throw new Error('eligibility surface changed')
   if(count===400){await mark400(count,'recovery');result.diagnostic=stageRecord('recovery',{...result.diagnostic.state,sampledRecovery:state.trackedRecoveryRecords})}if(state.trackedRecoveryRecords!==0)throw new Error('unresolved recovery record')
@@ -228,5 +239,12 @@ try {
 } catch (error) {
  result.error='profile failed';result.errorCode=classifyProfileError(error);process.exitCode=1
  Object.assign(result,await captureFailure(result.phase,()=>readScalarState(),()=>rpcSnapshot()))
+ await finishPerformance()
+ await recordLateFailure(result,{
+  now:()=>performance.now(),sleep,
+  read:timeout=>readScalarState(null,timeout,true),
+  collect:timeout=>cdp.send('HeapProfiler.collectGarbage',{},timeout),
+  heap:timeout=>cdp.send('Runtime.getHeapUsage',{},timeout),
+ })
 }
 finally {let stopped=true;try{await closeDesk(desk??{})}catch{stopped=false;result.cleanupError=true;process.exitCode=1}console.log(JSON.stringify(result));if(stopped)rmSync(taskRoot,{recursive:true,force:true})}
