@@ -1,0 +1,9 @@
+{
+  "source": "f63cc22f9c9d41e0365ffde46929cdee1f006e4c",
+  "proof": "Split synthetic real disk recovery and actual Electron checkpoint component preview; not live Host transport or power-loss proof.",
+  "privacy": "Loopback-only fake fixture; COLLECT and textReasons checks passed before and after capture.",
+  "images": [
+    {"file":"before.png","description":"Controlled missing-record projection for the recovered notice", "sha256":"b5a6871bdb31333ade10f886f1351ef879ad721e03f2248421e305676bfc8137", "width":2560,"height":1936},
+    {"file":"after.png","description":"Actual disk-recovered checkpoint facts shown after scrolling the modal", "sha256":"f378e06955ad66be220a6c9ec4f36826310bc39fb7b2d94b3bf3dfe6d5451400", "width":2560,"height":1936}
+  ]
+}
