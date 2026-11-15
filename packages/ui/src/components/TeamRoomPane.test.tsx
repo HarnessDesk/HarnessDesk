@@ -5205,3 +5205,22 @@ it('folds Run facts and Seats with summaries while preserving the add-seat doorw
   act(() => toggle.click())
   expect(run.querySelector('[data-slot="tool-section-body"]')?.hasAttribute('hidden')).toBe(true)
 })
+
+it('allows a stopped protected Run to finish cleanup from its Run workspace after confirmation', async () => {
+  const execution: FlowExecution = { version: 2, id: 'protected-stop', goal: ROOM, document: FLOW_DOCUMENT, state: 'stopped', canStop: true,
+    reason: 'Stopped by a mention.', end: { kind: 'stopped', by: 'person' }, operations: [], legacyRun: null, rounds: [] }
+  const { store } = rig([], [], { members: [] }, GOAL, new Map([[execution.id, execution]]))
+  const stopping = vi.fn(async () => execution)
+  store.stopFlowExecution = stopping
+  await render(store)
+  act(() => row('Run').click()); await act(async () => {})
+  const action = [...container.querySelectorAll<HTMLButtonElement>('[data-slot="page-options"] button')].find(one => one.textContent === 'Stop run…')!
+  expect(action.disabled).toBe(false)
+  expect(container.textContent).toContain('Stopped')
+  act(() => action.click())
+  expect(stopping).not.toHaveBeenCalled()
+  const dialog = document.body.querySelector('[role="alertdialog"]')!
+  expect(dialog.textContent).toContain('Finish stopping this Run?')
+  await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Stop run')!.click())
+  expect(stopping).toHaveBeenCalledExactlyOnceWith('protected-stop', 'You stopped this Run. No further step starts.')
+})

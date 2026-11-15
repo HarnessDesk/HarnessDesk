@@ -51,6 +51,26 @@ const rig = async (over: { configured?: boolean; manage?: boolean; service?: Rec
 }
 const code = (reason: string) => (error: any) => error.wireCode === reason
 
+test('repeat readiness includes the controls continuation, not only service activity', async () => {
+  let starts = 0
+  const s = await rig({ configured: true, service: { requestInFlight: false, async send() { starts++; return { status: 'completed', text: '' } } },
+    controls: { readRequestInFlight: () => false } })
+  try {
+    // The controls owner schedules its continuation for a later timer; the
+    // service has not received a request in this deterministic gap.
+    await s.controls.send({ idempotencyKey: 'synthetic', text: 'Inspect' })
+    await s.journal.stop(); await s.journal.runStopEffects(async () => {})
+    assert.equal(starts, 0)
+    assert.equal(canBeginLeadGoal(s.journal.state), true)
+    const oldReady = !(s.service as { requestInFlight?: boolean }).requestInFlight && canBeginLeadGoal(s.journal.state)
+    assert.equal(oldReady, true, 'the old test predicate reports ready before the controls continuation settles')
+    assert.equal((await s.controls.readThread()).requestInFlight, true)
+    await assert.rejects(s.controls.runScheduled({ id: 'fixture', title: 'Synthetic', goal: 'Synthetic', enabled: true, every: 'daily', at: '09:00', zone: 'UTC' } as any, 100), code('lead-request-in-flight'))
+    await s.controls.idle()
+    assert.equal((await s.controls.readThread()).requestInFlight, false)
+  } finally { await s.controls.idle(); s.controls.close() }
+})
+
 test('an unconfirmed mention stop exposes a new person-authorized cleanup without replay', async () => {
   let effects = 0, requests = 0
   const s = await rig({ controls: { stopEffects: async () => { effects++ }, stopRequest: async () => { requests++ } } })
