@@ -1149,11 +1149,32 @@ export class AppStore {
       }
       if (candidates.length <= limits.count && candidates.reduce((sum, item) => sum + item.bytes, 0) <= limits.bytes) return []
       candidates.sort((a, b) => a.touched - b.touched || String(a.key).localeCompare(String(b.key)))
+      const checked: SessionKey[] = []
+      let provenCount = 0, provenBytes = 0
+      let change = this.#transcriptChange, draftRevision = this.drafts.revision
+      const countProof = (key: SessionKey): void => {
+        const session = this.#snapshot.sessions.get(key)
+        if (!session || !this.#currentTranscriptPlanningReceipt(key, session)) return
+        try { const bytes = canonicalTranscriptBody(session.turns).bytes; provenCount++; provenBytes += bytes } catch { /* Keep unsupported bodies. */ }
+      }
       for (const candidate of candidates) {
         const session = this.#snapshot.sessions.get(candidate.key)
-        if (session && this.#currentTranscriptPlanningReceipt(candidate.key, session)) continue
-        const { runtime, id } = splitSessionKey(candidate.key)
-        await this.prepareTranscriptEviction(runtime, id)
+        if (!session || !this.#currentTranscriptPlanningReceipt(candidate.key, session)) {
+          const { runtime, id } = splitSessionKey(candidate.key)
+          await this.prepareTranscriptEviction(runtime, id)
+        }
+        checked.push(candidate.key)
+        // An awaited proof may have crossed a body, owner, or draft change.
+        // Recount only current receipts rather than carrying stale authority.
+        if (change !== this.#transcriptChange || draftRevision !== this.drafts.revision) {
+          change = this.#transcriptChange; draftRevision = this.drafts.revision
+          provenCount = 0; provenBytes = 0
+          for (const key of checked) countProof(key)
+        } else countProof(candidate.key)
+        if (provenCount > limits.count || provenBytes > limits.bytes) {
+          const planned = this.planTranscriptEvictions(limits)
+          if (planned.length) return planned
+        }
       }
       return this.planTranscriptEvictions(limits)
     })
