@@ -14,7 +14,7 @@ import { runGuarded } from './run-guarded.mjs'
 import { assertSource } from './source-guard.mjs'
 
 const taskSource = resolve('.')
-const taskSha = 'd1361ef1eb4e33a9f01d3ac944dd07f2ff785e23' // integrated source commit; repin if source changes.
+const taskSha = '9fac46ae066acbc2ba2dddd4e0815a1b703a7a36' // integrated source commit; repin if source changes.
 const expectedFixtureSha = '12e1e552085c154e507ac1100dbcd9bcaeaf8184696ad02e9a696c3929c529ac'
 const preparedOnly = true // Must remain true until parent reviews final branch and authorizes the run.
 const sha = path => createHash('sha256').update(readFileSync(path)).digest('hex')
@@ -28,7 +28,7 @@ if (process.platform !== 'darwin' || process.env.GITHUB_ACTIONS !== 'true' || pr
 const fixture=join(taskSource,'diagnostic/stop-history/fake-codex-1545.mjs')
 if (sha(fixture)!==expectedFixtureSha) throw new Error('fixture fingerprint mismatch')
 const fingerprints = {
-  'packages/server/src/intake/mentions.ts':'3c7547aa8cd8e48bae579eca66f592c8844db5b7dd5cb93b2a0b147298de82cd',
+  'packages/server/src/intake/mentions.ts':'c9d3fffb7a0fec75d84a79c58894fdb135fdc6d373f530d9ce81bd5d5649c46b',
   'packages/server/src/intake/plane.ts':'22dc993ae1f9103a03e3aa7c6e9dec8d36e95e468bbe6e8f7852b630d730c352',
   'packages/ui/src/components/ProjectTriggers.tsx':'34074e404999e4f11f37f77fa27478d9c50e645adbb41f21f1c82096e398a071',
   'packages/ui/src/components/MentionDecisions.tsx':'87828bc77e27ce5344c68017822bc0e34cec99e0e6600d0cd69ace48623f3a73',
