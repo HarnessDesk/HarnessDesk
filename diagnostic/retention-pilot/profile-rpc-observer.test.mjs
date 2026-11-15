@@ -15,7 +15,7 @@ test('observes promise identity, receiver, nulls, rejection and bounded scalar p
  assert.equal(report.cacheSnapshot.active,1);assert.equal(report.cacheSnapshot.oldestAgeMs,10);assert.equal(report.cacheSnapshot.oldestOrdinal,7)
  resolve(null);reject(new Error('private error'));await Promise.allSettled([a,b]);await Promise.resolve()
  clock=120;report=observer.snapshot()
- assert.equal(report.cacheSnapshot.nulls,1);assert.equal(report.cacheSnapshot.completed,1);assert.equal(report.prepareEviction.rejected,1)
+ assert.equal(report.cacheSnapshot.nulls,1);assert.equal(report.cacheSnapshot.completed,1);assert.equal(report.prepareEviction.rejected,1);assert.equal(report.cacheSnapshot.sumDurationMs,10);assert.equal(report.prepareEviction.sumDurationMs,10)
  assert.deepEqual(seen,[receiver,receiver]);assert.doesNotMatch(JSON.stringify(report),/secret|private/)
 })
 test('classifies only exact known errors', () => {

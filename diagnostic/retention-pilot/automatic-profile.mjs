@@ -10,6 +10,7 @@ import { listenerCounts } from './listener-diagnostics.mjs'
 import { canonicalBytes, summarize, pendingAfterNavigation } from './profile-scalars.mjs'
 import { stageRecord } from './profile-stage.mjs'
 import { createRpcObserver, classifyProfileError } from './profile-rpc-observer.mjs'
+import { captureFailure } from './profile-failure.mjs'
 
 const taskSource = resolve('.')
 const taskSha = 'b5dad1cac3b5c26a563413d0e586b44508374b5c'
@@ -125,14 +126,13 @@ const sample = async () => {
   if(!mounted||!s.drafts.live(sent.draft)||!snap.approvals.some(a=>a.key===sent.pending)||!snap.sessions.get(sent.pending)?.turns.some(t=>t.status==='inProgress'))throw Error('sentinel protection missing');
   return {metadata:snap.sessions.size,loadedFullBodies:stats.loadedFullBodies,releasedBodies:stats.releasedBodies,trackedRecoveryRecords:stats.trackedRecoveryRecords,enabled:stats.enabled,pressureRunning:stats.pressureRunning,pressureDirty:stats.pressureDirty,eligibleBodies:stats.eligibleBodies,eligibleBytes:stats.eligibleBytes,...measured,mounted,draft:true,pending:true}})()`)
 }
-// The failure record contains only fixed stage names and allowlisted scalars.
+// One shared scalar read is used before 400 assertions and after any checkpoint failure.
+const readScalarState = async (selected=null) => cdp.json(`(()=>{const s=window.__hdStore,snap=s.getSnapshot(),stats=s.transcriptCacheStats(),keys=${JSON.stringify(keys)},p=n=>!n?[]:n.kind==='pane'?[n]:n.kind==='split'?[...p(n.first),...p(n.second)]:[],panes=p(snap.layout.root),pending=${JSON.stringify(pending)},visible=${JSON.stringify(visible)},draft=${JSON.stringify(draft)},selected=${JSON.stringify(selected)};
+   return {metadata:snap.sessions.size,loaded:stats.loadedFullBodies,released:stats.releasedBodies,recovery:stats.trackedRecoveryRecords,pressureRunning:stats.pressureRunning,pressureDirty:stats.pressureDirty,enabled:stats.enabled,eligibilityKnown:stats.eligibleBodies!==null||stats.eligibleBytes!==null,visibleMounted:panes.some(x=>x.view?.kind==='conversation'&&x.view.session===visible),visibleLoaded:snap.sessions.get(visible)?.itemsLoaded===true,draftPresent:!!s.drafts.live(draft),draftLoaded:snap.sessions.get(draft)?.itemsLoaded===true,pendingPresent:snap.approvals.some(a=>a.key===pending),pendingLoaded:snap.sessions.get(pending)?.itemsLoaded===true,pendingActive:!!snap.sessions.get(pending)?.turns.some(t=>t.status==='inProgress'),pendingMounted:panes.some(x=>x.view?.kind==='conversation'&&x.view.session===pending),pendingCloseSent:window.__hd1545Closes.get(pending)?.sent??0,knownLoaded:keys.filter(k=>snap.sessions.get(k)?.itemsLoaded===true).length,knownMissing:keys.filter(k=>!snap.sessions.has(k)).length,...(selected?{selectedPresent:snap.sessions.has(selected),selectedLoaded:snap.sessions.get(selected)?.itemsLoaded===true}:{})}})()` )
 const mark400 = async (count, stage, selected=null) => {
  if(count!==400)return
  let state
- try {
-  state=await cdp.json(`(()=>{const s=window.__hdStore,snap=s.getSnapshot(),stats=s.transcriptCacheStats(),keys=${JSON.stringify(keys)},p=n=>!n?[]:n.kind==='pane'?[n]:n.kind==='split'?[...p(n.first),...p(n.second)]:[],panes=p(snap.layout.root),pending=${JSON.stringify(pending)},visible=${JSON.stringify(visible)},draft=${JSON.stringify(draft)},selected=${JSON.stringify(selected)};
-   return {metadata:snap.sessions.size,loaded:stats.loadedFullBodies,released:stats.releasedBodies,recovery:stats.trackedRecoveryRecords,pressureRunning:stats.pressureRunning,pressureDirty:stats.pressureDirty,enabled:stats.enabled,eligibilityKnown:stats.eligibleBodies!==null||stats.eligibleBytes!==null,visibleMounted:panes.some(x=>x.view?.kind==='conversation'&&x.view.session===visible),visibleLoaded:snap.sessions.get(visible)?.itemsLoaded===true,draftPresent:!!s.drafts.live(draft),draftLoaded:snap.sessions.get(draft)?.itemsLoaded===true,pendingPresent:snap.approvals.some(a=>a.key===pending),pendingLoaded:snap.sessions.get(pending)?.itemsLoaded===true,pendingActive:!!snap.sessions.get(pending)?.turns.some(t=>t.status==='inProgress'),pendingMounted:panes.some(x=>x.view?.kind==='conversation'&&x.view.session===pending),pendingCloseSent:window.__hd1545Closes.get(pending)?.sent??0,knownLoaded:keys.filter(k=>snap.sessions.get(k)?.itemsLoaded===true).length,knownMissing:keys.filter(k=>!snap.sessions.has(k)).length,...(selected?{selectedPresent:snap.sessions.has(selected),selectedLoaded:snap.sessions.get(selected)?.itemsLoaded===true}:{})}})()`)
- } catch {state={stateUnavailable:true}}
+ try{state=await readScalarState(selected)}catch{state={stateUnavailable:true}}
  result.diagnostic=stageRecord(stage,state)
 }
 const rpcSnapshot = async () => cdp.json(`(()=>{const m=window.__hd1545Closes,keys=${JSON.stringify(keys)};return window.__hd1545Rpc.snapshot(ref=>{if(!ref)return -1;const i=keys.findIndex(key=>m.get(key)===ref);return i<0?-1:i+1})})()`)
@@ -211,11 +211,6 @@ try {
  result.phase='passed'
 } catch (error) {
  result.error='profile failed';result.errorCode=classifyProfileError(error);process.exitCode=1
- if(result.phase==='checkpoint-400'&&result.diagnostic&&cdp){
-  const before=result.diagnostic
-  try{await mark400(400,before.stage);result.endState=result.diagnostic.state}catch{result.endState={stateUnavailable:true}}
-  result.diagnostic=before
-  try{result.rpcEnd=await rpcSnapshot()}catch{result.rpcEndUnavailable=true}
- }
+ Object.assign(result,await captureFailure(result.phase,()=>readScalarState(),()=>rpcSnapshot()))
 }
 finally {let stopped=true;try{await closeDesk(desk??{})}catch{stopped=false;result.cleanupError=true;process.exitCode=1}console.log(JSON.stringify(result));if(stopped)rmSync(taskRoot,{recursive:true,force:true})}
