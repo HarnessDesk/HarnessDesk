@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { accessSync, chmodSync, constants, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { accessSync, chmodSync, closeSync, constants, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync, writeSync } from 'node:fs'
 import { tmpdir, homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -12,6 +12,7 @@ import { stageRecord } from './profile-stage.mjs'
 import { createRpcObserver, classifyProfileError } from './profile-rpc-observer.mjs'
 import { captureFailure } from './profile-failure.mjs'
 import { captureMetricDeltas, recordLateFailure } from './late-observation.mjs'
+import { captureLateHeap } from './heap-capture.mjs'
 import { createNotificationObserver, installNotificationObserver, sanitizeWaitObservation } from './profile-notification-observer.mjs'
 
 const taskSource = resolve('.')
@@ -94,6 +95,23 @@ const observedListeners=async (name) => {
 // remote handle is returned by a measurement expression.
 const keys=[]
 let cdp, runtime, visible, draft, pending, performanceStart
+let drainHeld = async () => { throw new Error('tracker unavailable') }
+const installHeldTracker = client => {
+ const original=client.send.bind(client), pendingGroups=new Set();let failed=false
+ client.send=(method,params,timeout)=>{
+  const call=original(method,params,timeout)
+  if(method==='Runtime.releaseObjectGroup'){
+   pendingGroups.add(call);call.then(()=>pendingGroups.delete(call),()=>{pendingGroups.delete(call);failed=true})
+  }
+  return call
+ }
+ return async()=>{
+  let timer
+  try {await Promise.race([Promise.all([...pendingGroups]),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('release timeout')),2000)})])}
+  finally {clearTimeout(timer)}
+  if(failed||pendingGroups.size)throw new Error('release unavailable')
+ }
+}
 const finishPerformance = async () => {
  if(!performanceStart)return
  try {const end=await cdp.send('Performance.getMetrics',{},2000);result.performanceDeltas=captureMetricDeltas(performanceStart,end)}
@@ -151,7 +169,7 @@ const compareRepresentative = async key => {
 
 try {
  result.phase='launch'; desk=await launchDesk({app:taskSource,home:taskDeskHome,userDataDir:taskElectron,env})
- await observedListeners('listenersAtLaunch');cdp=desk.cdp
+ await observedListeners('listenersAtLaunch');cdp=desk.cdp;drainHeld=installHeldTracker(cdp)
  await waitFor('store connected',()=>cdp.eval("window.__hdStore?.getSnapshot().status === 'open'"),30000)
  const browser=await cdp.send('Browser.getVersion');result.browser={product:browser.product,protocolVersion:browser.protocolVersion,jsVersion:browser.jsVersion}
  const target=(await cdp.send('Target.getTargetInfo')).targetInfo?.targetId;if(!target)throw new Error('missing target identity')
@@ -246,5 +264,38 @@ try {
   collect:timeout=>cdp.send('HeapProfiler.collectGarbage',{},timeout),
   heap:timeout=>cdp.send('Runtime.getHeapUsage',{},timeout),
  })
+ // Supplemental only: never repair or overwrite the original failure/checkpoint.
+ if(result.phase==='checkpoint-400'&&result.errorCode==='quiescence-deadline'&&result.lateObservation?.outcome==='quiescent'&&result.lateObservation?.heap){
+  const snapshotPath=join(taskRoot,'renderer.heapsnapshot'),keysPath=join(taskRoot,'heap-keys.json')
+  let latestStatuses
+  result.heapObservation=await captureLateHeap({
+   drain:drainHeld,
+   read:async()=>{
+    const state=await readScalarState(null,2000,true)
+    const statuses=await cdp.json(`(()=>{const s=window.__hdStore.getSnapshot();return ${JSON.stringify(keys)}.map(k=>s.sessions.get(k)?.itemsLoaded===true)})()`,2000)
+    if(!Array.isArray(statuses)||statuses.length!==400||statuses.some(x=>typeof x!=='boolean'))throw new Error('state unavailable')
+    latestStatuses=statuses;return {...state,statuses}
+   },
+   collect:()=>cdp.send('HeapProfiler.collectGarbage',{},2000),
+   snapshot:async()=>{
+    const fd=openSync(snapshotPath,'wx',0o600);let bytes=0,overflow=false,writeFailed=false
+    const stop=cdp.on('HeapProfiler.addHeapSnapshotChunk',({chunk})=>{
+     if(overflow||writeFailed||typeof chunk!=='string')return
+     bytes+=Buffer.byteLength(chunk);if(bytes>256*1024*1024){overflow=true;return}
+     try {writeSync(fd,chunk)}catch{writeFailed=true}
+    })
+    try {await cdp.send('HeapProfiler.enable',{},2000);await cdp.send('HeapProfiler.takeHeapSnapshot',{reportProgress:false},30000)}
+    finally {stop();closeSync(fd)}
+    if(overflow||writeFailed||!bytes)throw new Error('snapshot unavailable')
+   },
+   analyze:async()=>{
+    const expected=keys.map((key,i)=>({needle:createHash('sha256').update(`${addr(key).sessionId}:0`).digest('hex'),loaded:latestStatuses[i]}))
+    write(keysPath,JSON.stringify(expected))
+    const child=spawnSync(process.execPath,[join(taskSource,'diagnostic/retention-pilot/heap-worker.mjs'),snapshotPath,keysPath],{env:{PATH:'/usr/bin:/bin'},encoding:'utf8',timeout:25000,maxBuffer:4096})
+    if(child.status!==0||child.error||child.stderr)return {status:'unavailable'}
+    try {return JSON.parse(child.stdout)}catch{return {status:'unavailable'}}
+   },
+  })
+ }
 }
 finally {let stopped=true;try{await closeDesk(desk??{})}catch{stopped=false;result.cleanupError=true;process.exitCode=1}console.log(JSON.stringify(result));if(stopped)rmSync(taskRoot,{recursive:true,force:true})}
