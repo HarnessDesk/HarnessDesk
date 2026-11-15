@@ -138,10 +138,11 @@ export class LeadContextStore {
     return this.#serial(async () => {
       const previous = this.#checkpoints
       const next = await Promise.all(previous.map(async checkpoint => {
-        const parts = [...(checkpoint.person?.messages.map(message => message.text) ?? []),
+        const parts = [...(this.#checkpointPending ? checkpoint.person?.messages.map(message => message.text) ?? [] : []),
           ...(checkpoint.text === null ? [] : [checkpoint.text])]
         if (!parts.length) return checkpoint
         try { await screen(parts.join('\n')); return checkpoint } catch {
+          if (!this.#checkpointPending) return { ...checkpoint, text: null }
           const { person: _person, ...withheld } = checkpoint
           return { ...withheld, text: null }
         }
