@@ -10,16 +10,17 @@ import { listenerCounts } from './listener-diagnostics.mjs'
 import { makeLedger } from './seed.mjs'
 import { interruptCount, recordInterrupt } from './counter.mjs'
 import { inspectFrame } from './frame-policy.mjs'
+import { locateTarget } from './click-target.mjs'
 import { runGuarded } from './run-guarded.mjs'
 import { assertSource } from './source-guard.mjs'
 
 const taskSource = resolve('.')
 const taskSha = '9fac46ae066acbc2ba2dddd4e0815a1b703a7a36' // integrated source commit; repin if source changes.
 const expectedFixtureSha = '12e1e552085c154e507ac1100dbcd9bcaeaf8184696ad02e9a696c3929c529ac'
-const preparedOnly = false // Parent reviewed final 9fac source, guards and synthetic frame boundary.
+const preparedOnly = true // Requires renewed parent review before another run.
 const sha = path => createHash('sha256').update(readFileSync(path)).digest('hex')
 const git = (...args) => execFileSync('git', ['-C',taskSource,...args], {encoding:'utf8'}).trim()
-const result={source:taskSha,phase:'preflight',checks:{}}
+const result={source:taskSha,phase:'preflight',checks:{},readiness:{}}
 let desk, cdp, taskRoot, closeDesk
 await runGuarded(result, async()=>{
 if (preparedOnly) throw new Error('prepared only; no run authorized')
@@ -43,6 +44,7 @@ const fingerprints = {
   'diagnostic/stop-history/seed.mjs':'ac35c958f83509ac3807183d7955ec45614d5b8cd9bd99db0543696d5bdb8ca4',
   'diagnostic/stop-history/counter.mjs':'5d9ed3b4b2963a490cd5b565accf302aa184ceacb710a00c1372fcbae8033474',
   'diagnostic/stop-history/frame-policy.mjs':'3f22a99e3cb8bd7ffeaa5276a2a86c01a6592e3c1bf6d710ab3f46011a856abf',
+  'diagnostic/stop-history/click-target.mjs':'ac5f983734174484e3c8129720cdf276e09e788c4bf2da3bc4fceb1c6268a70a',
   'diagnostic/stop-history/run-guarded.mjs':'29815be8925f7643eb7297f9eacfd355c1cbf5b945388dbc80332c8fc4819aac',
   'diagnostic/stop-history/source-guard.mjs':'56ae7de03897f455068b85c827dd159eb990e2d478e4cbda72f8ce26361be036',
 }
@@ -109,9 +111,21 @@ const observedListeners=async (name) => {
   throw error
  }
 }
-const point = async (selector, label, rowText = null) => cdp.json(`(()=>{const nodes=[...document.querySelectorAll(${JSON.stringify(selector)})].filter(e=>{const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&!e.disabled&&((e.textContent||'').includes(${JSON.stringify(label)})||(e.getAttribute('aria-label')||'').includes(${JSON.stringify(label)}))&&(${JSON.stringify(rowText)}===null||(e.closest('[data-slot="list-row"]')?.innerText||'').includes(${JSON.stringify(rowText)}))});if(nodes.length!==1)return null;const r=nodes[0].getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;return nodes[0].contains(document.elementFromPoint(x,y))?{x,y}:null})()`)
-const click = async (selector,label,row=null) => {
-  const hit=await waitFor('click target',()=>point(selector,label,row),15000)
+const point = async (selector,label,rowText=null) => cdp.json(`(${locateTarget.toString()})(document,${JSON.stringify(selector)},${JSON.stringify(label)},${JSON.stringify(rowText)})`)
+const click = async (selector,label,row=null,checkpoint=null) => {
+  const readiness={attempts:0,matches:0,eligible:0,inViewport:0,hits:0,scrolls:0}
+  if(checkpoint)result.readiness[checkpoint]=readiness
+  const hit=await waitFor('click target',async()=>{
+    const observation=await point(selector,label,row)
+    readiness.attempts=Math.min(1000,readiness.attempts+1)
+    for(const key of ['matches','eligible','inViewport','hits']) {
+      const value=observation?.[key]
+      if(!Number.isInteger(value)||value<0)throw new Error('invalid readiness observation')
+      readiness[key]=Math.min(1000,value)
+    }
+    if(observation.scrolled===true)readiness.scrolls=Math.min(1000,readiness.scrolls+1)
+    return observation.point
+  },15000)
   await cdp.send('Input.dispatchMouseEvent',{type:'mouseMoved',...hit})
   await cdp.send('Input.dispatchMouseEvent',{type:'mousePressed',...hit,button:'left',clickCount:1})
   await cdp.send('Input.dispatchMouseEvent',{type:'mouseReleased',...hit,button:'left',clickCount:1})
@@ -163,7 +177,8 @@ verifyLedger('unconfirmed')
 try {firstFrame=await frame()} catch {frameUnavailable=true}
 const beforeCounts=await cdp.json('window.__hd2065counts')
 if(Object.values(beforeCounts).some(Boolean)||interruptCount(counter)!==0||readFileSync(forgeCounter).length!==0)throw new Error('unexpected pre-review effect')
-result.phase='review';await click('button','Mark reviewed','#101')
+result.phase='review_target';await click('button','Mark reviewed','#101','review_target')
+result.phase='review_durable'
 await waitFor('durable review',()=>{try{return verifyLedger('reviewed')}catch{return false}},30000)
 result.checks.review=true
 const afterCounts=await cdp.json('window.__hd2065counts')
