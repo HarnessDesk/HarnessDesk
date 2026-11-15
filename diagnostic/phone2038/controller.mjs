@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url'
 import { allowed, inspectPaths, SSH_SHIM } from './ambient-shape.mjs'
 import { checkListeners } from './listener-guard.mjs'
 
-const taskSource=resolve('.'), taskSha='cd3800d628e7930e74e345cd1e4ba8f8056fabd1'
+const taskSource=resolve('.'), taskSha='b7d814084bc2c88e6d05ea634f65e3d82089339a'
 const git=(...args)=>execFileSync('git',['-C',taskSource,...args],{encoding:'utf8'}).trim()
 const sha=path=>createHash('sha256').update(readFileSync(path)).digest('hex')
 const result={phase:'preflight',checks:{}}
