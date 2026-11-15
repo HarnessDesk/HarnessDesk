@@ -19,7 +19,7 @@ import { seedProtectedFlow, exerciseProtectedFlow, captureSafely } from './flow-
 const taskSource = resolve('.')
 const taskSha = 'ecb7b41da2129009440fd3f00030ab7496e58ab7' // integrated source commit; repin if source changes.
 const expectedFixtureSha = '12e1e552085c154e507ac1100dbcd9bcaeaf8184696ad02e9a696c3929c529ac'
-const preparedOnly = true // Private preparation; parent must review before activation.
+const preparedOnly = false // Parent reviewed source, seed order, selectors and guarded frame failure boundary.
 const sha = path => createHash('sha256').update(readFileSync(path)).digest('hex')
 const git = (...args) => execFileSync('git', ['-C',taskSource,...args], {encoding:'utf8'}).trim()
 const result={source:taskSha,phase:'preflight',checks:{},readiness:{}}
