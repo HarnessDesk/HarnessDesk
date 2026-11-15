@@ -22,6 +22,7 @@ import { Admission, AGAIN_MISSING, PAUSED, SKIP_CHANGED, type AdmissionOptions, 
 import { IntakeEffects, type IntakeObservationPort, type TriggerExecutionPort, type TriggerGoalPort } from './apply.js'
 import { AttentionOutbox, type AttentionInput } from './attention.js'
 import { BudgetWatch, TriggerBudgets, utcDay, type BudgetVerdict } from './budget.js'
+import { BackgroundMeter } from './background-meter.js'
 import { CONSULT_USAGE_UNKNOWN, type SessionMeter } from './spend.js'
 import { consentMatches, TriggerClosures, TriggerConsent, type ArmBinding, type ArmedTrigger, type TriggerClosure } from './consent.js'
 import { usdMicros } from './definition.js'
@@ -227,6 +228,7 @@ export class IntakePlane {
   #closed = false
   #meterTimer: unknown = null
   #metering: Promise<void> | null = null
+  readonly #backgroundMeter = new BackgroundMeter()
   #reconciling: Promise<void> | null = null
   #dirty = false
   readonly #work = new Set<Promise<unknown>>()
@@ -1468,19 +1470,34 @@ export class IntakePlane {
     await this.#afterConsultRead(goal)
   }
 
-  /**
-   * Every live budget read once: what keeps a Seat inside a turn under a
-   * minute stale — and every Goal, stopped or not, whose reservation is still
-   * held, so the reading that can repair its spend settles it.
-   */
+  /** Active budgets retain their cadence. Stopped held reservations share a bounded,
+   * volatile background schedule; later settlement may therefore wait longer. */
   meter(): Promise<void> {
     this.#metering ??= (async () => {
       const live = this.#budgets.live()
-      const reading = [...new Set([...live, ...this.#budgets.unsettled()])]
-      if (reading.length === 0 || this.#closed) return
+      if (this.#closed) return
       if (live.length > 0) await this.#port.refreshLanes?.(live).catch(() => {})
-      for (const goal of reading) {
+      for (const goal of live) {
         if (this.#closed) return
+        await this.#meterGoal(goal).catch((error: unknown) => this.#port.log('a trigger Goal could not be metered', { error: String(error) }))
+      }
+      const meteredLive = new Set(live)
+      while (!this.#closed) {
+        // Recheck membership before each start: a newly live Goal belongs to the active path.
+        const currentLive = new Set(this.#budgets.live())
+        const newlyLive = [...currentLive].filter(goal => !meteredLive.has(goal))
+        if (newlyLive.length > 0) {
+          await this.#port.refreshLanes?.(newlyLive).catch(() => {})
+          for (const goal of newlyLive) {
+            if (this.#closed) return
+            meteredLive.add(goal)
+            await this.#meterGoal(goal).catch((error: unknown) => this.#port.log('a trigger Goal could not be metered', { error: String(error) }))
+          }
+          continue
+        }
+        const held = this.#budgets.unsettled().filter(goal => !currentLive.has(goal))
+        const goal = this.#backgroundMeter.take(held, this.#port.monotonic())
+        if (goal === null) break
         await this.#meterGoal(goal).catch((error: unknown) => this.#port.log('a trigger Goal could not be metered', { error: String(error) }))
       }
     })().finally(() => { this.#metering = null })

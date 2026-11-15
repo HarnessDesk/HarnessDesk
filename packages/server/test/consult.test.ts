@@ -502,6 +502,50 @@ rules: []
   return { d, goal, caller: { runtime: card.claim!.runtime, sessionId: card.claim!.sessionId } }
 }
 
+const triggerSeatsMany = async (t: TestContext, times = 1, usage?: () => readonly UsageSample[]): Promise<{ d: Awaited<ReturnType<typeof intakeDesk>>; seats: { goal: string; caller: { runtime: string; sessionId: string } }[] }> => {
+  const repo = await makeRepo('hd-consult-trigger-')
+  await commitTriggers(repo, Array.from({ length: 10 }, (_, n) => `- id: triage-${n}
+  on: issue
+  events: [labelled]
+  label: ready-${n}
+  opens: { flow: review-pr }
+`).join(''))
+  await writeFile(join(repo.dir, '.harnessdesk', 'flows', 'review-pr.yml'), `version: 2
+name: Review a pull request
+roles:
+  reviewer: { kind: agent, uses: reviewer, grant: read, ask: { seats: [fake], times: ${times} } }
+seed: { role: reviewer, title: Review it }
+rules: []
+`)
+  await repo.git('commit', '-qam', 'ask')
+  const d = await intakeDesk({ repo, ...(usage ? { usage } : {}) })
+  t.after(() => d.stop())
+  const root = repo.dir
+  const prefs = await d.host.call('trigger/preferences', {})
+  await d.host.call('trigger/preferences/set', { revision: prefs.revision, paused: false, dailyUsd: 100 })
+  for (let n = 0; n < 10; n++) {
+    const id = `triage-${n}`
+    const preview = await d.host.call('trigger/preview', { root, id })
+    await d.host.call('trigger/arm', { root, id, token: preview.token! })
+  }
+  const at = d.clocks.wall + 1000
+  for (let n = 0; n < 10; n++) d.forge.issues.push({ number: n + 21, state: 'open', created: at, updated: at, events: [{ id: n + 21, event: 'labeled', created: at, label: `ready-${n}` }], comments: [] })
+  d.clocks.advance(60_000)
+  await d.host.intakePlane.tick()
+  const goals = await until(async () => {
+    const found = (await d.host.call('goal/list', {}) as readonly GoalView[]).filter(view => view.goal.origin.kind === 'trigger')
+    return found.length === 10 ? found.map(view => view.goal.id) : null
+  }, 'the trigger Goals', 4000)
+  const seats = []
+  for (const goal of goals) {
+    const card = await until(async () => {
+      const view = await d.host.call('goal/read', { goal }) as GoalView
+      return view.board.intents.find((one: Intent) => one.state === 'claimed' && one.claim) ?? null
+    }, 'its Seat at work')
+    seats.push({ goal, caller: { runtime: card.claim!.runtime, sessionId: card.claim!.sessionId } })
+  }
+  return { d, seats }
+}
 /** The consult's meter on the Goal, `${seat}/ask/${n}`. */
 const askMeter = (d: Awaited<ReturnType<typeof intakeDesk>>, goal: string, n = 1) =>
   Object.entries(d.host.intakePlane.journal.read().budgets[goal]!.meters).find(([key]) => key.endsWith(`/ask/${n}`))?.[1] ?? null
@@ -732,6 +776,9 @@ test('round 4: a corpus that replays $0.10 before the $0.20 final strands nothin
   // The next corpus hands back $0.10 again, before the valid $0.20 final.
   corpus.push(corpusOf('fake', link.sessionId, project, 0.2, link.openedAt, link.closedAt!))
   await d.host.intakePlane.tick()
+  assert.ok(askMeter(d, goal)!.unknown, 'the held reservation waits for the next background opportunity')
+  d.clocks.advance(30_000)
+  await d.host.intakePlane.tick()
   const meter = askMeter(d, goal)!
   assert.deepEqual({ unknown: meter.unknown, lastMicros: meter.lastMicros }, { unknown: null, lastMicros: 200_000 }, 'the replay latched nothing; the final repaired it')
   const budget = d.host.intakePlane.journal.read().budgets[goal]!
@@ -750,4 +797,90 @@ test('round 5: the ask’s signal goes on into the agent’s own send, which loo
   assert.equal((await a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'q', context: null }, a.caller)).text, '4')
   assert.ok(signal instanceof AbortSignal, 'the send was given the ask’s signal')
   assert.equal(signal.aborted, false, 'and it was not withdrawn')
+})
+
+test('#2140: repeated same-clock background passes keep a stopped unknown reservation without rereading it', E2E, async (t) => {
+  let reads = 0, fail = false
+  const { d, goal, caller } = await triggerSeat(t, 2, () => { reads++; if (fail) throw new Error('synthetic usage failure'); return [] })
+  d.runtime.onSend = (session, text) => { if (text.includes(CONSULT_PROMPT)) setImmediate(() => (session as HoldSession).finish('4')) }
+  await d.host.consultPlane.ask({ agent: 'fake', question: 'What is 2+2?', context: null }, caller)
+  await d.host.intakePlane.tick()
+  const before = d.host.intakePlane.journal.read().budgets[goal]!
+  assert.ok(before.stop && !before.settled && before.reservedMicros > 0)
+  assert.ok(askMeter(d, goal)?.unknown)
+  const count = reads
+  for (let i = 0; i < 3; i++) await d.host.intakePlane.meter()
+  assert.ok(reads - count <= 1, 'same-clock passes start at most one background read per Goal')
+  const after = d.host.intakePlane.journal.read().budgets[goal]!
+  assert.equal(after.reservedMicros, before.reservedMicros)
+  assert.ok(askMeter(d, goal)?.unknown)
+  d.clocks.advance(30_000)
+  fail = true
+  const failed = reads
+  await d.host.intakePlane.meter()
+  await d.host.intakePlane.meter()
+  assert.equal(reads - failed, 1, 'a failed read consumes its opportunity')
+  assert.equal(d.host.intakePlane.journal.read().budgets[goal]!.reservedMicros, before.reservedMicros)
+})
+
+test('#2140: a live Goal remains metered while nine stopped reservations share the background quota', E2E, async (t) => {
+  const corpus: UsageSample[] = []
+  let reads = 0
+  const { d, seats } = await triggerSeatsMany(t, 2, () => { reads++; return corpus })
+  const project = (await seatLines(d.stateDir)).find(line => line.type === 'seat')!.record!.checkout.project
+  d.runtime.onSend = (session, text) => {
+    if (!text.includes(CONSULT_PROMPT)) return
+    void (async () => {
+      const at = Date.now()
+      corpus.push(corpusOf('fake', String(session.id), project, 0.003, at, at))
+      await d.host.intakePlane.tick()
+      d.runtime.emit({ type: 'usage/updated', sessionId: session.id, usage: USAGE(0.0012) })
+      setImmediate(() => (session as HoldSession).finish('4'))
+    })()
+  }
+  for (const seat of seats.slice(0, 9)) {
+    await d.host.consultPlane.ask({ agent: 'fake', question: 'What is 2+2?', context: null }, seat.caller)
+    assert.match(askMeter(d, seat.goal)?.unknown ?? '', /final total below/)
+  }
+  await d.host.intakePlane.tick()
+  const live = d.host.intakePlane.budgets.live(), held = d.host.intakePlane.budgets.unsettled()
+  assert.equal(seats.slice(0, 9).filter(s => held.includes(s.goal) && !live.includes(s.goal)).length, 9)
+  assert.ok(live.includes(seats[9]!.goal))
+  d.clocks.advance(30_000)
+  const before = reads
+  await Promise.all([d.host.intakePlane.meter(), d.host.intakePlane.meter()])
+  assert.equal(reads - before, 9, 'eight background starts and one active read, even when calls coalesce')
+  const again = reads
+  await d.host.intakePlane.meter()
+  assert.equal(reads - again, 1, 'active remains outside the exhausted quota')
+  d.runtime.onSend = (session, text) => {
+    if (!text.includes(CONSULT_PROMPT)) return
+    d.runtime.emit({ type: 'usage/updated', sessionId: session.id, usage: USAGE(0.1) })
+    setImmediate(() => (session as HoldSession).finish('4'))
+  }
+  const consultReads = reads
+  await d.host.consultPlane.ask({ agent: 'fake', question: 'What is 2+2?', context: null }, seats[9]!.caller)
+  assert.ok(reads - consultReads >= 2, 'direct consult start and final reads bypass the exhausted quota')
+  const direct = reads
+  d.host.intakePlane.wrapped(seats[0]!.goal)
+  await until(() => reads > direct ? true : null, 'direct wrap reads with exhausted background quota')
+  assert.equal(reads - direct, 1)
+  assert.ok(seats.slice(0, 9).every(s => d.host.intakePlane.journal.read().budgets[s.goal]!.reservedMicros > 0))
+})
+
+test('#2140: a direct wrap repairs and settles a held reservation during background backoff', E2E, async (t) => {
+  const corpus: UsageSample[] = []
+  const { d, goal, caller } = await triggerSeat(t, 2, () => corpus)
+  d.runtime.onSend = (session, text) => { if (text.includes(CONSULT_PROMPT)) setImmediate(() => (session as HoldSession).finish('4')) }
+  await d.host.consultPlane.ask({ agent: 'fake', question: 'What is 2+2?', context: null }, caller)
+  await d.host.intakePlane.tick()
+  const before = d.host.intakePlane.journal.read().budgets[goal]!
+  assert.ok(before.stop && !before.settled && before.reservedMicros > 0)
+  const lines = await seatLines(d.stateDir)
+  const link = lines.find(line => line.type === 'seat-consult' && line.consult?.closedAt !== null)!.consult!
+  corpus.push(corpusOf('fake', link.sessionId, lines.find(line => line.type === 'seat')!.record!.checkout.project, 0.05, link.openedAt, link.closedAt!))
+  d.host.intakePlane.wrapped(goal)
+  await until(() => d.host.intakePlane.journal.read().budgets[goal]!.settled ? true : null, 'direct event settles')
+  assert.equal(askMeter(d, goal)!.unknown, null)
+  assert.equal(d.host.intakePlane.journal.read().budgets[goal]!.reservedMicros, 0)
 })
