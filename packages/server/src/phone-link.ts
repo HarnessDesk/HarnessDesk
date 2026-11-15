@@ -176,8 +176,12 @@ const PHONE_RESULTS: Record<AutonomyViewMethod, (result: LeadAutonomyView) => Le
   'lead/settings/decide': phoneAutonomy,
 }
 /** A host answer as the phone may have it. */
-export const phoneResult = (method: string, result: unknown): unknown =>
-  Object.hasOwn(PHONE_RESULTS, method) && result && typeof result === 'object' ? PHONE_RESULTS[method as AutonomyViewMethod](result as LeadAutonomyView) : result
+export const phoneResult = (method: string, result: unknown): unknown => {
+  const projected = Object.hasOwn(PHONE_RESULTS, method) && result && typeof result === 'object' ? PHONE_RESULTS[method as AutonomyViewMethod](result as LeadAutonomyView) : result
+  if (!method.startsWith('lead/') || !projected || typeof projected !== 'object' || Array.isArray(projected) || !Object.hasOwn(projected, 'recordedStepInFlight')) return projected
+  const { recordedStepInFlight: _desktopOnly, ...phone } = projected as Record<string, unknown>
+  return phone
+}
 
 /** The memory changes a phone may make: answer a proposal, or forget one entry. */
 const PHONE_MEMORY_ACTIONS = new Set(['keep', 'dismiss', 'forget'])
@@ -250,7 +254,7 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
     }
     // A Lead change can move a Team row too (its step, `canWrap`, `relayed`, who started it) without any Team event,
     // so the workspace is rebuilt as well; the feed publishes only when the snapshot differs.
-    if (notification.method === 'lead/changed') { service.publish('lead', notification.params); feed.poke() }
+    if (notification.method === 'lead/changed') { service.publish('lead', phoneResult('lead/changed', notification.params)); feed.poke() }
     // The morning brief is one push, already capped for the phone; it carries words and a pointer, nothing else.
     else if (notification.method === 'lead/presence/changed') {
       const notice = notification.params.notice
