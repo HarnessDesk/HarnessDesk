@@ -89,6 +89,30 @@ const rig = async () => {
   return { ...d, running, pair, done: async () => { await running.close(); await rm(home, { recursive: true, force: true }) } }
 }
 
+test('phone receives the old Lead reply state without the desktop-only recorded-step field', async () => {
+  const s = await rig()
+  try {
+    await s.journal.stop(); await s.journal.runStopEffects(async () => {}); await s.controls.idle()
+    const host = s.host as { call: (method: string, params: unknown) => Promise<unknown> }
+    const call = host.call
+    host.call = async (method, params) => {
+      const result = await call(method, params)
+      return method === 'lead/thread/read' ? { ...result as object, recordedStepInFlight: true } : result
+    }
+    const phone = await s.pair()
+    const read = await phone.request('lead/thread/read', {})
+    assert.equal(read.ok, true)
+    assert.equal(read.result.requestInFlight, false)
+    assert.equal('recordedStepInFlight' in read.result, false)
+    const view = await s.controls.readThread()
+    s.broadcast({ method: 'lead/changed', params: { ...view, recordedStepInFlight: true } } as never)
+    const event = await phone.next(m => m.t === 'evt' && m.topic === 'lead')
+    assert.equal(event.data.requestInFlight, false)
+    assert.equal('recordedStepInFlight' in event.data, false)
+    phone.close()
+  } finally { await s.done() }
+})
+
 test('a paired phone reads and writes the Lead thread and gets its changes live', async () => {
   const s = await rig()
   try {

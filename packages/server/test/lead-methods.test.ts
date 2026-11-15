@@ -69,14 +69,17 @@ test('a held recorded desk read keeps scheduled-goal readiness busy until it set
     assert.equal(s.journal.state.attempts.get('held-desk-read')?.phase, 'started')
     assert.equal(canBeginLeadGoal(s.journal.state), false)
     await assert.rejects(s.controls.runScheduled(task, 100), code('lead-request-in-flight'))
-    assert.equal((await s.controls.readThread()).requestInFlight, true, 'the projection must show the held recorded read')
+    const during = await s.controls.readThread()
+    assert.equal(during.requestInFlight, false, 'a recorded read is not a model reply')
+    assert.equal((during as any).recordedStepInFlight, true, 'the projection must show the held recorded read separately')
     await s.controls.idle()
-    assert.equal((s.notifications.at(-1) as any).params.requestInFlight, true, 'subscribers see the held read')
+    assert.equal((s.notifications.at(-1) as any).params.recordedStepInFlight, true, 'subscribers see the held read')
     release(); assert.equal((await execution).outcome, 'succeeded')
     assert.equal(canBeginLeadGoal(s.journal.state), true)
     assert.equal((await s.controls.readThread()).requestInFlight, false)
+    assert.notEqual((await s.controls.readThread() as any).recordedStepInFlight, true)
     await s.controls.idle()
-    assert.equal((s.notifications.at(-1) as any).params.requestInFlight, false, 'subscribers see the settled read')
+    assert.notEqual((s.notifications.at(-1) as any).params.recordedStepInFlight, true, 'subscribers see the settled read')
     assert.equal((await s.controls.runScheduled(task, 101)).approved, false)
   } finally { release(); await execution; await s.controls.idle(); s.controls.close() }
 })
@@ -93,10 +96,12 @@ test('a recorded read is busy on an open thread and a finished failed read is no
       context: { desk: policy, projectPolicy: null, project: null, approved: null, budget: null, now: 100, policyInterpretation: 'idle' } },
     async () => { entered(); await held; throw new Error('synthetic read failed') })
     await started
-    assert.equal((await s.controls.readThread()).requestInFlight, true)
+    assert.equal((await s.controls.readThread()).requestInFlight, false)
+    assert.equal((await s.controls.readThread() as any).recordedStepInFlight, true)
     release(); assert.equal((await execution).outcome, 'failed')
     assert.equal(s.journal.state.attempts.get('open-desk-read')?.phase, 'finished')
     assert.equal((await s.controls.readThread()).requestInFlight, false)
+    assert.notEqual((await s.controls.readThread() as any).recordedStepInFlight, true)
   } finally { release(); await execution; await s.controls.idle(); s.controls.close() }
 })
 

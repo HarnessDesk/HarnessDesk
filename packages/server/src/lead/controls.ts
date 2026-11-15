@@ -249,10 +249,9 @@ export class LeadControls {
     const steers = this.#steers.list.slice(-64)
     const auditFailed = state.managementReason === 'lead-worker-audit-failed'
     const approvalHistory = boundLeadApprovalHistory(state.workerApprovals.map(rule => ({ ...rule, entries: auditFailed ? leadWorkerApprovalEntries(rule) : rule.entries ?? [] })))
-    // A recorded desk call can outlive the model request. A new goal also
-    // waits for these attempts to finish, so keep the projection busy until
-    // their actual result is journaled.
-    const requestInFlight = this.#inFlight() || [...state.attempts.values()].some(attempt => attempt.phase !== 'finished')
+    const requestInFlight = this.#inFlight()
+    // A recorded desk call can outlive the model request and blocks a new goal.
+    const recordedStepInFlight = [...state.attempts.values()].some(attempt => attempt.phase !== 'finished')
     if (!requestInFlight) this.#replySince = null
     else this.#replySince ??= this.options.now()
     const step = this.options.readActiveStep?.() ?? null
@@ -261,7 +260,7 @@ export class LeadControls {
     const failure = leadRequestFailure(waitReason, leadDisplayName(settings.name))
     const result = parseLeadWindowProjection({ stage, stageReason, version: 1, revision: state.seq, thread, settings, wayOut, waitReason,
       ...(state.phase === 'stopped' && (state.mentionStopOneShot || state.personStopAfterMention || state.personStopProcessSeq !== null) ? { canStop: true } : {}), ...(failure && { failure }),
-      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight, ...(activity && { activity }), personActions, savedApprovals: approvalHistory.filter(rule => !rule.revoked).map(({ id, target, count, entries, dispatch }) => ({ id, target, count, ...(dispatch && auditFailed ? { uncertain: true } : {}), ...(entries?.length ? { entries } : {}) })), revokedApprovals: approvalHistory.filter(rule => rule.revoked).map(({ id, target, count, entries }) => ({ id, target, count, ...(entries?.length ? { entries } : {}) })), ...(progress && { progress }), ...(team && { team }), ...(presence && { presence }), ...(steers.length && { steers }) })
+      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight, ...(recordedStepInFlight && { recordedStepInFlight }), ...(activity && { activity }), personActions, savedApprovals: approvalHistory.filter(rule => !rule.revoked).map(({ id, target, count, entries, dispatch }) => ({ id, target, count, ...(dispatch && auditFailed ? { uncertain: true } : {}), ...(entries?.length ? { entries } : {}) })), revokedApprovals: approvalHistory.filter(rule => rule.revoked).map(({ id, target, count, entries }) => ({ id, target, count, ...(entries?.length ? { entries } : {}) })), ...(progress && { progress }), ...(team && { team }), ...(presence && { presence }), ...(steers.length && { steers }) })
     try { await this.options.service.assertPublic(result, state.seq) } catch (error) { this.#publicFailure(error) }
     return result
   }

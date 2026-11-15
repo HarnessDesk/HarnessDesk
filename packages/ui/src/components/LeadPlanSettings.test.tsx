@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { LeadSchedule } from '@harnessdesk/protocol'
 import { LeadScheduleSettings } from './LeadPlanSettings'
-import { leadContract } from '../preview/lead-fixture'
+import { leadContract, leadProjection } from '../preview/lead-fixture'
 import { createLeadFixtureStore } from '../preview/frames-lead'
 import { StoreProvider } from '../state/context'
 import { LeadPlanSettingsSection } from './LeadPlanSettings'
@@ -20,6 +20,21 @@ const mount = (node: React.ReactNode) => {
 const button = (box: HTMLElement, label: string) => [...box.querySelectorAll('button')].find(one => one.textContent === label)!
 
 const schedule: LeadSchedule = { version: 1, quiet: null, tasks: [{ id: 'task-1', title: 'Morning tidy', goal: 'Close stale branches', every: 'weekdays', at: '09:00', enabled: true, lastRunAt: null }] }
+it('keeps Run once now disabled for a recorded step without treating it as a model reply', async () => {
+  const store = createLeadFixtureStore('settings-runs'), base = leadProjection()
+  const projection = { ...base, revision: 20, requestInFlight: false, thread: { ...base.thread, state: 'stopped' as const }, recordedStepInFlight: true }
+  store.lead.changed({ method: 'lead/changed', params: projection })
+  vi.spyOn(store.lead, 'readSchedule').mockResolvedValue(schedule)
+  const box = document.createElement('div'), root = createRoot(box); document.body.append(box)
+  try {
+    await act(async () => root.render(<StoreProvider store={store}><LeadPlanSettingsSection label="Dex" focus="repeat:task-1" /></StoreProvider>))
+    expect(button(box, 'Run once now').disabled).toBe(true)
+    await act(async () => store.lead.changed({ method: 'lead/changed', params: { ...projection, revision: 21, recordedStepInFlight: false } }))
+    expect(button(box, 'Run once now').disabled).toBe(false)
+    await act(async () => store.lead.changed({ method: 'lead/changed', params: { ...base, revision: 22 } }))
+    expect(button(box, 'Run once now').disabled).toBe(false)
+  } finally { act(() => root.unmount()); box.remove() }
+})
 it('lists a task with when it runs, and removes it whole', () => {
   const save = vi.fn(), box = mount(<LeadScheduleSettings label="Dex" schedule={schedule} pending={false} save={save} />)
   expect(box.textContent).toContain('Morning tidy')

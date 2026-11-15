@@ -135,6 +135,18 @@ it('copies requestInFlight into state and clears it on the next idle projection'
   expect(facade.state.requestInFlight).toBe(false)
 })
 
+it('updates recorded-step readiness independently at the same revision and accepts old hosts', async () => {
+  const { createLeadState } = await load()
+  const facade = createLeadState({ request: vi.fn() }, () => true)
+  facade.changed({ method: 'lead/changed', params: projection(1) })
+  expect(facade.state.recordedStepInFlight).toBeUndefined()
+  facade.changed({ method: 'lead/changed', params: { ...projection(1), recordedStepInFlight: true } })
+  expect(facade.state.recordedStepInFlight).toBe(true)
+  expect(facade.state.requestInFlight).toBe(false)
+  facade.changed({ method: 'lead/changed', params: projection(1) })
+  expect(facade.state.recordedStepInFlight).toBeUndefined()
+})
+
 it('does not read again after an accepted Send loses the capability', async () => {
   const { createLeadState } = await load()
   let available = true
