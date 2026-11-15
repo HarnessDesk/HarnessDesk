@@ -29,27 +29,27 @@ test('an empty title and preview fall back to the desktop first-ask rule without
 
 test('phone user words drop desk context without a verified Lead source', () => {
   const result = thread([{ id: itemId('you'), type: 'userMessage', content: [deskContextContent(wrapContext('Workspace', 'Message for host: private injection')), { type: 'text', text: 'Fix the bug.' }] }])
-  assert.deepEqual(result.turns[0], { type: 'you', id: 'you', text: 'Fix the bug.', attachments: [] })
+  assert.deepEqual(result.turns[0], { type: 'you', id: result.turns[0]!.id, text: 'Fix the bug.', attachments: [] })
   assert.ok(!JSON.stringify(result).includes('<context'))
 })
 
 test('verified Lead words drop unrelated injections and retain attribution', () => {
   const envelope = leadMessageEnvelope('Jane Doe', 'Run the checks.')
   const result = thread([{ id: itemId('you'), type: 'userMessage', content: [deskContextContent(envelope + '\n' + wrapContext('Workspace', 'private injection'))] }], { id, holder: 'lead', sent: [leadMessageKey(id, envelope)] })
-  assert.deepEqual(result.turns[0], { type: 'you', id: 'you', text: 'Run the checks.', attachments: [], lead: { name: 'Jane Doe' } })
+  assert.deepEqual(result.turns[0], { type: 'you', id: result.turns[0]!.id, text: 'Run the checks.', attachments: [], lead: { name: 'Jane Doe' } })
   assert.ok(!JSON.stringify(result).includes('<context'))
 })
 
 test('a Lead message reads as the Lead\'s on every transcript path, never as envelope text (#2090)', () => {
   const envelope = leadMessageEnvelope('Dex', 'Fix the stalled task.')
   const control: LeadChatControl = { id, holder: 'lead', sent: [leadMessageKey(id, envelope)] }
-  const expected = { type: 'you', id: 'you', text: 'Fix the stalled task.', attachments: [], lead: { name: 'Dex' } }
+  const expected = { type: 'you', text: 'Fix the stalled task.', attachments: [], lead: { name: 'Dex' } }
   // A replay with no desk record that merged the agent's stop marker in front of it.
   const merged = thread([{ id: itemId('you'), type: 'userMessage', content: [{ type: 'text', text: '[Request interrupted by user]' }, { type: 'text', text: envelope }] }], control)
-  assert.deepEqual(merged.turns[0], expected)
+  assert.deepEqual({ ...merged.turns[0], id: undefined }, { ...expected, id: undefined })
   // A runtime whose history the adapter already peeled into the item's context.
   const peeled = thread([{ id: itemId('you'), type: 'userMessage', content: [], context: [{ label: 'Lead message from Dex', text: envelope.slice(envelope.indexOf('\n') + 1, envelope.lastIndexOf('\n')) }] }], control)
-  assert.deepEqual(peeled.turns[0], expected)
+  assert.deepEqual({ ...peeled.turns[0], id: undefined }, { ...expected, id: undefined })
   assert.ok(!JSON.stringify([merged, peeled]).includes('<context'))
 })
 
@@ -117,7 +117,7 @@ test('serialized phone threads stay bounded for relay transport and retain reada
     turns: Array.from({ length: 4 }, (_, i) => ({ id: turnId(`turn-${i}`), status: 'completed', items: Array.from({ length: 4 }, (_, j) => change(`${i}-${j}.ts`, diff)) })),
   } }, { home: null, seat: initial.agent.name })
   assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 512 * 1024)
-  const recent = result.turns.find(t => t.id === 'turn-3:changes')
+  const recent = result.turns.find(t => t.type === 'changes' && t.files.some(f => f.path === '3-0.ts'))
   assert.ok(recent?.type === 'changes' && recent.files.some(f => f.hunks.some(h => h.lines.length > 0)))
   assert.equal(threadProjection(result)?.truncated, true)
 })
@@ -230,6 +230,16 @@ test('a run of reasoning with nothing to read shows as one Thinking step, as the
   assert.deepEqual(work(result).steps.map(step => step.title), ['Thinking', 'pnpm test', 'Thinking', 'Checking the lockfile', 'Thinking'])
 })
 
+test('separate work folds with the same replayed tool id have unique stable phone row ids', () => {
+  const reply: AgentItem = { id: itemId('reply'), type: 'assistantMessage', text: 'Done.', phase: 'final' }
+  const items = [run('first'), reply, run('second')]
+  const first = thread(items).turns
+  const second = thread(items).turns
+  assert.deepEqual(first.map(row => row.type), ['work', 'agent', 'work'])
+  assert.deepEqual(first.map(row => row.id), second.map(row => row.id))
+  assert.equal(new Set(first.map(row => row.id)).size, first.length, 'each projected row needs its own id')
+})
+
 test('a carry-on marker reaches the phone as its own plain line, never folded into the work or naming an email', () => {
   const marker = (phase: 'switched' | 'left', account: string): AgentItem => ({
     id: itemId(`carry-${phase}`), type: 'carryOn', phase, cause: 'credits', mode: phase === 'left' ? 'handoff' : 'sameThread',
@@ -245,4 +255,73 @@ test('a carry-on marker reaches the phone as its own plain line, never folded in
   // The marker splits the work into two folds rather than hiding inside one.
   assert.deepEqual(result.turns.map(one => one.type), ['work', 'agent', 'work', 'agent'])
   assert.ok(!JSON.stringify(result).includes('example.com'))
+})
+
+test('projected identities survive appended turns and the forty-turn window with arbitrary source ids', () => {
+  const source = (i: number) => ({ id: turnId(i < 2 ? 'same#2' : `t${i}`), status: 'completed' as const,
+    items: [{ id: itemId(i % 2 ? 'e\u0301' : '\ud800'), type: 'assistantMessage' as const, text: `reply ${i}` }] })
+  const read = (count: number) => buildThread({ id, running: false, project: null, pending: [], decided: [], session: {
+    id: sessionId('chat'), runtime: runtimeId('agent'), cwd, status: { type: 'idle' }, createdAt: 1, updatedAt: 1, itemsLoaded: true,
+    turns: Array.from({ length: count }, (_, i) => source(i)),
+  } }, { home: null, seat: 'Agent' })
+  const before = read(40), after = read(41)
+  assert.equal(new Set(before.turns.map(row => row.id)).size, 40)
+  assert.deepEqual(before.turns.slice(1).map(row => row.id), after.turns.slice(0, -1).map(row => row.id))
+  assert.equal(threadProjection(after)?.omittedSourceTurns, 1)
+})
+
+test('long source identities stay opaque and bounded without dropping the row', () => {
+  const result = buildThread({ id, running: false, project: null, pending: [], decided: [], session: {
+    id: sessionId('chat'), runtime: runtimeId('agent'), cwd, status: { type: 'idle' }, createdAt: 1, updatedAt: 1, itemsLoaded: true,
+    turns: [{ id: turnId('a'.repeat(300_000)), status: 'completed', items: [{ id: itemId('x'), type: 'assistantMessage', text: 'hello' }] }],
+  } }, { home: null, seat: 'Agent' })
+  assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 512 * 1024)
+  assert.equal(result.turns.length, 1)
+  assert.equal(result.turns[0]!.id.length, 47)
+  assert.equal(threadProjection(result)?.truncated, false)
+})
+
+test('identity encoding distinguishes Unicode code units and work folds keep identity as they grow', () => {
+  const mk = (source: string, items: AgentItem[]) => buildThread({ id, running: false, project: null, pending: [], decided: [], session: {
+    id: sessionId('chat'), runtime: runtimeId('agent'), cwd, status: { type: 'idle' }, createdAt: 1, updatedAt: 1, itemsLoaded: true,
+    turns: [{ id: turnId(source), status: 'completed', items }],
+  } }, { home: null, seat: 'Agent' })
+  const ids = ['é', 'e\u0301', '\ud800', '\ud801', 'same#2'].map(source => mk(source, [run('first')]).turns[0]!.id)
+  assert.equal(new Set(ids).size, ids.length)
+  assert.ok(ids.every(one => /^[\x20-\x7e]+$/.test(one)))
+  const before = mk('same#2', [run('first')])
+  const after = mk('same#2', [run('first'), run('second')])
+  assert.equal(before.turns[0]!.id, after.turns[0]!.id)
+})
+
+test('phone row IDs do not reveal private source turn or approval IDs when decoded', () => {
+  const privateTurn = '/private/example/project/sk-fixture123456789'
+  const privateApproval = '/private/example/approval/sk-fixture987654321'
+  const result = buildThread({ id, running: false, project: null, decided: [], pending: [{
+    id: approvalId(privateApproval), sessionId: sessionId('chat'), requestedAt: 1, type: 'command', command: 'ls', cwd,
+    actions: [], options: [],
+  }], session: { id: sessionId('chat'), runtime: runtimeId('agent'), cwd, status: { type: 'idle' }, createdAt: 1, updatedAt: 1, itemsLoaded: true,
+    turns: [{ id: turnId(privateTurn), status: 'completed', items: [{ id: itemId('visible'), type: 'assistantMessage', text: 'Done' }] }],
+  } }, { home: null, seat: 'Agent' })
+  assert.equal(result.turns.length, 2)
+  for (const row of result.turns) {
+    const decoded = Buffer.from(row.id.split(':').at(-1)!, 'base64url').toString('utf16le')
+    for (const secret of [privateTurn, privateApproval]) {
+      assert.equal(row.id.includes(secret), false)
+      assert.equal(decoded.includes(secret), false, 'the identifier must not expose its source when decoded')
+    }
+  }
+})
+
+test('a standalone plan keeps its row identity when a message is appended', () => {
+  const read = (items: AgentItem[]) => buildThread({ id, running: false, project: null, pending: [], decided: [], session: {
+    id: sessionId('chat'), runtime: runtimeId('agent'), cwd, status: { type: 'idle' }, createdAt: 1, updatedAt: 1, itemsLoaded: true,
+    turns: [{ id: turnId('turn'), status: 'completed', items, plan: [{ step: 'Check the result', status: 'pending' }] }],
+  } }, { home: null, seat: 'Agent' })
+  const reply = (name: string): AgentItem => ({ id: itemId(name), type: 'assistantMessage', text: name })
+  const before = read([reply('first')]), after = read([reply('first'), reply('second')])
+  const plan = (value: ReturnType<typeof read>) => value.turns.find(one => one.type === 'work')!
+  assert.equal(plan(before).id, plan(after).id)
+  const merged = read([reply('first'), run('ok')])
+  assert.notEqual(plan(before).id, plan(merged).id, 'a real work fold takes over the plan')
 })

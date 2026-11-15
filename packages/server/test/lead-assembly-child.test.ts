@@ -96,7 +96,9 @@ const thread = await made.host.call('lead/thread/read', {})
 out.threadRevision = thread.revision
 out.noKey = await codes(() => made.host.call('lead/thread/send', { idempotencyKey: 'goal-1', text: 'Make the retry status list complete' }))
 out.requestsWithoutKey = provider.requests.length
-const stored = await made.host.call('lead/settings/update', { expectedRevision: settings.revision, credential: { provider: 'anthropic', key: process.env.HD_CANARY } })
+// Intervening reads and refusals may leave a newer journal revision than the initial settings snapshot.
+const beforeCredential = await made.host.call('lead/settings/read', {})
+const stored = await made.host.call('lead/settings/update', { expectedRevision: beforeCredential.revision, credential: { provider: 'anthropic', key: process.env.HD_CANARY } })
 out.keyAfter = (stored.settings ?? {}).key?.configured ?? null
 const receipt = await made.host.call('lead/thread/send', { idempotencyKey: 'goal-2', text: 'Make the retry status list complete' })
 for (let waited = 0; provider.requests.length === 0 && waited < 30_000; waited += 100) await sleep(100)

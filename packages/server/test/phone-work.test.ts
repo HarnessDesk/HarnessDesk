@@ -5,7 +5,7 @@ import {
 } from '@harnessdesk/protocol'
 import { PhoneWork, phoneSessionValues, WorkspaceFeed, type PhoneWorkPorts } from '../src/phone-work.js'
 import { boundLeadChatRead } from '../src/lead/chat-read.js'
-import { assessApproval, isLowRiskCommand } from '../src/phone-thread.js'
+import { assessApproval, isLowRiskCommand, phoneApprovalId } from '../src/phone-thread.js'
 
 const RT = runtimeId('agent-a')
 const SID = sessionId('s1')
@@ -54,6 +54,34 @@ const rig = (over: Partial<PhoneWorkPorts> = {}): Rig => {
 }
 
 const key = `${RT}:${SID}`
+
+test('phone approval aliases route only an unambiguous pending request and preserve legacy ids', async () => {
+  const r = rig()
+  r.setPending([command('pnpm test')])
+  const first = await r.work.threadRead({ id: key })
+  const ask = first.turns.find(one => one.type === 'approval')!
+  assert.notEqual(ask.id, 'ap-1')
+  await r.work.approvalDecide({ id: ask.id, session: key, allow: true })
+  assert.equal(r.responded[0].approvalId, 'ap-1')
+  const receipt = (await r.work.threadRead({ id: key })).turns.find(one => one.type === 'approval')!
+  assert.equal(receipt.id, ask.id)
+  r.setPending([command('pnpm test')])
+  await r.work.approvalDecide({ id: 'ap-1', session: key, allow: false })
+  assert.equal(r.responded[1].approvalId, 'ap-1')
+  r.setPending([command('pnpm test'), command('pnpm test', { id: approvalId(ask.id) })])
+  await assert.rejects(r.work.approvalDecide({ id: ask.id, session: key, allow: true }))
+  assert.equal(r.responded.length, 2)
+  r.setPending([command('pnpm test'), command('pnpm test')])
+  const duplicate = (await r.work.threadRead({ id: key })).turns.filter(one => one.type === 'approval')
+  assert.equal(new Set(duplicate.map(one => one.id)).size, 2)
+  await assert.rejects(r.work.approvalDecide({ id: duplicate[0]!.id, session: key, allow: true }))
+  assert.equal(r.responded.length, 2)
+  r.setPending([command('rm -rf build')])
+  const risky = (await r.work.threadRead({ id: key })).turns.find(one => one.type === 'approval')!
+  await assert.rejects(r.work.approvalDecide({ id: risky.id, session: key, allow: true, scope: 'session' }))
+  await assert.rejects(r.work.approvalDecide({ id: risky.id, session: 'agent-a:foreign', allow: true }))
+  assert.equal(r.responded.length, 2)
+})
 
 test('which commands a phone may call low risk is decided by what they touch, and anything unknown is high', () => {
   const low = ['ls -la', 'git status', 'git diff --stat', 'git log -5 --oneline', 'rg TODO src', 'cat package.json', 'pnpm test', 'pnpm run lint',
@@ -311,7 +339,7 @@ test('allowing once picks the approval’s plain allow, and the thread then show
   assert.deepEqual(await r.work.approvalDecide({ id: 'ap-1', session: key, allow: true, scope: 'once' }), {})
   assert.deepEqual(r.responded, [{ runtime: RT, sessionId: SID, approvalId: 'ap-1', decision: { type: 'option', optionId: 'allow' } }])
   const thread = await r.work.threadRead({ id: key })
-  assert.deepEqual(thread.turns.map(turn => turn.type === 'approval' ? [turn.id, turn.state] : turn.type), [['ap-1', 'allowed']])
+  assert.deepEqual(thread.turns.map(turn => turn.type === 'approval' ? [turn.id, turn.state] : turn.type), [[phoneApprovalId('ap-1'), 'allowed']])
   assert.equal(thread.status, 'done')
   await assert.rejects(r.work.approvalDecide({ id: 'ap-1', session: key, allow: true }), /not waiting any more/)
 })
@@ -400,7 +428,7 @@ test('what the phone answered is remembered for a day, and a thread shows the la
   }
   const shown = (await r.work.threadRead({ id: key })).turns.map(turn => turn.id)
   assert.equal(shown.length, 20)
-  assert.equal(shown.at(-1), 'ap-29')
+  assert.equal(shown.at(-1), phoneApprovalId('ap-29'))
   now += 25 * 60 * 60 * 1000
   assert.deepEqual((await r.work.threadRead({ id: key })).turns, [])
 })
@@ -622,7 +650,7 @@ for (const scenario of ['history', 'message', 'combined'] as const) test(`Lead d
   assert.equal(result.omittedSourceTurns + result.omittedPhoneEntries + result.turns.length, count)
   assert.equal('omittedTurns' in JSON.parse(JSON.stringify(projected)), false, 'phone wire shape stays unchanged')
   if (scenario === 'history') assert.equal(result.omittedSourceTurns, 5)
-  assert.equal(result.turns.at(-1)?.id, `m${count - 1}`)
+  assert.equal(result.turns.at(-1)?.id, projected.turns.at(-1)?.id)
   assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 12000)
 })
 
@@ -658,7 +686,7 @@ test('phone threads expose only host-verified Lead words, historical name and th
   r.setSession(session([{ id: turnId('lead-t'), status: 'completed', items: [{ id: itemId('lead-u'), type: 'userMessage', content }] }]))
   const first = await r.work.threadRead({ id: key })
   assert.equal(first.leadChatHolder, 'lead')
-  assert.deepEqual(first.turns[0], { type: 'you', id: 'lead-u', text: 'Run the tests.', attachments: [], lead: { name: 'Dex' } })
+  assert.deepEqual(first.turns[0], { type: 'you', id: first.turns[0]!.id, text: 'Run the tests.', attachments: [], lead: { name: 'Dex' } })
   assert.equal(JSON.stringify(first).includes('on the user'), false)
   control = { ...control, holder: 'person' }
   assert.equal((await r.work.threadRead({ id: key })).leadChatHolder, 'person')

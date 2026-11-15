@@ -4,6 +4,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { setTimeout as delay } from 'node:timers/promises'
 import { promisify } from 'node:util'
 
 import { AcpRuntime, type AcpAgentConfig } from '@harnessdesk/adapter-acp'
@@ -98,6 +99,18 @@ const rig = async (t: TestContext, kind: 'codex' | 'acp' | 'variant' | 'controls
       // to make the agent need a key.
       ...(kind === 'controls' ? { secrets: [{ env: 'EXAMPLE_API_KEY', label: 'Example API key', optional: true }] } : {}),
       toolServer: { name: 'harnessdesk', command: process.execPath, args: ['--version'], env: {} } })
+  const releases: ReleaseTrace = { pending: new Set(), started: [] }
+  if (kind === 'controls') {
+    const acp = runtime as AcpRuntime, release = acp.releaseSession.bind(acp)
+    t.mock.method(acp, 'releaseSession', (...args: Parameters<AcpRuntime['releaseSession']>) => {
+      const work = release(...args)
+      releases.pending.add(work)
+      releases.started.push(work)
+      // Observe both outcomes immediately without changing the promise the runtime receives.
+      void work.then(() => { releases.pending.delete(work) }, () => { releases.pending.delete(work) })
+      return work
+    })
+  }
   const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), builtinAgents: join(base, 'builtins'), catalogRefreshMs: 0 })
   host.register(runtime)
   t.after(() => host.dispose())
@@ -106,7 +119,7 @@ const rig = async (t: TestContext, kind: 'codex' | 'acp' | 'variant' | 'controls
   // launch before exercising those live option reads.
   await host.call('runtime/models', { runtime: runtime.info.id })
   await host.call('workspace/open', { path: root })
-  return { host, root, runtime, stateDir }
+  return { host, root, runtime, stateDir, releases }
 }
 
 test('a later unregistered candidate with explicit options returns a preview problem', async (t) => {
@@ -138,16 +151,66 @@ test('ACP preview accepts thinking revealed by effort, as opening does', async (
   assert.match((await seatOptionsProblem(runtime, { ...seat, effort: 'low' }, root))?.text ?? '', /has no thinking switch/)
 })
 
+/** Wait for the fake's actual blocked request, not just a deadline that may beat worker startup. */
+const blockedOpen = async (t: TestContext, entered: string): Promise<{ pid: number; counter: number }> => {
+  const end = performance.now() + 5_000
+  for (;;) {
+    t.signal.throwIfAborted()
+    try { return JSON.parse(await readFile(entered, 'utf8')) as { pid: number; counter: number } }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+    if (performance.now() >= end) throw new Error('The fake did not report a blocked session/new request.')
+    await delay(10, undefined, { signal: t.signal })
+  }
+}
+
+interface ReleaseTrace { readonly pending: Set<Promise<void>>; readonly started: Promise<void>[] }
+
+/** A safe explicit refresh may first meet the owned draft's asynchronous close. */
+const refreshAfterOwnedClose = async (runtime: AgentRuntime, releases: ReleaseTrace) => {
+  const alreadyClosing = [...releases.pending], startedAt = releases.started.length
+  const first = await runtime.refreshCatalog!()
+  if (first.refreshed || first.reason !== 'A conversation is opening or closing.') return first
+  // A close can settle before refresh returns; retain only those pending when
+  // it began or started during this call, never an unrelated earlier close.
+  const observed = [...alreadyClosing, ...releases.started.slice(startedAt)]
+  assert.ok(observed.length, 'the transient close refusal must have an observed owned release')
+  await Promise.all(observed)
+  return runtime.refreshCatalog!()
+}
+
+test('refresh waits for its observed close before one retry and preserves other refusals', async () => {
+  let finish!: () => void
+  const closing = new Promise<void>(resolve => { finish = resolve })
+  let calls = 0
+  const runtime = { refreshCatalog: async () => ++calls === 1
+    ? { refreshed: false as const, reason: 'A conversation is opening or closing.' }
+    : { refreshed: true as const } } as AgentRuntime
+  const pending = refreshAfterOwnedClose(runtime, { pending: new Set([closing]), started: [closing] })
+  await Promise.resolve()
+  await Promise.resolve()
+  assert.equal(calls, 1, 'no second refresh before the owned close settles')
+  finish()
+  assert.deepEqual(await pending, { refreshed: true })
+  assert.equal(calls, 2)
+  let otherCalls = 0
+  const other = { refreshCatalog: async () => { otherCalls++; return { refreshed: false as const, reason: 'A turn is in flight; it will re-read once that finishes.' } } } as AgentRuntime
+  assert.deepEqual(await refreshAfterOwnedClose(other, { pending: new Set([new Promise<void>(() => {})]), started: [] }), { refreshed: false, reason: 'A turn is in flight; it will re-read once that finishes.' })
+  assert.equal(otherCalls, 1, 'a different refusal is returned without waiting or retrying')
+})
+
 test('ACP timed-out fresh option reads recover through explicit refresh and retry', async (t) => {
-  const block = join(tempDir('hd-option-timeout-'), 'block')
-  const { runtime, root } = await rig(t, 'controls', { OPTION_READ_BLOCK: block })
+  const directory = tempDir('hd-option-timeout-'), block = join(directory, 'block'), entered = join(directory, 'entered')
+  const { runtime, root, releases } = await rig(t, 'controls', { OPTION_READ_BLOCK: block, OPTION_READ_ENTERED: entered })
   await runtime.defaultSessionOptions!(root)
   await writeFile(block, '')
-  const problem = await seatOptionsProblem(runtime, { runtime: 'claude-code', model: 'fam', effort: 'high' }, root, 20)
-  assert.equal(problem?.availability, true)
+  const read = seatOptionsProblem(runtime, { runtime: 'claude-code', model: 'fam', effort: 'high' }, root, 20)
+  const problem = await read
+  assert.equal(problem?.availability, true, `actual problem: ${JSON.stringify(problem)}`)
   assert.match(problem?.text ?? '', /within 20 ms/)
+  const request = await blockedOpen(t, entered)
+  assert.equal(request.counter, 0, 'the marker holds even a fresh worker’s first session')
   await rm(block)
-  assert.deepEqual(await runtime.refreshCatalog!(), { refreshed: true }, 'refresh rejects the unanswered probe before restarting')
+  assert.deepEqual(await refreshAfterOwnedClose(runtime, releases), { refreshed: true }, 'refresh rejects the unanswered probe before restarting')
   assert.equal(await seatOptionsProblem(runtime, { runtime: 'claude-code', model: 'fam', effort: 'high' }, root), null)
   assert.equal(await runtime.reloadSecrets!(), 'restarted', 'the old read no longer holds the runtime busy')
   await runtime.defaultSessionOptions!(root)
@@ -155,15 +218,21 @@ test('ACP timed-out fresh option reads recover through explicit refresh and retr
 })
 
 test('ACP refresh of a timed-out option read never interrupts a real turn', async (t) => {
-  const block = join(tempDir('hd-option-busy-'), 'block')
-  const { runtime, root } = await rig(t, 'controls', { OPTION_READ_BLOCK: block })
-  await runtime.defaultSessionOptions!(root)
+  const directory = tempDir('hd-option-busy-'), block = join(directory, 'block'), entered = join(directory, 'entered')
+  const { runtime, root, releases } = await rig(t, 'controls', { OPTION_READ_BLOCK: block, OPTION_READ_ENTERED: entered })
+  const cachedOptions = await runtime.defaultSessionOptions!(root)
   const personal = await runtime.createSession({ cwd: root })
   await personal.send([{ type: 'text', text: 'Hold this turn until interrupted.' }])
   assert.ok((await runtime.readSession(personal.id)).turns.some((turn) => turn.status === 'inProgress'))
   await writeFile(block, '')
-  assert.equal((await seatOptionsProblem(runtime, { runtime: 'claude-code', model: 'fam', effort: 'high' }, root, 20))?.availability, true)
-  assert.deepEqual(await runtime.refreshCatalog!(), { refreshed: false, reason: 'A turn is in flight; it will re-read once that finishes.' })
+  const read = seatOptionsProblem(runtime, { runtime: 'claude-code', model: 'fam', effort: 'high' }, root, 20)
+  const problem = await read
+  assert.equal(problem?.availability, true, `actual problem: ${JSON.stringify(problem)}`)
+  assert.match(problem?.text ?? '', /within 20 ms/)
+  const request = await blockedOpen(t, entered)
+  assert.equal(request.counter, 0, 'the marker holds even a fresh worker’s first session')
+  assert.deepEqual(await runtime.defaultSessionOptions!(root), cachedOptions, 'the non-fresh option cache remains available while the fresh read waits')
+  assert.deepEqual(await refreshAfterOwnedClose(runtime, releases), { refreshed: false, reason: 'A turn is in flight; it will re-read once that finishes.' })
   assert.ok((await runtime.readSession(personal.id)).turns.some((turn) => turn.status === 'inProgress'))
   assert.equal(await runtime.reloadSecrets!(), 'busy')
   assert.equal(await runtime.stopForIdle!(), false)
