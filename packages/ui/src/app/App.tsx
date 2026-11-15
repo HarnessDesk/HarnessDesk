@@ -66,16 +66,22 @@ export const App = () => {
   const store = useStore()
   const snapshot = useSnapshot()
   const session = useActiveSession()
+  // Callbacks keep only the values they use from this render, not the full
+  // session map or active transcript owned by the external store.
+  const { workspace, workbench, layout, settingsFor, settingsFocus, leadAvailable, seatFix,
+    status, preferencesLoaded, runtimes, usage, accountsByRuntime, accountPrefs, health,
+    activeRuntime, hideAccountAddresses, commitFor, newWorktreeFor, raceStart, seatRefusal } = snapshot
+  const titleSession = session ? { title: session.title, preview: session.preview } : null
   const leadName = useLeadName()
   // The window's presence follows the person on every page, not only while the Lead is showing.
-  useLeadPresence(snapshot.leadAvailable)
-  const editorAvailable = effectiveWindowMode('editor', snapshot.workbench) === 'editor'
-  const editorSubject = editorAvailable ? fixedSubject(snapshot.workbench.main) : null
+  useLeadPresence(leadAvailable)
+  const editorAvailable = effectiveWindowMode('editor', workbench) === 'editor'
+  const editorSubject = editorAvailable ? fixedSubject(workbench.main) : null
   useEffect(() => {
     if (editorSubject) store.touchEditorConversation(editorSubject)
   }, [store, editorSubject])
   // Each explicit import request is consumed once by the retained Library body.
-  const projectKey = snapshot.workspace?.path ?? 'unscoped'
+  const projectKey = workspace?.path ?? 'unscoped'
   const [libraryImport, setLibraryImport] = useState({ project: projectKey, intent: 0 })
   if (libraryImport.project !== projectKey) setLibraryImport({ project: projectKey, intent: 0 })
   const libraryImportIntent = libraryImport.project === projectKey ? libraryImport.intent : 0
@@ -143,7 +149,7 @@ export const App = () => {
       }
       switch (name) {
         case 'new-team': {
-          const root = projectRootOf(snapshot.workspace)
+          const root = projectRootOf(workspace)
           if (root) openFrontDoor(root)
           else store.notice('warning', 'Open a folder to start one.')
           return
@@ -171,11 +177,11 @@ export const App = () => {
           store.toggleSidebar()
           return
         case 'nav-back':
-          if (snapshot.workbench.navigation.current.kind === 'settings') void store.leaveSettings()
+          if (workbench.navigation.current.kind === 'settings') void store.leaveSettings()
           else void store.navigateBack()
           return
         case 'nav-forward':
-          if (snapshot.workbench.navigation.current.kind !== 'settings') void store.navigateForward()
+          if (workbench.navigation.current.kind !== 'settings') void store.navigateForward()
           return
         case 'show-changes':
           store.setDetailsTab('changes')
@@ -192,12 +198,12 @@ export const App = () => {
         case 'usage':
           // ⌘U toggles, and always across every agent on Overview — a scoped
           // view is something you ask for by pointing at one.
-          if (snapshot.workbench.navigation.current.kind==='dashboard') store.returnToWork()
+          if (workbench.navigation.current.kind==='dashboard') store.returnToWork()
           else openUsage()
           return
         case 'close-pane':
-          if(snapshot.workbench.navigation.current.kind!=='work')store.returnToWork()
-          else store.closePane(snapshot.layout.focused)
+          if(workbench.navigation.current.kind!=='work')store.returnToWork()
+          else store.closePane(layout.focused)
           return
         case 'go-to-file':
           if (effectiveWindowMode(store.getSnapshot().windowMode, store.getSnapshot().workbench) === 'editor') {
@@ -209,7 +215,7 @@ export const App = () => {
           return
       }
     },
-    [store, snapshot.layout.focused, snapshot.workspace, snapshot.workbench.navigation.current, openFrontDoor, openSettingsAt, openUsage],
+    [store, layout.focused, workspace, workbench.navigation.current, openFrontDoor, openSettingsAt, openUsage],
   )
 
   useEffect(() => onShortcut(run), [run])
@@ -237,17 +243,17 @@ export const App = () => {
   // — opens here, where the window state lives, and the request is cleared so
   // closing the window does not reopen it.
   useEffect(() => {
-    if (!snapshot.settingsFor) return
-    openSettingsAt(resolveSection(snapshot.settingsFor, 'runtimes', snapshot.leadAvailable), snapshot.settingsFocus)
+    if (!settingsFor) return
+    openSettingsAt(resolveSection(settingsFor, 'runtimes', leadAvailable), settingsFocus)
     store.askSettings(null)
-  }, [snapshot.settingsFor, snapshot.settingsFocus, store, openSettingsAt])
+  }, [settingsFor, settingsFocus, store, openSettingsAt])
 
   // A fix asked for from anywhere — the refusal sheet, an Agent's page, a
   // name card — goes where it is fixed, from here, where the sign-in, the
   // usage window and Settings live (and, once Task 13 lands, the Agents
   // window).
   useEffect(() => {
-    const asked = snapshot.seatFix
+    const asked = seatFix
     if (!asked) return
     store.askSeatFix(null)
     const route = routeFor(asked.fix, asked.agent)
@@ -255,7 +261,7 @@ export const App = () => {
     else if (route.kind === 'usage') openUsage(route.runtime)
     else if (route.kind === 'agent') openAgents(route.agent)
     else openSettingsAt(route.section, route.focus)
-  }, [snapshot.seatFix, store, openSettingsAt, openAgents, openUsage])
+  }, [seatFix, store, openSettingsAt, openAgents, openUsage])
 
   // A clicked macOS notification lands on the conversation it was about.
   useEffect(
@@ -272,7 +278,7 @@ export const App = () => {
   // A prompt link the OS opened fills a new chat's draft, and nothing else.
   // Taken only once the desk can say which projects it has, so a link that
   // started the app waits in the shell rather than resolving against nothing.
-  const linksReady = snapshot.status === 'open' && snapshot.preferencesLoaded
+  const linksReady = status === 'open' && preferencesLoaded
   useEffect(() => {
     if (!linksReady) return
     return onPromptLink((link) => { void store.fillFromPromptLink(link) })
@@ -287,21 +293,21 @@ export const App = () => {
    * decided in `lib/tray.ts`; the shell only draws it.
    */
   useEffect(startTrayUpdates.bind(null, {
-    runtimes: snapshot.runtimes,
-    usage: snapshot.usage,
-    accountsByRuntime: snapshot.accountsByRuntime,
-    accountPrefs: snapshot.accountPrefs,
-    health: snapshot.health,
-    activeRuntime: snapshot.activeRuntime,
-    hideAddresses: snapshot.hideAccountAddresses,
+    runtimes: runtimes,
+    usage: usage,
+    accountsByRuntime: accountsByRuntime,
+    accountPrefs: accountPrefs,
+    health: health,
+    activeRuntime: activeRuntime,
+    hideAddresses: hideAccountAddresses,
   }), [
-    snapshot.runtimes,
-    snapshot.usage,
-    snapshot.accountsByRuntime,
-    snapshot.accountPrefs,
-    snapshot.health,
-    snapshot.activeRuntime,
-    snapshot.hideAccountAddresses,
+    runtimes,
+    usage,
+    accountsByRuntime,
+    accountPrefs,
+    health,
+    activeRuntime,
+    hideAccountAddresses,
   ])
 
   useEffect(() => {
@@ -364,8 +370,8 @@ export const App = () => {
   // conversation's label is the user's whole opening message, so it is
   // shortened here rather than left to overrun the menu.
   useEffect(() => {
-    setWindowTitle(windowTitleOf(snapshot.workbench.navigation.current, leadName, session ?? null))
-  }, [session?.title, session?.preview, snapshot.workbench.navigation.current, leadName])
+    setWindowTitle(windowTitleOf(workbench.navigation.current, leadName, titleSession))
+  }, [titleSession?.title, titleSession?.preview, workbench.navigation.current, leadName])
 
   // One table decides which chords exist; this dispatches from it, and the
   // Keyboard shortcuts page prints the same rows. Two lists is the
@@ -391,8 +397,8 @@ export const App = () => {
   }, [run])
 
   const [leftFilter, setLeftFilter] = useState('')
-  const current=snapshot.workbench.navigation.current
-  const pageActive=current.kind!=='work' && isMainPage(current.kind, snapshot.leadAvailable)
+  const current=workbench.navigation.current
+  const pageActive=current.kind!=='work' && isMainPage(current.kind, leadAvailable)
   const settingsSection:Section|null=current.kind!=='settings'?null:current.route.kind==='section'?current.route.section
     :current.route.kind==='project'?'workspaces':current.route.kind==='skill'?'skills':'runtimes'
   const renderLeftColumn=()=><Sidebar active
@@ -425,8 +431,8 @@ export const App = () => {
     <TopBarProvider><ShellHostsProvider><div className="hd-shell">
       <div className="hd-shellBody">
           <Workbench sidebar={renderLeftColumn()} pageActive={pageActive}
-            pages={<MainPages key={snapshot.workspace?.path??'unscoped'}
-              onSignIn={runtime=>setSignInOpen(runtime)} onNewTeam={()=>{const root=projectRootOf(snapshot.workspace);if(root)openFrontDoor(root)}} libraryImportIntent={libraryImportIntent}/>} />
+            pages={<MainPages key={workspace?.path??'unscoped'}
+              onSignIn={runtime=>setSignInOpen(runtime)} onNewTeam={()=>{const root=projectRootOf(workspace);if(root)openFrontDoor(root)}} libraryImportIntent={libraryImportIntent}/>} />
       </div>
       {/* Results, and failures the store could not say in place, as toasts:
           `Notices` hands the store's queue to the one toaster. Standing
@@ -442,32 +448,32 @@ export const App = () => {
       }} />}
       {/* One mount for a dialog three places raise: the sidebar's worktree
           menu, a project's context menu, and ⌘K. */}
-      {snapshot.commitFor && <CommitDialog root={snapshot.commitFor} onDone={(done) => {
+      {commitFor && <CommitDialog root={commitFor} onDone={(done) => {
         store.askCommit(null)
         if (done) void store.loadWorkspaces()
       }} />}
-      {snapshot.newWorktreeFor && (
+      {newWorktreeFor && (
         <NewWorktree
-          root={snapshot.newWorktreeFor}
+          root={newWorktreeFor}
           onClose={() => store.askNewWorktree(null)}
         />
       )}
       {/* /race opens dialog state only; the store no longer picks a second
           runtime or creates two drafts itself — see AppStore.raceAgents. */}
-      {snapshot.raceStart && projectRootOf(snapshot.workspace) && (
+      {raceStart && projectRootOf(workspace) && (
         <RaceStart
-          root={projectRootOf(snapshot.workspace)!}
-          task={snapshot.raceStart.task}
+          root={projectRootOf(workspace)!}
+          task={raceStart.task}
           onClose={() => store.closeRaceStart()}
         />
       )}
       {/* One mount for the sheet every door that starts an Agent can raise. */}
-      {snapshot.seatRefusal && (
+      {seatRefusal && (
         <SeatSheet
-          refusal={snapshot.seatRefusal}
+          refusal={seatRefusal}
           onClose={() => store.dismissSeatRefusal()}
           onFix={(fix) => {
-            const agent = snapshot.seatRefusal?.agent ?? ''
+            const agent = seatRefusal?.agent ?? ''
             store.dismissSeatRefusal()
             store.askSeatFix(fix, agent)
           }}
