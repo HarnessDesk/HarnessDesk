@@ -581,6 +581,7 @@ const triggerValidators = {
   'trigger/decisions': goalShape({ root: triggerRoot, id: triggerId }),
   'trigger/decision/reevaluate': goalShape({ root: triggerRoot, id: triggerId, decision: triggerDecisionId }),
   'trigger/stop-unconfirmed/review': goalShape({ root: triggerRoot, id: triggerId, stop: triggerStopId }),
+  'trigger/stop-unconfirmed/list': goalShape({ root: triggerRoot }),
   'trigger/mode': goalShape({ root: triggerRoot, id: triggerId, mode: literalUnion('observe', 'act') }),
 }
 
