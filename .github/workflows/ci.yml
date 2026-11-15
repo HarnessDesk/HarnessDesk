@@ -8,8 +8,11 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
         with:
           version: 10.4.1
       - uses: actions/setup-node@v7
@@ -17,6 +20,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - name: Install dependencies
+        timeout-minutes: 10
         run: |
           log="$RUNNER_TEMP/phone2038-install.log"
           trap 'rm -f "$log"' EXIT
