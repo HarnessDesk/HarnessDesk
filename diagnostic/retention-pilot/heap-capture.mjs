@@ -1,6 +1,6 @@
 import { stableProtected } from './heap-observation.mjs'
 // This helper has no reference to the original acceptance result.
-export async function captureLateHeap({read,drain,collect,snapshot,analyze}) {
+export async function captureLateHeap({read,drain,collect,snapshot,analyze,verifyAfterAnalysis=false}) {
  try {
   await drain();const first=await read();await drain()
   await collect();const after=await read();await drain()
@@ -9,7 +9,9 @@ export async function captureLateHeap({read,drain,collect,snapshot,analyze}) {
   if(!stableProtected(after,before))return {status:'state-changed'}
   await snapshot();const end=await read();await drain()
   if(!stableProtected(before,end))return {status:'state-changed'}
-  return await analyze()
+  const result=await analyze()
+  if(verifyAfterAnalysis){const post=await read();await drain();if(!stableProtected(end,post))return {status:'state-changed'}}
+  return result
  }catch{return {status:'unavailable'}}
 }
 

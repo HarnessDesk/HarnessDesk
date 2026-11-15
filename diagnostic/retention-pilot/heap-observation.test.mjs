@@ -126,3 +126,17 @@ test('session shape and listener names remain hints for minified paths',()=>{
  assert.equal(out.strongPaths[0].shapeHits.session,1)
  assert.doesNotMatch(JSON.stringify(out),/private-shape-sentinel|aaaa|bbbb/)
 })
+
+test('collects only private closure heap IDs on sampled rooted paths, without returning IDs',()=>{
+ const snapshot=graph(['aaaa-body','bbbb-body'])
+ snapshot.snapshot.meta.node_types[0].push('closure');snapshot.nodes[5]=4
+ const ids=[];const result=analyzeHeap(snapshot,[{needle:'aaaa',loaded:true},{needle:'bbbb',loaded:false}],id=>ids.push(id))
+ assert.deepEqual(ids,['2']);assert.doesNotMatch(JSON.stringify(result),/"heapId"|"2"|aaaa|bbbb/)
+})
+test('changed protected state after classification suppresses result',async()=>{
+ const {captureLateHeap}=await import('./heap-capture.mjs')
+ const state={enabled:true,pressureRunning:false,pressureDirty:false,recovery:0,eligibilityKnown:false,visibleMounted:true,visibleLoaded:true,draftPresent:true,draftLoaded:true,pendingPresent:true,pendingLoaded:true,pendingActive:true,pendingMounted:false,pendingCloseSent:0,pendingCloseResolved:0,pendingCloseRejected:0,knownMissing:0}
+ let reads=0
+ const result=await captureLateHeap({read:async()=>({...state,loaded:++reads===5?3:2}),drain:async()=>{},collect:async()=>{},snapshot:async()=>{},analyze:async()=>({status:'ok'}),verifyAfterAnalysis:true})
+ assert.deepEqual(result,{status:'state-changed'})
+})

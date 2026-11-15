@@ -4,7 +4,7 @@ export function stableProtected(a,b) {
  const safe=s=>s&&s.enabled===true&&!s.pressureRunning&&!s.pressureDirty&&s.recovery===0&&s.eligibilityKnown===false&&s.visibleMounted===true&&s.visibleLoaded===true&&s.draftPresent===true&&s.draftLoaded===true&&s.pendingPresent===true&&s.pendingLoaded===true&&s.pendingActive===true&&s.pendingMounted===false&&s.pendingCloseSent===0&&s.pendingCloseResolved===0&&s.pendingCloseRejected===0&&s.knownMissing===0
  return !!safe(a)&&!!safe(b)&&JSON.stringify(a)===JSON.stringify(b)
 }
-export function analyzeHeap(s,expected) {
+export function analyzeHeap(s,expected,collectClosure = () => {}) {
  const unavailable={status:'unavailable'}
  try {
   const nf=s.snapshot.meta.node_fields,ef=s.snapshot.meta.edge_fields,nw=nf.length,ew=ef.length
@@ -41,6 +41,7 @@ export function analyzeHeap(s,expected) {
    const steps=[],shapeHits={appSnapshot:0,session:0};let category='other',rootKind='other'
    for(let q=root;q!==-1;q=queue[q].parent){
     const {node,edge}=queue[q],rawType=types[nodes[node*nw+n.type]],rawName=names[nodes[node*nw+n.name]],label=nodeNames.get(rawName)??'other'
+    if(rawType==='closure' && Number.isSafeInteger(nodes[node*nw+n.id]) && nodes[node*nw+n.id]>0) collectClosure(String(nodes[node*nw+n.id]))
     const edgeType=edge<0?'none':edgeTypes[edges[edge*ew+e.type]]
     const rawField=edge>=0&&['property','internal','context','shortcut'].includes(edgeType)?names[edges[edge*ew+e.name_or_index]]:null
     const edgeLabel=fieldNames.has(rawField)?rawField:'other'

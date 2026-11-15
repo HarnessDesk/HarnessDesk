@@ -13,6 +13,7 @@ import { createRpcObserver, classifyProfileError } from './profile-rpc-observer.
 import { captureFailure } from './profile-failure.mjs'
 import { captureMetricDeltas, recordLateFailure } from './late-observation.mjs'
 import { captureLateHeap, installHeldTracker, writeSnapshotChunk } from './heap-capture.mjs'
+import { classifyClosures } from './closure-classification.mjs'
 import { createNotificationObserver, installNotificationObserver, sanitizeWaitObservation } from './profile-notification-observer.mjs'
 
 const taskSource = resolve('.')
@@ -251,9 +252,10 @@ try {
  })
  // Supplemental only: never repair or overwrite the original failure/checkpoint.
  if(result.phase==='checkpoint-400'&&result.errorCode==='quiescence-deadline'&&result.lateObservation?.outcome==='quiescent'&&result.lateObservation?.heap){
-  const snapshotPath=join(taskRoot,'renderer.heapsnapshot'),keysPath=join(taskRoot,'heap-keys.json')
+  const snapshotPath=join(taskRoot,'renderer.heapsnapshot'),keysPath=join(taskRoot,'heap-keys.json'),closurePath=join(taskRoot,'heap-closures.json')
   let latestStatuses
   result.heapObservation=await captureLateHeap({
+   verifyAfterAnalysis:true,
    drain:drainHeld,
    read:async()=>{
     const state=await readScalarState(null,2000,true)
@@ -276,9 +278,15 @@ try {
    analyze:async()=>{
     const expected=keys.map((key,i)=>({needle:Array.from({length:4},(_,counter)=>createHash('sha256').update(`${addr(key).sessionId}:${counter}`).digest('hex')).join(''),loaded:latestStatuses[i]}))
     write(keysPath,JSON.stringify(expected))
-    const child=spawnSync(process.execPath,[join(taskSource,'diagnostic/retention-pilot/heap-worker.mjs'),snapshotPath,keysPath],{env:{PATH:'/usr/bin:/bin'},encoding:'utf8',timeout:25000,maxBuffer:32768})
+    const child=spawnSync(process.execPath,[join(taskSource,'diagnostic/retention-pilot/heap-worker.mjs'),snapshotPath,keysPath,closurePath],{env:{PATH:'/usr/bin:/bin'},encoding:'utf8',timeout:25000,maxBuffer:32768})
     if(child.status!==0||child.error||child.stderr)return {status:'unavailable'}
-    try {return JSON.parse(child.stdout)}catch{return {status:'unavailable'}}
+    try {
+     const observation=JSON.parse(child.stdout)
+     const file=lstatSync(closurePath)
+     if(observation.status!=='ok'||!file.isFile()||file.nlink!==1||file.size>512||(file.mode&0o777)!==0o600)return {status:'unavailable'}
+     const closureRoles=await classifyClosures(cdp,JSON.parse(readFileSync(closurePath,'utf8')))
+     return {...observation,closureRoles}
+    }catch{return {status:'unavailable'}}
    },
   })
  }
