@@ -394,6 +394,75 @@ test('relaunch fixture owns a host whose start fails', async (t) => {
   await assert.rejects(stat(fixture.dir), { code: 'ENOENT' })
 })
 
+test('relaunch fixture waits for held disposal after another rejects and retains its directory', async (t) => {
+  const hooks: Array<() => unknown> = []
+  const context = { after: (hook: () => unknown) => { hooks.push(hook) } } as unknown as TestContext
+  const fixture = await relaunchFixture(context, 'hd-retry-rejected-disposal-')
+  const failure = new Error('controlled disposal failure')
+  const actualDisposals: Array<() => Promise<void>> = []
+  let release: () => void = () => {}
+  let heldDisposal: Promise<void> | undefined
+  // The fixture deliberately retains failed cleanup's state. Only this test's
+  // finalizer removes it, after the real owned disposals have all completed.
+  t.after(async () => {
+    release()
+    let cleanupError: unknown
+    try { await hooks[0]!() } catch (error) { cleanupError = error }
+    await heldDisposal?.catch(() => {})
+    const results = await Promise.allSettled(actualDisposals.map(dispose => dispose()))
+    const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    if (failures.length) throw new AggregateError(failures.map(result => result.reason), 'test disposal failed')
+    if (cleanupError !== undefined) {
+      assert.ok(cleanupError instanceof AggregateError)
+      assert.deepEqual(cleanupError.errors, [failure])
+    }
+    await rm(fixture.dir, { recursive: true, force: true })
+  })
+
+  const first = await fixture.relaunch()
+  const disposeFirst = first.dispose.bind(first)
+  actualDisposals.push(disposeFirst)
+  // A relaunch shares one writer lease; close the first host before opening
+  // the second, while retaining both in the fixture's owned cleanup list.
+  await disposeFirst()
+  const second = await fixture.relaunch()
+  const disposeSecond = second.dispose.bind(second)
+  actualDisposals.push(disposeSecond)
+  let rejected!: () => void
+  const firstRejected = new Promise<void>(resolve => { rejected = resolve })
+  first.dispose = async () => {
+    await disposeFirst()
+    rejected()
+    throw failure
+  }
+  const gate = new Promise<void>(resolve => { release = resolve })
+  let started!: () => void
+  const secondStarted = new Promise<void>(resolve => { started = resolve })
+  second.dispose = () => (heldDisposal ??= (async () => {
+    started()
+    await gate
+    await writeFile(join(fixture.dir, 'last-write'), 'done')
+    await disposeSecond()
+  })())
+
+  const cleanup = Promise.resolve(hooks[0]!())
+  let settled = false
+  const outcome = cleanup.then(() => { settled = true; return undefined }, error => { settled = true; return error as unknown })
+  await Promise.all([firstRejected, secondStarted])
+  // A complete event-loop turn lets an incorrect Promise.all rejection reach
+  // its handler, without a timing window or an arbitrary sleep.
+  await new Promise<void>(resolve => setImmediate(resolve))
+  assert.equal(settled, false, 'one rejected disposal must not finish cleanup while another is held')
+  assert.ok((await stat(fixture.dir)).isDirectory(), 'state remains while the second host may write')
+  release()
+  const error = await outcome
+  assert.ok(error instanceof AggregateError)
+  assert.deepEqual(error.errors, [failure])
+  assert.equal(await readFile(join(fixture.dir, 'last-write'), 'utf8'), 'done')
+  assert.ok((await stat(fixture.dir)).isDirectory(), 'a failed disposal must retain diagnostic state')
+  assert.equal(hooks[0]!(), cleanup, 'repeated cleanup preserves its original outcome')
+})
+
 const ask = async (host: Host, runtime: AgentRuntime): Promise<void> => {
   await host.call('runtime/warm', { runtime: runtime.info.id })
   await host.call('runtime/models', { runtime: runtime.info.id }).catch(() => {})
