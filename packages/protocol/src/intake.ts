@@ -571,6 +571,8 @@ export interface TriggerDecisionsPage {
   readonly threads: readonly TriggerWorkThread[]
   /** Absent on older desks; this separate list never claims an uncertain stop was completed. */
   readonly unconfirmedStops?: readonly TriggerUnconfirmedStop[]
+  /** The desk cannot safely retain another requested stop; no new effect was started. */
+  readonly stopHistoryFull?: boolean
 }
 
 /** At most this many decisions, and this many work threads, are kept per machine; the oldest go first. */

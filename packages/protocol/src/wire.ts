@@ -129,7 +129,7 @@ import type {
   SessionSummary,
 } from './session.js'
 import type { Intent, PersonNotice, Plan, TeamInbound, TeamPeerInfo, TeamState } from './team.js'
-import type { TriggerDecision, TriggerDecisionsPage, TriggerMode } from './intake.js'
+import type { TriggerDecision, TriggerDecisionsPage, TriggerMode, TriggerUnconfirmedStop } from './intake.js'
 import type { PhoneTriageList } from './phone.js'
 import type {
   LedgerQuery,
@@ -1037,6 +1037,8 @@ export interface HostMethods {
   'trigger/decisions': { params: { readonly root: string; readonly id: string }; result: TriggerDecisionsPage }
   /** Judges one decision again, on the comment as the forge holds it now. */
   'trigger/decision/reevaluate': { params: { readonly root: string; readonly id: string; readonly decision: string }; result: TriggerDecision }
+  /** Acknowledge an uncertain stop on this desktop without retrying or deleting its identity. */
+  'trigger/stop-unconfirmed/review': { params: { readonly root: string; readonly id: string; readonly stop: string }; result: TriggerUnconfirmedStop }
   /** Switches an armed mention trigger between observing and acting, on this machine, until it is armed again. */
   'trigger/mode': { params: { readonly root: string; readonly id: string; readonly mode: TriggerMode }; result: TriggerDecisionsPage }
 
