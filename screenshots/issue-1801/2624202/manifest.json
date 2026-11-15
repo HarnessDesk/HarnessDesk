@@ -1,0 +1,88 @@
+{
+  "scope": "Controlled CSSOM shift of real Electron composer followed by trusted Archive action on fake desk. This is not a natural layout journey or proof of continuously tracking an already visible toast.",
+  "node": "v22.23.4",
+  "viewport": {
+    "width": 1200,
+    "height": 900
+  },
+  "shiftPx": -80,
+  "images": {
+    "baseline": {
+      "file": "baseline.png",
+      "sha256": "58889f7bc3bc4a7002c546c767ef8c465df78319b0256d0ab02f28e9450eb6bb",
+      "bytes": 88813,
+      "width": 1200,
+      "height": 900,
+      "sourceHead": "f8745f773b6264b21d33d97a14f9bf0e3d91fc40",
+      "sourceTree": "9917b0930c05fdcfdd58a35daeaba90e2935bdec",
+      "sourceSha256": {
+        "packages/ui/src/design/ui/composer.tsx": "87bdb21878d2dd0d327f9e3468d9f33c157fe1ad83d513d475695b3dadddf129",
+        "packages/ui/src/design/ui/composer-toast-offset.ts": "28ccf983df0a68c333ee7e8e96a8285e76c6813b4b2236ad3d6c029d030a43a8",
+        "packages/ui/src/design/ui/toast.tsx": "d524b314660762e46d661af0cf879880d4f8153f35a504255de8054f4148e32b",
+        "packages/ui/src/design/ui/toast-clearance.ts": "2f455dd14fffb7839cd4b68e36dbbeecbe35c6ede892af6367edb4b94c9b08af"
+      },
+      "uiIndexSha256": "9c62e5c253e7967b02c9bbbcf555d7be31410e9413865f12b830166307e5d8bf",
+      "uiAppBundleSha256": [
+        "be44158407bc1621168bc7f91d228cb51e277fa5b274d01a79da6a276cef73b0"
+      ],
+      "firstFrameClearancePx": 144,
+      "movedDockTopPx": 676,
+      "settledToastBottomPx": 740,
+      "sendAndModelCentresUncovered": true,
+      "bodyHeightPxOverEightFrames": [
+        900,
+        900,
+        900,
+        900,
+        900,
+        900,
+        900,
+        900
+      ],
+      "watchedResizeCallbacksDuringShift": 0,
+      "watchedAttributeCallbacksDuringShift": 0,
+      "fullPrivacyAuditPassed": true,
+      "commandExit": 1,
+      "cleanup": "failed; required SIGKILL"
+    },
+    "candidate": {
+      "file": "candidate.png",
+      "sha256": "ee926f45234f94fb259178f04aca9825fe920ce5633074528e49101564da144d",
+      "bytes": 89373,
+      "width": 1200,
+      "height": 900,
+      "sourceHead": "2624202d7f00934cf2ee8842a024041a74e1d0e6",
+      "sourceTree": "be3ee374ae580b8c061ab37afe66fa7f344541da",
+      "sourceSha256": {
+        "packages/ui/src/design/ui/composer.tsx": "87bdb21878d2dd0d327f9e3468d9f33c157fe1ad83d513d475695b3dadddf129",
+        "packages/ui/src/design/ui/composer-toast-offset.ts": "579680ebddf86e9a829c0afd19ddca539667d2e357a2f5beaf13f721f3ac3c43",
+        "packages/ui/src/design/ui/toast.tsx": "d524b314660762e46d661af0cf879880d4f8153f35a504255de8054f4148e32b",
+        "packages/ui/src/design/ui/toast-clearance.ts": "6644e02403aba0c41a95cf5539d668c598f8a99e3a98c08271b9234b9f69fdb4"
+      },
+      "uiIndexSha256": "e5b2cdc878404fa26a19450f589e4b7434c2745a51acf13c1911285d99abf04d",
+      "uiAppBundleSha256": [
+        "dfcd263474d8b6fff2b4a385edcd726b292ada0656b83765436a3f5ddf0b070b"
+      ],
+      "firstFrameClearancePx": 224,
+      "movedDockTopPx": 676,
+      "settledToastBottomPx": 660,
+      "sendAndModelCentresUncovered": true,
+      "bodyHeightPxOverEightFrames": [
+        900,
+        900,
+        900,
+        900,
+        900,
+        900,
+        900,
+        900
+      ],
+      "watchedResizeCallbacksDuringShift": 0,
+      "watchedAttributeCallbacksDuringShift": 0,
+      "fullPrivacyAuditPassed": true,
+      "commandExit": 1,
+      "cleanup": "failed; required SIGKILL"
+    }
+  },
+  "cleanupBoundary": "Both capture commands exited 1 after teardown required SIGKILL. No matching owned rig processes were observed after capture; exact capture process group IDs were not recorded. Graceful runtime disposal was not proven."
+}
