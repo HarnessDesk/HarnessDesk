@@ -10,6 +10,7 @@ import { listenerCounts } from './listener-diagnostics.mjs'
 import { canonicalBytes, summarize, pendingAfterNavigation } from './profile-scalars.mjs'
 import { stageRecord } from './profile-stage.mjs'
 import { createRpcObserver, classifyProfileError } from './profile-rpc-observer.mjs'
+import { quietPrecheck, quiescenceStep, sanitizeProbeCounts } from './profile-quiescence.mjs'
 import { captureFailure } from './profile-failure.mjs'
 import { captureMetricDeltas, recordLateFailure } from './late-observation.mjs'
 import { captureLateHeap, installHeldTracker, writeSnapshotChunk } from './heap-capture.mjs'
@@ -139,6 +140,7 @@ const sample = async () => {
   if(!mounted||!s.drafts.live(sent.draft)||!snap.approvals.some(a=>a.key===sent.pending)||!snap.sessions.get(sent.pending)?.turns.some(t=>t.status==='inProgress'))throw Error('sentinel protection missing');
   return {metadata:snap.sessions.size,loadedFullBodies:stats.loadedFullBodies,releasedBodies:stats.releasedBodies,trackedRecoveryRecords:stats.trackedRecoveryRecords,enabled:stats.enabled,pressureRunning:stats.pressureRunning,pressureDirty:stats.pressureDirty,eligibleBodies:stats.eligibleBodies,eligibleBytes:stats.eligibleBytes,...measured,mounted,draft:true,pending:true}})()`)
 }
+const probeQuiet = async () => cdp.json(`(${quietPrecheck.toString()})(window.__hdStore,${JSON.stringify({visible,draft,pending})})`)
 // One shared scalar read is used before 400 assertions and after any checkpoint failure.
 const readScalarState = async (selected=null,timeout=30000,late=false) => cdp.json(`(()=>{const s=window.__hdStore,snap=s.getSnapshot(),stats=s.transcriptCacheStats(),keys=${JSON.stringify(keys)},p=n=>!n?[]:n.kind==='pane'?[n]:n.kind==='split'?[...p(n.first),...p(n.second)]:[],panes=p(snap.layout.root),pending=${JSON.stringify(pending)},visible=${JSON.stringify(visible)},draft=${JSON.stringify(draft)},selected=${JSON.stringify(selected)};
    return {metadata:snap.sessions.size,loaded:stats.loadedFullBodies,released:stats.releasedBodies,recovery:stats.trackedRecoveryRecords,pressureRunning:stats.pressureRunning,pressureDirty:stats.pressureDirty,enabled:stats.enabled,eligibilityKnown:stats.eligibleBodies!==null||stats.eligibleBytes!==null,visibleMounted:panes.some(x=>x.view?.kind==='conversation'&&x.view.session===visible),visibleLoaded:snap.sessions.get(visible)?.itemsLoaded===true,draftPresent:!!s.drafts.live(draft),draftLoaded:snap.sessions.get(draft)?.itemsLoaded===true,pendingPresent:snap.approvals.some(a=>a.key===pending),pendingLoaded:snap.sessions.get(pending)?.itemsLoaded===true,pendingActive:!!snap.sessions.get(pending)?.turns.some(t=>t.status==='inProgress'),pendingMounted:panes.some(x=>x.view?.kind==='conversation'&&x.view.session===pending),pendingCloseSent:window.__hd1545Closes.get(pending)?.sent??0,...(${JSON.stringify(late)}?{pendingCloseResolved:window.__hd1545Closes.get(pending)?.resolved??0,pendingCloseRejected:window.__hd1545Closes.get(pending)?.rejected??0}:{}),knownLoaded:keys.filter(k=>snap.sessions.get(k)?.itemsLoaded===true).length,knownMissing:keys.filter(k=>!snap.sessions.has(k)).length,...(selected?{selectedPresent:snap.sessions.has(selected),selectedLoaded:snap.sessions.get(selected)?.itemsLoaded===true}:{})}})()`,timeout )
@@ -201,8 +203,10 @@ try {
   if(count===400)await mark400(count,'quiescence');let state,waitObservation
   if(count===400)try{await cdp.send('Performance.enable',{},2000);performanceStart=await cdp.send('Performance.getMetrics',{},2000)}catch{result.performanceUnavailable=true}
   await cdp.eval('window.__hd1545Wait.begin()')
-  try{state=await waitFor('quiescent pressure',async()=>{const first=await sample();if(!first.enabled||first.pressureRunning||first.pressureDirty)return false;await cdp.eval('new Promise(resolve=>setTimeout(()=>resolve(true),0))');const second=await sample();return JSON.stringify(first)===JSON.stringify(second)?second:false},30000)}
+  const probeCounts={prechecks:0,busyPrechecks:0,fullSamples:0}
+  try{state=await waitFor('quiescent pressure',()=>quiescenceStep(count===400,probeQuiet,sample,()=>cdp.eval('new Promise(resolve=>setTimeout(()=>resolve(true),0))'),probeCounts),30000)}
   finally{
+   if(count===400){const clean=sanitizeProbeCounts(probeCounts);if(clean)result.quiescenceProbeCounts=clean}
    try{waitObservation=sanitizeWaitObservation(await cdp.json('window.__hd1545Wait.end()'));result.lastWait={checkpoint:count,kind:'quiescence',...waitObservation}}catch{result.lastWaitUnavailable=true}
   }
   await finishPerformance()
