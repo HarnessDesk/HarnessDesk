@@ -1,4 +1,4 @@
-// PREPARATION ONLY. This guard intentionally prevents dispatch until the final source is pinned and reviewed.
+// Source-pinned synthetic native proof; diagnostic branch only, never merge.
 import { createHash, randomUUID } from 'node:crypto'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { accessSync, constants, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
@@ -16,7 +16,7 @@ import { assertSource } from './source-guard.mjs'
 const taskSource = resolve('.')
 const taskSha = '9fac46ae066acbc2ba2dddd4e0815a1b703a7a36' // integrated source commit; repin if source changes.
 const expectedFixtureSha = '12e1e552085c154e507ac1100dbcd9bcaeaf8184696ad02e9a696c3929c529ac'
-const preparedOnly = true // Must remain true until parent reviews final branch and authorizes the run.
+const preparedOnly = false // Parent reviewed final 9fac source, guards and synthetic frame boundary.
 const sha = path => createHash('sha256').update(readFileSync(path)).digest('hex')
 const git = (...args) => execFileSync('git', ['-C',taskSource,...args], {encoding:'utf8'}).trim()
 const result={source:taskSha,phase:'preflight',checks:{}}
