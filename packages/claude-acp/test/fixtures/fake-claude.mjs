@@ -76,6 +76,11 @@ process.on('exit', () => log(`exit ${process.pid}`))
 // A signal death skips 'exit'; the SDK ends a replaced process with SIGTERM.
 process.on('SIGTERM', () => process.exit(0))
 
+if (argv.length === 3 && argv[0] === 'auth' && argv[1] === 'status' && argv[2] === '--json') {
+  const account = JSON.parse(process.env.FAKE_CLAUDE_ACCOUNT ?? '{"email":"fake@example.com","subscriptionType":"fake"}')
+  process.stdout.write(`${JSON.stringify({ ...account, loggedIn: Boolean(account.subscriptionType) })}\n`)
+} else {
+
 if (process.env.FAKE_LANE_ENV_LOG && process.env.HARNESSDESK_LANE_ID) {
   const keys = [
     'HARNESSDESK_GOAL_ID',
@@ -809,3 +814,4 @@ rl.on('line', (line) => {
   }
 })
 rl.on('close', () => process.exit(0))
+}
