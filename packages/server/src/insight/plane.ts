@@ -12,7 +12,7 @@ import type { MachineSeatingFile } from '../agent-seating-file.js'
 import type { GoalPlane } from '../goals/plane.js'
 import type { ConsultUsage, SeatConsult } from '../evidence/records.js'
 import type { GoalDocument } from '../goals/store.js'
-import type { Ledger } from '../ledger/index.js'
+import type { InsightSourceView, Ledger } from '../ledger/index.js'
 import { seatFor, seatWindowOf, type SeatWindow } from './attribution.js'
 import { canonicalPath, sameCanonicalPath, withCanonicalPaths } from '../path-identity.js'
 import { pairedCosts } from './compare.js'
@@ -129,6 +129,7 @@ const consultSample = (consult: SeatConsult, usage: ConsultUsage, project: strin
  */
 interface ProjectScan {
   readonly detail: UsageDetail
+  readonly hasProjectUsage?: boolean
   readonly projectGoals: readonly Goal[]
   readonly projectSeats: readonly SeatRecord[]
   readonly seatOf: (sample: UsageSample) => string | null
@@ -169,10 +170,10 @@ export class InsightPlane implements InsightReadApi {
     return this.#scanOf(query, await this.port.ledger().readInsight(query, { refresh: true }))
   }
 
-  #scanOf(query: InsightQuery, read: UsageDetail, held?: { readonly goals: readonly Goal[]; readonly seats: readonly SeatRecord[] }): ProjectScan {
+  #scanOf(query: InsightQuery, read: UsageDetail, held?: { readonly goals: readonly Goal[]; readonly seats: readonly SeatRecord[]; readonly consults?: readonly SeatConsult[] }): ProjectScan {
     const allSeats = held?.seats ?? this.port.seats()
     const projectSeats = allSeats.filter((seat) => sameCanonicalPath(seat.checkout.project, query.root))
-    const consults = this.#consultsOf(query, read, projectSeats)
+    const consults = this.#consultsOf(query, read, projectSeats, held?.consults)
     const detail = consults.detail
     if (detail.samples.length === 0 && detail.gaps.length === 0) return { detail, projectGoals: [], projectSeats: [], seatOf: () => null }
     const projectGoals = (held?.goals ?? this.port.goals.store.list().map((document) => document.goal)).filter((goal) => sameCanonicalPath(goal.root, query.root))
@@ -199,7 +200,7 @@ export class InsightPlane implements InsightReadApi {
    * larger, never both. A closed consult whose spend was not known, with
    * nothing in the corpus either, is named as a gap rather than read as zero.
    */
-  #consultsOf(query: InsightQuery, read: UsageDetail, seats: readonly SeatRecord[]): {
+  #consultsOf(query: InsightQuery, read: UsageDetail, seats: readonly SeatRecord[], held?: readonly SeatConsult[]): {
     readonly detail: UsageDetail
     readonly windows: readonly SeatWindow[]
     readonly owned: readonly (readonly [UsageSample, string])[]
@@ -209,7 +210,7 @@ export class InsightPlane implements InsightReadApi {
     const owned: (readonly [UsageSample, string])[] = []
     let samples = read.samples
     const gaps = [...read.gaps]
-    for (const consult of this.port.consults?.() ?? []) {
+    for (const consult of held ?? this.port.consults?.() ?? []) {
       const caller = byId.get(consult.seat as SeatRecord['id'])
       if (!caller) continue
       windows.push({ ...seatWindowOf(caller), runtime: consult.runtime, sessionId: consult.sessionId, openedAt: consult.openedAt, closedAt: consult.closedAt })
@@ -241,7 +242,7 @@ export class InsightPlane implements InsightReadApi {
   #report(query: InsightQuery, selectedSeatIds: ReadonlySet<string> | undefined, scan: ProjectScan): InsightReport {
     const generatedAt = this.#now()
     const { detail, projectGoals, projectSeats, seatOf } = scan
-    if (detail.samples.length === 0 && detail.gaps.length === 0) return emptyReport(query.root, query.from, query.to, generatedAt)
+    if (detail.samples.length === 0 && detail.gaps.length === 0 && !scan.hasProjectUsage) return emptyReport(query.root, query.from, query.to, generatedAt)
     const runtimeSeats = query.runtime === undefined ? projectSeats : projectSeats.filter((seat) => seat.session.runtime === query.runtime)
     const seats = selectedSeatIds ? runtimeSeats.filter((seat) => selectedSeatIds.has(seat.id)) : runtimeSeats
     const runtimeSamples = query.runtime === undefined ? detail.samples : detail.samples.filter((sample) => sample.runtime === query.runtime)
@@ -304,8 +305,94 @@ export class InsightPlane implements InsightReadApi {
     return withCanonicalPaths(async () => {
       const query = { root: document.goal.root, from, to }
       this.#range(query)
-      return this.#goalReport(document, query, await this.#scan(query))
+      const ledger = this.port.ledger()
+      // Older adapters used by callers can continue to provide the array API.
+      if (typeof ledger.withInsightSources !== 'function') return this.#goalReport(document, query, this.#scanOf(query, await ledger.readInsight(query, { refresh: true })))
+      return ledger.withInsightSources(query, 1, (view) => this.#goalReport(document, query, this.#scanGoalsFromSources([document], query, view)))
     })
+  }
+
+  #scanGoalsFromSources(documents: readonly GoalDocument[], query: InsightQuery, view: InsightSourceView,
+    held?: { readonly goals: readonly Goal[]; readonly seats: readonly SeatRecord[] }): ProjectScan {
+        // These snapshots intentionally happen after all asynchronous source reads, as in #scanOf.
+        const allSeats = held?.seats ?? this.port.seats()
+        const projectSeats = allSeats.filter((seat) => sameCanonicalPath(seat.checkout.project, query.root))
+        const consults = this.port.consults?.() ?? []
+        const seatIds = new Set(documents.flatMap((document) => document.receipt?.seats ?? projectSeats.filter((seat) => seat.board === document.goal.id).map((seat) => seat.id)))
+        const byId = new Map(projectSeats.map((seat) => [seat.id, seat]))
+        const relevant = consults.flatMap((consult) => { const caller = byId.get(consult.seat); return caller ? [{ consult, caller }] : [] })
+        const windows = [...projectSeats.map(seatWindowOf), ...relevant.map(({ consult, caller }) => ({ ...seatWindowOf(caller),
+          runtime: consult.runtime, sessionId: consult.sessionId, openedAt: consult.openedAt, closedAt: consult.closedAt }))]
+        const keyOf = (runtime: string, session: string) => JSON.stringify([runtime, session])
+        type Group = { calls: UsageSample[]; count: number; sum: number; unknown: number; sessions: number;
+          sessionUnknown: number; largest: UsageSample | null; moved: number }
+        const groups = new Map<string, Group>()
+        for (const { consult } of relevant) {
+          if (consult.closedAt === null || consult.openedAt < query.from || consult.openedAt >= query.to) continue
+          const key = keyOf(consult.runtime, consult.sessionId)
+          if (!groups.has(key)) groups.set(key, { calls: [], count: 0, sum: 0, unknown: 0, sessions: 0, sessionUnknown: 0, largest: null, moved: -1 })
+        }
+        const samples: UsageSample[] = []
+        const owned = new Map<UsageSample, string>()
+        // Cache attribution only for retained rows; caching discarded rows would retain the corpus.
+        const attributed = new Map<UsageSample, string>()
+        let seen = false; let unpriced = false
+        const isSelected = (sample: UsageSample): boolean => {
+          const seat = owned.get(sample) ?? seatFor(sample, windows)
+          if (seat === null || !seatIds.has(seat)) return false
+          attributed.set(sample, seat)
+          return true
+        }
+        view.each((sample) => {
+          seen = true
+          if (sample.usd.value === null) unpriced = true
+          const group = sample.sessionId === null ? undefined : groups.get(keyOf(sample.runtime, sample.sessionId))
+          if (!group) { if (isSelected(sample)) samples.push(sample); return }
+          if (sample.scope === 'session') {
+            group.sessions++
+            if (sample.usd.value === null) group.sessionUnknown++
+            if (group.largest === null || (sample.usd.value ?? -1) > (group.largest.usd.value ?? -1)) group.largest = sample
+          } else {
+            group.count++
+            group.sum += sample.usd.value ?? 0
+            if (sample.usd.value === null) group.unknown++
+            if (isSelected(sample)) group.calls.push(sample)
+          }
+        })
+        const gaps = [...view.gaps, ...(unpriced ? ['Some recorded usage has no known USD rate.'] : [])]
+        let moved = 0; let changed = false
+        for (const { consult, caller } of relevant) {
+          if (consult.closedAt === null || consult.openedAt < query.from || consult.openedAt >= query.to) continue
+          const group = groups.get(keyOf(consult.runtime, consult.sessionId))!
+          const count = group.count + group.sessions
+          const usage = consult.usage ?? null
+          if (usage === null && count === 0) { gaps.push(CONSULT_UNKNOWN_GAP); changed = true; continue }
+          const counted = group.sum + (group.largest?.usd.value ?? 0)
+          if (usage === null || (count > 0 && group.unknown === 0 && group.sessionUnknown === 0 && counted >= usage.usd)) {
+            group.sessions = group.largest ? 1 : 0
+            group.sessionUnknown = group.largest?.usd.value === null ? 1 : 0
+          } else {
+            for (const previous of group.calls) attributed.delete(previous)
+            const sample = consultSample(consult, usage, caller.checkout.project)
+            owned.set(sample, caller.id)
+            group.calls = isSelected(sample) ? [sample] : []
+            group.count = 1; group.sum = sample.usd.value ?? 0; group.unknown = sample.usd.value === null ? 1 : 0
+            group.sessions = 0; group.sessionUnknown = 0; group.largest = null
+          }
+          group.moved = moved++; changed = true
+        }
+        for (const group of [...groups.values()].filter((one) => one.moved >= 0).sort((a, b) => a.moved - b.moved)) {
+          for (const sample of group.calls) samples.push(sample)
+          if (group.largest && isSelected(group.largest)) samples.push(group.largest)
+        }
+        const finalGaps = changed ? [...new Set(gaps)] : gaps
+        const hasProjectUsage = seen || [...groups.values()].some((group) => group.count + group.sessions > 0)
+        const sources = [...new Map([...view.sources, ...samples.map((sample) => sample.source)].map((source) => [source.id, source])).values()]
+        const detail: UsageDetail = { samples, sources, gaps: finalGaps, complete: hasProjectUsage && view.gaps.length === 0 && !unpriced }
+        const goals = (hasProjectUsage || finalGaps.length) ? (held?.goals ?? this.port.goals.store.list().map((one) => one.goal)) : []
+        const projectGoals = goals.filter((goal) => sameCanonicalPath(goal.root, query.root))
+        return { detail, hasProjectUsage, projectGoals,
+          projectSeats: (hasProjectUsage || finalGaps.length) ? projectSeats : [], seatOf: (sample) => owned.get(sample) ?? attributed.get(sample) ?? seatFor(sample, windows) }
   }
 
   /**
@@ -332,12 +419,35 @@ export class InsightPlane implements InsightReadApi {
       }
       const reports: InsightReport[] = []
       const read = [...projects.values()]
+      // The multiplied budget and the one shared source scan are the same as readInsights.
+      const queries = read.flatMap(({ query, documents }) => documents.map(() => query))
+      const ledger = this.port.ledger()
+      if (queries.length && typeof ledger.withInsightProjects === 'function') {
+        try {
+          return await ledger.withInsightProjects(queries, (views) => {
+            const held = { goals: this.port.goals.store.list().map((document) => document.goal), seats: this.port.seats() }
+            let first = 0
+            for (const { query, documents } of read) {
+              const view = views[first]!
+              first += documents.length
+              let scan: ProjectScan
+              try { scan = this.#scanGoalsFromSources(documents, query, view, held) } catch { for (const document of documents) failed.add(document.goal.id); continue }
+              for (const document of documents) {
+                try { reports.push(this.#goalReport(document, query, scan)) } catch { failed.add(document.goal.id) }
+              }
+            }
+            return { reports, failed: ids.filter((id) => failed.has(id)) }
+          })
+        } catch {
+          for (const { documents } of read) for (const document of documents) failed.add(document.goal.id)
+          return { reports, failed: ids.filter((id) => failed.has(id)) }
+        }
+      }
       let details: readonly UsageDetail[] = []
       try {
         // One query per Team: each keeps the source-data budget its own read
         // had, so Teams sharing a project do not share one read's budget.
-        const queries = read.flatMap(({ query, documents }) => documents.map(() => query))
-        if (queries.length) details = await this.port.ledger().readInsights(queries, { refresh: true })
+        if (queries.length) details = await ledger.readInsights(queries, { refresh: true })
       } catch {
         for (const { documents } of read) for (const document of documents) failed.add(document.goal.id)
         return { reports, failed: ids.filter((id) => failed.has(id)) }

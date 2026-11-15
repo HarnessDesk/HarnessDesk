@@ -1635,9 +1635,15 @@ has no window to run out of, so it belongs in `credits`, and the card says
 
 ## Opening project usage
 
-The host caches parsed Insight observations and each source's size, modification
-and change times, file identity, parser context and byte cursor for its lifetime.
-Repeat opens and timed refreshes read no unchanged transcript bytes. JSONL
+The host keeps a disposable local index of parsed Insight observations and each
+source's size, modification and change times, file identity, parser context and
+byte cursor. Admitted unchanged sources can be reused after a restart, as well
+as on repeat opens and timed refreshes, without rereading transcript bytes. The
+index contains usage measurements and source metadata, including project paths,
+session and actual provider request IDs; it does not store a serialized-record
+fallback identity. That internal fallback is represented by the observation's
+stable digest. The index is separate from the aggregate ledger and can be
+discarded and rebuilt from the agent-owned sources. JSONL
 sources resume at their cursor when appended; a shrink, replacement or same-size
 rewrite resets the source. Rewritten chat snapshots and databases (including
 write-ahead-log changes) are read whole when changed. Files last modified before
@@ -1653,4 +1659,16 @@ later reads can continue. An oversized whole-file source stays partial. The
 Insight response qualifies totals and carries `scan: 'partial'` when a scan
 limit was reached; Projects shows **Partial** in a chip. Missing measurements
 and unreadable-source warnings retain their own qualification. The cache is
-local to the running host and does not write transcripts or receipt evidence.
+local and does not write transcripts or receipt evidence. Its 128 MiB total and
+16 MiB per-source admission targets are logical budgets, not hard filesystem
+quotas; a miss, eviction, busy cache or oversized entry falls back to the source
+reader and can use the host-lifetime in-memory cache. Goal reports visit the
+project's observations for attribution and consult reconciliation while holding
+only requested Teams' observations and the necessary consult state in the normal
+indexed path. The largest source and the requested results still cost memory.
+
+If the index becomes unreadable after source bytes were spent and a Goal report
+cannot recover the needed observations, that report fails with a temporary cache
+error instead of returning an empty or complete result. A later retry is a new
+read with its own source-data budget. This availability tradeoff does not turn
+unknown spend into zero or authorize settlement.

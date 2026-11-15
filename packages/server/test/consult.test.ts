@@ -10,6 +10,7 @@ import { executionOf } from '../src/flow-recovery.js'
 import { GoalStore } from '../src/goals/store.js'
 import type { QuestionTimers } from '../src/host.js'
 import type { UsageSample } from '../src/ledger/insight.js'
+import { InsightCacheUnavailableError } from '../src/ledger/insight-cache.js'
 import { claimed, desk, E2E, execution, start, TASK, whenChanged, type Desk } from './fixtures/flow-host-evidence.js'
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { HoldFake, type HoldSession } from './fixtures/hold-runtime.js'
@@ -801,7 +802,7 @@ test('round 5: the ask’s signal goes on into the agent’s own send, which loo
 
 test('#2140: repeated same-clock background passes keep a stopped unknown reservation without rereading it', E2E, async (t) => {
   let reads = 0, fail = false
-  const { d, goal, caller } = await triggerSeat(t, 2, () => { reads++; if (fail) throw new Error('synthetic usage failure'); return [] })
+  const { d, goal, caller } = await triggerSeat(t, 2, () => { reads++; if (fail) throw new InsightCacheUnavailableError(); return [] })
   d.runtime.onSend = (session, text) => { if (text.includes(CONSULT_PROMPT)) setImmediate(() => (session as HoldSession).finish('4')) }
   await d.host.consultPlane.ask({ agent: 'fake', question: 'What is 2+2?', context: null }, caller)
   await d.host.intakePlane.tick()
@@ -820,7 +821,10 @@ test('#2140: repeated same-clock background passes keep a stopped unknown reserv
   await d.host.intakePlane.meter()
   await d.host.intakePlane.meter()
   assert.equal(reads - failed, 1, 'a failed read consumes its opportunity')
-  assert.equal(d.host.intakePlane.journal.read().budgets[goal]!.reservedMicros, before.reservedMicros)
+  const failedBudget = d.host.intakePlane.journal.read().budgets[goal]!
+  assert.equal(failedBudget.reservedMicros, before.reservedMicros)
+  assert.equal(failedBudget.settled, false, 'cache unavailability cannot settle the reservation')
+  assert.ok(askMeter(d, goal)?.unknown, 'the prior unknown usage remains unknown')
 })
 
 test('#2140: a live Goal remains metered while nine stopped reservations share the background quota', E2E, async (t) => {
