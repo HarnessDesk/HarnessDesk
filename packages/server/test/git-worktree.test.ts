@@ -12,7 +12,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { promisify } from 'node:util'
 
 import { add, inventory, inventoryOf, list, move, prune, remove, setLock } from '../src/git-worktree.js'
-import { list as sessionList, repositoryOf, worktreeHome } from '../src/worktree.js'
+import { list as sessionList, repositoryOf, Worktrees, worktreeHome } from '../src/worktree.js'
 import { captureShellProject, shellProjectUnchanged } from '../src/shell-project.js'
 
 /**
@@ -550,6 +550,41 @@ test('a confirmation is void after a file is added inside an ignored directory',
   assert.equal(await readFile(added, 'utf8'), 'new notes\n')
   await remove(repo, made.path, true, await confirmed(made.path), state)
   assert.ok(await gone(made.path))
+})
+
+test('ignored directory warnings and confirmations survive Git status preferences', async (t) => {
+  for (const preference of ['no', 'all']) {
+    for (const force of [false, true]) {
+      await t.test(`showUntrackedFiles=${preference}, force=${force}`, async () => {
+        const { repo, state } = await seedRepo()
+        await writeFile(join(repo, '.gitignore'), 'drafts/\n')
+        await git(repo, 'add', '.gitignore')
+        await git(repo, 'commit', '-qm', 'ignore drafts')
+        const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+        await git(made.path, 'config', 'status.showUntrackedFiles', preference)
+        await mkdir(join(made.path, 'drafts', 'nested'), { recursive: true })
+        const original = join(made.path, 'drafts', 'one.txt')
+        const added = join(made.path, 'drafts', 'nested', 'two.txt')
+        await writeFile(original, 'seen\n')
+
+        const held = await inventory(made.path)
+        const warning = await new Worktrees(state).changes(made.path)
+        assert.equal(held.changeCount, 0)
+        assert.deepEqual(held.ignored, ['drafts/'])
+        assert.equal(held.ignoredCount, 1)
+        assert.equal(warning.modified + warning.untracked, 0)
+        assert.deepEqual(warning.ignored, ['drafts/'])
+        assert.equal(warning.ignoredCount, 1)
+
+        await writeFile(added, 'new notes\n')
+        await assert.rejects(() => remove(repo, made.path, force, held.stateId, state), /changed since you looked/)
+        assert.equal(await readFile(original, 'utf8'), 'seen\n')
+        assert.equal(await readFile(added, 'utf8'), 'new notes\n')
+        await remove(repo, made.path, force, (await inventory(made.path)).stateId, state)
+        assert.ok(await gone(made.path))
+      })
+    }
+  }
 })
 
 // Work git reports as changed, tracked or not, is held to its contents. What git
