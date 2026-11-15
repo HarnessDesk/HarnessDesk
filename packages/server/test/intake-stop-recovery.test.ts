@@ -152,6 +152,34 @@ test('an unresolved stop retains its thread through ordinary eviction and a dist
   assert.equal(page.decisions.some(one => one.comment.id === '2'), false)
 })
 
+test('a stop targets newer open work before an older unresolved thread, then can retry the older scope', async () => {
+  const home = tempDir('hd-stop-open-priority-'), path = join(home, 'triggers-mentions.json')
+  const thread = (id: string, goal: string, key: string, state: 'open' | 'closed') => ({ id, project, trigger, repository,
+    origin: { kind: 'issue', number: 1 }, links: { issues: [1], pulls: [], goals: [goal] }, state,
+    closed: state === 'closed' ? { reason: 'closed', at: 10 } : null, resumes: 0, observations: 0, openedAt: 0, firings: [key], seen: [] })
+  await writeFile(path, JSON.stringify({ ...file([intent('1', 'unconfirmed')]),
+    threads: [thread('thread-1', 'goal-1', firing, 'closed'), thread('thread-2', 'goal-2', 'b'.repeat(64), 'open')],
+    modes: { [`${project}\u0000${trigger}`]: { mode: 'act', armedAt: 1 } } }))
+  const stopped: string[] = []
+  const port = { home, pendingFirings: () => [], leadName: () => 'dex', changed() {}, now: () => 20, signal: new AbortController().signal,
+    closeThread: async (close: () => Promise<void>) => close(),
+    planStop: async () => ({ queuedTargets: [], runTargets: [], interruptTargets: [], leadRunTargets: [], leadPlanTarget: null }),
+    stopOnce: async (work: { goals: readonly string[] }) => { stopped.push(...work.goals); return { complete: false } } } as never
+  const arm = { project, id: trigger, armedAt: 1, definition: { handle: 'dex' }, binding: { account: '7', repository } } as never
+  const fact = { source: 'mention', project, repository, subject: '1', thread: 'issue', author: '7', login: 'preview-user',
+    body: '@dex stop', url: 'https://example.invalid/issue#issuecomment-1', at: 15 }
+  const instance = new MentionTriage(port)
+  const admit = async () => { throw new Error('a stop must not admit work') }
+  await instance.judge(arm, fact as never, admit)
+  assert.deepEqual(stopped, [], 'the original comment is never replayed')
+  await instance.judge(arm, { ...fact, url: 'https://example.invalid/issue#issuecomment-2' } as never, admit)
+  assert.deepEqual(stopped, ['goal-2'], 'the open lifecycle receives the stop')
+  const first = await instance.page(project, trigger, arm)
+  assert.equal(first.threads.find(one => one.id === 'thread-2')?.state, 'closed')
+  await instance.judge(arm, { ...fact, url: 'https://example.invalid/issue#issuecomment-3' } as never, admit)
+  assert.deepEqual(stopped, ['goal-2', 'goal-1'], 'with no open thread, a distinct comment can retry the earlier scope')
+})
+
 test('protected thread retention remains bounded by 500 identities plus 256 ordinary threads', async () => {
   const home = tempDir('hd-stop-thread-bound-'), path = join(home, 'triggers-mentions.json')
   const firingFor = (n: number) => createHash('sha256').update(String(n)).digest('hex')

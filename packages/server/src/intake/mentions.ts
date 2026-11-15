@@ -602,12 +602,14 @@ export class MentionTriage {
       ? [...ordinaryRows.filter(one => one.state === 'closed'), ...ordinaryRows.filter(one => one.state === 'open')].slice(-TRIGGER_THREADS_KEPT)
       : ordinaryRows
     const retainedThreads = new Set([...protectedRows, ...retainedOrdinary])
+    const orderedThreads = ordinaryRows.length > TRIGGER_THREADS_KEPT
+      ? [...next.threads.filter(one => one.state === 'closed'), ...next.threads.filter(one => one.state === 'open')] : next.threads
     const trimmed: LedgerFile = {
       ...next,
       version: next.version === 2 || next.stopIntents.length > 0 ? 2 : 1,
       pendingThreads: [...anchors.values()],
       decisions,
-      threads: next.threads.filter(one => retainedThreads.has(one)),
+      threads: orderedThreads.filter(one => retainedThreads.has(one)),
     }
     if (!ledgerOf(trimmed)) throw new Error('The mention decisions could not be saved safely.')
     try { await atomicJson(this.#file, trimmed) } catch (error) {
@@ -915,10 +917,14 @@ export class MentionTriage {
       const retryingUnconfirmed = addressed && asksToStop(fact.body ?? '', handle)
       const repository = (fact.repository ?? '').toLowerCase()
       const boundRepository = (arm.binding.repository ?? '').toLowerCase()
-      const linked = [...ledger.threads, ...ledger.pendingThreads].find((one) => one.project === arm.project && one.trigger === arm.id &&
+      const candidates = [...ledger.threads, ...ledger.pendingThreads].filter((one) => one.project === arm.project && one.trigger === arm.id &&
         !!repository && typeof one.repository === 'string' && one.repository.toLowerCase() === repository && repository === boundRepository &&
-        (one.state === 'open' || retryingUnconfirmed && ledger.stopIntents.some(stop => stop.threadId === one.id && stop.state !== 'consumed')) &&
         (one.links.issues.includes(number) || one.links.pulls.includes(number)))
+      // An active lifecycle takes a new stop first. A closed protected thread
+      // remains reachable for an explicit retry when no current work is open.
+      const linked = candidates.find(one => one.state === 'open') ?? (retryingUnconfirmed ? candidates.find(one =>
+        one.state === 'closed' && ledger.stopIntents.some(stop => stop.threadId === one.id && stop.state !== 'consumed' && stop.key.project === one.project &&
+          stop.key.trigger === one.trigger && stop.key.repository === repository)) : undefined)
       if (linked) {
         if (linked.seen.includes(id)) return
         const allowed = await this.#allowed(arm, fact)
