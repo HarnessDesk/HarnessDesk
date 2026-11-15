@@ -27,9 +27,19 @@ globalThis.fetch = async (input) => {
   return Response.json({userCode:'ABCD-EFGH',pollSecret:'p'.repeat(43),verifyUrl:'https://cloud.example.com/link#code=ABCD-EFGH',expiresAt:Math.floor(Date.now()/1000)+600,intervalSeconds:30})
 }
 const bootstrap = createDefaultHost({ stateDir: process.env.HD_STATE, codexHome: join(process.env.HD_STATE, 'codex'), codexBinaryPath: null, console: false,
+  deskName: 'Studio Computer', mobileEnabled: true, phoneLink: { host: '127.0.0.1', port: 0, includeLoopback: true },
   credentialCipher: cipher, accountCloudUrl: 'https://cloud.example.com', accountOpenExternal: async url => { opened = url } })
 try {
   await bootstrap.pathReady
+  assert.equal((await bootstrap.host.call('account/status', {})).desk.name, 'Studio Computer')
+  await bootstrap.host.call('app/features/set', { feature: 'mobile', enabled: true })
+  await bootstrap.host.call('account/renameDesk', { name: 'Travel desk' })
+  assert.equal((await bootstrap.host.call('phone/state', {})).deskName, 'Travel desk')
+  const notices = []
+  const detach = bootstrap.host.addBroadcaster(n => notices.push(n))
+  await bootstrap.host.call('account/renameDesk', { name: 'Studio desk' })
+  assert.ok(notices.some(n => n.method === 'phone/changed' && n.params.deskName === 'Studio desk'))
+  detach()
   const pending = await bootstrap.host.call('account/signIn', {})
   assert.equal(pending.status, 'pending')
   assert.equal(pending.pending.userCode, 'ABCD-EFGH')

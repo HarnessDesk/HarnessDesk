@@ -26,7 +26,7 @@ async function until(condition: () => Promise<boolean> | boolean) {
 }
 const account = { name: 'Jane Doe', email: 'jane@example.com', pictureUrl: null }
 const deviceId = 'A'.repeat(22)
-async function rig(options: { approved?: boolean; verifyUrl?: string; plain?: boolean; pictureUrl?: string; readPicture?: (url: string) => Promise<string | undefined>; relayToken?: string | null } = {}) {
+async function rig(options: { deskName?: string; approved?: boolean; verifyUrl?: string; plain?: boolean; pictureUrl?: string; readPicture?: (url: string) => Promise<string | undefined>; relayToken?: string | null } = {}) {
   await mkdir('scratch/desktop-sign-in', { recursive: true })
   const dir = await mkdtemp('scratch/desktop-sign-in/account-test-')
   directories.push(dir)
@@ -38,6 +38,8 @@ async function rig(options: { approved?: boolean; verifyUrl?: string; plain?: bo
   let pollDeskId: string | undefined
   let lostDeleteReply: 'offline' | 500 | undefined
   let cloudRevoked = false
+  let nickname: string | null = null
+  let profileOwner = 'account-jane'
   let approved = options.approved ?? false; let denied = false; let name = 'Studio Mac'; let deskId = ''; let revoked = false
   let waitPath: string | null = null; let releasePath: (() => void) | null = null; let requestWait: Promise<void> | null = null
   let refuse = false; let deferPoll: (() => void) | null = null; let pollWait: Promise<void> | null = null
@@ -67,7 +69,8 @@ async function rig(options: { approved?: boolean; verifyUrl?: string; plain?: bo
     }
     assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer fake-desk-session')
     if (refuse) return Response.json({ error: { code: 'unauthorized' } }, { status: 401 })
-    if (url.pathname === '/v1/desk/account') return Response.json({ account: { ...account, pictureUrl: options.pictureUrl ?? null }, desk: { deskId, name }, phones: revoked ? [] : [{ deviceId, name: 'Phone', lastSeenAt: null }] })
+    if (url.pathname === '/v1/account/profile') { nickname = body.nickname ?? null; return Response.json({ ...account, id: profileOwner, nickname }) }
+    if (url.pathname === '/v1/desk/account') return Response.json({ account: { ...account, ...(nickname ? { id: 'account-jane', nickname } : {}), pictureUrl: options.pictureUrl ?? null }, desk: { deskId, name }, phones: revoked ? [] : [{ deviceId, name: 'Phone', lastSeenAt: null }] })
     if (url.pathname === '/v1/invites') return Response.json({ inviteId: 'invite-id', token: 'i'.repeat(43), expiresAt: 99999 })
     if (url.pathname === '/v1/push/send') return Response.json({ status: 'sent', apnsId: 'apns-1' })
     if (url.pathname === '/v1/desk/rename') { name = body.name!; return Response.json({ deskId, name }) }
@@ -86,8 +89,8 @@ async function rig(options: { approved?: boolean; verifyUrl?: string; plain?: bo
     if (url.pathname === '/v1/desks/revoke') { assert.equal(body.deskId, deskId); cloudRevoked = true; return Response.json({ ok: true }) }
     throw new Error('unexpected fake route')
   }
-  const service = new HarnessDeskAccount({ state, readPicture: options.readPicture, cipher: options.plain ? undefined : cipher, cloudUrl: 'https://cloud.example.com', fetch: request, openExternal: async (url: string) => { opened.push(url) }, changed: (status: unknown) => changes.push(status), now: () => now, setTimer: (fn: () => Promise<void>) => { timers.push(fn); return fn }, clearTimer: () => {} })
-  return { service, clearFault: (path: string) => faults.delete('/v1' + path), loseDeleteReply: (failure: 'offline' | 500) => { lostDeleteReply = failure }, fault: (path: string, status: number | 'offline') => faults.set('/v1' + path, status), wrongDesk: () => { pollDeskId = 'B'.repeat(21) + 'A' }, setPictureUrl: (url: string | undefined) => { options.pictureUrl = url }, setNow: (value: number) => { now = value }, state, request, cipher, opened, changes, calls, dir, timers, holdRequest: (path: string) => { waitPath = path; requestWait = new Promise<void>(r => { releasePath = r }); return () => releasePath!() }, approve: () => { approved = true }, deny: () => { denied = true }, refuse: () => { refuse = true }, holdPoll: () => { pollWait = new Promise<void>(r => { deferPoll = r }); return () => deferPoll!() } }
+  const service = new HarnessDeskAccount({ state, deskName: options.deskName, readPicture: options.readPicture, cipher: options.plain ? undefined : cipher, cloudUrl: 'https://cloud.example.com', fetch: request, openExternal: async (url: string) => { opened.push(url) }, changed: (status: unknown) => changes.push(status), now: () => now, setTimer: (fn: () => Promise<void>) => { timers.push(fn); return fn }, clearTimer: () => {} })
+  return { service, setProfileOwner: (id: string) => { profileOwner = id }, setRemoteNickname: (value: string | null) => { nickname = value }, clearFault: (path: string) => faults.delete('/v1' + path), loseDeleteReply: (failure: 'offline' | 500) => { lostDeleteReply = failure }, fault: (path: string, status: number | 'offline') => faults.set('/v1' + path, status), wrongDesk: () => { pollDeskId = 'B'.repeat(21) + 'A' }, setPictureUrl: (url: string | undefined) => { options.pictureUrl = url }, setNow: (value: number) => { now = value }, state, request, cipher, opened, changes, calls, dir, timers, holdRequest: (path: string) => { waitPath = path; requestWait = new Promise<void>(r => { releasePath = r }); return () => releasePath!() }, approve: () => { approved = true }, deny: () => { denied = true }, refuse: () => { refuse = true }, holdPoll: () => { pollWait = new Promise<void>(r => { deferPoll = r }); return () => deferPoll!() } }
 }
 
 test('browser sign-in shows matching code, proves key, polls, and persists only encrypted secrets', async () => {
@@ -547,4 +550,81 @@ test('a desk only connects to a relay origin over TLS, or to a loopback one in d
   for (const bad of ['ws://relay.example.com', 'https://relay.example.com', 'wss://u:p@relay.example.com', 'wss://relay.example.com/v1', 'wss://relay.example.com?x=1', 'wss://relay.example.com#x', 'not a url', 42]) {
     assert.equal(relayOrigin(bad), undefined, String(bad))
   }
+})
+
+
+test('nickname save and reset preserve provider identity and persist encrypted metadata', async () => {
+  const r = await rig({ approved: true }); await r.service.signIn(); await r.timers.shift()!()
+  const updated = await r.service.updateProfile('Jane at work')
+  assert.deepEqual(updated.account, { ...account, id: 'account-jane', nickname: 'Jane at work' })
+  assert.deepEqual(r.calls.at(-1), { path: '/v1/account/profile', body: { nickname: 'Jane at work' } })
+  const file = (await readdir(r.dir)).find(file => file.endsWith('.sealed'))!
+  assert.equal(JSON.parse(cipher.decrypt(await readFile(join(r.dir, file)))).cached.account.nickname, 'Jane at work')
+  assert.equal((await r.service.updateProfile(null)).account?.nickname, null)
+  r.service.close()
+})
+test('nickname refuses signed-out edits and preserves previous identity on failure', async () => {
+  const r = await rig({ approved: true })
+  await assert.rejects(r.service.updateProfile('Jane'), /Sign in/)
+  await r.service.signIn(); await r.timers.shift()!()
+  r.fault('/account/profile', 500)
+  await assert.rejects(r.service.updateProfile('Draft'), /unavailable/)
+  assert.deepEqual((await r.service.status()).account, account)
+  r.service.close()
+})
+test('older queued metadata refresh cannot overwrite a nickname save', async () => {
+  const r = await rig({ approved: true }); await r.service.signIn(); await r.timers.shift()!()
+  const release = r.holdRequest('/v1/desk/account'); const refresh = r.timers.shift()!()
+  await until(() => r.calls.filter(call => call.path === '/v1/desk/account').length === 2)
+  const saving = r.service.updateProfile('Current Jane'); release(); await refresh; await saving
+  assert.equal((await r.service.status()).account?.nickname, 'Current Jane')
+  r.service.close()
+})
+test('closing an account fences an in-flight nickname response', async () => {
+  const r = await rig({ approved: true }); await r.service.signIn(); await r.timers.shift()!()
+  const release = r.holdRequest('/v1/account/profile'); const saving = r.service.updateProfile('Late Jane')
+  await until(() => r.calls.some(call => call.path === '/v1/account/profile'))
+  const before = r.changes.length; r.service.close(); release(); await saving
+  assert.equal(r.changes.length, before)
+  assert.deepEqual((await r.service.status()).account, account)
+})
+
+test('the desktop system name supplies the initial desk label and saved rename wins on restart', async () => {
+  const r = await rig({ deskName: 'Studio Computer' })
+  assert.equal((await r.service.status()).desk.name, 'Studio Computer')
+  await r.service.renameDesk('Travel desk')
+  assert.equal(r.service.deskName(), 'Travel desk')
+  const next = new HarnessDeskAccount({ state: r.state, deskName: 'Different Computer', changed: () => {} })
+  assert.equal((await next.status()).desk.name, 'Travel desk')
+  assert.equal(r.calls.length, 0)
+  next.close(); r.service.close()
+})
+
+test('the existing metadata timer observes another client nickname without a new polling mechanism', async () => {
+  const r = await rig({ approved: true }); await r.service.signIn(); await r.timers.shift()!()
+  r.setRemoteNickname('Mobile Jane'); await r.timers.shift()!()
+  assert.equal((await r.service.status()).account?.nickname, 'Mobile Jane')
+  r.service.close()
+})
+test('a nickname queued behind sign-out cannot update or restore the old account', async () => {
+  const r = await rig({ approved: true }); await r.service.signIn(); await r.timers.shift()!()
+  const signingOut = r.service.signOut(true)
+  const saving = r.service.updateProfile('Old draft')
+  await signingOut; await saving
+  assert.equal((await r.service.status()).status, 'signedOut')
+  assert.equal(r.calls.some(call => call.path === '/v1/account/profile'), false)
+  r.service.close()
+})
+
+test('nickname responses from another account are rejected and host actor reads stay synchronous', async () => {
+  const r = await rig({ approved: true }); await r.service.signIn(); await r.timers.shift()!()
+  assert.deepEqual(r.service.userActor(), { kind: 'user' })
+  await r.service.updateProfile('Work Jane')
+  const requests = r.calls.length
+  assert.deepEqual(r.service.userActor(), { kind: 'user', accountId: 'account-jane', name: 'Work Jane' })
+  assert.equal(r.calls.length, requests)
+  r.setProfileOwner('other-account')
+  await assert.rejects(r.service.updateProfile('Wrong person'), /did not match/)
+  assert.equal((await r.service.status()).account?.nickname, 'Work Jane')
+  r.service.close()
 })

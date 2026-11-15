@@ -1,45 +1,14 @@
 import type { AvatarId } from './avatars'
 
 /**
- * Who you are on this desk: a name and a face.
+ * Legacy local profile preferences, retained for compatibility.
  *
- * Nothing else, because nothing else is shown. The seat at the bottom of the
- * sidebar, the top of its menu, the top of the settings rail and your own
- * messages in a room all draw you, and all of them draw these two things.
- *
- * There is no HarnessDesk account yet, so the profile is a preference kept on
- * this Mac the way the theme is. When there is one, the account supplies the
- * same two fields and this becomes what a signed-out desk shows. That is why
- * every surface reads it through `profileName` and `ProfileFace` rather than
- * off the field: the answer changes in one place, and the sidebar, the menu,
- * the rail and the rooms follow it together. An agent's account is a
- * different thing entirely — a pen, not a person — and keeps its own name
- * and ring (`lib/accounts.ts`).
- *
- * Only what differs from the default is stored. `{}` is the default desk —
- * "HarnessDesk" and the house mark — and a name typed equal to the default,
- * or typed empty, is dropped on the way in, so "Reset" is offered exactly
- * when there is something to reset.
- *
- * What a later build stores, this one keeps: every field it does not know,
- * whatever `avatar` holds, and the name exactly as it was written. The profile
- * is written whole (`setProfile`), so a read that dropped any of them — a face
- * added after this build, a picture of your own, a field an account brings —
- * or held the name to this build's rules — a longer cap, its own spacing —
- * would lose them for good on the next write of anything, and a profile
- * synced between copies of different ages would lose them on a loop. So the
- * read keeps them, the write puts them back, and only two things fall back:
- * drawing, where `Face` draws the house mark for a face this build does not
- * ship, and an edit made here, which `applyProfile` holds to this build's
- * rules — the name it is given is tidied, never the one it keeps. What the read
- * does not carry is a name that says nothing — blank, every build's spelling
- * of the default — and a `name` that is not a string: the name stays a
- * string, and an account is expected to supply a string there too.
- *
- * The one thing a name does not keep is the handful of controls that reorder
- * text or hide inside it rather than spell it (`HIDDEN_CONTROLS`). A later
- * build's spacing and its longer cap are that build's business; a name that
- * draws itself backwards is nobody's.
+ * Account identity and desk naming have separate owners. The old avatar is
+ * used only as an application-icon migration fallback until appIcon is
+ * explicitly chosen or reset. Reading never rewrites this profile: names,
+ * unknown artwork and future fields survive through storedProfile unchanged,
+ * apart from the unsafe text controls described below. Existing callers may
+ * still edit the legacy shape; account edits never pass through it.
  */
 export interface Profile {
   /**
@@ -249,3 +218,7 @@ const canonical = (value: unknown): string =>
 /** Whether two profiles would store the same thing — the store's gate on writing at all. */
 export const sameProfile = (a: Profile, b: Profile): boolean =>
   a.name === b.name && canonical(a.avatar) === canonical(b.avatar) && canonical(a.later ?? {}) === canonical(b.later ?? {})
+
+/** An own appIcon key, including null or unknown future values, ends legacy fallback. */
+export const readAppIcon = (preferences: Readonly<Record<string, unknown>>): unknown =>
+  Object.hasOwn(preferences, 'appIcon') ? preferences['appIcon'] : readProfile(preferences['profile']).avatar ?? null

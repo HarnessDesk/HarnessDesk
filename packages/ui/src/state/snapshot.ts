@@ -366,14 +366,11 @@ export interface AppSnapshot {
    * in it — Settings › General.
    */
   readonly hideAccountAddresses: boolean
-  /**
-   * Who you are on this desk — the name and face the seat, its menu, the top
-   * of the settings rail and your messages in a room all draw. Only what
-   * differs from the default is here; `{}` is "HarnessDesk" and the house
-   * mark. Read it through `profileName` and `ProfileFace`, never the fields,
-   * so a signed-in account can supply it later in one place. `lib/profile.ts`.
-   */
+  /** The authenticated person, independent of agent credentials and application artwork. */
   readonly harnessDeskAccount: HarnessDeskAccountStatus | null
+  /** Effective application artwork; unknown future values are retained without drawing them. */
+  readonly appIcon: unknown
+  /** Legacy local profile, retained losslessly for older clients and icon migration. */
   readonly profile: Profile
   /**
    * Sign-ins in flight, by runtime. Keyed rather than singular because the
@@ -947,6 +944,7 @@ const EMPTY: AppSnapshot = {
   carryOnIncidents: new Map(),
   hideAccountAddresses: false,
   harnessDeskAccount: null,
+  appIcon: null,
   profile: {},
   logins: {},
   limits: null,

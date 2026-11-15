@@ -218,6 +218,7 @@ export interface BootstrapOptions {
   readonly credentialCipher?: HostOptions['credentialCipher']
   readonly accountOpenExternal?: HostOptions['accountOpenExternal']
   readonly accountCloudUrl?: HostOptions['accountCloudUrl']
+  readonly deskName?: HostOptions['deskName']
   readonly stateDir?: string
   readonly codexBinaryPath?: string | null
   readonly codexHome?: string | null
@@ -698,6 +699,7 @@ export const createDefaultHost = (
     ...(options.credentialCipher ? { credentialCipher: options.credentialCipher } : {}),
     ...(options.accountOpenExternal ? { accountOpenExternal: options.accountOpenExternal } : {}),
     ...(options.accountCloudUrl ? { accountCloudUrl: options.accountCloudUrl } : {}),
+    ...(options.deskName ? { deskName: options.deskName } : {}),
     ...(options.pickDirectory ? { pickDirectory: options.pickDirectory } : {}),
     ...(options.revealPath ? { revealPath: options.revealPath } : {}),
     ...(options.trashPath ? { trashPath: options.trashPath } : {}),

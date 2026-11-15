@@ -172,3 +172,19 @@ test('malformed or null workspace entries in state.json do not crash load (#498)
 })
 
 
+
+test('app icon choices and explicit reset survive disk reload without rewriting legacy preferences', async t => {
+  const dir = await dirFor(); t.after(() => rm(dir, { recursive: true, force: true }))
+  const file = join(dir, 'state.json'); const state = new StateStore(file); await state.load()
+  const profile = { name: 'Legacy Jane', avatar: 'wizard', future: { retain: true } }
+  await state.setPreferences({ profile, futurePreference: { retain: true } })
+  await state.setPreferences({ appIcon: 'dj' })
+  const chosen = new StateStore(file); await chosen.load()
+  assert.equal(chosen.state.preferences['appIcon'], 'dj')
+  await chosen.setPreferences({ appIcon: null })
+  const reset = new StateStore(file); await reset.load()
+  assert.equal(Object.hasOwn(reset.state.preferences, 'appIcon'), true)
+  assert.equal(reset.state.preferences['appIcon'], null)
+  assert.deepEqual(reset.state.preferences['profile'], profile)
+  assert.deepEqual(reset.state.preferences['futurePreference'], { retain: true })
+})

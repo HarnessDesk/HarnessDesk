@@ -21,3 +21,9 @@ describe('the HarnessDesk account name while addresses are hidden', () => {
     expect(shownDeskName({ name: null, email: 'jane@example.com' }, false)).toBe('jane@example.com')
   })
 })
+
+it('prefers account nickname while preserving the address privacy rule', () => {
+  expect(shownDeskName({ nickname: 'Work Jane', name: 'Jane Doe', email: 'jane@example.com' }, false)).toBe('Work Jane')
+  expect(shownDeskName({ nickname: null, name: 'Jane Doe' }, false)).toBe('Jane Doe')
+  expect(shownDeskName({ nickname: 'jane@example.com', name: 'Jane Doe' }, true)).toBe('jane')
+})

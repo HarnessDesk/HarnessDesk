@@ -1077,6 +1077,15 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     if (!/^[A-Za-z0-9_-]{21}[AQgw]$/.test(id)) throw new ValidationError(path, 'expected a device id')
     return id
   } }),
+  'account/updateProfile': (value, path = '') => {
+    const source = isObject(value, path)
+    if (Object.keys(source).some(key => key !== 'nickname')) throw new ValidationError(path, 'expected only nickname')
+    const nickname = source['nickname']
+    if (nickname === null) return { nickname: null }
+    const name = isString(nickname, path + '.nickname').trim()
+    if (!name || name.length > 80) throw new ValidationError(path, 'expected a name of 1 to 80 characters')
+    return { nickname: name }
+  },
   'account/renameDesk': shape({ name: (value, path = '') => {
     const name = isString(value, path).trim()
     if (!name || name.length > 80) throw new ValidationError(path, 'expected a name of 1 to 80 characters')

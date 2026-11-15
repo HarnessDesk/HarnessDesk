@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import {
-  CreateInviteResponse, DeskAccountResponse, DeskChallengeResponse, DeskSessionResponse, DeviceId, Name, Ok,
+  AccountProfile, UpdateAccountProfileRequest, CreateInviteResponse, DeskAccountResponse, DeskChallengeResponse, DeskSessionResponse, DeviceId, Name, Ok,
   PollDeskLinkResponse, RenameDeskResponse, SendPushRequest, SendPushResponse, StartDeskLinkResponse,
 } from '@harnessdesk/contract'
 import {
@@ -12,7 +12,7 @@ import {
   webDeskLinkProofMessage, webDeskProofMessage, type SigningIdentity,
 } from '@harnessdesk/crypto'
 import { RelayUnavailableError } from '@harnessdesk/phone-link'
-import type { HarnessDeskAccountStatus } from '@harnessdesk/protocol'
+import { accountUserActor, type HarnessDeskAccountStatus } from '@harnessdesk/protocol'
 import type { CredentialCipher } from './credentials.js'
 import type { StateStore } from './state.js'
 
@@ -56,6 +56,7 @@ interface Secrets { version: 1; origin: string; key: string; pending?: Pending; 
 interface Pending { userCode: string; pollSecret: string; verifyUrl: string; expiresAt: number; intervalSeconds: number }
 interface Options {
   state: StateStore
+  deskName?: string
   readPicture?: (url: string) => Promise<string | undefined>
   cipher?: CredentialCipher
   cloudUrl?: string
@@ -130,7 +131,7 @@ export class HarnessDeskAccount {
   #desk() {
     const prefs = this.#options.state.state.preferences
     const savedName = Name.safeParse(prefs['accountDeskName'])
-    return { name: savedName.success ? savedName.data : hostname().slice(0, 80) || 'This desk', reachable: prefs['accountReachable'] === true }
+    return { name: savedName.success ? savedName.data : (Name.safeParse(this.#options.deskName).data ?? hostname().slice(0, 80)) || 'This desk', reachable: prefs['accountReachable'] === true }
   }
   #signedOut(error?: string): HarnessDeskAccountStatus { return { status: 'signedOut', desk: this.#desk(), phones: [], ...(error ? { error } : {}) } }
   #emit(status: HarnessDeskAccountStatus) {
@@ -497,6 +498,31 @@ export class HarnessDeskAccount {
     const session = await this.#session(this.#generation)
     if (!session) throw new Error('Sign in to HarnessDesk first.')
     return { token: session.token, deskId: await idFromPub((await this.#key()).pub) }
+  }
+  /** Synchronous host-known metadata; room authors never cause a cloud request. */
+  userActor() { return accountUserActor(this.#snapshot.status === 'signedIn' ? this.#snapshot.account : undefined) }
+  deskName(): string { return this.#desk().name }
+
+  updateProfile(nickname: string | null): Promise<HarnessDeskAccountStatus> {
+    const requestedGeneration = this.#generation
+    return this.#serialize(async () => {
+      const body = UpdateAccountProfileRequest.parse({ nickname })
+      if (!this.#current(requestedGeneration)) return this.#snapshot
+      const { token } = await this.#authorized()
+      if (!this.#current(requestedGeneration)) return this.#snapshot
+      const previousId = this.#snapshot.account?.id
+      const account = this.#parse(AccountProfile, await this.#request('/account/profile', body, token))
+      if (!this.#current(requestedGeneration)) return this.#snapshot
+      if (previousId && account.id !== previousId) throw new Error('The account response did not match the signed-in person.')
+      if (!this.#secrets?.cached || this.#snapshot.status !== 'signedIn') return this.#snapshot
+      this.#secrets.cached = { ...this.#secrets.cached, account }
+      if (this.#secrets.picture?.source !== account.pictureUrl) delete this.#secrets.picture
+      await this.#persist()
+      if (!this.#current(requestedGeneration)) return this.#snapshot
+      this.#emit({ ...this.#snapshot, account: this.#withPicture(account) })
+      if (account.pictureUrl) void this.#loadPicture(account.pictureUrl, requestedGeneration)
+      return this.#snapshot
+    }, false)
   }
   renameDesk(name: string) { return this.#serialize(async () => {
     const trimmed = Name.parse(name)

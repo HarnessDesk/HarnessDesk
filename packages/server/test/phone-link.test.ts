@@ -72,10 +72,10 @@ const desk = async () => {
   return { host, journal, controls, ctx, performed, presenceCalls, sends, broadcast: (n: WireNotification) => broadcasters.forEach(f => f(n)) }
 }
 
-const rig = async () => {
+const rig = async (name: string | (() => string) = 'Test desk') => {
   const home = await mkdtemp(join(tmpdir(), 'hd-phone-server-'))
   const d = await desk()
-  const running = await startPhoneLink(d.host as never, new Logger('test', { console: false }), { home, host: '127.0.0.1', includeLoopback: true, name: 'Test desk' })
+  const running = await startPhoneLink(d.host as never, new Logger('test', { console: false }), { home, host: '127.0.0.1', includeLoopback: true, name })
   const pair = async (tiers?: readonly import('@harnessdesk/protocol').PhoneTier[]) => {
     const code = await running.control.pairing()
     const phone = await PhoneSim.fromCode(code.url)
@@ -330,5 +330,19 @@ test('a presence change reaches an open phone on its own topic, with no text', a
     const event = await phone.next(m => m.t === 'evt' && m.topic === 'presence')
     assert.deepEqual(event.data, { v: 1 })
     phone.close()
+  } finally { await s.done() }
+})
+
+test('local metadata and newly issued pairing codes follow the current desk name', async () => {
+  let name = 'Studio Computer'
+  const s = await rig(() => name)
+  try {
+    assert.equal(s.running.control.state().deskName, 'Studio Computer')
+    const first = await PhoneSim.fromCode((await s.running.control.pairing()).url)
+    assert.equal(first.offer?.name, 'Studio Computer')
+    name = 'Travel desk'
+    assert.equal(s.running.control.state().deskName, 'Travel desk')
+    const second = await PhoneSim.fromCode((await s.running.control.pairing()).url)
+    assert.equal(second.offer?.name, 'Travel desk')
   } finally { await s.done() }
 })
