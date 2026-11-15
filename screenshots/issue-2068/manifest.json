@@ -1,0 +1,19 @@
+{
+  "issue": 2068,
+  "desktopSource": "db689df9cda9cf371a6fd09c205c4e4ef5a30ddb",
+  "evidence": "Synthetic Electron preview using captured Host projections; no live Host to UI transport.",
+  "images": [
+    {
+      "path": "after/held.png",
+      "sha256": "7b55a90a18fc64823ea661e9881f0ebb52e1059f5f81800ea336016985169b5d",
+      "width": 2560,
+      "height": 1936
+    },
+    {
+      "path": "after/settled.png",
+      "sha256": "c819d11f64d2ae1e1d7f2be957845623ab3b0e2c2d5565b1aa59398cb6d8f3d5",
+      "width": 2560,
+      "height": 1936
+    }
+  ]
+}
