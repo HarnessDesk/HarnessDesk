@@ -18,6 +18,7 @@ import {
   type UsageStanding,
   type UsageStandingStatus,
   usageStandingOf,
+  usageIsFresh,
 } from '@harnessdesk/protocol'
 
 import { burn, MARGIN_BAND, type BurnView } from './burn'
@@ -335,7 +336,8 @@ export const pace = (lane: UsageLane, now: number): PaceView | null => {
  * How old a reading is, in words: "just now", "2m ago", "14h ago". Rounded down by the protocol's one rule
  * (`formatElapsed`), as the phone and the Lead are given it: an age never reads longer than it is (#2150).
  */
-export const formatAge = (fetchedAt: number, now: number): string => formatElapsed(fetchedAt, now)
+export const formatAge = (fetchedAt: number, now: number): string =>
+  Number.isFinite(fetchedAt) && fetchedAt > 0 && fetchedAt <= now ? formatElapsed(fetchedAt, now) : 'read time unknown'
 
 /**
  * What the Dashboard draws for a report — and only the Dashboard.
@@ -474,7 +476,7 @@ export const describeReport = (
     blocked,
     reached: report.reached,
     reachedLane,
-    stale: now - report.fetchedAt > report.staleAfterMs,
+    stale: !usageIsFresh(report, now),
     age: formatAge(report.fetchedAt, now),
   }
 }

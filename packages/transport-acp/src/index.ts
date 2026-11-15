@@ -66,6 +66,10 @@ export interface AcpAgentCapabilities {
 /** ACP's sign-out request, declared by `agentCapabilities.auth.logout`. */
 export const ACP_LOGOUT = 'logout'
 
+/** Optional account quota control; no prompt or new session. Copied in the bridge's usage.ts. */
+export const ACP_USAGE_READ = '_harnessdesk/usage/read'
+export const ACP_USAGE_CAPABILITY = 'accountUsage'
+
 /**
  * ACP's sign-in request: `{ methodId }`, one of `initialize`'s `authMethods`.
  * It answers nothing — the agent does whatever signing in means for it, a

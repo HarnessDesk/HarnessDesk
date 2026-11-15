@@ -148,6 +148,13 @@ test('a moved Gemini home moves the sign-in and the spend together, so one card 
   }
 })
 
+test('a Claude cache follows the row own home and config directory', () => {
+  const agent = row({ id: 'claude-work', command: 'claude', env: { HOME: '/accounts/two' } })
+  assert.deepEqual(localUsageFor(agent, knowledge('claude-code'))?.meter?.watchPaths(), ['/accounts/two/.claude.json'])
+  assert.deepEqual(localUsageFor({ ...agent, env: { HOME: '/accounts/two', CLAUDE_CONFIG_DIR: '/accounts/config' } },
+    knowledge('claude-code'))?.meter?.watchPaths(), ['/accounts/config/.claude.json'])
+})
+
 test('an Amp row with its own PATH is asked with that PATH, not the host process’s', async () => {
   // The row can carry a second Amp account through its own PATH (and HOME,
   // for the installer fallback); the meter has to find and run *that* amp,

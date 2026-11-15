@@ -339,12 +339,13 @@ export class PhoneWorkspace {
           reached: lane.placeholder !== true && (hit === lane.id || hit === lane.label || remainingOf(lane) === 0), projection,
         }
       })
-      const windows = windowsOf(report.lanes, report.error !== null, report.reached)
+      const windows = windowsOf(report.lanes, report.error !== null || !knownReadTime(report.fetchedAt, now), report.reached)
       // Another sign-in's figures, as the Dashboard draws them for this agent: said as that sign-in's, never as its own.
       const other = report.unverified
       const borrowed = other && other.lanes.length > 0 ? {
-        whose: safe(other.whose), windows: windowsOf(other.lanes, Boolean(other.error), other.reached),
-        readAgeMinutes: ageMinutes(other.fetchedAt, now), readAge: formatElapsed(other.fetchedAt, now), stale: Boolean(other.error) || now - other.fetchedAt > other.staleAfterMs,
+        whose: safe(other.whose), windows: windowsOf(other.lanes, Boolean(other.error) || !knownReadTime(other.fetchedAt, now), other.reached),
+        readAgeMinutes: readAgeMinutes(other.fetchedAt, now), readAge: readAge(other.fetchedAt, now),
+        stale: Boolean(other.error) || !knownReadTime(other.fetchedAt, now) || now - other.fetchedAt > other.staleAfterMs,
       } : null
       if (report.credits) windows.push({ label: 'Balance', kind: 'balance', unlimited: report.credits.unlimited === true, windowMinutes: null,
         remainingPercent: null, remaining: report.credits.remaining, unit: safe(report.credits.unit), resetsAt: null, resetsIn: null,
@@ -356,14 +357,14 @@ export class PhoneWorkspace {
         runtime, label: `${runtime}${plan ? ` · ${safe(plan)}` : ''}${totals.get(runtime)! > 1 ? ` · account ${ordinal}` : ''}`,
         plan: plan === null ? null : safe(plan), runningSessions: running.get(runtime) ?? 0, windows,
         reached: report.reached !== null, fetchedAt: report.fetchedAt,
-        stale: !silent && now - report.fetchedAt > report.staleAfterMs,
+        stale: !silent && (!knownReadTime(report.fetchedAt, now) || now - report.fetchedAt > report.staleAfterMs),
         ...(nothing ? { notReporting: true as const } : {}),
         ...(borrowed ? { unverified: borrowed } : {}),
         ...(useFirstNote(report, now) ? { useFirst: true as const } : {}),
         error: report.error ? report.error.needsSignIn === true ? 'sign-in needed' as const : 'reading failed' as const : null,
         spend: report.spend ? { currency: safe(report.spend.currency), today: report.spend.todayCost,
           last30Days: report.spend.windowDays === 30 ? report.spend.windowCost : null, provenance: report.spend.provenance } : null,
-        readAgeMinutes: ageMinutes(report.fetchedAt, now), readAge: formatElapsed(report.fetchedAt, now),
+        readAgeMinutes: readAgeMinutes(report.fetchedAt, now), readAge: readAge(report.fetchedAt, now),
         ...(keptReading(report) ? { refreshFailed: true as const } : {}),
       }
     })
@@ -713,6 +714,9 @@ const pacingSaid = (account: string, reason: 'use-first' | 'resets-soonest', win
 
 /** Whole minutes since a reading, rounded down and never negative: the protocol's one elapsed rule (#2150). */
 const ageMinutes = (at: number, now: number): number => elapsedMinutes(at, now)
+const knownReadTime = (at: number, now: number): boolean => Number.isFinite(at) && at > 0 && at <= now
+const readAgeMinutes = (at: number, now: number): number | null => knownReadTime(at, now) ? ageMinutes(at, now) : null
+const readAge = (at: number, now: number): string => knownReadTime(at, now) ? formatElapsed(at, now) : 'read time unknown'
 
 /**
  * A time on the desk's own clock, as a person reads it, with its zone: "Tue, Nov 17, 5:00 PM PST". The zone is the
