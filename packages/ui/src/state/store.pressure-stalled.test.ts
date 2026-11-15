@@ -110,13 +110,11 @@ it('converges after a later proof resolves following an early eviction', async (
     store.enableTranscriptCache()
     await late
     expect(proofs.size).toBe(129)
-    expect(store.transcriptCacheStats()).toMatchObject({ loadedFullBodies: 129, releasedBodies: 1, pressureRunning: true })
-    const released = new Promise<void>(resolve => {
-      const off = store.subscribe(() => { if (store.transcriptCacheStats().releasedBodies === 2) { off(); resolve() } })
-    })
+    expect(store.transcriptCacheStats()).toMatchObject({ loadedFullBodies: 33, releasedBodies: 97, pressureRunning: true })
+    expect(store.getSnapshot().sessions.get(sessionKey(runtime, id(0)))?.itemsLoaded).toBe(false)
+    expect(store.getSnapshot().sessions.get(sessionKey(runtime, id(129)))?.itemsLoaded).toBe(true)
     releaseLate()
-    await released
-    expect(store.transcriptCacheStats()).toMatchObject({ loadedFullBodies: 128, releasedBodies: 2 })
+    await vi.waitFor(() => expect(store.transcriptCacheStats()).toMatchObject({ loadedFullBodies: 32, releasedBodies: 98, pressureRunning: false }))
   } finally {
     releaseLate()
     await store.disableTranscriptCache()

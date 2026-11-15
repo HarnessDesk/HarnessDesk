@@ -11,7 +11,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Keep steered replies readable after reopening.** Matching prose replayed in separate turns no longer repeats messages from the saved conversation. If the histories cannot be matched safely, the saved copy stays protected with its history warning.
 
-- **Reduce retained conversation text.** Composer, conversation-menu and navigation callbacks read the current conversation when used, reducing retention of older snapshots after their text is released.
+- **Reduce retained conversation text.** Composer, conversation-menu and navigation callbacks read the current conversation when used, reducing retention of older snapshots after their text is released. When the conversation cache fills, the desk may release additional older closed conversations; their saved text is restored when reopened.
 
 - **Stopped chats stay stopped after restart.** Finished counts no longer include retained stopped chats after reopening the desk. The Work list and recap keep their stopped status.
 

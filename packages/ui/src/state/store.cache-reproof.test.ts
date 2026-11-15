@@ -127,7 +127,7 @@ it('automatically re-proves an invalidated loaded body under real pressure', asy
   await store.disableTranscriptCache()
   const bodies = new Map(Array.from({ length: 132 }, (_, i) => { const sid = sessionId(`pressure-${i}`); return [sid, { ...body, id: sid }] as const }))
   let targetWatermark = first
-  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId: typeof id }) => {
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId: typeof id }) => {
     const watermark = params.sessionId === id ? targetWatermark : first
     if (method === 'session/cache-snapshot') return { session: params.sessionId === id ? body : bodies.get(params.sessionId), watermark, identity }
     if (method === 'session/prepare-eviction') return { ...watermark, identity }
@@ -140,8 +140,11 @@ it('automatically re-proves an invalidated loaded body under real pressure', asy
   handlers.onNotification({ method: 'session/cache-invalidated', params: { runtime, sessionId: id, watermark: newer } }); targetWatermark = newer
   store.enableTranscriptCache()
   await vi.waitFor(() => expect(store.transcriptCacheStats()).toMatchObject({ pressureRunning: false, pressureDirty: false }))
-  expect(store.transcriptCacheStats().loadedFullBodies).toBe(128)
-  expect(store.transcriptCacheStats().releasedBodies).toBe(5)
+  expect(store.transcriptCacheStats().loadedFullBodies).toBe(32)
+  expect(store.transcriptCacheStats().releasedBodies).toBe(101)
+  expect(store.getSnapshot().sessions.get(sessionKey(runtime, id))?.itemsLoaded).toBe(false)
+  expect(request.mock.calls.filter(([method, params]) => method === 'session/cache-snapshot' && params && 'sessionId' in params && params.sessionId === id).length).toBeGreaterThanOrEqual(2)
+  expect(request.mock.calls.filter(([method, params]) => method === 'session/prepare-eviction' && params && 'sessionId' in params && params.sessionId === id).length).toBeGreaterThanOrEqual(2)
   await store.disableTranscriptCache()
 })
 
