@@ -11,7 +11,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Keep steered replies readable after reopening.** Matching prose replayed in separate turns no longer repeats messages from the saved conversation. If the histories cannot be matched safely, the saved copy stays protected with its history warning.
 
-- **Release old conversation text from the composer.** Composer and command callbacks no longer hold on to earlier conversation snapshots after their text is released.
+- **Reduce retained conversation text.** Composer, conversation-menu and navigation callbacks read the current conversation when used, reducing retention of older snapshots after their text is released.
 
 - **Stopped chats stay stopped after restart.** Finished counts no longer include retained stopped chats after reopening the desk. The Work list and recap keep their stopped status.
 
@@ -33,6 +33,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Ask before another attempt.** The Lead no longer uses an existing work item to bypass a retry question. A matching positive answer is used for one attempt; an unrelated message or a negative answer cannot start another chat.
 
+- **Mention stops keep their uncertainty visible.** A stop requested from a GitHub thread is attempted once and remains in trigger history when the desk cannot confirm its effects, including after disarming or removing the trigger. Mark reviewed acknowledges the warning; it does not retry the stop. A new comment can request another attempt, and you can still stop work yourself. Trigger history keeps at most 500 identities; when protected records fill that space, new stop requests are refused until capacity is available. Older desktop and phone versions do not show the new records.
 - **Stopped GitHub work stays stopped.** A mention thread’s queued Lead requests are dropped when you stop it. Requests still waiting after its issue closes are refused and recorded, while other threads and new requests keep their own place.
 
 ## 0.7.1 — 2026-11-13

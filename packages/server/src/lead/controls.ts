@@ -68,6 +68,7 @@ interface LeadControlsOptions {
   readonly validateRepeat?: (contract: LeadAcceptanceContract) => Promise<string | null>
   readonly freezeRepeat?: (contract: LeadAcceptanceContract) => Promise<LeadAcceptanceContract>
   readonly stopRequest?: () => Promise<void>
+  readonly personStopRequest?: (goalStartedSeq: number, stopSeq: number | null) => Promise<void>
   /** Reads the workers' spend again; a Lead request is refused while that spend is not known. */
   readonly meterSpend?: () => Promise<void>
   readonly stopEffects?: () => Promise<void>
@@ -255,7 +256,8 @@ export class LeadControls {
     const activity = requestInFlight ? { since: this.#replySince!, method: this.options.readActiveTool?.() ?? null, step: step ?? LEAD_STEP_THINKING } : null
     const { stage, reason: stageReason } = leadThreadStage(state, thread, personActions, waitReason as LeadWindowProjection['waitReason'], requestInFlight, this.options.readChatEffectQueued?.() ?? false)
     const failure = leadRequestFailure(waitReason, leadDisplayName(settings.name))
-    const result = parseLeadWindowProjection({ stage, stageReason, version: 1, revision: state.seq, thread, settings, wayOut, waitReason, ...(failure && { failure }),
+    const result = parseLeadWindowProjection({ stage, stageReason, version: 1, revision: state.seq, thread, settings, wayOut, waitReason,
+      ...(state.phase === 'stopped' && (state.mentionStopOneShot || state.personStopAfterMention || state.personStopProcessSeq !== null) ? { canStop: true } : {}), ...(failure && { failure }),
       planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight, ...(activity && { activity }), personActions, savedApprovals: approvalHistory.filter(rule => !rule.revoked).map(({ id, target, count, entries, dispatch }) => ({ id, target, count, ...(dispatch && auditFailed ? { uncertain: true } : {}), ...(entries?.length ? { entries } : {}) })), revokedApprovals: approvalHistory.filter(rule => rule.revoked).map(({ id, target, count, entries }) => ({ id, target, count, ...(entries?.length ? { entries } : {}) })), ...(progress && { progress }), ...(team && { team }), ...(presence && { presence }), ...(steers.length && { steers }) })
     try { await this.options.service.assertPublic(result, state.seq) } catch (error) { this.#publicFailure(error) }
     return result
@@ -824,13 +826,19 @@ export class LeadControls {
   stop(value: { readonly expectedRevision: number }): Promise<LeadWindowProjection> { return this.#queue(async () => {
     const input = parseLeadResume(value), { journal } = this.options
     this.#expectRevision(input.expectedRevision)
-    if (['accepted', 'declined', 'stopped'].includes(journal.state.phase) &&
+    if (['accepted', 'declined', 'stopped'].includes(journal.state.phase) && !journal.state.mentionStopOneShot && !journal.state.personStopAfterMention && journal.state.personStopProcessSeq === null &&
       !(hasUncertainLeadChatEffect(journal.state) && !journal.state.chatEffectsAcknowledged)) throw leadRefusal('lead-thread-closed')
     this.#continueAgain = false
-    await journal.stop(this.options.stopEffects)
+    const personGoalStartedSeq = journal.state.goalStartedSeq
+    if (journal.state.mentionStopOneShot) await journal.stopAfterMention(this.options.stopEffects)
+    else if (journal.state.personStopAfterMention || journal.state.personStopProcessSeq !== null) await journal.retryPersonStopProcess(this.options.stopEffects)
+    else await journal.stop(this.options.stopEffects)
+    const personStopSeq = journal.state.personStopProcessSeq
     // The independent Flow cleanup owner may already have cleared its marker.
     // Process cancellation is unconditional and must succeed in its own right.
-    await this.options.stopRequest?.()
+    if (this.options.personStopRequest) await this.options.personStopRequest(personGoalStartedSeq, personStopSeq)
+    else await this.options.stopRequest?.()
+    if (personStopSeq !== null) await journal.completePersonStopProcess(personStopSeq, personGoalStartedSeq)
     // Cancellation settles the old detached continuation before another goal is admitted.
     if (this.#continuation) await this.#continuation
     return this.#projection()

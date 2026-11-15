@@ -125,6 +125,8 @@ test('mention triage controls take a trigger, a decision id and a mode, and noth
   const valid: Record<string, Record<string, unknown>> = {
     'trigger/decisions': { root: ROOT, id: 'ask' },
     'trigger/decision/reevaluate': { root: ROOT, id: 'ask', decision: `d-${'a'.repeat(20)}` },
+    'trigger/stop-unconfirmed/review': { root: ROOT, id: 'ask', stop: `u-${'a'.repeat(64)}` },
+    'trigger/stop-unconfirmed/list': { root: ROOT },
     'trigger/mode': { root: ROOT, id: 'ask', mode: 'act' },
     'phone/triage/list': { limit: 50 },
   }
@@ -136,6 +138,9 @@ test('mention triage controls take a trigger, a decision id and a mode, and noth
   }
   assert.throws(() => request('trigger/mode', { root: ROOT, id: 'ask', mode: 'auto' }), ValidationError)
   assert.throws(() => request('trigger/decision/reevaluate', { root: ROOT, id: 'ask', decision: 'accept' }), ValidationError)
+  for (const stop of ['d-' + 'a'.repeat(20), 'u-' + 'a'.repeat(63), 'u-' + 'z'.repeat(64)]) {
+    assert.throws(() => request('trigger/stop-unconfirmed/review', { root: ROOT, id: 'ask', stop }), ValidationError)
+  }
   assert.throws(() => request('phone/triage/list', { limit: 101 }), ValidationError)
   assert.throws(() => request('phone/triage/list', { limit: 0 }), ValidationError)
   assert.doesNotThrow(() => request('phone/triage/list', {}))

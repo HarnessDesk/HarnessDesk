@@ -102,7 +102,9 @@ const RUN_STATES = ['running', 'settled', 'stopped', 'stalled']
 export const executionOf = (raw: unknown): StoredFlowExecution => {
   const bad = (why: string): never => { throw new Error(`flow run ${why}`) }
   if (!object(raw)) return bad('is not an object')
-  if (raw['version'] !== 2) bad('has an unknown version')
+  if (raw['version'] !== 2 && raw['version'] !== 3) bad('has an unknown version')
+  if (raw['version'] === 3 ? typeof raw['mentionStopOnce'] !== 'string' || !/^u-[0-9a-f]{64}$/.test(raw['mentionStopOnce']) || raw['state'] !== 'stopped'
+    : Object.hasOwn(raw, 'mentionStopOnce')) bad('has an unreadable one-shot stop')
   if (!text(raw['id']) || !raw['id']) bad('has no id')
   if (!text(raw['goal'])) bad('names no Goal')
   if (!RUN_STATES.includes(String(raw['state']))) bad('has an unknown state')
@@ -311,7 +313,7 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
   }
   if (raw['legacyRun'] !== null) {
     legacyRunOf(raw['legacyRun'])
-    return raw as unknown as StoredFlowExecution
+    return { ...raw, version: 2 } as unknown as StoredFlowExecution
   }
   const reparsed = parseFlowPolicy(raw['source'] as string)
   if (!reparsed.document || reparsed.document.format !== 'agents') bad('source is no longer an Agent flow')
@@ -352,5 +354,5 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
     const brief = flow.inputs.some((input) => input.id === 'brief') ? (raw['vars'] as Record<string, string>)['brief'] ?? '' : null
     if (raw['brief'] !== brief) bad('brief does not match its frozen input')
   }
-  return raw as unknown as StoredFlowExecution
+  return { ...raw, version: 2 } as unknown as StoredFlowExecution
 }

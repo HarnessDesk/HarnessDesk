@@ -127,11 +127,14 @@ test('one repeat approval runs twice and skips a slot while its first result wai
   await assert.rejects(rig.host.call('lead/repeat/control', { taskId: task.id, action: 'run-now' }))
   await rig.decide(rig.pending('result')!, 'accept')
   // Run now begins a goal only when the journal can (`canBeginLeadGoal`), and that also waits for the child's
-  // own desk reads: accepting wakes the child, whose journaled reads are attempts with no model request or
+  // own desk reads and the controls continuation: accepting wakes the child, whose journaled reads are attempts with no model request or
   // reservation. Waiting on the request alone let Run now land mid-read and be refused lead-request-in-flight.
   // Settle first, so the Flow's own events after the acceptance have reached the child before the wait reads it.
   await rig.settle()
-  await rig.waitFor(() => !rig.service.requestInFlight && canBeginLeadGoal(rig.journal.state), 'first repeat finishes')
+  await rig.waitFor(async () => {
+    const projection = await rig.host.call('lead/thread/read', {})
+    return !projection.requestInFlight && !rig.service.requestInFlight && canBeginLeadGoal(rig.journal.state)
+  }, 'first repeat finishes')
   await rig.host.call('lead/repeat/control', { taskId: task.id, action: 'run-now' })
   await rig.waitFor(() => !!rig.pending('result'), 'second repeat reviewed result without another plan approval')
   assert.notEqual(rig.journal.state.budget!.logicalGoalId, firstGoal)

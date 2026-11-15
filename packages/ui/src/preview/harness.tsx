@@ -1650,6 +1650,7 @@ class PreviewStore {
 
   // --- intake ------------------------------------------------------------
   projectTriggers = async (): Promise<import('@harnessdesk/protocol').TriggerProjectView> => triggerProjectView()
+  triggerStopHistory = async () => ({ retainedStopTriggers: [], stopHistoryFull: false })
   previewTrigger = async (): Promise<import('@harnessdesk/protocol').TriggerArmPreview> => triggerArmPreview()
   armTrigger = async (): Promise<import('@harnessdesk/protocol').TriggerView> => triggerView({ armed: true, state: 'armed' })
   disarmTrigger = async (): Promise<import('@harnessdesk/protocol').TriggerView> => triggerView({ armed: false, state: 'off' })

@@ -129,7 +129,7 @@ import type {
   SessionSummary,
 } from './session.js'
 import type { Intent, PersonNotice, Plan, TeamInbound, TeamPeerInfo, TeamState } from './team.js'
-import type { TriggerDecision, TriggerDecisionsPage, TriggerMode } from './intake.js'
+import type { TriggerDecision, TriggerDecisionsPage, TriggerMode, TriggerUnconfirmedStop } from './intake.js'
 import type { PhoneTriageList } from './phone.js'
 import type {
   LedgerQuery,
@@ -1035,8 +1035,12 @@ export interface HostMethods {
   'trigger/goal': { params: { readonly goal: GoalId }; result: TriggerGoalStatus | null }
   /** A mention trigger's triage decisions, newest first, its mode on this machine, and its threads of work. */
   'trigger/decisions': { params: { readonly root: string; readonly id: string }; result: TriggerDecisionsPage }
+  /** Stored stop history for a project, independent of its current trigger definitions. */
+  'trigger/stop-unconfirmed/list': { params: { readonly root: string }; result: Pick<TriggerProjectView, 'retainedStopTriggers' | 'stopHistoryFull'> }
   /** Judges one decision again, on the comment as the forge holds it now. */
   'trigger/decision/reevaluate': { params: { readonly root: string; readonly id: string; readonly decision: string }; result: TriggerDecision }
+  /** Acknowledge an uncertain stop on this desktop without retrying or deleting its identity. */
+  'trigger/stop-unconfirmed/review': { params: { readonly root: string; readonly id: string; readonly stop: string }; result: TriggerUnconfirmedStop }
   /** Switches an armed mention trigger between observing and acting, on this machine, until it is armed again. */
   'trigger/mode': { params: { readonly root: string; readonly id: string; readonly mode: TriggerMode }; result: TriggerDecisionsPage }
 

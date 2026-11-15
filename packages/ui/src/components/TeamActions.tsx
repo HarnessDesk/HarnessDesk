@@ -62,7 +62,7 @@ export const useTeamActions = (room: string, options: {
       {related}
       {execution && <MenuItem icon={<RetryIcon />} label="Run again…" disabled={record ? RECORD_REASON : goal?.goal.state !== 'open' ? 'This Team is not open' : false} onSelect={() => { setAgain(execution); close() }} />}
       {goal?.goal.state !== 'wrapped' && <MenuItem icon={<CommentIcon />} label="Wrap…" disabled={record ? RECORD_REASON : wrapDisabled} onSelect={() => { setWrapping(true); close() }} />}
-      {execution && <MenuItem icon={<StopIcon />} label="Stop run…" disabled={record ? RECORD_REASON : execution.state !== 'running' ? 'This Run is not running' : false} onSelect={() => { setStoppingRun(execution.id); close() }} />}
+      {execution && <MenuItem icon={<StopIcon />} label="Stop run…" disabled={record ? RECORD_REASON : execution.state !== 'running' && execution.canStop !== true ? 'This Run is not running' : false} onSelect={() => { setStoppingRun(execution.id); close() }} />}
     </>,
     dialogs: <>
       {renaming && goal && <Dialog title="Rename Team" onClose={() => setRenaming(false)} footer={<>

@@ -295,7 +295,7 @@ export const triageWords = (decision: Pick<TriggerDecision, 'decision' | 'mode' 
     case 'ignore':
       return 'Ignored'
     case 'stop':
-      return decision.mode === 'observe' && !decision.acted ? 'Would stop' : 'Stopped'
+      return !decision.acted ? 'Would stop' : 'Stopped'
     case 'ask':
       return 'Waits for you'
   }

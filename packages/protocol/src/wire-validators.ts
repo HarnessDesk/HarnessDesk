@@ -563,6 +563,11 @@ const triggerDecisionId: Validator<string> = (value, path = '') => {
   if (!/^d-[0-9a-f]{20}$/.test(text)) throw new ValidationError(path, 'expected a triage decision id')
   return text
 }
+const triggerStopId: Validator<string> = (value, path = '') => {
+  const text = isString(value, path)
+  if (!/^u-[0-9a-f]{64}$/.test(text)) throw new ValidationError(path, 'expected an unconfirmed stop id')
+  return text
+}
 const triggerValidators = {
   'trigger/list': goalShape({ root: triggerRoot }),
   'trigger/preview': goalShape({ root: triggerRoot, id: triggerId }),
@@ -575,6 +580,8 @@ const triggerValidators = {
   'trigger/goal': goalShape({ goal: triggerGoal }),
   'trigger/decisions': goalShape({ root: triggerRoot, id: triggerId }),
   'trigger/decision/reevaluate': goalShape({ root: triggerRoot, id: triggerId, decision: triggerDecisionId }),
+  'trigger/stop-unconfirmed/review': goalShape({ root: triggerRoot, id: triggerId, stop: triggerStopId }),
+  'trigger/stop-unconfirmed/list': goalShape({ root: triggerRoot }),
   'trigger/mode': goalShape({ root: triggerRoot, id: triggerId, mode: literalUnion('observe', 'act') }),
 }
 

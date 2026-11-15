@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { prepareAdmission, SKIP_CHANGED, SKIP_FORK } from '../src/intake/admission.js'
+import { Admission, prepareAdmission, SKIP_CHANGED, SKIP_FORK } from '../src/intake/admission.js'
 import { committedToday, utcDay } from '../src/intake/budget.js'
 import type { GoalMemorySupport } from '../src/goals/plane.js'
 import { INTAKE_LANDING } from '../src/goals/plane.js'
@@ -18,6 +18,24 @@ import { tempDir } from './scratch.js'
 
 const opens = (events: readonly string[]) => events.filter((one) => one.startsWith('open:'))
 const orders = (events: readonly string[]) => events.filter((one) => one.startsWith('order:'))
+
+test('a protected firing does not prevent another project’s admission recovery', async () => {
+  const operation = (key: string, project: string) => ({ key, project, group: key, trigger: 'ask', goal: `goal-${key}`,
+    run: `run-${key}`, head: null, roundKey: key, mode: 'start', state: 'prepared', dispatched: false,
+    generation: 1, payload: {}, attention: null, preparedAt: 1 })
+  let snapshot = { operations: [operation('protected', '/project-a'), operation('other', '/project-b')], firings: {} }
+  const effects: string[] = []
+  const admission = new Admission({ problem: null, read: () => snapshot, commit: async (next: typeof snapshot) => { snapshot = next } } as never,
+    { paused: () => false } as never, {
+      oneShotHeld: async (one: { key: string }) => one.key === 'protected',
+      ensureGoal: async (one: { key: string }) => { effects.push(`goal:${one.key}`) },
+      observe: async () => [], ensureRound: async () => null,
+      release: async (one: { key: string }) => { effects.push(`release:${one.key}`); return { released: true } },
+    } as never)
+  await admission.recover()
+  assert.deepEqual(effects, ['goal:other', 'release:other'])
+  assert.deepEqual(snapshot.operations.map(one => one.key), ['protected'])
+})
 
 test('two concurrent deliveries reserve one operation', async () => {
   const home = tempDir('hd-intake-admit-')

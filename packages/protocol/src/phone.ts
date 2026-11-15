@@ -1,3 +1,4 @@
+import type { TriggerUnconfirmedStop } from './intake.js'
 import type { LeadStage } from './lead-stage.js'
 import type { UsageStandingStatus } from './usage.js'
 
@@ -652,9 +653,17 @@ export interface PhoneTriageTrigger {
 /** At most this many triggers are listed. */
 export const PHONE_TRIAGE_TRIGGERS_MAX = 50
 
+/** Read-only stop uncertainty; project is its folder name, never a local path. */
+export interface PhoneUnconfirmedStop extends Omit<TriggerUnconfirmedStop, 'project'> {
+  readonly project: string
+}
+
 export interface PhoneTriageList {
   /** Newest first, across every project on this desk, at most `limit` (default 50, at most 100). */
   readonly rows: readonly PhoneTriageRow[]
+  /** Separate from ordinary triage; absent on older desks. */
+  readonly unconfirmedStops?: readonly PhoneUnconfirmedStop[]
+  readonly unconfirmedStopsMore?: number
   /** The armed mention triggers on this desk, by project then id; empty when none is armed. Absent from an older desk. */
   readonly triggers?: readonly PhoneTriageTrigger[]
 }

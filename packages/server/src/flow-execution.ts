@@ -2,7 +2,7 @@ import { leadRoundId, leadRepairInput, leadRepairDetail, LEAD_REPAIR_INSTRUCTION
 export { leadRoundId } from '@harnessdesk/lead'
 /** Durable host decision to wait for checks before revisiting this review. */
 export const leadCheckWaitKey = (round: number): string => `lead-check-wait:${round}`
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, open, readdir, readFile, realpath, rename, unlink } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { observedReviewTarget, reviewTargetDiagnostic } from './review-target-diagnostic.js'
@@ -81,6 +81,8 @@ import { canonicalDestination } from './git-worktree.js'
  */
 
 export type StoredFlowExecution = FlowExecution & {
+  /** Durable one-shot ownership fence; stored as version 3, never projected to clients. */
+  mentionStopOnce?: string
   compiled: CompiledFlow
   source: string
   sourcePath: string | null
@@ -503,7 +505,7 @@ export class ExecutionFiles {
     const temporary = `${target}.${process.pid}.${Date.now()}.writing`
     const handle = await open(temporary, 'wx', 0o600)
     try {
-      await handle.writeFile(JSON.stringify(run), 'utf8')
+      await handle.writeFile(JSON.stringify(run.mentionStopOnce ? { ...run, version: 3 } : run), 'utf8')
       await handle.sync()
     } finally {
       await handle.close()
@@ -565,6 +567,7 @@ export const projectExecution = (run: StoredFlowExecution): FlowExecution => ({
   ...(run.currentEndedAt !== undefined ? { currentEndedAt: run.currentEndedAt } : {}),
   ...(run.end !== undefined ? { end: run.end } : {}),
   state: run.state,
+  ...(run.state === 'stopped' && run.mentionStopOnce ? { canStop: true as const } : {}),
   rounds: run.rounds.map(round => ({ ...round, blind: blindRound(run, round) })),
   operations: run.operations,
   legacyRun: run.legacyRun,
@@ -931,6 +934,9 @@ export class FlowExecutions {
   readonly #releaseStallMs: number
   readonly #queue = new SerialRun()
   #runs = new Map<string, StoredFlowExecution>()
+  /** Host-incarnation and mutation fence for one-shot mention stops. */
+  readonly #mentionStopEpoch = randomUUID()
+  readonly #mentionRunVersions = new Map<string, number>()
   /** Seats whose release is waiting on their own turn-ended signal (#1027); keyed by Seat id. */
   readonly #pendingReleases = new Map<string, PendingRelease>()
   readonly #leadRepairResumed = new Set<string>()
@@ -2533,7 +2539,7 @@ export class FlowExecutions {
   // -------------------------------------------------------------- writing
 
   /** Persist first, then hold it in memory, then say so: a failed write changes nothing the desk believes. */
-  async #put(run: StoredFlowExecution): Promise<StoredFlowExecution> {
+  async #put(run: StoredFlowExecution, afterSave?: () => Promise<void>, clearMentionStop = false): Promise<StoredFlowExecution> {
     /* A kept answer belongs to the stop it was kept at (#998). A run that
        leaves that stop any other way — an extra round authorized, a check run
        again, a person's Stop — drops it here, in the one place every run is
@@ -2552,13 +2558,17 @@ export class FlowExecutions {
       end: run.end && run.end !== previous?.end ? run.end :
         run.state === 'stopped' ? { kind: 'stopped' as const, by: 'desk' as const } : { kind: 'stalled' as const },
     } : run.state === 'running' && previous && previous.state !== 'running' ? { end: null, currentEndedAt: null } : {}
-    const next = { ...(run.state === 'stalled' && keptAnswer ? run : unkept), ...ending, updatedAt: at }
+    const { mentionStopOnce: _mentionStopOnce, ...base } = run.state === 'stalled' && keptAnswer ? run : unkept
+    const marker = !clearMentionStop && run.state === 'stopped' ? run.mentionStopOnce ?? previous?.mentionStopOnce : undefined
+    const next = { ...base, ...(marker ? { mentionStopOnce: marker } : {}), ...ending, updatedAt: at }
     try {
       await this.#files.save(next)
     } catch (error) {
       throw new JournalWriteError(error)
     }
     this.#runs.set(next.id, next)
+    this.#mentionRunVersions.set(next.id, (this.#mentionRunVersions.get(next.id) ?? 0) + 1)
+    if (afterSave) await afterSave()
     this.#port.changed(next.goal, this.runs(next.goal))
     if (next.publication !== previous?.publication) this.#port.publicationChanged?.(next.goal)
     return next
@@ -2614,22 +2624,24 @@ export class FlowExecutions {
    * again — no poll, and no bound on how long the wait itself may run,
    * because a released Seat's own turn does end (#1027).
    */
-  async #release(goal: string, ids: readonly string[], interrupt: boolean, runId: string): Promise<void> {
-    if (this.#disposed) return
+  async #release(goal: string, ids: readonly string[], interrupt: boolean, runId: string, strict = false): Promise<void> {
+    if (this.#disposed) { if (strict) throw new Error('The flow is closing before Seat cleanup.'); return }
     const cards = this.#cardsOf(runId)
     for (const id of ids) {
-      if (this.#disposed) return
+      if (this.#disposed) { if (strict) throw new Error('The flow is closing before Seat cleanup.'); return }
       const record = this.#port.seatOf(id)
       const claim = record ? this.#claimOf(goal, record, cards) : null
       if (interrupt && record) {
-        await this.#port.settleApprovals?.(record, this.#get(runId).state === 'stopped' ? 'Run stopped' : 'Seat released').catch((error: unknown) => {
+        try { await this.#port.settleApprovals?.(record, this.#get(runId).state === 'stopped' ? 'Run stopped' : 'Seat released') } catch (error) {
           this.#port.log('a flow Seat’s approvals could not be settled', { goal, seat: id, error: error instanceof Error ? error.message : String(error) })
-        })
-        await this.#port.interrupt?.(record).catch((error: unknown) => {
+          if (strict) throw error
+        }
+        try { await this.#port.interrupt?.(record) } catch (error) {
           this.#port.log('a flow Seat’s turn could not be interrupted', { goal, seat: id, error: error instanceof Error ? error.message : String(error) })
-        })
+          if (strict) throw error
+        }
       }
-      await this.#attemptRelease(goal, runId, id, claim)
+      await this.#attemptRelease(goal, runId, id, claim, strict)
     }
   }
 
@@ -2671,7 +2683,7 @@ export class FlowExecutions {
    * check and the call, is exactly the case that must not become a log line
    * and nothing else.
    */
-  async #attemptRelease(goal: string, runId: string, id: string, claim: PendingSeatClaim | null): Promise<void> {
+  async #attemptRelease(goal: string, runId: string, id: string, claim: PendingSeatClaim | null, strict = false): Promise<void> {
     if (this.#disposed) return
     const record = this.#port.seatOf(id)
     if (!record || record.closed) {
@@ -2700,6 +2712,7 @@ export class FlowExecutions {
         return
       }
       this.#port.log('a flow Seat could not be released', { goal, seat: id, error: error instanceof Error ? error.message : String(error) })
+      if (strict) throw error
       await this.#settlePending(id)
     }
   }
@@ -4490,6 +4503,11 @@ export class FlowExecutions {
     await this.#put({ ...run, state, reason, end,
       ...(state === 'stopped' ? { rounds: run.rounds.map(round => round.state === 'closed' ? round : { ...round, state: 'closed' as const }) } : {}),
     })
+    await this.#finishCleanup(run, state, id)
+  }
+
+  /** The ordinary cleanup a person may explicitly request for an already protected run. */
+  async #finishCleanup(run: StoredFlowExecution, state: 'settled' | 'stopped', id: string, strict = false): Promise<void> {
     // Ended before its first round: the empty Goal it reserved is empty still, and free for another start.
     if (run.reserving && run.rounds.length === 0) await this.#letGo(id, run.reserving.goal)
     // Finished Seats remain members for follow-ups; the host releases only
@@ -4499,7 +4517,7 @@ export class FlowExecutions {
         .filter((seat) => { const record = this.#port.seatOf(seat); return record !== null && record.closed === null })
       // Stop is durable before interrupts: even a runtime that cannot interrupt
       // may finish its turn later, but that completion can dispatch no rule.
-      await this.#release(run.goal, open, true, id)
+      await this.#release(run.goal, open, true, id, strict)
     }
     this.#team.nudgeRoom(run.goal)
   }
@@ -4541,8 +4559,15 @@ export class FlowExecutions {
         // A retry ahead of Stop may only now have created its controller.
         this.#interruptRunChecks(id)
         const tasks = [...this.#checking].filter(([, run]) => run === id).map(([task]) => task)
+        const before = this.#get(id)
         await this.#finish(id, 'stopped', why, { kind: 'stopped', by })
+        if (by === 'person' && before.mentionStopOnce && before.state === 'stopped') await this.#finishCleanup(before, 'stopped', id, true)
         await this.#abandonStoppedPeople(id)
+        const current = this.#get(id)
+        if (by === 'person' && current.mentionStopOnce) {
+          const { mentionStopOnce: _oldStop, ...ordinary } = current
+          await this.#put({ ...ordinary, reason: why, end: { kind: 'stopped', by: 'person' } }, undefined, true)
+        }
         return tasks
       })
       // Completion uses this same queue: drain outside it, before Stop or wrap returns.
@@ -4564,6 +4589,69 @@ export class FlowExecutions {
         })
       }
     }
+  }
+
+  /** Capture an exact trigger-owned run generation without changing it. */
+  freezeMentionRun(id: string): string | null {
+    const run = this.#runs.get(id)
+    if (!run?.intake || (run.state !== 'running' && run.state !== 'stalled') ||
+      run.operations.some(one => one.key === 'drop-base' && one.state === 'started')) return null
+    return JSON.stringify({ epoch: this.#mentionStopEpoch, version: this.#mentionRunVersions.get(id) ?? 0,
+      id: run.id, goal: run.goal, intake: run.intake.key })
+  }
+
+  /**
+   * One-shot mention boundary: mark only the captured run, then await its durable
+   * receipt before any later operation. It does not enter the normal release or
+   * busy-retry path; those require separately frozen targets and receipts.
+   */
+  async markMentionRun(target: string, why: string, stop: string, afterMark: () => Promise<void>): Promise<void> {
+    if (!/^u-[0-9a-f]{64}$/.test(stop)) throw new Error('Invalid one-shot stop identity.')
+    let frozen: { epoch?: unknown; version?: unknown; id?: unknown; goal?: unknown; intake?: unknown }
+    try { frozen = JSON.parse(target) } catch { throw new Error('Invalid frozen mention run.') }
+    if (!frozen || typeof frozen.id !== 'string' || frozen.epoch !== this.#mentionStopEpoch || !Number.isSafeInteger(frozen.version)) {
+      throw new Error('Invalid frozen mention run.')
+    }
+    const id = frozen.id
+    if ((this.#checks.get(id)?.size ?? 0) > 0) throw new Error('The run has checks whose stop cannot yet be confirmed.')
+    await this.#queue.within(id, async () => {
+      const run = this.#get(id)
+      if (this.#disposed || frozen.version !== (this.#mentionRunVersions.get(id) ?? 0) || run.goal !== frozen.goal ||
+        run.intake?.key !== frozen.intake || (run.state !== 'running' && run.state !== 'stalled') || (this.#checks.get(id)?.size ?? 0) > 0) {
+        throw new Error('The frozen mention run changed.')
+      }
+      await this.#put({ ...run, state: 'stopped', mentionStopOnce: stop, reason: why, end: { kind: 'stopped', by: 'desk' },
+        rounds: run.rounds.map(round => round.state === 'closed' ? round : { ...round, state: 'closed' as const }) }, afterMark)
+    })
+  }
+
+  protectedMentionStop(id: string): boolean { return this.#runs.get(id)?.mentionStopOnce !== undefined }
+
+  /** Capture only a run whose stored Lead identity matches the journal's exact ownership. */
+  freezeLeadRun(id: string, logicalGoalId: string, team: string, correlation: string): string | null {
+    const run = this.#runs.get(id), lead = run?.lead
+    if (!run || !lead || run.goal !== team || lead.logicalGoalId !== logicalGoalId || lead.startId !== correlation ||
+      (run.state !== 'running' && run.state !== 'stalled') || run.operations.some(one => one.key === 'drop-base' && one.state === 'started')) return null
+    return JSON.stringify({ epoch: this.#mentionStopEpoch, version: this.#mentionRunVersions.get(id) ?? 0, id: run.id, goal: run.goal,
+      logicalGoalId: lead.logicalGoalId, contractDigest: lead.contractDigest, startId: lead.startId, stepId: lead.stepId })
+  }
+
+  async markLeadRun(target: string, why: string, stop: string, guard: () => boolean, afterMark: () => Promise<void>): Promise<void> {
+    if (!/^u-[0-9a-f]{64}$/.test(stop)) throw new Error('Invalid one-shot stop identity.')
+    let frozen: Record<string, unknown>
+    try { frozen = JSON.parse(target) } catch { throw new Error('Invalid frozen Lead run.') }
+    if (!frozen || typeof frozen.id !== 'string' || frozen.epoch !== this.#mentionStopEpoch || !Number.isSafeInteger(frozen.version)) throw new Error('Invalid frozen Lead run.')
+    const id = frozen.id
+    if ((this.#checks.get(id)?.size ?? 0) > 0) throw new Error('The run has checks whose stop cannot yet be confirmed.')
+    await this.#queue.within(id, async () => {
+      const run = this.#get(id), lead = run.lead
+      if (this.#disposed || !guard() || frozen.version !== (this.#mentionRunVersions.get(id) ?? 0) || run.goal !== frozen.goal ||
+        !lead || lead.logicalGoalId !== frozen.logicalGoalId || lead.contractDigest !== frozen.contractDigest ||
+        lead.startId !== frozen.startId || lead.stepId !== frozen.stepId || (run.state !== 'running' && run.state !== 'stalled') ||
+        (this.#checks.get(id)?.size ?? 0) > 0) throw new Error('The frozen Lead run changed.')
+      await this.#put({ ...run, state: 'stopped', mentionStopOnce: stop, reason: why, end: { kind: 'stopped', by: 'desk' },
+        rounds: run.rounds.map(round => round.state === 'closed' ? round : { ...round, state: 'closed' as const }) }, afterMark)
+    })
   }
 
   /** Stops every live run on a Goal, inside each run's own queue: the wrap barrier. */
@@ -5134,13 +5222,13 @@ export class FlowExecutions {
     // A durable abort and its cleanup intent are one write. Retry even a stopped run,
     // and keep the intent pending if deletion or its completion write fails again.
     for (const run of [...this.#runs.values()]) {
-      if (!run.operations.some((op) => op.key === 'drop-base' && op.state === 'started')) continue
+      if (run.mentionStopOnce || !run.operations.some((op) => op.key === 'drop-base' && op.state === 'started')) continue
       await this.#queue.within(run.id, () => this.#dropBase(run)).catch((error: unknown) => {
         this.#port.log('an aborted Flow base ref could not be removed at restart', { run: run.id, error: error instanceof Error ? error.message : String(error) })
       })
     }
     for (const run of [...this.#runs.values()]) {
-      if (run.state !== 'stopped') continue
+      if (run.state !== 'stopped' || run.mentionStopOnce) continue
       await this.#queue.within(run.id, () => this.#abandonStoppedPeople(run.id)).catch((error: unknown) => {
         this.#port.log('a stopped flow run could not abandon its person cards at restart', { run: run.id, error: error instanceof Error ? error.message : String(error) })
       })
@@ -5186,7 +5274,7 @@ export class FlowExecutions {
      * card by hand (finding 2).
      */
     for (const run of [...this.#runs.values()]) {
-      if ((run.state !== 'stopped' && run.state !== 'settled') || run.goal === '') continue
+      if (run.mentionStopOnce || (run.state !== 'stopped' && run.state !== 'settled') || run.goal === '') continue
       const cards = this.#cardsOf(run.id)
       const open = [...new Set(run.rounds.flatMap((round) => round.seats))].filter((seat) => {
         const record = this.#port.seatOf(seat)
