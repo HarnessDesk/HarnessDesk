@@ -1,0 +1,43 @@
+{
+  "pr": 2238,
+  "source": "ecb7b41da2129009440fd3f00030ab7496e58ab7",
+  "scope": "real launched Linux/arm64 Electron 42.11.18, synthetic person-only protected Run; no macOS, live Seat, provider or renderer-sandbox security proof",
+  "image": "sha256:3900443f771732dc06d1b07bd69847c33abe111d4fa05bed5733e6e71a3367c8",
+  "rendererSandbox": false,
+  "container": {
+    "nonroot": true,
+    "network": "none",
+    "readonlyRoot": true,
+    "capabilitiesDropped": "ALL",
+    "temporaryFiles": "noexec"
+  },
+  "controls": {
+    "flowCancel": true,
+    "flowManualCleanup": true
+  },
+  "parentViewedAll": true,
+  "privacyAuditPassedAll": true,
+  "frames": [
+    {
+      "name": "flow-menu.png",
+      "bytes": 78550,
+      "sha256": "81c5c7b6a08927ebbc420630063ffe9d42f507dd4590d0b77d31146d1769b6da",
+      "width": 1280,
+      "height": 813
+    },
+    {
+      "name": "flow-confirm.png",
+      "bytes": 104315,
+      "sha256": "012123181fbcee3321fc3dbe6c5ad98bdb252262a1b34de521842e5e07d69244",
+      "width": 1280,
+      "height": 813
+    },
+    {
+      "name": "flow-stopped.png",
+      "bytes": 92622,
+      "sha256": "e7ccd782e6b5df20eb395a1db2f7c89207cb4b9d7cdbcf94cdb51a6426bf0dc4",
+      "width": 1280,
+      "height": 813
+    }
+  ]
+}
