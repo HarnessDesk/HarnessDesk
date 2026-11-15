@@ -17,7 +17,7 @@ import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { accountKey } from '../lib/accounts'
 import { formatReset } from '../lib/limits'
-import { standingSentence } from '../lib/usage'
+import { describeLane, standingSentence } from '../lib/usage'
 import { usageStandingOf } from '@harnessdesk/protocol'
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -33,6 +33,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.restoreAllMocks()
 })
 
 const CLAUDE = runtimeId('claude')
@@ -87,7 +88,7 @@ const fableSpent = report(
 /** A second account whose own weekly really is gone. */
 const reallySpent = report('work@acme.dev', [lane({ id: 'weekly', usedPercent: 100 })], 'weekly')
 
-const mount = async (usage: readonly UsageReport[], limits: RateLimits | null = null, extra: Partial<AppSnapshot> = {}): Promise<AppStore> => {
+const mount = async (usage: readonly UsageReport[], limits: RateLimits | null = null, extra: Partial<AppSnapshot> = {}, openRuntime = true): Promise<AppStore> => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -125,7 +126,7 @@ const mount = async (usage: readonly UsageReport[], limits: RateLimits | null = 
   // The account rows are on the agent's own page, which its line opens; the
   // rows are the subject here.
   const line = container.querySelector('[data-slot="agent-row"]')
-  if (line) await act(async () => (line as HTMLButtonElement).click())
+  if (line && openRuntime) await act(async () => (line as HTMLButtonElement).click())
   return store
 }
 
@@ -162,6 +163,91 @@ describe('an account row in Settings', () => {
     const work = rows().find((row) => row.label === 'work@acme.dev')
     expect(work?.figure).toBe('0% left')
     expect(work?.state).toBe('limit')
+  })
+
+  it('also shows the reset beside each account in the runtime overview', async () => {
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    const personal = lane({ id: 'session', usedPercent: 12, resetsAt: now + 2 * 3_600_000 })
+    const work = lane({ id: 'weekly', usedPercent: 50, resetsAt: now + 3 * 86_400_000 })
+    await mount([report('work@acme.dev', [work]), report('olivia@acme.dev', [personal])], null, {}, false)
+    const runtime = container.querySelector('[data-slot="agent-row"]')
+    expect(runtime?.textContent).toContain(`in ${describeLane(personal, now, [personal]).countdown}`)
+    expect(runtime?.textContent).toContain(`in ${describeLane(work, now, [work]).countdown}`)
+  })
+
+  it('shows each account the Dashboard reset for its own selected lane', async () => {
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    const personal = lane({ id: 'session', label: 'Session', usedPercent: 12, windowMinutes: 300, resetsAt: now + 2 * 3_600_000 })
+    const scoped = lane({ id: 'fable', usedPercent: 100, scope: 'Fable', resetsAt: now + 60_000 })
+    const work = lane({ id: 'weekly', usedPercent: 100, resetsAt: now + 3 * 86_400_000 })
+    await mount([report('work@acme.dev', [work], 'weekly'), report('olivia@acme.dev', [personal, scoped])])
+    const row = (name: string) => [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent?.includes(name))!
+    const personalRow = row('olivia@acme.dev'), workRow = row('work@acme.dev')
+    expect(personalRow.textContent).toContain('88% left')
+    expect(personalRow.textContent).toContain(`in ${describeLane(personal, now, [personal, scoped]).countdown}`)
+    expect(personalRow.textContent).toContain(`resets ${describeLane(personal, now, [personal, scoped]).resetClock}`)
+    expect(workRow.textContent).toContain('0% left')
+    expect(workRow.textContent).toContain(`in ${describeLane(work, now, [work]).countdown}`)
+    expect(workRow.textContent).toContain(`resets ${describeLane(work, now, [work]).resetClock}`)
+    expect(personalRow.textContent).not.toContain(`in ${describeLane(work, now, [work]).countdown}`)
+    expect(workRow.textContent).not.toContain(`in ${describeLane(personal, now, [personal, scoped]).countdown}`)
+  })
+
+  it('uses the pinned account lane reset, including the Dashboard provider reset text', async () => {
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    const session = lane({ id: 'session', label: 'Session', usedPercent: 15, windowMinutes: 300, resetsAt: now + 3_600_000 })
+    const weekly = lane({ id: 'weekly', usedPercent: 50, resetText: 'next billing cycle' })
+    const key = accountKey(CLAUDE, status.accounts[0]!)
+    await mount([report('olivia@acme.dev', [session, weekly])], null, { accountPrefs: { [key]: { pinLaneId: 'weekly' } } })
+    const row = [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent?.includes('olivia@acme.dev'))!
+    expect(row.textContent).toContain('50% left')
+    expect(row.textContent).toContain(`in ${describeLane(weekly, now, [session, weekly]).countdown}`)
+    expect(row.textContent).not.toContain(`in ${describeLane(session, now, [session, weekly]).countdown}`)
+  })
+
+  it('retains the blocked account’s own reset', async () => {
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    const spent = lane({ id: 'weekly', usedPercent: 100, resetsAt: now + 3 * 86_400_000 })
+    await mount([report('work@acme.dev', [spent], 'weekly')])
+    const row = [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent?.includes('work@acme.dev'))!
+    expect(row.querySelector('[data-state="limit"]')).not.toBeNull()
+    expect(row.textContent).toContain('0% left')
+    expect(row.textContent).toContain(`in ${describeLane(spent, now, [spent]).countdown}`)
+  })
+
+  it('keeps a stale failed refresh associated with its own last reading', async () => {
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    const saved = lane({ id: 'weekly', usedPercent: 40, resetsAt: now + 2 * 86_400_000 })
+    await mount([{ ...report('work@acme.dev', [saved]), fetchedAt: now - 900_000, error: { message: 'temporary' } }])
+    const row = [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent?.includes('work@acme.dev'))!
+    expect(row.textContent).toContain('60% left')
+    expect(row.textContent).toContain(`in ${describeLane(saved, now, [saved]).countdown}`)
+  })
+
+  it('does not invent another account’s reset for unknown or missing readings', async () => {
+    const now = Date.now()
+    const unknown = lane({ id: 'session', usedPercent: 0, usageKnown: false, resetsAt: null })
+    const known = lane({ id: 'weekly', usedPercent: 40, resetsAt: now + 2 * 86_400_000 })
+    await mount([{ ...report('work@acme.dev', [known]), fetchedAt: now - 900_000, error: { message: 'temporary' } }, report('olivia@acme.dev', [unknown])])
+    const row = (name: string) => [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent?.includes(name))!
+    expect(row('olivia@acme.dev').textContent).not.toContain('100% left')
+    expect(row('olivia@acme.dev').textContent).not.toContain(`in ${describeLane(known, now, [known]).countdown}`)
+  })
+
+  it('does not present an absent or elapsed reset as a future time', async () => {
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    const missing = lane({ id: 'session', usedPercent: 10, resetsAt: null })
+    const elapsed = lane({ id: 'weekly', usedPercent: 40, resetsAt: now - 60_000 })
+    await mount([report('olivia@acme.dev', [missing]), report('work@acme.dev', [elapsed])])
+    const row = (name: string) => [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent?.includes(name))!
+    expect(row('olivia@acme.dev').textContent).not.toMatch(/resets|in \d/)
+    expect(row('work@acme.dev').textContent).not.toMatch(/resets|in \d/)
   })
 
   it('keeps the reset clock in the Settings countdown title', async () => {

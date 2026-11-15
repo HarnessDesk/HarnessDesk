@@ -53,7 +53,7 @@ import { shortPath } from '../lib/paths'
 import { withCount } from '../lib/with-count'
 import { Prose } from './Prose'
 import { trackedUsage, useFirstNote } from '@harnessdesk/protocol'
-import { bindingLane, isBlocked, remainingOf } from '../lib/usage'
+import { bindingLane, describeLane, describeLaneReset, isBlocked, remainingOf } from '../lib/usage'
 import { usageAccount } from '../lib/usage-alerts'
 import { Card as UsageCard } from './usage/shared'
 import { firstInPool, inPoolOrder, isPaced, movedInPool, WHEN_OUT, WHEN_OUT_LABEL, type WhenOut } from '../lib/account-pool'
@@ -458,6 +458,7 @@ const accountStanding = (entry: RuntimeInfo, account: Account, snapshot: AppSnap
     report,
     blocked: report ? isBlocked(report) : false,
     left: remaining === null ? null : Math.round(remaining),
+    reset: binding && report ? describeLaneReset(describeLane(binding, Date.now(), report.lanes)) : '',
   }
 }
 
@@ -527,7 +528,7 @@ const AgentRow = ({
             </DescLine>
           )
         }
-        const { key, blocked, left } = accountStanding(entry, account, snapshot)
+        const { key, blocked, left, reset } = accountStanding(entry, account, snapshot)
         const name = accountName(account, snapshot.accountPrefs[key], entry.presentation.name, snapshot.hideAccountAddresses)
         const identity = shownIdentity(account, snapshot)
         const hit = query !== '' && `${name} ${identity ?? ''}`.toLowerCase().includes(query)
@@ -545,6 +546,7 @@ const AgentRow = ({
             ) : left !== null ? (
               <Text role="meta" ink="muted" numeric>{left}% left</Text>
             ) : null}
+            {reset && <Text role="meta" ink="muted">{reset}</Text>}
           </DescLine>
         )
       })}
@@ -823,7 +825,7 @@ const AgentAccounts = ({
               />
             )
           }
-          const { key, blocked, left, report } = accountStanding(entry, account, snapshot)
+          const { key, blocked, left, report, reset } = accountStanding(entry, account, snapshot)
           const useFirst = report ? useFirstNote(report, Date.now()) : null
           const name = accountName(account, snapshot.accountPrefs[key], entry.presentation.name, snapshot.hideAccountAddresses)
           const identity = shownIdentity(account, snapshot)
@@ -872,6 +874,7 @@ const AgentAccounts = ({
                       people who see it, and the meters this comes from fill
                       with what is left. */}
                   {left !== null && <Text role="muted" ink="muted" numeric >{left}% left</Text>}
+                  {reset && <Text role="muted" ink="muted">{reset}</Text>}
                 </>
               }
             />
