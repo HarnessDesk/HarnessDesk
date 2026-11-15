@@ -471,7 +471,7 @@ test('all forge writes journal intent and outcome and fake gh enforces a head-bo
     }
     const rows = await gateway.gitRecord.list({ repository: f.request.repository, limit: 100 })
     assert.equal(rows[0].outcome, 'intent', 'intent is durable before fake gh executes')
-    try { return { ...await execute(process.execPath, [fileURLToPath(new URL('./fixtures/fake-gh.mjs', import.meta.url)), ...args],
+    try { return { ...await execute(process.execPath, [fileURLToPath(new URL(import.meta.url.includes('/dist/test/') ? '../../test/fixtures/fake-gh.mjs' : './fixtures/fake-gh.mjs', import.meta.url)), ...args],
       { cwd, env: { ...env, FAKE_GH_STATE: state, FAKE_GH_TRACE: trace } }), exitCode: 0 } }
     catch (error: any) { return { stdout: error.stdout, stderr: error.stderr, exitCode: error.code } }
   } })
