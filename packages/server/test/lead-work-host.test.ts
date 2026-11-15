@@ -4,19 +4,23 @@ import test, { type TestContext } from 'node:test'
 import { LEAD_SURFACE_LINES, createLeadJournal, leadWorkCards, type LeadJournalRecord, type LeadPermissionCall, type LeadPermissionContext, type MessagesTurn } from '@harnessdesk/lead'
 import { LEAD_WORK_GROUPS, LEAD_WORK_LIMITS, parseLeadReminderSet } from '@harnessdesk/protocol'
 import { LeadControls } from '../src/lead/controls.js'
+import { LeadFileJournal } from '../src/lead/journal.js'
 import { leadShownMessage } from '../src/lead/projection.js'
 import { PHONE_POLICY } from '../src/phone-link.js'
-import { evidenceDesk } from './fixtures/evidence-desk.js'
+import { evidenceDesk, until } from './fixtures/evidence-desk.js'
 
 /** The real host and its context, an ordinary fake runtime and a journaled Lead; no child, model or vendor traffic. */
-const workRig = async (t: TestContext) => {
+const workRig = async (t: TestContext, durable = false) => {
   const { StateStore } = await import('../src/index.js')
   const { tempDir } = await import('./scratch.js')
   const state = new StateStore(`${tempDir('hd-lead-work-state-')}/state.json`)
   const desk = await evidenceDesk(t, { leadEnabled: true, state })
   const project = { id: 'project-demo', path: await realpath(desk.repo.dir) }
   const records: LeadJournalRecord[] = []
-  const journal = await createLeadJournal({ read: async () => [], append: async record => { records.push(record) } })
+  const journalHome = durable ? tempDir('hd-lead-work-journal-') : null
+  const disk = journalHome ? await LeadFileJournal.open(journalHome, 'work') : null
+  if (disk) t.after(() => disk.close())
+  const journal = await createLeadJournal(disk ?? { read: async () => [], append: async record => { records.push(record) } })
   await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
   await journal.updateBudget({ version: 1, type: 'initialize', logicalGoalId: 'ordinary-delegation', now: Date.now(), caps: { usdMicros: 100000, rounds: 3 }, freshnessMs: 60000 })
   const context = (): LeadPermissionContext => ({ desk: journal.state.policy!, projectPolicy: null, project, approved: null,
@@ -39,7 +43,7 @@ const workRig = async (t: TestContext) => {
     t.after(() => made.close())
     return made
   }
-  return { ...desk, project, journal, records, execute, controls, state }
+  return { ...desk, project, journal, records, execute, controls, state, disk, journalHome }
 }
 
 test('a duplicate chat start names the item, and an answered question permits one more chat', async t => {
@@ -292,6 +296,44 @@ test('host: automatic starts stop at the cap of three; the person starts at the 
   assert.equal(r.runtime.sessions.size, 4)
   // Under a goal the person began, a desk-change-driven start is automatic and waits at the cap.
   assert.match(((await start('Follow up on the settled run in another chat', 'automatic')).value as { problem: string }).problem, /on its own/)
+})
+
+test('host: concurrent automatic starts contend for the final slot', { timeout: 15_000 }, async t => {
+  const r = await workRig(t, true)
+  const start = (text: string) => r.execute({ method: 'lead/chat/start', params: { text, cause: 'automatic' } })
+  assert.equal((await start('Inspect the first fixture')).outcome, 'succeeded')
+  assert.equal((await start('Inspect the second fixture')).outcome, 'succeeded')
+  let entered!: () => void, release!: () => void
+  const ready = new Promise<void>(resolve => { entered = resolve })
+  const held = new Promise<void>(resolve => { release = resolve })
+  const create = r.runtime.createSession.bind(r.runtime)
+  let creates = 0
+  t.mock.method(r.runtime, 'createSession', async (options: Parameters<typeof create>[0]) => {
+    if (++creates === 1) { entered(); await held }
+    return create(options)
+  })
+  const first = start('Inspect the third fixture')
+  try {
+    await ready
+    const second = start('Inspect the fourth fixture')
+    await until(() => r.journal.state.attempts.get('work-4')?.phase === 'finished' ? true : null, 'second request is refused while creation is held')
+    release()
+    const [one, two] = await Promise.all([first, second])
+    assert.equal(one.outcome, 'succeeded')
+    assert.equal(two.outcome, 'denied', 'the journal refuses a second in-flight mutation')
+    assert.equal(two.decision.floor, 'start')
+    assert.equal(r.runtime.sessions.size, 3)
+    const after = await start('Inspect the fifth fixture')
+    assert.equal(after.outcome, 'failed')
+    assert.match((after.value as { problem: string }).problem, /3 runs it started on its own/)
+    await r.stop(); await r.disk!.close()
+    const replay = await LeadFileJournal.open(r.journalHome!, 'work')
+    try {
+      const records = await replay.read()
+      assert.ok(records.some(record => record.type === 'decision' && record.id === 'work-4' && record.effect === 'deny' && record.reason === 'start'))
+      assert.ok(records.some(record => record.type === 'result' && record.id === 'work-4' && record.outcome === 'denied'))
+    } finally { await replay.close() }
+  } finally { release(); await first }
 })
 
 test('host: a goal whose deadline passed stops automatic chat work and answers the person', async t => {
