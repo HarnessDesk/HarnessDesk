@@ -9,16 +9,17 @@ export function analyzeHeap(s,expected) {
  try {
   const nf=s.snapshot.meta.node_fields,ef=s.snapshot.meta.edge_fields,nw=nf.length,ew=ef.length
   const n=Object.fromEntries(nf.map((x,i)=>[x,i])),e=Object.fromEntries(ef.map((x,i)=>[x,i]))
-  const types=s.snapshot.meta.node_types[n.type],nodes=s.nodes,edges=s.edges,names=s.strings
+  const types=s.snapshot.meta.node_types[n.type],edgeTypes=s.snapshot.meta.edge_types[e.type],nodes=s.nodes,edges=s.edges,names=s.strings
   if(!nw||!ew||nodes.length%nw||edges.length%ew||nodes.length/nw>8e6||edges.length/ew>32e6)return unavailable
   const look=new Map(expected.map((x,i)=>[x.needle,i])),found=new Map()
   for(let p=0;p<nodes.length;p+=nw){if(types[nodes[p+n.type]]!=='string')continue;const name=names[nodes[p+n.name]];if(typeof name!=='string')continue;const i=look.get(name.slice(0,expected[0]?.needle.length));if(i!==undefined&&!found.has(i))found.set(i,p/nw)}
   const loadedDetected=expected.reduce((a,x,i)=>a+(x.loaded&&found.has(i)?1:0),0)
   if(!loadedDetected)return unavailable
+  const matchedBytes=(loaded)=>expected.reduce((total,x,i)=>total+(x.loaded===loaded&&found.has(i)?nodes[found.get(i)*nw+n.self_size]:0),0)
   const releasedIndices=expected.flatMap((x,i)=>!x.loaded&&found.has(i)?[i]:[]),releasedTotal=expected.filter(x=>!x.loaded).length
   const count=nodes.length/nw, edgeCount=edges.length/ew,head=new Int32Array(count).fill(-1),next=new Int32Array(edgeCount),source=new Int32Array(edgeCount)
   let ep=0,idx=0
-  for(let p=0;p<nodes.length;p+=nw){for(let j=0;j<nodes[p+n.edge_count];j++,ep+=ew,idx++){const to=edges[ep+e.to_node]/nw;if(!Number.isInteger(to)||to<0||to>=count)return unavailable;source[idx]=p/nw;next[idx]=head[to];head[to]=idx}}
+  for(let p=0;p<nodes.length;p+=nw){for(let j=0;j<nodes[p+n.edge_count];j++,ep+=ew,idx++){const to=edges[ep+e.to_node]/nw;if(!Number.isInteger(to)||to<0||to>=count)return unavailable;source[idx]=p/nw;next[idx]=-1;if(edgeTypes[edges[ep+e.type]]!=='weak'){next[idx]=head[to];head[to]=idx}}}
   if(idx!==edgeCount)return unavailable
   const categories={appStore:0,react:0,observer:0,debugger:0,other:0,unknown:0}
   // Fixed bounded sample; category is an observed incoming-path hint, not a dominator.
@@ -36,6 +37,6 @@ export function analyzeHeap(s,expected) {
    }
    categories[category]++
   }
-  return {status:'ok',loadedDetected,releasedDetected:releasedIndices.length,releasedUnknown:releasedTotal-releasedIndices.length,pathsSampled:Math.min(8,releasedIndices.length),pathCategories:categories}
+  return {status:'ok',loadedDetected,releasedDetected:releasedIndices.length,releasedUnknown:releasedTotal-releasedIndices.length,loadedMatchedStringSelfBytesLowerBound:matchedBytes(true),releasedMatchedStringSelfBytesLowerBound:matchedBytes(false),pathsSampled:Math.min(8,releasedIndices.length),pathCategories:categories}
  }catch{return unavailable}
 }

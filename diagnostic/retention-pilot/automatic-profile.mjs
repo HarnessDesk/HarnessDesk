@@ -12,7 +12,7 @@ import { stageRecord } from './profile-stage.mjs'
 import { createRpcObserver, classifyProfileError } from './profile-rpc-observer.mjs'
 import { captureFailure } from './profile-failure.mjs'
 import { captureMetricDeltas, recordLateFailure } from './late-observation.mjs'
-import { captureLateHeap } from './heap-capture.mjs'
+import { captureLateHeap, installHeldTracker, writeSnapshotChunk } from './heap-capture.mjs'
 import { createNotificationObserver, installNotificationObserver, sanitizeWaitObservation } from './profile-notification-observer.mjs'
 
 const taskSource = resolve('.')
@@ -96,22 +96,7 @@ const observedListeners=async (name) => {
 const keys=[]
 let cdp, runtime, visible, draft, pending, performanceStart
 let drainHeld = async () => { throw new Error('tracker unavailable') }
-const installHeldTracker = client => {
- const original=client.send.bind(client), pendingGroups=new Set();let failed=false
- client.send=(method,params,timeout)=>{
-  const call=original(method,params,timeout)
-  if(method==='Runtime.releaseObjectGroup'){
-   pendingGroups.add(call);call.then(()=>pendingGroups.delete(call),()=>{pendingGroups.delete(call);failed=true})
-  }
-  return call
- }
- return async()=>{
-  let timer
-  try {await Promise.race([Promise.all([...pendingGroups]),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('release timeout')),2000)})])}
-  finally {clearTimeout(timer)}
-  if(failed||pendingGroups.size)throw new Error('release unavailable')
- }
-}
+
 const finishPerformance = async () => {
  if(!performanceStart)return
  try {const end=await cdp.send('Performance.getMetrics',{},2000);result.performanceDeltas=captureMetricDeltas(performanceStart,end)}
@@ -282,14 +267,14 @@ try {
     const stop=cdp.on('HeapProfiler.addHeapSnapshotChunk',({chunk})=>{
      if(overflow||writeFailed||typeof chunk!=='string')return
      bytes+=Buffer.byteLength(chunk);if(bytes>256*1024*1024){overflow=true;return}
-     try {writeSync(fd,chunk)}catch{writeFailed=true}
+     if(!writeSnapshotChunk(chunk,value=>writeSync(fd,value)))writeFailed=true
     })
     try {await cdp.send('HeapProfiler.enable',{},2000);await cdp.send('HeapProfiler.takeHeapSnapshot',{reportProgress:false},30000)}
     finally {stop();closeSync(fd)}
     if(overflow||writeFailed||!bytes)throw new Error('snapshot unavailable')
    },
    analyze:async()=>{
-    const expected=keys.map((key,i)=>({needle:createHash('sha256').update(`${addr(key).sessionId}:0`).digest('hex'),loaded:latestStatuses[i]}))
+    const expected=keys.map((key,i)=>({needle:Array.from({length:4},(_,counter)=>createHash('sha256').update(`${addr(key).sessionId}:${counter}`).digest('hex')).join(''),loaded:latestStatuses[i]}))
     write(keysPath,JSON.stringify(expected))
     const child=spawnSync(process.execPath,[join(taskSource,'diagnostic/retention-pilot/heap-worker.mjs'),snapshotPath,keysPath],{env:{PATH:'/usr/bin:/bin'},encoding:'utf8',timeout:25000,maxBuffer:4096})
     if(child.status!==0||child.error||child.stderr)return {status:'unavailable'}

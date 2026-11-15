@@ -12,3 +12,26 @@ export async function captureLateHeap({read,drain,collect,snapshot,analyze}) {
   return await analyze()
  }catch{return {status:'unavailable'}}
 }
+
+// Track only releases emitted by this diagnostic's Cdp instance. The product
+// helper remains untouched; the diagnostic waits before snapshotting.
+export const installHeldTracker = (client,timeoutMs=2000) => {
+ const original=client.send.bind(client), pendingGroups=new Set();let failed=false
+ client.send=(method,params,timeout)=>{
+  const call=original(method,params,timeout)
+  if(method==='Runtime.releaseObjectGroup'){
+   pendingGroups.add(call);call.then(()=>pendingGroups.delete(call),()=>{pendingGroups.delete(call);failed=true})
+  }
+  return call
+ }
+ return async()=>{
+  let timer
+  try {await Promise.race([Promise.all([...pendingGroups]),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('release timeout')),timeoutMs)})])}
+  finally {clearTimeout(timer)}
+  if(failed||pendingGroups.size)throw new Error('release unavailable')
+ }
+}
+
+export const writeSnapshotChunk=(chunk,write)=>{
+ try {return write(chunk)===Buffer.byteLength(chunk)}catch{return false}
+}
