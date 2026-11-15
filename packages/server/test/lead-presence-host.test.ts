@@ -2,15 +2,16 @@ import assert from 'node:assert/strict'
 import { realpath } from 'node:fs/promises'
 import test, { type TestContext } from 'node:test'
 import { createLeadJournal, type LeadJournalRecord, type LeadPermissionContext } from '@harnessdesk/lead'
-import { clientTierFor, parseLeadPresenceRead } from '@harnessdesk/protocol'
+import { clientTierFor, parseLeadPresenceRead, sessionId } from '@harnessdesk/protocol'
 import { PHONE_POLICY } from '../src/phone-link.js'
 import { evidenceDesk } from './fixtures/evidence-desk.js'
 
 /** The real host and its context with a journaled Lead; no child, model or vendor traffic. */
-const rig = async (t: TestContext) => {
+const rig = async (t: TestContext, previous?: { stateDir: string; repo: Awaited<ReturnType<typeof evidenceDesk>>['repo']; statePath: string }) => {
   const { StateStore } = await import('../src/index.js')
   const { tempDir } = await import('./scratch.js')
-  const desk = await evidenceDesk(t, { leadEnabled: true, state: new StateStore(`${tempDir('hd-lead-presence-state-')}/state.json`) })
+  const statePath = previous?.statePath ?? `${tempDir('hd-lead-presence-state-')}/state.json`
+  const desk = await evidenceDesk(t, { leadEnabled: true, state: new StateStore(statePath) }, previous)
   const project = { id: 'project-demo', path: await realpath(desk.repo.dir) }
   const records: LeadJournalRecord[] = []
   const journal = await createLeadJournal({ read: async () => [], append: async record => { records.push(record) } })
@@ -24,7 +25,7 @@ const rig = async (t: TestContext) => {
     createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }),
   })
   await service.setEnabled(true)
-  return { ...desk, journal }
+  return { ...desk, journal, statePath }
 }
 const window = { id: 'window:main', label: 'Desktop' }
 
@@ -107,4 +108,29 @@ test('#2173: an ask stays open in the Inbox past an unrelated message, a newer L
   await settle()
   assert.deepEqual(await asks(), [], 'an answered question leaves the Inbox')
   assert.equal((await r.host.call('lead/work/list', {})).ask, undefined, 'and the Lead is told nothing is open')
+})
+
+
+test('Lead recap after a cold restart tells a stopped chat apart from a finished chat', async t => {
+  const first = await rig(t)
+  first.runtime.onSend = null
+  const stopped = await first.host.call('session/create', { runtime: first.runtime.info.id, options: { cwd: first.repo.dir } })
+  await first.host.call('turn/send', { runtime: first.runtime.info.id, sessionId: stopped.id, input: [{ type: 'text', text: 'Wait' }] })
+  await first.host.call('turn/interrupt', { runtime: first.runtime.info.id, sessionId: stopped.id })
+  first.runtime.onSend = live => live.finish('Done')
+  const finished = await first.host.call('session/create', { runtime: first.runtime.info.id, options: { cwd: first.repo.dir } })
+  await first.host.call('turn/send', { runtime: first.runtime.info.id, sessionId: finished.id, input: [{ type: 'text', text: 'Finish' }] })
+  for (const id of [stopped.id, finished.id]) {
+    const record = first.host.registry.get(first.runtime.info.id, sessionId(String(id)))!
+    first.runtime.emit({ type: 'session/started', session: { ...record.session, updatedAt: Date.now() } })
+  }
+  await first.stop()
+  const cold = await rig(t, first)
+  let reads = 0
+  cold.runtime.readSession = async () => { reads++; throw new Error('the recap must not read a body') }
+  const recap = await cold.host.call('lead/presence/read', { device: window, recap: true })
+  assert.deepEqual(recap.digest!.items.filter(item => item.ref?.kind === 'chat').map(item => [item.ref?.id, item.kind]).sort(),
+    [[`${cold.runtime.info.id}:${stopped.id}`, 'stopped'], [`${cold.runtime.info.id}:${finished.id}`, 'done']].sort())
+  assert.equal(reads, 0)
+  assert.equal(cold.host.registry.all().length, 0)
 })

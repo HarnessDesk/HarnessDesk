@@ -4275,6 +4275,13 @@ export class Host {
       quiet: async () => leadQuietAt(await this.#leadPlanner().readSchedule(), new Date()), name: () => leadDisplayName(journal.state.name),
       // What else a digest tells, from the same records the Work list, the Inbox and Settings read.
       desk: () => this.#phoneWorkspaceView().deskSummary({ limit: 20 }),
+      stoppedChat: id => {
+        const at = id.indexOf(':')
+        if (at <= 0) return false
+        const runtime = runtimeId(id.slice(0, at)), session = makeSessionId(id.slice(at + 1))
+        const held = this.registry.get(runtime, session)
+        return held ? held.session.turns.at(-1)?.status === 'interrupted' : this.#transcripts.lastTurnStopped(runtime, session)
+      },
       memory: async () => (await this.#leadMemory()).entries(),
       settings: async () => (await this.#leadAutonomy?.view())?.changes ?? [],
       observe: input => observe(input).catch(() => null), briefGate: async () => await this.#leadAutonomy?.gate('brief') ?? 'act',
@@ -11466,7 +11473,7 @@ export class Host {
     // any interval.
     if (event.type === 'turn/completed') {
       this.#loadouts.turnCompleted(runtime, event.sessionId)
-      void this.#usageService.refresh(runtime).catch(() => undefined)
+      this.#usageService.invalidate(runtime)
     }
     const bodyEvent = event.type === 'session/started' || event.type.startsWith('turn/') || event.type.startsWith('item/') || event.type === 'notice' || event.type === 'error'
     if (record?.transcriptIncomplete && bodyEvent) this.#invalidateTranscriptCache(record)
@@ -12615,6 +12622,7 @@ export class Host {
         isOwn: (runtime, id) => this.#sessionIndex.isOwn(runtime, id),
         counts: () => this.#sessionIndex.phoneCounts(),
         touchedSince: (since) => this.#sessionIndex.touchedSince(since),
+        coldStoppedSince: (since, live) => this.#sessionIndex.coldStoppedSince(since, live),
         costliestSince: (since, limit) => this.#sessionIndex.costliestSince(since, limit),
       },
       stopped: (runtime, id) => !this.registry.get(runtime, id) && this.#transcripts.lastTurnStopped(runtime, id),

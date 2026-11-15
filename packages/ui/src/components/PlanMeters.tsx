@@ -39,6 +39,7 @@ export const PlanMeters = ({
   const snapshot = useSnapshot()
   const session = useActiveSession()
   const [now, setNow] = useState(() => Date.now())
+  useEffect(() => setNow(Date.now()), [snapshot.usage])
 
   // Countdowns and ages move; once a minute is enough for figures measured in
   // hours, and the strip is on screen all day.

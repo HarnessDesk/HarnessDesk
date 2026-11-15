@@ -357,7 +357,10 @@ export class LeadContextStore {
       if (!messages.slice(last + 1).some(message => message.role === 'assistant' && message.reminded === undefined)) return
       // In journal order: each open message with its reminder lines, then every reply after the last of them.
       const taken = new Set(this.#withReminderLines(id => open.includes(id)).map(message => message.id))
-      const turns = leadHistory(messages.filter((message, index) => taken.has(message.id) || index > last && message.role === 'assistant'))
+      // Convert each selected message separately, as #unstored does: applying
+      // the request-history cap here would lose earlier answered references.
+      const turns = messages.filter((message, index) => taken.has(message.id) || index > last && message.role === 'assistant')
+        .flatMap(message => leadHistory([message]).slice(-1))
       await this.#append({ base: this.#turns.length, extend: [], turns, measured: null })
     })
   }

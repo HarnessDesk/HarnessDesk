@@ -12,7 +12,7 @@ import { FRAME } from '../../packages/ui/src/design/frame'
  */
 const open = async (page: Page, theme: 'light' | 'dark', query = '') => {
   await page.emulateMedia({ colorScheme: theme })
-  await page.goto(`/preview.html?run-controls${query}&theme=${theme}`)
+  await page.goto(`/preview.html?run-controls${query}&isolate&theme=${theme}`)
   await page.evaluate(() => document.fonts.ready)
 }
 const capture = async (locator: Locator, filename: string) => {

@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { runtimeId, type HostMethodName, type UsageReport, type WireNotification } from '@harnessdesk/protocol'
+import { runtimeId, type HostMethodName, type RateLimits, type UsageReport, type WireNotification } from '@harnessdesk/protocol'
 
 import { AppStore } from './store'
+import { describeLimits } from '../lib/limits'
 
 /**
  * Where a crossing becomes an Inbox entry: the store compares two refreshes and says
@@ -315,5 +316,150 @@ describe('a notice the first read of a window no longer bears out (#2111 review 
     answers['usage/reports'] = [{ ...report('dev@example.com', 40), fetchedAt: Date.now() + 1_000 }]
     await store.loadUsage()
     expect(store.getSnapshot().inbox).toEqual([])
+  })
+})
+
+describe('accepted usage keeps timestamped legacy limits synchronized', () => {
+  const oldLimits = (): RateLimits => ({
+    account: 'work', fetchedAt: Date.now() - 180_000, staleAfterMs: 120_000,
+    planType: 'old', planLabel: 'Previous plan',
+    windows: [{ label: 'Weekly', usedPercent: 10, windowMinutes: 10_080, resetsAt: RESETS }],
+    billing: { kinds: ['windows'] },
+  })
+  const select = async (limits = oldLimits()): Promise<void> => {
+    answers['runtime/limits'] = limits
+    answers['runtime/models'] = []
+    answers['runtime/options'] = []
+    answers['routes/list'] = []
+    await store.selectRuntime(runtimeId('codex'))
+  }
+  const current = (): UsageReport => ({
+    ...report('work', 65), plan: 'pro', planLabel: 'Pro plan',
+    lanes: [{ ...report('work', 65).lanes[0]!, scope: 'fast', severity: 'warning' }],
+    credits: { remaining: 42, unit: 'credits', unlimited: true },
+    billing: { kinds: ['windows', 'balance'] }, reached: 'weekly',
+  })
+  const expectProjected = (reading: UsageReport): void => {
+    expect(store.getSnapshot().limits).toMatchObject({
+      account: reading.account, fetchedAt: reading.fetchedAt, staleAfterMs: reading.staleAfterMs,
+      planType: reading.plan, planLabel: reading.planLabel, lanes: reading.lanes,
+      windows: [{ label: 'Weekly · fast', usedPercent: 65, windowMinutes: 10_080, resetsAt: RESETS }],
+      reached: reading.reached, source: reading.source, credits: reading.credits,
+      hasCredits: true, balance: 42, unlimited: true, billing: reading.billing,
+    })
+    expect(describeLimits(store.getSnapshot().limits)?.usage?.remainingPercent).toBe(35)
+  }
+
+  for (const method of ['usage/reports', 'usage/refresh'] as const) {
+    it(`projects a current same-account ${method} reading over expired limits`, async () => {
+      await select()
+      expect(describeLimits(store.getSnapshot().limits)).toBeNull()
+      const reading = current()
+      answers[method] = [reading]
+      vi.mocked(store.transport.request).mockClear()
+      if (method === 'usage/reports') await store.loadUsage()
+      else await store.refreshUsage(runtimeId('codex'))
+      expectProjected(reading)
+      expect(store.transport.request).toHaveBeenCalledTimes(1)
+    })
+
+    it(`uses the reconciled push instead of a late ${method} batch`, async () => {
+      await select()
+      const reading = current()
+      let reply!: (reports: UsageReport[]) => void
+      vi.mocked(store.transport.request).mockImplementationOnce(() => new Promise(resolve => { reply = resolve }) as never)
+      const pending = method === 'usage/reports' ? store.loadUsage() : store.refreshUsage()
+      push({ method: 'usage/updated', params: { report: reading } })
+      reply([{ ...reading, fetchedAt: reading.fetchedAt - 10_000, lanes: report('work', 10).lanes }])
+      await pending
+      expectProjected(reading)
+    })
+  }
+
+  it('projects a pushed reading without another transport call and preserves extra metadata', async () => {
+    await select({ ...oldLimits(), billing: { kinds: ['windows'], budget: { amount: 20, currency: 'USD', period: 'month' } } })
+    const { billing: _billing, planLabel: _label, ...reading } = current()
+    vi.mocked(store.transport.request).mockClear()
+    push({ method: 'usage/updated', params: { report: reading } })
+    expect(store.getSnapshot().limits).toMatchObject({ fetchedAt: reading.fetchedAt, lanes: reading.lanes,
+      billing: { budget: { amount: 20, currency: 'USD', period: 'month' } } })
+    expect(store.transport.request).not.toHaveBeenCalled()
+  })
+
+  for (const [name, limits, reading] of [
+    ['another account', oldLimits(), { ...current(), account: 'personal' }],
+    ['another runtime', oldLimits(), { ...current(), runtime: runtimeId('other') }],
+    ['legacy undated adapter', { ...oldLimits(), fetchedAt: undefined }, current()],
+    ['unidentified adapter', { ...oldLimits(), account: undefined }, current()],
+    ['explicit unavailable plan', { ...oldLimits(), planLimitsUnavailable: true }, current()],
+  ] as const) {
+    it(`does not borrow from ${name}`, async () => {
+      await select(limits)
+      const before = store.getSnapshot().limits
+      push({ method: 'usage/updated', params: { report: reading } })
+      expect(store.getSnapshot().limits).toBe(before)
+    })
+  }
+
+  it('never promotes the figures in an unverified sign-in', async () => {
+    await select()
+    const reading = { ...current(), lanes: [], credits: null, reached: null,
+      unverified: { whose: 'Other sign-in', lanes: current().lanes, reached: 'weekly', fetchedAt: Date.now(), staleAfterMs: 60_000 } }
+    push({ method: 'usage/updated', params: { report: reading } })
+    expect(store.getSnapshot().limits?.windows).toEqual([])
+    expect(store.getSnapshot().limits?.lanes).toEqual([])
+    expect(describeLimits(store.getSnapshot().limits)?.usage).toBeNull()
+  })
+
+  for (const [name, patch] of [
+    ['failed', { error: { message: 'Source unavailable' } }],
+    ['unknown clock', { fetchedAt: 0 }],
+    ['invalid clock', { fetchedAt: Number.NaN }],
+  ] as const) {
+    it(`hides quota for an accepted ${name} reading`, async () => {
+      await select({ ...oldLimits(), fetchedAt: Date.now() - 1_000 })
+      push({ method: 'usage/updated', params: { report: { ...current(), ...patch } } })
+      expect(store.getSnapshot().limits?.fetchedAt).toBe(0)
+      expect(describeLimits(store.getSnapshot().limits)).toBeNull()
+    })
+  }
+
+  it('does not let a slow older runtime limits reply replace a newer usage reading', async () => {
+    await select()
+    const reading = current()
+    let reply!: (limits: RateLimits) => void
+    const request = vi.mocked(store.transport.request)
+    const normal = request.getMockImplementation()!
+    request.mockImplementation(((method: HostMethodName, params: never) => method === 'runtime/limits'
+      ? new Promise(resolve => { reply = resolve }) : normal(method, params)) as never)
+    const pending = store.refreshRuntime()
+    push({ method: 'usage/updated', params: { report: reading } })
+    reply(oldLimits())
+    await pending
+    expectProjected(reading)
+  })
+
+  it('does not let an older report replace a newer runtime source clock', async () => {
+    const limits = { ...oldLimits(), fetchedAt: Date.now() }
+    await select(limits)
+    push({ method: 'usage/updated', params: { report: { ...current(), fetchedAt: limits.fetchedAt - 1_000 } } })
+    expect(store.getSnapshot().limits).toBe(limits)
+  })
+
+  it('allows a newer runtime observation to recover an older failed report', async () => {
+    const limits = { ...oldLimits(), fetchedAt: Date.now() }
+    await select(limits)
+    push({ method: 'usage/updated', params: { report: { ...current(), fetchedAt: limits.fetchedAt - 1_000,
+      error: { message: 'Earlier refresh failed' } } } })
+    expect(store.getSnapshot().limits).toBe(limits)
+  })
+
+  it('does not apply a cached report to a new effective account in runtime limits', async () => {
+    await select()
+    push({ method: 'usage/updated', params: { report: current() } })
+    const limits = { ...oldLimits(), account: 'personal' }
+    answers['runtime/limits'] = limits
+    await store.refreshRuntime()
+    expect(store.getSnapshot().limits).toBe(limits)
   })
 })

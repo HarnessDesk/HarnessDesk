@@ -26,6 +26,8 @@ export interface LeadPresencePorts {
   readonly messages: () => readonly { readonly id: string; readonly role: string; readonly text: string; readonly ask?: LeadAsk; readonly proactive?: LeadProactive; readonly source?: 'person' | 'automatic' | 'schedule'; readonly wake?: unknown }[]
   /** The desk's own Teams and chats, as the desk summary reads them: the ones that need the person, and the newest. */
   readonly desk?: () => Promise<LeadDeskSummary | null>
+  /** A chat whose latest retained or live turn was stopped; unknown is false. */
+  readonly stoppedChat?: (id: string) => boolean
   /** The notes in the Lead's memory, Core and Archive. */
   readonly memory?: () => Promise<readonly LeadMemoryEntry[]>
   /** The settings the person changed: autonomy modes and rule sections, with when. */
@@ -439,7 +441,11 @@ export class LeadPresenceStore {
     const entry = (item: LeadDeskSummary['recent'][number], kind: LeadDigestItem['kind']): LeadDigestItem => ({ kind, id: itemId(item.kind, item.id),
       title: clip(item.title, LEAD_PRESENCE_LIMITS.titleChars) || (item.kind === 'team' ? 'Untitled Team' : 'Untitled chat'), ref: { kind: item.kind, id: item.id }, at: item.updatedAt })
     for (const item of desk?.needsYou ?? []) if (own(item)) waiting.push(entry(item, 'waiting'))
-    const finished = (desk?.recent ?? []).filter(item => item.state === 'idle' && own(item)).map(item => entry(item, 'done'))
+    const idle = (desk?.recent ?? []).filter(item => item.state === 'idle' && own(item))
+    const stoppedChats = idle.filter(item => item.kind === 'chat' && this.ports.stoppedChat?.(item.id) === true)
+    stopped.push(...stoppedChats.map(item => entry(item, 'stopped')))
+    const stoppedIds = new Set(stoppedChats.map(item => item.id))
+    const finished = idle.filter(item => !stoppedIds.has(item.id)).map(item => entry(item, 'done'))
     // The person's reminders that fired. One about a work item opens that item, as the item's own row does; any other
     // opens the reminder on the Work list.
     const cards = new Map((board?.items ?? []).map(card => [card.id, card]))

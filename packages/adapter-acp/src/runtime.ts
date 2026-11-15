@@ -99,6 +99,8 @@ import {
   type AcpStopReason,
   type AcpUsage,
   ACP_TASKS_CAPABILITY,
+  ACP_USAGE_CAPABILITY,
+  ACP_USAGE_READ,
   ACP_TASKS_NOTIFICATION,
   type AcpTasksChanged,
   ACP_SESSION_SOURCE,
@@ -128,6 +130,7 @@ import { acknowledgeEnvironment, environmentMeta, environmentSupported } from '.
 import { CliMcp, type AcpMcpCommands } from './mcp.js'
 import { decodeLoadout, loadoutItem, loadoutPart } from './loadout.js'
 import { AcpTasks } from './tasks.js'
+import { usageLimits } from './usage.js'
 import { projectToolItem, type ToolItemState } from './tool-items.js'
 import { whichOnPath } from './which.js'
 import { ACP_STEER, ACP_GOAL, supportsSteering, supportsGoals, goalUpdate } from './session-controls.js'
@@ -1216,6 +1219,7 @@ export class AcpRuntime implements AgentRuntime {
     const shaken = this.#initialized !== null
     return {
       ...NO_CAPABILITIES,
+      metered: (this.#initialized?._meta?.['harnessdesk'] as Record<string, unknown> | undefined)?.[ACP_USAGE_CAPABILITY] === true,
       perToolMcpApproval: Boolean(this.#config.perToolMcpApproval),
       sessionEnvironment: environmentSupported(this.#initialized?._meta),
       // ACP declares how to authenticate but never whether you already are
@@ -2448,7 +2452,12 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   async getRateLimits(): Promise<RateLimits | null> {
-    return null
+    if (!this.info.capabilities.metered || this.#health.state !== 'ready') return null
+    try {
+      return usageLimits(await this.#connection.request(ACP_USAGE_READ, {}, 10_000))
+    } catch {
+      throw new Error('Could not refresh usage from the running agent.')
+    }
   }
 
   async listSessions(query?: ListSessionsQuery): Promise<Page<SessionSummary>> {

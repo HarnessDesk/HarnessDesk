@@ -108,7 +108,7 @@ for (const theme of ['light', 'dark'] as const) {
 
   test(`unread output takes priority while keeping running facts — ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
-    await page.goto(`/preview.html?sidebar-structure&unread-seat&theme=${theme}`)
+    await page.goto(`/preview.html?sidebar-structure&isolate&unread-seat&theme=${theme}`)
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     const fixture = page.locator('#sidebar-structure')
     const team = fixture.getByRole('button', { name: 'Room Check release notes', exact: true })
@@ -127,7 +127,7 @@ for (const theme of ['light', 'dark'] as const) {
 
   test(`project and Team rows share geometry and preserve project folding — ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
-    await page.goto('/preview.html?sidebar-structure')
+    await page.goto('/preview.html?sidebar-structure&isolate')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     const fixture = page.locator('#sidebar-structure')
     const tree = fixture.locator('[data-region="session-tree"]')
@@ -177,7 +177,7 @@ for (const theme of ['light', 'dark'] as const) {
 
   test(`quiet project headings and session substitution preserve one rail — ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
-    await page.goto('/preview.html?sidebar-structure')
+    await page.goto('/preview.html?sidebar-structure&isolate')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     const fixture = page.locator('#sidebar-structure')
     const tree = fixture.locator('[data-region="session-tree"]')
@@ -224,7 +224,7 @@ for (const theme of ['light', 'dark'] as const) {
   })
 
   test(`flat headings, separators and row highlights retain exact outer edges — ${theme}`, async ({ page }) => {
-    await page.goto(`/preview.html?sidebar-structure&theme=${theme}`)
+    await page.goto(`/preview.html?sidebar-structure&isolate&theme=${theme}`)
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     const fixture = page.locator('#sidebar-structure')
     const project = fixture.locator('[data-project-root="/work/atlas"]')
@@ -255,7 +255,7 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 for (const theme of ['light', 'dark'] as const) test(`nested seats keep their icon, pitch and trailing rails through disclosure and activity — ${theme}`, async ({ page }) => {
-  await page.goto(`/preview.html?sidebar-structure&theme=${theme}`)
+  await page.goto(`/preview.html?sidebar-structure&isolate&theme=${theme}`)
   await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
   const fixture = page.locator('#sidebar-structure')
   const team = fixture.getByRole('button', { name: 'Room Ship checkout retry', exact: true })
@@ -387,7 +387,7 @@ for (const theme of ['light', 'dark'] as const) test(`nested seats keep their ic
 
 for (const theme of ['light', 'dark'] as const) {
   test(`narrow Team labels ellipsize before the shared trailing gap — ${theme}`, async ({ page }) => {
-    await page.goto(`/preview.html?sidebar-structure&theme=${theme}`)
+    await page.goto(`/preview.html?sidebar-structure&isolate&theme=${theme}`)
     const fixture = page.locator('#sidebar-structure')
     await fixture.evaluate(node => { (node as HTMLElement).style.width = '200px' })
     const team = fixture.getByRole('button', { name: 'Room Check release notes', exact: true }).locator('..')
@@ -403,7 +403,7 @@ for (const theme of ['light', 'dark'] as const) {
     console.log(JSON.stringify({ theme, narrowTeam: value }))
   })
   test(`idle Seats reserve the same end slot as loose conversations — ${theme}`, async ({ page }) => {
-    await page.goto(`/preview.html?sidebar-structure&theme=${theme}`)
+    await page.goto(`/preview.html?sidebar-structure&isolate&theme=${theme}`)
     const fixture = page.locator('#sidebar-structure')
     await fixture.evaluate(node => { (node as HTMLElement).style.width = '200px' })
     const inset = async (selector: string) => fixture.locator(selector).first().evaluate(row => {
@@ -417,7 +417,7 @@ for (const theme of ['light', 'dark'] as const) {
     console.log(JSON.stringify({ theme, labelEndGap: { seat, loose } }))
   })
   test(`Team disclosure hit box follows the name inside the highlight — ${theme}`, async ({ page }) => {
-    await page.goto(`/preview.html?sidebar-structure&theme=${theme}`)
+    await page.goto(`/preview.html?sidebar-structure&isolate&theme=${theme}`)
     const fixture = page.locator('#sidebar-structure')
     const team = fixture.getByRole('button', { name: 'Room Ship checkout retry', exact: true })
     const disclosure = team.locator('..').locator('[data-left-disclosure]')
@@ -437,7 +437,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 
 test('a matching agent filter can fold its Team and captures the public filter and long-label frames', async ({ page }) => {
-  await page.goto('/preview.html?sidebar-structure&theme=light')
+  await page.goto('/preview.html?sidebar-structure&isolate&theme=light')
   await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption('light')
   const fixture = page.locator('#sidebar-structure')
   await page.evaluate(() => {
@@ -454,7 +454,7 @@ test('a matching agent filter can fold its Team and captures the public filter a
   await page.mouse.move(1000, 0)
   await page.evaluate(() => (document.activeElement as HTMLElement)?.blur())
   if (process.env.SIDEBAR_SEATS_FRAMES) await fixture.screenshot({ path: path.join(process.env.SIDEBAR_SEATS_FRAMES, 'sidebar-seats-filter-folded-320.png') })
-  await page.goto('/preview.html?sidebar-structure&theme=light')
+  await page.goto('/preview.html?sidebar-structure&isolate&theme=light')
   await page.evaluate(() => {
     const { store } = (window as unknown as { __hdSidebarStructure: { store: { getSnapshot(): AppSnapshot; patch(value: Partial<AppSnapshot>): void } } }).__hdSidebarStructure
     const held = store.getSnapshot(), teams = new Map(held.teams), team = teams.get('structure-running-team')!
@@ -473,7 +473,7 @@ test('a matching agent filter can fold its Team and captures the public filter a
 
 
 test('multi-digit card prefixes reserve their intrinsic width without overlapping the Seat label', async ({ page }) => {
-  await page.goto('/preview.html?sidebar-structure&theme=light')
+  await page.goto('/preview.html?sidebar-structure&isolate&theme=light')
   const fixture = page.locator('#sidebar-structure')
   await fixture.evaluate(node => { (node as HTMLElement).style.width = '200px' })
   await page.evaluate(() => {
@@ -493,7 +493,7 @@ test('multi-digit card prefixes reserve their intrinsic width without overlappin
 
 for (const theme of ['light', 'dark'] as const) test(`long Team and Seat names keep the fold gap at both sidebar widths — ${theme}`, async ({ page }) => {
   await page.emulateMedia({ colorScheme: theme })
-  await page.goto(`/preview.html?sidebar-structure&theme=${theme}`)
+  await page.goto(`/preview.html?sidebar-structure&isolate&theme=${theme}`)
   await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
   const name = 'Ship checkout retry and validate every deployment before the release'
   await page.evaluate(name => {
@@ -527,7 +527,7 @@ for (const theme of ['light', 'dark'] as const) test(`long Team and Seat names k
 
 for (const theme of ['light', 'dark'] as const) test(`unselected Team labels match loose conversations — ${theme}`, async ({ page }) => {
   await page.emulateMedia({ colorScheme: theme })
-  await page.goto(`/preview.html?sidebar-structure&theme=${theme}`)
+  await page.goto(`/preview.html?sidebar-structure&isolate&theme=${theme}`)
   const fixture = page.locator('#sidebar-structure')
   const team = fixture.getByRole('button', { name: 'Room Check release notes', exact: true })
   const loose = fixture.getByRole('button', { name: 'Release notes', exact: true })

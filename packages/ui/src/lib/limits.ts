@@ -1,4 +1,4 @@
-import type { RateLimits, UsageWindow } from '@harnessdesk/protocol'
+import { bindingLane, isBlocked, remainingOf, usageIsFresh, type RateLimits, type UsageWindow } from '@harnessdesk/protocol'
 
 /**
  * What a metered runtime's limits mean for the person using it.
@@ -94,20 +94,34 @@ const toneFor = (remaining: number): Tone => (remaining <= 0 ? 'bad' : remaining
 
 export const describeLimits = (limits: RateLimits | null | undefined, now = Date.now()): LimitsView | null => {
   if (!limits) return null
-  const windows = limits.windows ?? []
+  const lanes = limits.lanes
+  const windowOf = (lane: NonNullable<RateLimits['lanes']>[number]): UsageWindow => ({
+    label: lane.scope ? `${lane.label} · ${lane.scope}` : lane.label,
+    usedPercent: Math.max(0, Math.min(100, lane.usedPercent)), resetsAt: lane.resetsAt, windowMinutes: lane.windowMinutes,
+  })
+  const windows = limits.windows ?? lanes?.map(windowOf) ?? []
+  // Older adapters have no observation clock. An adapter that supplies one must
+  // not turn an undated or previous-cycle reading into a current compact figure.
+  if (limits.fetchedAt !== undefined && !usageIsFresh({ fetchedAt: limits.fetchedAt,
+    staleAfterMs: limits.staleAfterMs ?? 120_000,
+    lanes: lanes?.length ? lanes : windows.map((window, index) => ({ ...window, id: String(index) })),
+  }, now)) return null
   const reached = limits.reached ?? null
-  const blocked = reached
-    ? (BLOCKED[reached] ?? {
+  const blocked = (lanes?.length ? isBlocked({ lanes, reached }) : Boolean(reached))
+    ? (BLOCKED[reached ?? ''] ?? {
         title: 'Limit reached',
         detail: 'New turns will fail for now. Past sessions are still readable.',
       })
     : null
 
   // The window with the least left is the one that will bite first.
-  const tightest = windows.reduce<UsageWindow | null>(
-    (best, window) => (best === null || window.usedPercent > best.usedPercent ? window : best),
-    null,
-  )
+  const binding = lanes?.length ? bindingLane(lanes) : null
+  const tightest = lanes?.length
+    ? binding && remainingOf(binding) !== null ? windowOf(binding) : null
+    : windows.reduce<UsageWindow | null>(
+        (best, window) => (best === null || window.usedPercent > best.usedPercent ? window : best),
+        null,
+      )
   const usage: UsageSummary | null = tightest
     ? (() => {
         const remaining = Math.max(0, Math.round(100 - tightest.usedPercent))

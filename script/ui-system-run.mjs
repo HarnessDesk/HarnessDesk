@@ -12,6 +12,9 @@ import { splitServerSpecs } from './ci-server-split.mjs'
 
 const recordingConfig = 'script/ui-impact/tsconfig.json'
 export const hasE2EBuild = root => E2E_PAGES.every(page => existsSync(join(root, 'packages/ui/dist-e2e', page)))
+export const ciBrowserWorkers = (cores, staticServer) => staticServer
+  ? Math.min(3, Math.max(1, cores - 1))
+  : Math.max(1, Math.floor(cores / 2))
 
 export function planRun(root, { specs, args = [], devOnly = false, env = process.env, hasBuild = hasE2EBuild(root) }) {
   const recording = env.RECORD === 'true' || Boolean(env.UI_IMPACT_DIR) || args.some(arg => arg.includes(recordingConfig))

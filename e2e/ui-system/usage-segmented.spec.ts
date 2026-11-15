@@ -13,7 +13,7 @@ const mountPlanMeters = async (page: Page, fixtureUsage = false) => {
 
 test('the PlanMeters specimen keeps the plan track and separates its reading from the roster token', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
-  await page.goto('/preview.html')
+  await page.goto('/preview.html?frames=dashboard-overview,settings-sheet,sidebar-column,goal-accounting,insight-partial,insight-loaded,supported-plan-meters')
   await page.evaluate(async () => {
     const { mountPlanMetersSpecimen } = await import('/src/preview/frames-supported-controls.tsx' as string)
     const host = document.createElement('section'); document.querySelector('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:not([hidden])')!.append(host); mountPlanMetersSpecimen(host, true)
@@ -46,7 +46,7 @@ for (const theme of ['light', 'dark'] as const) {
   for (const width of [1440, 980]) {
     test(`dashboard view rows keep their padding and contents at ${width}px in ${theme}`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: 900 })
-      await page.goto('/preview.html')
+      await page.goto('/preview.html?frames=dashboard-overview,settings-sheet,sidebar-column,goal-accounting,insight-partial,insight-loaded,supported-plan-meters')
       await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
       const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
       const frame = page.locator('[data-frame-id="dashboard-overview"]')
@@ -79,7 +79,7 @@ for (const theme of ['light', 'dark'] as const) {
 
     test(`permission segments contain unequal labels at ${width}px in ${theme}`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: 900 })
-      await page.goto('/preview.html')
+      await page.goto('/preview.html?frames=dashboard-overview,settings-sheet,sidebar-column,goal-accounting,insight-partial,insight-loaded,supported-plan-meters')
       await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
       await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('permissions')
       const settings = page.locator('[data-frame-id="settings-sheet"] [data-page-destination="settings"]:visible')
@@ -237,7 +237,7 @@ for (const [look, theme] of [
   test(`${look} Dashboard keeps the first band aligned and its hero readings judged in ${theme}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await stageAccounts(page)
-    await page.goto('/preview.html')
+    await page.goto('/preview.html?frames=dashboard-overview,settings-sheet,sidebar-column,goal-accounting,insight-partial,insight-loaded,supported-plan-meters')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     await page.getByRole('combobox', { name: 'interface', exact: true }).selectOption(look)
     const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
@@ -301,7 +301,7 @@ for (const [look, theme] of [
 
     for (const [item0, view] of (['Overview', 'Plans', 'Spend', 'Activity', 'Projects']).entries()) test(`${look} selected view row text meets AA in ${theme} [item ${[item0].join('-')}]`, async ({ page }, testInfo) => {
       await stageAccounts(page)
-      await page.goto('/preview.html')
+      await page.goto('/preview.html?frames=dashboard-overview,settings-sheet,sidebar-column,goal-accounting,insight-partial,insight-loaded,supported-plan-meters')
       await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
       await page.getByRole('combobox', { name: 'interface', exact: true }).selectOption(look)
       const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
@@ -363,7 +363,7 @@ test('selected view row ink waits for a child transition that the row does not c
 test('no band head covers what it heads, first band or not', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await stageAccounts(page)
-  await page.goto('/preview.html')
+  await page.goto('/preview.html?frames=dashboard-overview,settings-sheet,sidebar-column,goal-accounting,insight-partial,insight-loaded,supported-plan-meters')
   const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
   await expect(dashboard.getByRole('heading', { name: 'What is left', exact: true })).toBeVisible()
   const overlaps = await dashboard.evaluate(node => {
@@ -383,7 +383,7 @@ test('no band head covers what it heads, first band or not', async ({ page }) =>
 
 test('the supported plan control keeps the plan track and separates its reading from the roster token', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
-  await page.goto('/preview.html')
+  await page.goto('/preview.html?frames=dashboard-overview,settings-sheet,sidebar-column,goal-accounting,insight-partial,insight-loaded,supported-plan-meters')
   await mountPlanMeters(page)
   const strip = page.getByRole('group', { name: 'Plan usage' })
   await expect(strip).toBeVisible()

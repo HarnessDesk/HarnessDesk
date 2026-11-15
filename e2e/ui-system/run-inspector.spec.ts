@@ -4,7 +4,7 @@ import path from 'node:path'
 for (const theme of ['light', 'dark'] as const) {
   test(`Run inspector beside the retained timeline and selected detail in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
-    await page.goto(`/preview.html?run-inspector&theme=${theme}`)
+    await page.goto(`/preview.html?run-inspector&isolate&theme=${theme}`)
     if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
     else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme', '')
     const frame = page.locator('#run-inspector-run')

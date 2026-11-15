@@ -7,6 +7,28 @@ the rule is the last line of its section.
 
 ---
 
+## A quota observation and a retry have separate clocks — 2026-11-14
+
+A ten-day-old Claude Code cache said 0% used, and the compact menu presented 100% left. Re-reading that file
+does not refresh its contents. Compact usage now requires an unexpired source observation and an unpassed
+reset; details retain old figures with an explicit historical label. Missing timestamps remain unknown.
+
+The bridge negotiates one generic ACP control backed by the existing query's structured `/usage`, with no
+model prompt or transcript scan. The SDK control is experimental and can silently seed its reply from a
+cache on failure. A successful call therefore never establishes freshness by itself: query identity, cache
+identity, figures and resets must match before the CLI-owned clock can date it. A matching seeded legacy
+projection retains the same cache's modern rows and stable IDs with its original clock. With no live query, file
+fallback remains reachable. A different effective credential cannot inherit the global sign-in's quota.
+
+Concurrent calls share a request. Automatic reads have a one-minute floor; failures back off with jitter,
+capped at fifteen minutes. Activity queues a trailing read and stays dirty through an in-flight read.
+Directory watches survive atomic replacement and ingest local observations without calling their producer
+again; credential-file changes still obey the one-minute network floor, but new sign-in evidence can shorten
+an authentication failure's longer backoff. Accepted reports keep same-account timestamped legacy limits
+synchronized without another request. Visible surfaces request through the cache, and no permanent
+host poller is added. Rejected: faster file polling (it still reads old contents), direct OAuth credential
+copying (the existing process already owns authentication), and stamping a successful SDK reply as fresh.
+
 ## Complete affected coverage can land a low-risk change — 2026-11-14
 
 Core-only PR CI followed by mandatory full CI made even an isolated test repair
@@ -6275,3 +6297,55 @@ hover motion and reduced-motion policy rather than a page-specific
 animation. The screenshot rig clears feature preferences, preserved repair
 artifacts and feature-owned Lead/phone state only after its existing isolated
 home, ownership and symlink guards pass.
+
+## Full CI spends its browsers on the specimen under test — 2026-11-14
+
+A focused browser contract was opening the complete preview catalogue on each
+navigation, mounting unrelated conversations, settings, graphs and their effects
+before it could measure one fixture. Focused contracts now opt into `isolate`
+for a supported fixture family, or an explicit `frames` list for catalogue
+specimens. The complete catalogue remains the default. The component coverage
+census, whole-page audits and behavior journeys keep their original scope.
+Theme and interface controls remain available on isolated families. Their store
+subscription lives in a small controls component, with a separate theme effect
+that remains mounted for focused early-return routes too: changing appearance
+must update those controls and the body theme without recommitting the entire
+catalogue parent. A commit-count regression guards this; each specimen retains
+its own store subscription.
+
+The two geometry loops in `flow-graph.spec.ts` and the receipt-title loop in
+`team-record.spec.ts` only read separate drawings/stores. Their 42 duplicate
+page startups are replaced by named scene steps: every original scene, theme
+and assertion still runs. Keyboard, approval, navigation, persistence, process
+cleanup and permission tests are not removed. Two new browser contracts check
+that fixture isolation actually omits unrelated specimens and keeps controls.
+
+Built pages on a four-core CI runner can use three browser workers because
+they do not compile source; the dev server keeps two. Built-page runs keep all
+specs but deal at most twelve balanced shards, all eligible together, so one PR cannot occupy sixteen of
+the twenty hosted slots with browsers. Recording runs retain their existing
+seventeen-slot ceiling. The PR table is refreshed from the successful run and
+normalizes each group's measured test seconds to two-worker equivalents, so a
+three-worker static group and a two-worker dev group can be balanced together.
+PR selections target 600 equivalent seconds per shard; a complete suite carries
+more when it reaches the twelve-shard ceiling. Baseline recording stays
+serial, retries stay zero, and test deadlines do not change. The full tier still
+runs every browser spec, both theme matrices where required, and native smoke.
+
+CPU profiling of the long context test found repeated credential scans: the
+outbound check screened an entire subtree, then repeated that work at each
+child. The outbound short-key rule now participates in the shared traversal.
+All journal credential-name, canary, encoded-JSON and outbound rules remain a
+union. A traversal-count regression and an oracle using the former composition
+check this, alongside the existing security and conversation tests. The 400-turn
+conversation and forty-question workload retain their inputs and deadlines.
+
+Runner selection shares the input-selection job, preserving its existing
+fork/token/online/scheduled-stop fallback rules while removing another hosted
+queue and prerequisite. Node test jobs build their workspace packages and
+fixtures; Gates and native smoke retain the full application build. All required
+check names, tier admission and tree-proof requirements remain in place.
+
+**Rule:** measure execution separately from runner wait. Remove repeated setup
+or computation only when the same failure remains detectable; a smaller count
+of test invocations is not itself a reason to remove an assertion.
