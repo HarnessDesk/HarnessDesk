@@ -18,10 +18,15 @@ export const PollDeskLinkResponse = z.discriminatedUnion('status', [
 export const LookupDeskLinkResponse = z.object({ name: Name, deskId: DeskId, expiresAt: UnixSeconds })
 export const ApproveDeskLinkResponse = z.object({ deskId: DeskId, name: Name })
 
+// Additive fields keep older profile responses readable. Nickname never replaces provider identity.
 export const AccountProfile = z.object({
+  id: z.string().min(1).max(256).optional(),
+  nickname: Name.nullable().optional(),
   name: Name.nullable(), email: z.string().email().max(320).nullable(),
   pictureUrl: z.string().url().max(2048).refine((url) => new URL(url).protocol === 'https:').nullable(),
 })
+/** Null restores the provider name; no client-supplied account or provider fields are accepted. */
+export const UpdateAccountProfileRequest = z.object({ nickname: Name.nullable() }).strict()
 export const LinkedPhone = z.object({ deviceId: DeviceId, name: Name, lastSeenAt: UnixSeconds.nullable() })
 export const DeskAccountResponse = z.object({
   account: AccountProfile,
