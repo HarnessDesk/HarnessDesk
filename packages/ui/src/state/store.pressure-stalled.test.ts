@@ -197,3 +197,30 @@ it.each(['count', 'bytes'] as const)('uses cached %s pressure proofs before requ
     releaseLate()
   }
 })
+
+it('rechecks an earlier in-place body change after a later proof awaits', async () => {
+  const runtime = runtimeId('example'), first = sessionId('earlier'), second = sessionId('later')
+  const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
+  const body = (id: typeof first): Session => ({ id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] })
+  const identity = Array.from(hash(new TextEncoder().encode(canonicalTranscriptBody([]).canonical)), byte => byte.toString(16).padStart(2, '0')).join('')
+  let release!: () => void, mark!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve }), reached = new Promise<void>(resolve => { mark = resolve })
+  const store = new AppStore('ws://localhost:0/'); await store.disableTranscriptCache()
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId: typeof first }) => {
+    if (method === 'session/cache-snapshot') { if (params.sessionId === second) { mark(); await gate }; return { session: body(params.sessionId), watermark, identity } }
+    if (method === 'session/prepare-eviction') return { ...watermark, identity }
+    return null
+  }) as never)
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  for (const id of [first, second]) handlers.onEvent(runtime, { type: 'session/started', session: body(id) })
+  expect(await store.prepareTranscriptEviction(runtime, first)).toBe(true)
+  try {
+    const planning = store.prepareTranscriptPressure({ count: 1, bytes: Number.MAX_SAFE_INTEGER })
+    await reached
+    const held = store.getSnapshot().sessions.get(sessionKey(runtime, first))!
+    ;(held as { title?: string }).title = 'Synthetic mutation during later proof'
+    release()
+    expect(await planning).toEqual([])
+    expect(store.getSnapshot().sessions.get(sessionKey(runtime, first))?.itemsLoaded).toBe(true)
+  } finally { release() }
+})

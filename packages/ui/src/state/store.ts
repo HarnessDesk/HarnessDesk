@@ -1152,25 +1152,28 @@ export class AppStore {
       const checked: SessionKey[] = []
       let provenCount = 0, provenBytes = 0
       let change = this.#transcriptChange, draftRevision = this.drafts.revision
-      const countProof = (key: SessionKey): void => {
+      const countProof = (key: SessionKey, validNow = false): void => {
         const session = this.#snapshot.sessions.get(key)
-        if (!session || !this.#currentTranscriptPlanningReceipt(key, session)) return
+        if (!session || (!validNow && !this.#currentTranscriptPlanningReceipt(key, session))) return
         try { const bytes = canonicalTranscriptBody(session.turns).bytes; provenCount++; provenBytes += bytes } catch { /* Keep unsupported bodies. */ }
       }
       for (const candidate of candidates) {
         const session = this.#snapshot.sessions.get(candidate.key)
-        if (!session || !this.#currentTranscriptPlanningReceipt(candidate.key, session)) {
+        const validNow = !!session && this.#currentTranscriptPlanningReceipt(candidate.key, session)
+        if (!validNow) {
           const { runtime, id } = splitSessionKey(candidate.key)
           await this.prepareTranscriptEviction(runtime, id)
         }
         checked.push(candidate.key)
         // An awaited proof may have crossed a body, owner, or draft change.
         // Recount only current receipts rather than carrying stale authority.
+        // The successful check immediately above is reusable only when no
+        // proof was awaited and these generations still match.
         if (change !== this.#transcriptChange || draftRevision !== this.drafts.revision) {
           change = this.#transcriptChange; draftRevision = this.drafts.revision
           provenCount = 0; provenBytes = 0
           for (const key of checked) countProof(key)
-        } else countProof(candidate.key)
+        } else countProof(candidate.key, validNow)
         if (provenCount > limits.count || provenBytes > limits.bytes) {
           const planned = this.planTranscriptEvictions(limits)
           if (planned.length) return planned
