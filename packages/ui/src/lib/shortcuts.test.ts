@@ -50,7 +50,7 @@ describe('the shortcut table', () => {
   it('opens New Team with Shift while the plain chord still starts a session', () => {
     expect(shortcutFor({ ...chord('N'), shiftKey: true })?.action).toBe('new-team')
     expect(shortcutFor(chord('n'))?.action).toBe('new-session')
-    expect(appSource).toMatch(/case 'new-team':[\s\S]*?projectRootOf\(snapshot.workspace\)/)
+    expect(appSource).toMatch(/case 'new-team':[\s\S]*?projectRootOf\((?:snapshot\.)?workspace\)/)
   })
   it('carries Back and Forward on ⌘[ and ⌘]', () => {
     expect(row('nav-back').key).toBe('[')
@@ -110,8 +110,8 @@ describe('the handler behind the table', () => {
   it('and the two new ones reach the store verbs they exist for', () => {
     // A `case` alone would pass the check above while calling nothing, which
     // is exactly the dead command #254 warns about.
-    expect(appSource).toMatch(/case 'nav-back':\s*\n\s*if \(snapshot\.workbench\.navigation\.current\.kind === 'settings'\) void store\.leaveSettings\(\)/)
-    expect(appSource).toMatch(/case 'nav-forward':\s*\n\s*if \(snapshot\.workbench\.navigation\.current\.kind !== 'settings'\) void store\.navigateForward\(\)/)
+    expect(appSource).toMatch(/case 'nav-back':\s*\n\s*if \((?:snapshot\.)?workbench\.navigation\.current\.kind === 'settings'\) void store\.leaveSettings\(\)/)
+    expect(appSource).toMatch(/case 'nav-forward':\s*\n\s*if \((?:snapshot\.)?workbench\.navigation\.current\.kind !== 'settings'\) void store\.navigateForward\(\)/)
     // Controls: the source really was loaded, and the matcher can tell the
     // two verbs apart rather than passing on any `case` it finds.
     expect(appSource).toContain("case 'toggle-sidebar':")

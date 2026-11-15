@@ -10,14 +10,15 @@ export const isMainPage = (kind: string, leadAvailable = false): boolean => (kin
 export const MainPages = ({onSignIn,onNewTeam,libraryImportIntent,suspended=false}: {
   readonly onSignIn:(runtime:RuntimeId)=>void;readonly onNewTeam:()=>void;readonly libraryImportIntent:number;readonly suspended?:boolean
 }) => {
-  const store=useStore(), snapshot=useSnapshot(), current=snapshot.workbench.navigation.current
+  // Retained page callbacks need only these fields, not the full session map.
+  const store=useStore(), snapshot=useSnapshot(), current=snapshot.workbench.navigation.current, leadAvailable=snapshot.leadAvailable
   const live=useRef({current,suspended,generation:0,mounted:true})
   if(live.current.current!==current || live.current.suspended!==suspended) live.current={current,suspended,generation:live.current.generation+1,mounted:live.current.mounted}
   useEffect(()=>{live.current.mounted=true;return()=>{live.current.mounted=false}},[])
   const [held,setHeld]=useState<Partial<Record<PageDestination['kind'],PageDestination>>>({})
-  if (!snapshot.leadAvailable && held.lead) { const {lead: _lead, ...remaining} = held; setHeld(remaining) }
-  if(current.kind!=='work' && isMainPage(current.kind, snapshot.leadAvailable) && held[current.kind]!==current) setHeld({...held,[current.kind]:current})
-  return <>{Object.values(held).flatMap(page=>page && isMainPage(page.kind, snapshot.leadAvailable)?[page]:[]).map(page=>{
+  if (!leadAvailable && held.lead) { const {lead: _lead, ...remaining} = held; setHeld(remaining) }
+  if(current.kind!=='work' && isMainPage(current.kind, leadAvailable) && held[current.kind]!==current) setHeld({...held,[current.kind]:current})
+  return <>{Object.values(held).flatMap(page=>page && isMainPage(page.kind, leadAvailable)?[page]:[]).map(page=>{
     const active=!suspended && current.kind===page.kind
     const generation=live.current.generation
     const owns=():boolean=>active && live.current.mounted && !live.current.suspended && live.current.generation===generation && store.getSnapshot().workbench.navigation.current===page
