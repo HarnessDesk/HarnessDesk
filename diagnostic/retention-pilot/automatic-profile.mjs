@@ -18,7 +18,7 @@ import { provenanceOf, readAssetIndex } from './closure-provenance.mjs'
 import { createNotificationObserver, installNotificationObserver, sanitizeWaitObservation } from './profile-notification-observer.mjs'
 
 const taskSource = resolve('.')
-const taskSha = 'c15473e6d167156759ec71f0a6bddb9cb8a315f0'
+const taskSha = 'd6b114570254a1214502cc64fd2c150c1c52d4d7'
 const sha = path => createHash('sha256').update(readFileSync(path)).digest('hex')
 const git = (...args) => execFileSync('git', ['-C',taskSource,...args], {encoding:'utf8'}).trim()
 if (process.platform !== 'darwin' || process.env.GITHUB_ACTIONS !== 'true' || process.env.RUNNER_ENVIRONMENT !== 'github-hosted') throw new Error('hosted macOS runner required')

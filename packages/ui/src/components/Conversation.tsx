@@ -409,8 +409,10 @@ export const Conversation = ({
   mainContent?: ReactNode
 }) => {
   const store = useStore()
-  const snapshot = useSnapshot()
+  const { goals, runtimes, approvals, worktrees, loadingSessions, healthByRuntime, activeRuntime, health, foldersGone, editorState, workbench, narrowWindow, sidebarCollapsed, sidebarFloating } = useSnapshot()
   const session = useActiveSession()
+  const sessionPresent = Boolean(session)
+  const sessionCwd = session?.cwd
   const key = useSessionKey()
   const pane = usePane()
   const scroll = useRef<HTMLDivElement>(null)
@@ -452,17 +454,17 @@ export const Conversation = ({
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [markScrollIntent, keyboardHere])
-  const status = paneStatus(session, snapshot.approvals, key)
+  const status = paneStatus(session, approvals, key)
   const worktree = session
-    ? snapshot.worktrees.find((entry) => entry.managed && entry.path === session.cwd)
+    ? worktrees.find((entry) => entry.managed && entry.path === session.cwd)
     : undefined
   const [removingWorktree, setRemovingWorktree] = useState(false)
   const [bringingHome, setBringingHome] = useState(false)
   const [creatingBranchRoot, setCreatingBranchRoot] = useState<string | null>(null)
-  const loading = key ? snapshot.loadingSessions.has(key) : false
-  const sessionRuntime = session ? snapshot.runtimes.find((entry) => entry.id === session.runtime) : undefined
+  const loading = key ? loadingSessions.has(key) : false
+  const sessionRuntime = session ? runtimes.find((entry) => entry.id === session.runtime) : undefined
   const sessionHealth = session
-    ? snapshot.healthByRuntime[session.runtime] ?? (session.runtime === snapshot.activeRuntime ? snapshot.health : null)
+    ? healthByRuntime[session.runtime] ?? (session.runtime === activeRuntime ? health : null)
     : null
   const sessionCannotRun = Boolean(session && (!sessionRuntime || sessionHealth?.state === 'unavailable'))
   const unavailableSessionMessage = session && !sessionRuntime
@@ -472,7 +474,7 @@ export const Conversation = ({
       : null
   /* Keyed on the folder rather than on this conversation: the fact belongs to
      the folder, and every conversation that ran in it is in the same state. */
-  const folderGone = session ? (snapshot.foldersGone.get(session.cwd) ?? null) : null
+  const folderGone = session ? (foldersGone.get(session.cwd) ?? null) : null
 
   const items = useMemo(() => (session ? allItems(session) : []), [session])
   const hasRealTurn = session?.turns.some(turn => !isNoticeTurn(turn)) ?? false
@@ -485,7 +487,7 @@ export const Conversation = ({
     <ConversationEmptyState height={emptyHeight}>
       <EmptyTitle>Nothing to show</EmptyTitle>
       <EmptyBody>
-        {snapshot.runtimes.find((entry) => entry.id === session.runtime)?.presentation.name ?? 'The runtime'}{' '}
+        {runtimes.find((entry) => entry.id === session.runtime)?.presentation.name ?? 'The runtime'}{' '}
         couldn’t restore this conversation’s messages. Sending a message continues the same session.
       </EmptyBody>
     </ConversationEmptyState>
@@ -539,9 +541,9 @@ export const Conversation = ({
     const link = (event.target as HTMLElement).closest?.('a[href]')
     if (element && link && element.contains(link)) {
       setPinned(false)
-      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || !key || !session) return
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || !key || !sessionPresent) return
       const target = fileLink(link.getAttribute('href') ?? '')
-      const path = target && filePathInRoot(target.path, session.cwd)
+      const path = target && filePathInRoot(target.path, sessionCwd!)
       if (path && target) {
         event.preventDefault()
         store.enterEditorFile(key, path, { view: 'source', line: target.line })
@@ -614,7 +616,7 @@ export const Conversation = ({
     catch (cause) { setRenameError(cause instanceof Error ? cause.message : String(cause)) }
   }
 
-  const activeFile = mainContent && key ? editorConversation(snapshot.editorState, `session:${key}`).active : null
+  const activeFile = mainContent && key ? editorConversation(editorState, `session:${key}`).active : null
   const filePlace = activeFile && session?.cwd && activeFile.startsWith(`${session.cwd}/`)
     ? activeFile.slice(session.cwd.length + 1) : activeFile
   useConversationTopBar(pane?.paneId ?? '', {
@@ -624,13 +626,13 @@ export const Conversation = ({
     state: session ? <Dot tone={STATUS_PILL_TONE[status]} pulse={status === 'running'} title={STATUS_LABEL[status]} aria-label={STATUS_LABEL[status]} /> : undefined,
     placeMenu: session ? close => <>
       <MenuItem icon={<PencilIcon />} label="Rename" onSelect={() => { setRename(session.title ?? ''); setRenameError(null); setRenaming(true); close() }} />
-      <MenuItem icon={<ForkIcon />} label="Fork" disabled={isRecordConversation(snapshot.goals.values(), key) ? RECORD_REASON : sessionUnavailable(snapshot, session) ?? false} onSelect={() => { void store.forkSession(key); close() }} />
+      <MenuItem icon={<ForkIcon />} label="Fork" disabled={isRecordConversation(goals.values(), key) ? RECORD_REASON : sessionUnavailable({ runtimes, healthByRuntime, activeRuntime, health }, session) ?? false} onSelect={() => { void store.forkSession(key); close() }} />
       <MenuItem icon={<ArchiveIcon />} label="Archive" onSelect={() => { void store.archiveSession(session.id, session.runtime, titleOf(session)); close() }} />
     </> : undefined,
     tools: <WorkTools draft={!session} />,
     terminal: true,
     more: session ? () => null : () => <MenuItem icon={<FolderOpenIcon size={16} />} label="Choose a project folder…" onSelect={onChooseProject} />,
-    corner: sidebarPlacement(snapshot) !== 'column',
+    corner: sidebarPlacement({ narrowWindow, sidebarCollapsed, sidebarFloating, workbench }) !== 'column',
   }, header && pane !== null)
   useWorkDetails(pane?.paneId ?? '', <ConversationDetails session={session}
     placeAction={<GitControl onCreateBranch={setCreatingBranchRoot} onRemoveWorktree={() => setRemovingWorktree(true)} onBringHome={() => setBringingHome(true)} />} />,
@@ -679,7 +681,7 @@ export const Conversation = ({
             {session.worktreeWarning && <Banner tone="neutral" compact>{session.worktreeWarning}</Banner>}
             {!hasRealTurn && emptyState}
             <div ref={transcriptContent} data-transcript-content><Page width="reading" gutter="none">
-            {session.deskCopy && <ReadingMeasure><Text as="div" role="prose" ink="secondary">HarnessDesk’s copy — {snapshot.runtimes.find(entry => entry.id === session.runtime)?.presentation.name ?? 'The runtime'}’s own record is unavailable.</Text></ReadingMeasure>}
+            {session.deskCopy && <ReadingMeasure><Text as="div" role="prose" ink="secondary">HarnessDesk’s copy — {runtimes.find(entry => entry.id === session.runtime)?.presentation.name ?? 'The runtime'}’s own record is unavailable.</Text></ReadingMeasure>}
             {session.historyPending && <ReadingMeasure><Text as="div" role="prose" ink="secondary">Recent activity is still being saved.</Text></ReadingMeasure>}
             {session.turns.map((turn, turnIndex) => {
               // The prompt, the work folded under how long it took, the
@@ -770,7 +772,7 @@ export const Conversation = ({
       {/* `ComposerDock`'s `floating` fade: no other pane holds a scrolling
           transcript under a dock that floats over it — the room's own
           composer sits in flow below its stream instead. */}
-      {snapshot.workbench.navigation.current.kind === 'work' && <ConversationDock ref={dockArea}>
+      {workbench.navigation.current.kind === 'work' && <ConversationDock ref={dockArea}>
         {/* Stacked by lifetime, shortest first: the jobs strip goes when this
             turn does, the queue happens after it. That order puts the thing
             you can act on nearest the composer and the transcript's own
