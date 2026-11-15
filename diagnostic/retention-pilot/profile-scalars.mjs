@@ -14,3 +14,5 @@ export const summarize = (sessions, work, protectedKeys, bytes) => {
   for(const [index,key] of protectedKeys.entries()){const value=sessions.get(key);if(!value?.itemsLoaded)throw Error('sentinel not loaded');const size=bytes(value.turns);protectedBytes+=size;protectedBytesByKind[['visible','draft','pending'][index]]=size}
   return {knownWorkloadLoaded,knownWorkloadBytes,protectedSentinels:protectedKeys.length,protectedBytes,protectedBytesByKind}
 }
+
+export const pendingAfterNavigation = (session, approval, mounted, close) => session?.itemsLoaded === true && session.turns.some(turn => turn.status === 'inProgress') && approval === true && mounted === false && (close?.sent ?? 0) === 0 && (close?.resolved ?? 0) === 0 && (close?.rejected ?? 0) === 0

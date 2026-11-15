@@ -22,3 +22,13 @@ test('checkpoint keeps eligibility unknown while separating known and protected 
   sessions.set('p',{itemsLoaded:false,turns:[]})
   assert.throws(()=>summarize(sessions,['w'],['v','d','p'],canonicalBytes),/sentinel/)
 })
+
+test('pending sentinel must survive navigation without a close request', async () => {
+  const { pendingAfterNavigation } = await import('./profile-scalars.mjs')
+  const pending={itemsLoaded:true,turns:[{status:'inProgress'}]}
+  assert.equal(pendingAfterNavigation(pending,true,false,{sent:0,resolved:0,rejected:0}),true)
+  assert.equal(pendingAfterNavigation(pending,true,false,{sent:1,resolved:1,rejected:0}),false)
+  assert.equal(pendingAfterNavigation(pending,false,false,{sent:0,resolved:0,rejected:0}),false)
+  assert.equal(pendingAfterNavigation(pending,true,true,{sent:0,resolved:0,rejected:0}),false)
+  assert.equal(pendingAfterNavigation({...pending,turns:[{status:'completed'}]},true,false,{sent:0,resolved:0,rejected:0}),false)
+})

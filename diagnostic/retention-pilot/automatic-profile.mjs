@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url'
 import { allowed, inspectPaths, SSH_SHIM } from './ambient-shape.mjs'
 import { compareReceipt, compareSnapshot } from './receipt-diagnostics.mjs'
 import { listenerCounts } from './listener-diagnostics.mjs'
-import { canonicalBytes, summarize } from './profile-scalars.mjs'
+import { canonicalBytes, summarize, pendingAfterNavigation } from './profile-scalars.mjs'
 
 const taskSource = resolve('.')
 const taskSha = '76708d7f2b4536b3e0bdb24a49e09450fabd3a3c'
@@ -113,6 +113,7 @@ const openVisible = async () => {
  const {runtime,sessionId}=addr(visible)
  if(!await cdp.eval(`window.__hdStore.openSession(${JSON.stringify(sessionId)},{runtime:${JSON.stringify(runtime)}})`))throw new Error('visible sentinel open')
 }
+const pendingCheck = async () => cdp.eval(`(()=>{const s=window.__hdStore,snap=s.getSnapshot(),check=${pendingAfterNavigation.toString()},p=n=>!n?[]:n.kind==='pane'?[n]:n.kind==='split'?[...p(n.first),...p(n.second)]:[],k=${JSON.stringify(pending)};return check(snap.sessions.get(k),snap.approvals.some(a=>a.key===k),p(snap.layout.root).some(x=>x.view?.kind==='conversation'&&x.view.session===k),window.__hd1545Closes.get(k))})()`)
 const sample = async () => {
  const keyList=JSON.stringify(keys), sentinels=JSON.stringify({visible,draft,pending})
  return await cdp.json(`(()=>{const s=window.__hdStore, snap=s.getSnapshot(), stats=s.transcriptCacheStats(), work=${keyList}, sent=${sentinels}, bytes=${canonicalBytes.toString()};
@@ -148,16 +149,19 @@ try {
  await cdp.send('Input.insertText',{text:'Synthetic unsent draft'})
  await waitFor('draft sentinel',()=>cdp.eval(`window.__hdStore.drafts.live(${JSON.stringify(draft)})?.text==='Synthetic unsent draft'`),30000)
  await closeCurrent(draft)
- pending=await newTurn(true);await closeCurrent(pending)
+ pending=await newTurn(true);await openVisible()
+ if(!await pendingCheck())throw new Error('pending sentinel did not survive navigation')
+ result.checks.pendingAfterNavigation=true
  result.checkpoints=[]
  for(const count of [0,128,200,400]) {
   result.phase=`workload-${count}`
   while(keys.length<count) {
    const key=await newTurn();await closeCurrent(key);keys.push(key)
    const persistent=await cdp.eval(`(()=>{const s=window.__hdStore,snap=s.getSnapshot();return !!s.drafts.live(${JSON.stringify(draft)})&&snap.sessions.get(${JSON.stringify(draft)})?.itemsLoaded===true&&snap.sessions.get(${JSON.stringify(pending)})?.itemsLoaded===true&&snap.approvals.some(a=>a.key===${JSON.stringify(pending)})&&snap.sessions.get(${JSON.stringify(pending)})?.turns.some(t=>t.status==='inProgress')})()`)
-   if(!persistent)throw new Error('persistent sentinel protection lost')
+   if(!persistent||!await pendingCheck())throw new Error('persistent sentinel protection lost')
   }
-  result.phase=`checkpoint-${count}`;await openVisible()
+  result.phase=`checkpoint-${count}`;if(count!==0)await openVisible()
+  if(!await pendingCheck())throw new Error('pending sentinel did not survive navigation')
   let state=await waitFor('quiescent pressure',async()=>{const first=await sample();if(!first.enabled||first.pressureRunning||first.pressureDirty)return false;await cdp.eval('new Promise(resolve=>setTimeout(()=>resolve(true),0))');const second=await sample();return JSON.stringify(first)===JSON.stringify(second)?second:false},30000)
   if(state.eligibleBodies!==null||state.eligibleBytes!==null)throw new Error('eligibility surface changed')
   if(state.trackedRecoveryRecords!==0)throw new Error('unresolved recovery record')

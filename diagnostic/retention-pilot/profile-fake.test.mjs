@@ -42,3 +42,25 @@ test('synthetic output is unique per thread and deterministic across runs', {tim
   assert.equal(new Set(first.outputs).size,3)
   assert.deepEqual(second,first)
 })
+
+test('a separate fake turn completes while the first approval remains unanswered', {timeout:10000}, async () => {
+  const child=spawn(process.execPath,[fixture,'app-server'],{env:{PATH:'/usr/bin:/bin',HD_1545_OUTPUT_BYTES:'32768'},stdio:['pipe','pipe','pipe']})
+  const lines=createInterface({input:child.stdout});const closed=new Promise(resolve=>child.once('close',resolve))
+  try {
+    const observed=await new Promise((resolve,reject)=>{
+      const send=x=>child.stdin.write(JSON.stringify(x)+'\n');let held,other,heldCompleted=false
+      const timer=setTimeout(()=>reject(new Error('concurrent fake turn deadline')),5000)
+      child.once('error',reject)
+      lines.on('line',line=>{let m;try{m=JSON.parse(line)}catch{return}
+        if(m.id===1&&m.result?.thread?.id){held=m.result.thread.id;send({id:2,method:'turn/start',params:{threadId:held,input:[{type:'text',text:'Synthetic turn'}]}})}
+        if(m.method==='item/commandExecution/requestApproval'&&m.params?.threadId===held)send({id:3,method:'thread/start',params:{cwd:'/tmp',dynamicTools:[]}})
+        if(m.id===3&&m.result?.thread?.id){other=m.result.thread.id;send({id:4,method:'turn/start',params:{threadId:other,input:[{type:'text',text:'Synthetic turn'}]}})}
+        if(m.method==='item/commandExecution/requestApproval'&&m.params?.threadId===other)send({id:m.id,result:{decision:'accept'}})
+        if(m.method==='turn/completed'&&m.params?.threadId===held)heldCompleted=true
+        if(m.method==='turn/completed'&&m.params?.threadId===other){clearTimeout(timer);resolve({distinct:held!==other,heldCompleted})}
+      })
+      send({id:1,method:'thread/start',params:{cwd:'/tmp',dynamicTools:[]}})
+    })
+    assert.deepEqual(observed,{distinct:true,heldCompleted:false})
+  } finally {lines.close();child.stdin.end();child.kill();await closed}
+})
