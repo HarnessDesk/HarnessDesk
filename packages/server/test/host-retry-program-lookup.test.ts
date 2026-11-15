@@ -448,7 +448,11 @@ test('relaunch fixture waits for held disposal after another rejects and retains
   const cleanup = Promise.resolve(hooks[0]!())
   let settled = false
   const outcome = cleanup.then(() => { settled = true; return undefined }, error => { settled = true; return error as unknown })
-  await Promise.all([firstRejected, secondStarted])
+  const began = await Promise.race([
+    Promise.all([firstRejected, secondStarted]).then(() => true),
+    outcome.then(() => false),
+  ])
+  assert.equal(began, true, 'cleanup must start every owned disposal even when the first rejects')
   // A complete event-loop turn lets an incorrect Promise.all rejection reach
   // its handler, without a timing window or an arbitrary sleep.
   await new Promise<void>(resolve => setImmediate(resolve))
