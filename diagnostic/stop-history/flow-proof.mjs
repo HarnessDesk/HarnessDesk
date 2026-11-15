@@ -45,7 +45,7 @@ export async function exerciseProtectedFlow({ cdp, click, waitFor, result, flow,
   if(await cdp.eval('window.__hdFlowStopCount')!==0 || !flow.read().mentionStopOnce) throw Error('cancel had an effect')
   result.checks.flowCancel=true
   result.phase='flow_run_view'
-  await click('[data-region="team-row"] button:not([aria-label^="Actions for"])','Review the synthetic change',null,'flow_open_team')
+  await click('[data-region="team-row"] button[aria-label="Room Review the synthetic change"]','Review the synthetic change',null,'flow_open_team')
   await click('[role="tablist"][aria-label="Team views"] [role="tab"][data-team-page="overview"]','Work',null,'flow_open_run')
   await waitFor('Team Work view',()=>cdp.eval("document.querySelectorAll('[role=\"tablist\"][aria-label=\"Team views\"] [role=\"tab\"][data-team-page=\"overview\"][aria-selected=\"true\"]').length===1 && document.querySelectorAll('[data-slot=\"run-workspace\"]').length===1"),10000)
   await click('[data-slot="page-options"] button','Stop run…',null,'flow_run_stop')

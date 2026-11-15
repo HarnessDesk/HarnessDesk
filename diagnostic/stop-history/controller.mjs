@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url'
 import { allowed, inspectPaths, SSH_SHIM } from './ambient-shape.mjs'
 import { listenerCounts } from './listener-diagnostics.mjs'
 import { makeLedger } from './seed.mjs'
+import { seedThenInstallHistory } from './history-after-seed.mjs'
 import { interruptCount, recordInterrupt } from './counter.mjs'
 import { inspectFrame } from './frame-policy.mjs'
 import { locateTarget } from './click-target.mjs'
@@ -42,11 +43,13 @@ const fingerprints = {
   'packages/server/src/flow-execution.ts':'2ac49e3c35201bf226825740eb1eaf36683fddfccaa93fba882f1bde64c538fa',
   'packages/ui/src/components/TeamActions.tsx':'9cead0bd685d9108ad91291f968055338269c16368f1ddc73c5119ed0fae1c39',
   'packages/ui/src/components/RunWorkspace.tsx':'cab9ae84575a8337a8fb2f067d6f730f7eaf0f5dc1fe60841961a4cea673575c',
-  'diagnostic/stop-history/click-target.test.mjs':'882c0f3f8a7bc7827f397f9453f3cfe0bae0a92de03067fa3cf6517fe0c5fdc3',
+  'diagnostic/stop-history/click-target.test.mjs':'4448d0281f45a7c278f967f3c20c7c1b9eeec2e8a0c43d9df56a5c90c1a1fd2a',
+  'diagnostic/stop-history/history-after-seed.mjs':'fb4a344efc2e308cf8a986c74cbb6400773cc7512b0ea2b17b83b30813a77f90',
+  'diagnostic/stop-history/history-after-seed.test.mjs':'9da78265e7cee0f18846084f51fe0c780daf5aec2b73e0f8d4624e6fa0e77f39',
   'diagnostic/stop-history/flow-proof.test.mjs':'2f8e3425f9fc646f00122a49c659c1aeda671935953cc3d39f63270e8b15e3de',
   'diagnostic/stop-history/seed-flow.mjs':'969a6e78995e7412de1f6e3ed37273203fbabf446da551d4833ff33750a062ee',
   'diagnostic/stop-history/seed-child.mjs':'6425af2400e65477acdf0dfba5739efc0a612af0d05eb38561c6e7b6f68d68e2',
-  'diagnostic/stop-history/flow-proof.mjs':'c571c7efbc026ed6e5d7d14dc48c8dab91e575850288f8f272035fa35de84afe',
+  'diagnostic/stop-history/flow-proof.mjs':'5e08b0310fee910e92ca97f3253b307408861f2d211bae54dae498dea5552f26',
   'diagnostic/stop-history/scripted-flow.mjs':'1b6f58123021ce772025a525aaedabd99784655772631299d27a6dbe4c8099d7',
   'diagnostic/stop-history/plugin-icon.svg':'611ca48d4da7767c7cc051442c2e389a2d5a288a2fbb09c5edd3f3b1e7499d79',
   'diagnostic/stop-history/ambient-shape.mjs':'d73b2956892802e0203bf1a6c6fc3a1c1161ad7a15f4ff7403c6630d19eb2343',
@@ -76,7 +79,6 @@ write(join(taskDeskHome,'accounts.json'),' {"accounts":[]}\n')
 write(join(taskCodexProfile,'sessions','rollout.jsonl'),'')
 write(join(project,'README.md'),'# Synthetic project\n')
 const ledgerFile=join(taskDeskHome,'triggers-mentions.json'), ledger=makeLedger(project)
-write(ledgerFile,JSON.stringify(ledger)+'\n')
 const counter=join(taskRoot,'interrupts'), toy=join(taskRoot,'toy-counter'), forgeCounter=join(taskRoot,'forge-calls')
 write(counter,'');write(toy,'');write(forgeCounter,'');recordInterrupt(toy)
 if(interruptCount(toy)!==1 || interruptCount(counter)!==0)throw new Error('counter control failed')
@@ -89,7 +91,7 @@ if(sshProbe.status!==1 || sshProbe.stdout!=='' || sshProbe.stderr!=='') throw ne
 const env={HOME:osHome,USER:process.env.USER??'',LOGNAME:process.env.LOGNAME??'',LANG:'en_US.UTF-8',HARNESSDESK_HOME:taskDeskHome,CODEX_HOME:taskCodexProfile,HARNESSDESK_CODEX_BINARY:fixture,PATH:[taskFakebin,'/usr/bin','/bin','/usr/sbin','/sbin'].join(':'),HARNESSDESK_PATH:taskFakebin,SHELL:'',TMPDIR:taskRoot,HARNESSDESK_NO_UPDATE_CHECK:'1',HARNESSDESK_LEAD:'0',HARNESSDESK_PHONE_LINK:'0',HARNESSDESK_MENU_BAR:'off',HARNESSDESK_CATALOG_REFRESH_MINUTES:'0',HARNESSDESK_ACP_REGISTRY_URL:'http://127.0.0.1:1/disabled',HARNESSDESK_CLOUD_URL:'http://127.0.0.1:1',HD_2065_INTERRUPT_RECEIPT:counter,HD_2065_FORGE_RECEIPT:forgeCounter,HARNESSDESK_CODEX_PROCESS_GROUP:randomUUID(),FAKE_CODEX_ROLLOUT_HOME:taskCodexProfile,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_TERMINAL_PROMPT:'0',GIT_ALLOW_PROTOCOL:'file',GIT_SSH_COMMAND:'/usr/bin/false'}
 execFileSync('/usr/bin/git',['init','-q'],{cwd:project,env,stdio:'ignore',timeout:10000})
 execFileSync('/usr/bin/git',['-c','user.name=Jane Doe','-c','user.email=dev@example.invalid','commit','--allow-empty','-qm','Synthetic initial commit'],{cwd:project,env,stdio:'ignore',timeout:10000})
-const flow = await seedProtectedFlow({source:taskSource,root:taskRoot,deskHome:taskDeskHome,project,env})
+const flow = await seedThenInstallHistory({path:ledgerFile,ledger,seed:()=>seedProtectedFlow({source:taskSource,root:taskRoot,deskHome:taskDeskHome,project,env})})
 if(interruptCount(counter)!==0 || readFileSync(forgeCounter).length!==0)throw new Error('unexpected seed effect')
 const waitFor=async (label,fn,ms=30000)=>{const until=Date.now()+ms;while(Date.now()<until){const value=await fn();if(value)return value;await sleep(200)}throw new Error(`${label}: readiness deadline`)}
 const assertListeners = (group, probe) => {
