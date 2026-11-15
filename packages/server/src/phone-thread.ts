@@ -22,6 +22,13 @@ export const threadProjection = (thread: PhoneWorkThread): ThreadProjection | un
 
 export type PhoneApprovalTurn = Extract<PhoneWorkTurn, { type: 'approval' }>
 
+/** ASCII, injective over JavaScript strings (including unpaired UTF-16 surrogates). Tags separate row kinds. */
+const phoneRowId = (parts: readonly (string | number)[]): string =>
+  `hd1:${Buffer.from(JSON.stringify(parts), 'utf16le').toString('base64url')}`
+
+/** Phone IDs are aliases only: the host matches them against its own pending approvals. */
+export const phoneApprovalId = (raw: string, occurrence = 0): string => phoneRowId(['approval', raw, occurrence])
+
 /** The most turns of a conversation the phone is sent; the earlier ones stay on the desk. */
 const RECENT_TURNS = 40
 /** The most steps shown under one "worked for" fold. */
@@ -371,10 +378,10 @@ const resetTime = (at: number): string => {
 
 interface Timed { readonly id: string; readonly startedAt?: number; readonly completedAt?: number; readonly durationMs?: number }
 
-const turnsOf = (turn: Turn, cwd: string, noteTruncated: () => void, sent: ReadonlySet<string>, chatId: string): PhoneWorkTurn[] => {
+const turnsOf = (turn: Turn, cwd: string, noteTruncated: () => void, sent: ReadonlySet<string>, chatId: string, rowId: (kind: string, position: number) => string): PhoneWorkTurn[] => {
   const turns: PhoneWorkTurn[] = []
   // `silent` is whether the last step is reasoning with nothing to read, so a run of them shows as one Thinking row, as the desk folds them.
-  let fold: { id: string; steps: PhoneWorkStep[]; from: number; to: number; spent: number; silent: boolean } | null = null
+  let fold: { id: string; position: number; steps: PhoneWorkStep[]; from: number; to: number; spent: number; silent: boolean } | null = null
   // The turn's plan sits at the end of its first fold of work, or on its own where it did none.
   let plan = planStep(turn)
   const close = (): void => {
@@ -383,11 +390,11 @@ const turnsOf = (turn: Turn, cwd: string, noteTruncated: () => void, sent: Reado
     const shown = fold.steps.slice(-FOLD_STEPS)
     if (shown.length < fold.steps.length) noteTruncated()
     const wall = fold.to > fold.from ? Math.round((fold.to - fold.from) / 1000) : 0
-    turns.push({ type: 'work', id: `${fold.id}:work`, seconds: wall || fold.spent, summary: summaryOf(fold.steps), steps: shown })
+    turns.push({ type: 'work', id: rowId('work', fold.position), seconds: wall || fold.spent, summary: summaryOf(fold.steps), steps: shown })
     fold = null
   }
-  const into = (item: Timed, one: PhoneWorkStep, silent = false): void => {
-    fold ??= { id: item.id, steps: [], from: Infinity, to: 0, spent: 0, silent: false }
+  const into = (item: Timed, one: PhoneWorkStep, silent = false, position = turn.items.length): void => {
+    fold ??= { id: item.id, position, steps: [], from: Infinity, to: 0, spent: 0, silent: false }
     if (!(silent && fold.silent)) fold.steps.push(one)
     fold.silent = silent
     if (item.startedAt !== undefined) fold.from = Math.min(fold.from, item.startedAt)
@@ -395,29 +402,29 @@ const turnsOf = (turn: Turn, cwd: string, noteTruncated: () => void, sent: Reado
     if (end !== undefined) fold.to = Math.max(fold.to, end)
     fold.spent += Math.round((item.durationMs ?? 0) / 1000)
   }
-  for (const item of turn.items) {
-    if (item.type === 'userMessage') { close(); const you = youOf(item, noteTruncated, sent, chatId); if (you) turns.push(you); continue }
+  for (const [position, item] of turn.items.entries()) {
+    if (item.type === 'userMessage') { close(); const you = youOf(item, noteTruncated, sent, chatId); if (you) turns.push({ ...you, id: rowId('you', position) }); continue }
     if (item.type === 'assistantMessage' && item.phase !== 'commentary') {
       close()
       const markdown = scrubText(item.text)
       if (markdown !== scrubText(item.text, Infinity)) noteTruncated()
-      if (markdown !== '') turns.push({ type: 'agent', id: String(item.id), markdown })
+      if (markdown !== '') turns.push({ type: 'agent', id: rowId('agent', position), markdown })
       continue
     }
-    if (item.type === 'error') { close(); turns.push({ type: 'agent', id: String(item.id), markdown: `Something went wrong: ${scrub(item.message, 300)}` }); continue }
+    if (item.type === 'error') { close(); turns.push({ type: 'agent', id: rowId('agent', position), markdown: `Something went wrong: ${scrub(item.message, 300)}` }); continue }
     // A change of account, agent or model is never folded into the work: it stands as its own plain line, as the desk's marker does.
-    if (item.type === 'carryOn') { close(); turns.push({ type: 'agent', id: String(item.id), markdown: scrub(carryOnMarkerLine(item, resetTime), 300) }); continue }
+    if (item.type === 'carryOn') { close(); turns.push({ type: 'agent', id: rowId('agent', position), markdown: scrub(carryOnMarkerLine(item, resetTime), 300) }); continue }
     const one = stepOf(item, cwd, noteTruncated)
     // The same rule that names the step Thinking.
     const silent = item.type === 'reasoning' && scrub(item.summary[0] ?? '', TEXT_STEP_TITLE) === ''
-    if (one) into({ id: String(item.id), startedAt: item.startedAt, completedAt: item.completedAt, durationMs: item.durationMs }, one, silent)
+    if (one) into({ id: String(item.id), startedAt: item.startedAt, completedAt: item.completedAt, durationMs: item.durationMs }, one, silent, position)
   }
   close()
   if (plan) { into({ id: `${turn.id}:plan` }, plan); close() }
 
   // What the turn changed, once, at its end: the files by their project path and the size of each change.
   const files = changesWithHunks(turn.items.flatMap(item => item.type === 'fileChange' && item.status !== 'failed' && item.status !== 'declined' ? item.changes : []), cwd, noteTruncated)
-  if (files.length > 0) turns.push({ type: 'changes', id: `${turn.id}:changes`, files })
+  if (files.length > 0) turns.push({ type: 'changes', id: rowId('changes', 0), files })
   return turns
 }
 
@@ -481,14 +488,27 @@ export const buildThread = (input: ThreadInput, context: ThreadContext): PhoneWo
   const omittedSourceTurns = Math.max(0, session.turns.length - RECENT_TURNS)
   let truncated = omittedSourceTurns > 0
   const sent = new Set(input.leadControl?.sent ?? [])
-  const turns = session.turns.slice(-RECENT_TURNS).flatMap(turn => turnsOf(turn, session.cwd, () => { truncated = true }, sent, input.id))
+  const occurrences = new Map<string, number>()
+  const turns: PhoneWorkTurn[] = []
+  for (const [index, turn] of session.turns.entries()) {
+    const sourceId = String(turn.id)
+    const occurrence = occurrences.get(sourceId) ?? 0
+    occurrences.set(sourceId, occurrence + 1)
+    if (index < omittedSourceTurns) continue
+    turns.push(...turnsOf(turn, session.cwd, () => { truncated = true }, sent, input.id,
+      (kind, position) => phoneRowId(['source', sourceId, occurrence, kind, position])))
+  }
   // The sessions list's own project, so a row and its conversation never name two.
   const { project } = input
   const asks: PhoneWorkTurn[] = []
   let question = false
+  const pendingCounts = new Map<string, number>()
   for (const approval of input.pending) {
+    const raw = String(approval.id)
+    const occurrence = pendingCounts.get(raw) ?? 0
+    pendingCounts.set(raw, occurrence + 1)
     const assessed = assessApproval(approval, session.cwd, context)
-    if (assessed) asks.push(assessed.turn)
+    if (assessed) asks.push({ ...assessed.turn, id: phoneApprovalId(raw, occurrence) })
     else question = true
   }
   const result: PhoneWorkThread = {
@@ -501,9 +521,9 @@ export const buildThread = (input: ThreadInput, context: ThreadContext): PhoneWo
     status: input.pending.length > 0 ? 'asksYou' : input.running ? 'running' : 'done',
     turns: [
       ...turns,
-      ...input.decided,
+      ...input.decided.map(turn => ({ ...turn, id: phoneApprovalId(turn.id) })),
       // A structured question cannot be answered from here; say so rather than leave an unexplained "asks you".
-      ...(question ? [{ type: 'agent', id: `${input.id}:question`, markdown: 'The agent asked a question. Answer it on the desk.' } as const] : []),
+      ...(question ? [{ type: 'agent', id: phoneRowId(['question']), markdown: 'The agent asked a question. Answer it on the desk.' } as const] : []),
       ...asks,
     ],
   }
