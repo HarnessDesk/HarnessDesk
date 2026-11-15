@@ -8,6 +8,7 @@ import { allowed, inspectPaths, SSH_SHIM } from './ambient-shape.mjs'
 import { compareReceipt, compareSnapshot } from './receipt-diagnostics.mjs'
 import { listenerCounts } from './listener-diagnostics.mjs'
 import { canonicalBytes, summarize, pendingAfterNavigation } from './profile-scalars.mjs'
+import { stageRecord } from './profile-stage.mjs'
 
 const taskSource = resolve('.')
 const taskSha = '76708d7f2b4536b3e0bdb24a49e09450fabd3a3c'
@@ -123,6 +124,16 @@ const sample = async () => {
   if(!mounted||!s.drafts.live(sent.draft)||!snap.approvals.some(a=>a.key===sent.pending)||!snap.sessions.get(sent.pending)?.turns.some(t=>t.status==='inProgress'))throw Error('sentinel protection missing');
   return {metadata:snap.sessions.size,loadedFullBodies:stats.loadedFullBodies,releasedBodies:stats.releasedBodies,trackedRecoveryRecords:stats.trackedRecoveryRecords,enabled:stats.enabled,pressureRunning:stats.pressureRunning,pressureDirty:stats.pressureDirty,eligibleBodies:stats.eligibleBodies,eligibleBytes:stats.eligibleBytes,...measured,mounted,draft:true,pending:true}})()`)
 }
+// The failure record contains only fixed stage names and allowlisted scalars.
+const mark400 = async (count, stage, selected=null) => {
+ if(count!==400)return
+ let state
+ try {
+  state=await cdp.json(`(()=>{const s=window.__hdStore,snap=s.getSnapshot(),stats=s.transcriptCacheStats(),keys=${JSON.stringify(keys)},p=n=>!n?[]:n.kind==='pane'?[n]:n.kind==='split'?[...p(n.first),...p(n.second)]:[],panes=p(snap.layout.root),pending=${JSON.stringify(pending)},visible=${JSON.stringify(visible)},draft=${JSON.stringify(draft)},selected=${JSON.stringify(selected)};
+   return {metadata:snap.sessions.size,loaded:stats.loadedFullBodies,released:stats.releasedBodies,recovery:stats.trackedRecoveryRecords,pressureRunning:stats.pressureRunning,pressureDirty:stats.pressureDirty,enabled:stats.enabled,eligibilityKnown:stats.eligibleBodies!==null||stats.eligibleBytes!==null,visibleMounted:panes.some(x=>x.view?.kind==='conversation'&&x.view.session===visible),visibleLoaded:snap.sessions.get(visible)?.itemsLoaded===true,draftPresent:!!s.drafts.live(draft),draftLoaded:snap.sessions.get(draft)?.itemsLoaded===true,pendingPresent:snap.approvals.some(a=>a.key===pending),pendingLoaded:snap.sessions.get(pending)?.itemsLoaded===true,pendingActive:!!snap.sessions.get(pending)?.turns.some(t=>t.status==='inProgress'),pendingMounted:panes.some(x=>x.view?.kind==='conversation'&&x.view.session===pending),pendingCloseSent:window.__hd1545Closes.get(pending)?.sent??0,knownLoaded:keys.filter(k=>snap.sessions.get(k)?.itemsLoaded===true).length,knownMissing:keys.filter(k=>!snap.sessions.has(k)).length,...(selected?{selectedPresent:snap.sessions.has(selected),selectedLoaded:snap.sessions.get(selected)?.itemsLoaded===true}:{})}})()`)
+ } catch {state={stateUnavailable:true}}
+ result.diagnostic=stageRecord(stage,state)
+}
 const compareRepresentative = async key => {
  const a=addr(key)
  return cdp.json(`(async()=>{const t=window.__hdStore.transport,a=${JSON.stringify(a)};const s=await t.request('session/cache-snapshot',a);if(!s)return {present:false};const r=await t.request('session/prepare-eviction',{...a,identity:s.identity});return {present:!!r,identity:!!r&&r.identity===s.identity,epoch:!!r&&r.epoch===s.watermark.epoch,generation:!!r&&r.generation===s.watermark.generation,revision:!!r&&r.revision===s.watermark.revision,sequence:!!r&&r.sequence===s.watermark.sequence}})()`)
@@ -160,33 +171,34 @@ try {
    const persistent=await cdp.eval(`(()=>{const s=window.__hdStore,snap=s.getSnapshot();return !!s.drafts.live(${JSON.stringify(draft)})&&snap.sessions.get(${JSON.stringify(draft)})?.itemsLoaded===true&&snap.sessions.get(${JSON.stringify(pending)})?.itemsLoaded===true&&snap.approvals.some(a=>a.key===${JSON.stringify(pending)})&&snap.sessions.get(${JSON.stringify(pending)})?.turns.some(t=>t.status==='inProgress')})()`)
    if(!persistent||!await pendingCheck())throw new Error('persistent sentinel protection lost')
   }
-  result.phase=`checkpoint-${count}`;if(count!==0)await openVisible()
-  if(!await pendingCheck())throw new Error('pending sentinel did not survive navigation')
-  let state=await waitFor('quiescent pressure',async()=>{const first=await sample();if(!first.enabled||first.pressureRunning||first.pressureDirty)return false;await cdp.eval('new Promise(resolve=>setTimeout(()=>resolve(true),0))');const second=await sample();return JSON.stringify(first)===JSON.stringify(second)?second:false},30000)
-  if(state.eligibleBodies!==null||state.eligibleBytes!==null)throw new Error('eligibility surface changed')
-  if(state.trackedRecoveryRecords!==0)throw new Error('unresolved recovery record')
+  result.phase=`checkpoint-${count}`;if(count===400)await mark400(count,'open-visible');if(count!==0)await openVisible()
+  if(count===400)await mark400(count,'pending');if(!await pendingCheck())throw new Error('pending sentinel did not survive navigation')
+  if(count===400)await mark400(count,'quiescence');let state=await waitFor('quiescent pressure',async()=>{const first=await sample();if(!first.enabled||first.pressureRunning||first.pressureDirty)return false;await cdp.eval('new Promise(resolve=>setTimeout(()=>resolve(true),0))');const second=await sample();return JSON.stringify(first)===JSON.stringify(second)?second:false},30000)
+  if(count===400){await mark400(count,'eligibility');result.diagnostic=stageRecord('eligibility',{...result.diagnostic.state,sampledEligibilityKnown:state.eligibleBodies!==null||state.eligibleBytes!==null})}if(state.eligibleBodies!==null||state.eligibleBytes!==null)throw new Error('eligibility surface changed')
+  if(count===400){await mark400(count,'recovery');result.diagnostic=stageRecord('recovery',{...result.diagnostic.state,sampledRecovery:state.trackedRecoveryRecords})}if(state.trackedRecoveryRecords!==0)throw new Error('unresolved recovery record')
   const representatives=[];let mountedPressure={exercised:false}
   if(keys.length) {
-   const states=await cdp.json(`(()=>{const s=window.__hdStore.getSnapshot();return ${JSON.stringify(keys)}.map(k=>({present:s.sessions.has(k),loaded:s.sessions.get(k)?.itemsLoaded===true}))})()`)
-   if(states.some(x=>!x.present))throw new Error('workload metadata missing')
+   if(count===400)await mark400(count,'workload-metadata');const states=await cdp.json(`(()=>{const s=window.__hdStore.getSnapshot();return ${JSON.stringify(keys)}.map(k=>({present:s.sessions.has(k),loaded:s.sessions.get(k)?.itemsLoaded===true}))})()`)
+   if(count===400)result.diagnostic=stageRecord('workload-metadata',{...result.diagnostic.state,capturedMissing:states.filter(x=>!x.present).length});if(states.some(x=>!x.present))throw new Error('workload metadata missing')
    const kept=states.findIndex(x=>x.loaded), released=states.findIndex(x=>!x.loaded)
-   if(count>=200&&(kept<0||released<0))throw new Error('policy release or retained control absent')
-   for(const [label,index] of [['retained',kept],['released',released]])if(index>=0){const proof=await compareRepresentative(keys[index]);if(Object.values(proof).some(x=>x!==true))throw new Error('representative receipt mismatch');representatives.push({label,...proof})}
+   if(count===400){await mark400(count,'representative-selection');result.diagnostic=stageRecord('representative-selection',{...result.diagnostic.state,retainedFound:kept>=0,releasedFound:released>=0})}if(count>=200&&(kept<0||released<0))throw new Error('policy release or retained control absent')
+   for(const [label,index] of [['retained',kept],['released',released]])if(index>=0){if(count===400)await mark400(count,label==='retained'?'receipt-retained':'receipt-released',keys[index]);const proof=await compareRepresentative(keys[index]);if(count===400)result.diagnostic=stageRecord(result.diagnostic.stage,{...result.diagnostic.state,receiptPresent:proof.present,identityMatches:proof.identity,epochMatches:proof.epoch,generationMatches:proof.generation,revisionMatches:proof.revision,sequenceMatches:proof.sequence});if(Object.values(proof).some(x=>x!==true))throw new Error('representative receipt mismatch');representatives.push({label,...proof})}
    if(count>=200){
     const chosen=keys[released], address=addr(chosen)
-    const restored=await cdp.json(`(async()=>{const s=window.__hdStore;const ok=await s.restoreTranscript(${JSON.stringify(address.runtime)},${JSON.stringify(address.sessionId)});const snap=s.getSnapshot();const p=n=>!n?[]:n.kind==='pane'?[n]:n.kind==='split'?[...p(n.first),...p(n.second)]:[];return {ok,loaded:snap.sessions.get(${JSON.stringify(chosen)})?.itemsLoaded===true,mounted:p(snap.layout.root).some(x=>x.view?.kind==='conversation'&&x.view.session===${JSON.stringify(visible)}),visibleLoaded:snap.sessions.get(${JSON.stringify(visible)})?.itemsLoaded===true}})()`)
+    if(count===400)await mark400(count,'restore-immediate',chosen);const restored=await cdp.json(`(async()=>{const s=window.__hdStore;const ok=await s.restoreTranscript(${JSON.stringify(address.runtime)},${JSON.stringify(address.sessionId)});const snap=s.getSnapshot();const p=n=>!n?[]:n.kind==='pane'?[n]:n.kind==='split'?[...p(n.first),...p(n.second)]:[];return {ok,loaded:snap.sessions.get(${JSON.stringify(chosen)})?.itemsLoaded===true,mounted:p(snap.layout.root).some(x=>x.view?.kind==='conversation'&&x.view.session===${JSON.stringify(visible)}),visibleLoaded:snap.sessions.get(${JSON.stringify(visible)})?.itemsLoaded===true}})()`)
+    if(count===400)result.diagnostic=stageRecord('restore-immediate',{...result.diagnostic.state,restoreOk:restored.ok,restoreLoaded:restored.loaded,restoreVisibleMounted:restored.mounted,restoreVisibleLoaded:restored.visibleLoaded})
     if(Object.values(restored).some(x=>x!==true))throw new Error('restore did not preserve mounted sentinel')
     const previouslyLoaded=keys.filter((_,i)=>states[i].loaded)
-    await waitFor('automatic release after restore',()=>cdp.eval(`(()=>{const s=window.__hdStore,snap=s.getSnapshot(),stats=s.transcriptCacheStats(),p=n=>!n?[]:n.kind==='pane'?[n]:n.kind==='split'?[...p(n.first),...p(n.second)]:[];const mounted=p(snap.layout.root).some(x=>x.view?.kind==='conversation'&&x.view.session===${JSON.stringify(visible)});if(!mounted||snap.sessions.get(${JSON.stringify(visible)})?.itemsLoaded!==true)throw Error('visible sentinel lost');return !stats.pressureRunning&&!stats.pressureDirty&&[${JSON.stringify(chosen)},...${JSON.stringify(previouslyLoaded)}].some(k=>snap.sessions.has(k)&&snap.sessions.get(k)?.itemsLoaded===false)})()`),30000)
-    state=await sample();await cdp.eval('new Promise(resolve=>setTimeout(()=>resolve(true),0))');const stable=await sample();if(JSON.stringify(state)!==JSON.stringify(stable)||!state.enabled||state.pressureRunning||state.pressureDirty||state.trackedRecoveryRecords!==0)throw new Error('post-restore not quiescent')
+    if(count===400)await mark400(count,'automatic-release',chosen);await waitFor('automatic release after restore',()=>cdp.eval(`(()=>{const s=window.__hdStore,snap=s.getSnapshot(),stats=s.transcriptCacheStats(),p=n=>!n?[]:n.kind==='pane'?[n]:n.kind==='split'?[...p(n.first),...p(n.second)]:[];const mounted=p(snap.layout.root).some(x=>x.view?.kind==='conversation'&&x.view.session===${JSON.stringify(visible)});if(!mounted||snap.sessions.get(${JSON.stringify(visible)})?.itemsLoaded!==true)throw Error('visible sentinel lost');return !stats.pressureRunning&&!stats.pressureDirty&&[${JSON.stringify(chosen)},...${JSON.stringify(previouslyLoaded)}].some(k=>snap.sessions.has(k)&&snap.sessions.get(k)?.itemsLoaded===false)})()`),30000)
+    if(count===400)await mark400(count,'post-restore-stability',chosen);state=await sample();await cdp.eval('new Promise(resolve=>setTimeout(()=>resolve(true),0))');const stable=await sample();if(JSON.stringify(state)!==JSON.stringify(stable)||!state.enabled||state.pressureRunning||state.pressureDirty||state.trackedRecoveryRecords!==0)throw new Error('post-restore not quiescent')
     mountedPressure={exercised:true,restored:true,automaticReleaseObserved:true,visibleMountedAtEndpoints:true}
    }
   }
-  await cdp.send('HeapProfiler.collectGarbage');const heap=await cdp.send('Runtime.getHeapUsage')
+  if(count===400)await mark400(count,'heap');await cdp.send('HeapProfiler.collectGarbage');const heap=await cdp.send('Runtime.getHeapUsage')
   if(!Number.isFinite(heap.usedSize))throw new Error('missing renderer heap')
-  const sameTarget=(await cdp.send('Target.getTargetInfo')).targetInfo?.targetId===target;if(!sameTarget)throw new Error('renderer target changed')
+  if(count===400)await mark400(count,'target');const sameTarget=(await cdp.send('Target.getTargetInfo')).targetInfo?.targetId===target;if(!sameTarget)throw new Error('renderer target changed')
   result.checkpoints.push({completed:count,...state,mountedPressure,representatives,heapUsedBytes:heap.usedSize,backingStorageBytes:Number.isFinite(heap.backingStorageSize)?heap.backingStorageSize:null,sameTarget})
-  await observedListeners(`listenersAt${count}`)
+  if(count===400)await mark400(count,'listeners');await observedListeners(`listenersAt${count}`)
   if(count!==400)await closeCurrent(visible)
  }
  result.phase='passed'
