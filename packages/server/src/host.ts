@@ -957,6 +957,7 @@ export class Host {
   /** The Lead's memory and the conversation search reads, opened on first use and kept for the host's life. */
   #leadMemoryOpen: Promise<LeadMemoryStore> | null = null
   #leadMemoryReady: LeadMemoryStore | null = null
+  #leadMemoryConnect: ((store: LeadMemoryStore) => void) | null = null
   #leadCorpusOpen: Promise<LeadConversationCorpus> | null = null
   /** Set while the journal refuses the store's Core, so the memory view says the Lead is reading an older copy. */
   #leadMemoryFault: 'journal' | null = null
@@ -4969,7 +4970,7 @@ export class Host {
     // be read leaves them out rather than the memory status.
     const autonomy = this.#leadAutonomy, shownAt = Date.now()
     const read = autonomy ? await Promise.all([autonomy.view(), autonomy.settingsShownAt()]).then(([view, since]) =>
-      ({ settings: leadSettingsStatus(view, undefined, since, leadRulesHeld(journal.state)) }), () => null) : null
+      ({ settings: leadSettingsStatus(view, undefined, since, leadRulesHeld(journal.state), journal.state.memoryEpoch?.memory.format !== 2) }), () => null) : null
     return { text: read?.settings ? `${memory}\n${read.settings}` : memory, ...(read ? { settingsShownAt: shownAt } : {}) }
   }
   /** The status a desk wake carries: null when the memory store cannot be read, or takes longer than
@@ -4989,6 +4990,7 @@ export class Host {
       onForget: async texts => { const corpus = await this.#leadCorpus(); await (texts === 'all' ? corpus.clear() : corpus.forget(texts)) } }).then(store => {
       this.#leadStores.push(store)
       this.#leadMemoryReady = store
+      this.#leadMemoryConnect?.(store)
       this.#onLeadDispose(store.onChange(revision => this.#push({ method: 'lead/memory/changed', params: { revision } })))
       return store
     }, error => { this.#leadMemoryOpen = null; throw error })
@@ -5029,7 +5031,7 @@ export class Host {
    */
   #connectLeadMemory(journal: LeadJournal, options: { readonly prices: LeadServiceOptions['prices']; readonly messagesTransport?: LeadServiceOptions['messagesTransport'] }): void {
     let closed = false
-    this.#onLeadDispose(async () => { closed = true; await Promise.all([...this.#leadMemoryWork]) })
+    this.#onLeadDispose(async () => { closed = true; this.#leadMemoryConnect = null; await Promise.all([...this.#leadMemoryWork]) })
     const fault = (next: 'journal' | null, revision: number) => {
       if (this.#leadMemoryFault === next) return
       this.#leadMemoryFault = next
@@ -5038,7 +5040,7 @@ export class Host {
     const publish = async (store: LeadMemoryStore) => {
       const current = journal.state.memory, core = store.core()
       if (closed) return
-      if (JSON.stringify(current.entries) === JSON.stringify(core.entries)) return fault(null, store.revision)
+      if (current.format === 2 && JSON.stringify(current.entries) === JSON.stringify(core.entries)) return fault(null, store.revision)
       try {
         await journal.memoryCore({ revision: Math.max(core.revision, current.revision + 1), entries: core.entries })
         fault(null, store.revision)
@@ -5048,11 +5050,20 @@ export class Host {
         throw error
       }
     }
-    this.#leadMemoryTrack(this.#leadMemory().then(store => {
-      if (closed) return
-      this.#onLeadDispose(store.onChange(() => { if (!closed) this.#leadMemoryTrack(publish(store), 'Lead memory could not reach the journal') }))
-      return publish(store)
-    }), 'Lead memory could not be opened')
+    let connected: LeadMemoryStore | null = null, publication: Promise<void> = Promise.resolve()
+    const connect = (store: LeadMemoryStore) => {
+      if (closed || connected === store) return
+      connected = store
+      const queue = () => {
+        const work = publication.then(() => publish(store))
+        publication = work.catch(() => {})
+        this.#leadMemoryTrack(work, 'Lead memory could not reach the journal')
+      }
+      this.#onLeadDispose(store.onChange(() => { if (!closed) queue() }))
+      queue()
+    }
+    this.#leadMemoryConnect = connect
+    this.#leadMemoryTrack(this.#leadMemory().then(connect), 'Lead memory could not be opened')
     // Messages carry no time of their own: each is dated when the desk first sees it, which is when it was sent for
     // every message after this desk started.
     const seen = new Map<string, number>()

@@ -203,7 +203,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
             }) },
           resolveTool: ports.resolveTool, freezePlan: ports.freezePlan, readEvidence: ports.readEvidence,
           // The host parses what it reads back; what it sends here is parsed again before a request carries it.
-          onEpoch: at => ({ standingAddendum: leadEpochAddendum(leadEpochState(journal.state, at)) }),
+          onEpoch: at => ({ standingAddendum: leadEpochAddendum(leadEpochState(journal.state, at), undefined, at?.memory.format !== 2) }),
           context: ports.context })
         // A run that goes quiet sends no event; a minute's tick lets the gate call it stuck. It costs no request unless it is.
         setInterval(() => { if (!closed) loop?.poke() }, 60_000).unref()
