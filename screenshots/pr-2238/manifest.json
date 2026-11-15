@@ -1,0 +1,78 @@
+{
+  "pr": 2238,
+  "productHead": "9fac46ae066acbc2ba2dddd4e0815a1b703a7a36",
+  "scope": "Synthetic component previews; not native screenshots. Prior capture source pins below; relevant rendered component source unchanged at product head.",
+  "sources": {
+    "ordinaryBefore": "235ab2519ba4bd806ebdf35366e879393e3198e3",
+    "ordinaryAfter": "0b1f46f794db6a88364a58dd297864154ed1a33b",
+    "uncertainty": "16717f15b3c73916cf5c3210f8fb29444727340e",
+    "pauseBefore": "16717f15b3c73916cf5c3210f8fb29444727340e",
+    "pauseAfter": "ddd1e8d0c638cfaf164f54d3e9edecabedf6b360"
+  },
+  "frames": [
+    {
+      "archivePath": "screenshots/pr-2238/before/ordinary-stop-status.png",
+      "sha256": "6c5d30290350f8190e7dd027a1b4c726fce70aa7fbc8ff38c2ab5bbc4eec59c7",
+      "width": 1034,
+      "height": 234,
+      "bytes": 21420,
+      "parentViewed": true
+    },
+    {
+      "archivePath": "screenshots/pr-2238/after/ordinary-stop-status.png",
+      "sha256": "cb626a4af87715e36a9e3932a831416965f6021ae84d55a64accfb26ce18f4b4",
+      "width": 1034,
+      "height": 234,
+      "bytes": 21642,
+      "parentViewed": true
+    },
+    {
+      "archivePath": "screenshots/pr-2238/after/unconfirmed-collapsed.png",
+      "sha256": "a8caf868f141e91f033d2e1816a03d10f22a3855e937f8459c44d0d0c77619c3",
+      "width": 1134,
+      "height": 284,
+      "bytes": 31189,
+      "parentViewed": true
+    },
+    {
+      "archivePath": "screenshots/pr-2238/after/unconfirmed-expanded.png",
+      "sha256": "ba91e9d4ef069480e60818d7b56ce00f6b3aceda7744fd4d2b65bdf8ebb916b2",
+      "width": 1134,
+      "height": 508,
+      "bytes": 55585,
+      "parentViewed": true
+    },
+    {
+      "archivePath": "screenshots/pr-2238/after/unconfirmed-reviewed.png",
+      "sha256": "0c083e5817bae17be5b893ef480f804b24ac0ce1f8faeb7bf2055f6a2336ec46",
+      "width": 1134,
+      "height": 506,
+      "bytes": 53119,
+      "parentViewed": true
+    },
+    {
+      "archivePath": "screenshots/pr-2238/before/pause-with-capability.png",
+      "sha256": "96f641baab5ef8cfaa7e8bbf070ec575eb918488afd52996840f4b6412169b77",
+      "width": 1134,
+      "height": 268,
+      "bytes": 16762,
+      "parentViewed": true
+    },
+    {
+      "archivePath": "screenshots/pr-2238/after/pause-with-capability.png",
+      "sha256": "643aec7564bc89ea4ba704900d6c16f68e7349ea1f1a99bf5942d2df1ca01f72",
+      "width": 1134,
+      "height": 252,
+      "bytes": 15502,
+      "parentViewed": true
+    },
+    {
+      "archivePath": "screenshots/pr-2238/after/pause-confirmation.png",
+      "sha256": "4e48834c41a7d8631e37d5985b42d19812fed41b449a475b1614c847a1d75f1a",
+      "width": 460,
+      "height": 246,
+      "bytes": 9667,
+      "parentViewed": true
+    }
+  ]
+}
