@@ -389,6 +389,23 @@ test('a serialized-record canary is absent from cache artifacts across restart',
   for (const name of artifacts) assert.equal((await readFile(join(dir, name))).includes(Buffer.from(canary)), false, name)
 })
 
+test('ordinary provider and model strings containing the negative-zero marker survive restart', async (t) => {
+  const dir = tempDir('hd-insight-marker-text-'); const corpus = join(dir, 'corpus'); await mkdir(corpus)
+  const marker = '__hd_insight_negative_zero__'; const id = `provider-${marker}`; const model = `model-${marker}`
+  const record = { type: 'assistant', timestamp: '2026-09-20T00:00:00.000Z', cwd: query.root,
+    message: { id, model, usage: { input_tokens: 10, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
+  await writeFile(join(corpus, 'messages.jsonl'), `${JSON.stringify(record)}\n`)
+  const make = () => new Ledger({ stateDir: dir, now: () => 123, corpora: [{ runtime: 'alpha', kind: 'claude', root: corpus }],
+    pricing: new Pricing({ cachePath: join(dir, 'rates.json'), overlayPath: join(dir, 'pricing.json'), fetchCatalogue: async () => ({}) }) })
+  const first = make(); const before = await first.readInsight(query); first.close()
+  const second = make(); t.after(() => second.close())
+  const count = reads(t, corpus); const after = await second.readInsight(query)
+  assert.equal(count.streams.length, 0)
+  assert.equal(after.samples[0]?.requestId, id)
+  assert.equal(after.samples[0]?.model, model)
+  assert.deepEqual(after.samples, before.samples)
+})
+
 test('a valid negative-zero observation has the same value after index reuse', async (t) => {
   const { ledger, path, corpus, dir } = await fixture()
   const raw = event(0).replace('"input_tokens":10', '"input_tokens":-0')

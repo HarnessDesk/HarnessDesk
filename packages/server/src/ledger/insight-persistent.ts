@@ -34,13 +34,19 @@ export interface PersistentEntry {
 const zeroTag = '__hd_insight_negative_zero__'
 const encodeSample = (sample: UsageSample): string => JSON.stringify(sample, (_key, value: unknown) =>
   typeof value === 'number' && Object.is(value, -0) ? { [zeroTag]: true } : value)
-export const decodeSample = (payload: string): UsageSample => JSON.parse(payload, (_key, value: unknown) => {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    const row = value as Record<string, unknown>
-    if (Object.keys(row).length === 1 && row[zeroTag] === true) return -0
-  }
-  return value
-}) as UsageSample
+export const decodeSample = (payload: string): UsageSample => {
+  // The canonical encoder writes the marker literally. Most observations do not
+  // contain -0, and need no per-property reviver; a literal marker in ordinary
+  // string data takes the slower path without changing that string.
+  if (!payload.includes(zeroTag)) return JSON.parse(payload) as UsageSample
+  return JSON.parse(payload, (_key, value: unknown) => {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const row = value as Record<string, unknown>
+      if (Object.keys(row).length === 1 && row[zeroTag] === true) return -0
+    }
+    return value
+  }) as UsageSample
+}
 
 export const sourceKey = (target: ScanTarget): string => createHash('sha256').update(JSON.stringify([target.runtime, target.kind, target.path])).digest('hex')
 
