@@ -127,13 +127,13 @@ const jsonEnd = (text: string, start: number, multiline: boolean): number => {
       const next = text.slice(index).replace(/^[\r\n \t]*/, '')
       const top = containers.at(-1)
       const key = /^"(?:[^"\\\r\n]|\\.)*"[ \t]*:/.test(next)
-      // A key on a line of its own needs a colon and a JSON value ahead. A
-      // quoted prose line followed by a colon explanation remains prose.
+      // A key on a line of its own needs a colon and a JSON value or matching
+      // closer ahead. A colon followed by a prose explanation remains prose.
       const splitKey = top === '{' && (previous === '{' || previous === ',')
         ? /^"(?:[^"\\\r\n]|\\.)*"[ \t]*\r?\n[ \t\r\n]*:[ \t\r\n]*(?=\S)/.exec(next) : null
       const splitValue = splitKey ? next.slice(splitKey[0].length) : ''
-      const wrappedKey = !!splitKey && /^(?:[\[{\"]|true|false|null|-?(?:0|[1-9]\d*))/.test(splitValue)
-        && continuationLine(splitValue, containers, ':')
+      const wrappedKey = !!splitKey && (splitValue[0] === '}' ||
+        /^(?:[\[{\"]|true|false|null|-?(?:0|[1-9]\d*))/.test(splitValue) && continuationLine(splitValue, containers, ':'))
       // An unfinished object key has no closing quote or colon yet; only take
       // it where the current object expects a key, leaving complete quoted prose.
       const clippedKey = top === '{' && (previous === '{' || previous === ',') && /^"(?:[^"\\\r\n]|\\[^\r\n])*\\?(?=\r|\n|$)/.test(next)

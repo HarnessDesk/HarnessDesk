@@ -929,6 +929,40 @@ test('#2081 R9: nested split-key lookahead preserves non-JSON explanations', () 
   }
 })
 
+test('#2081 R10: a split key with a missing value keeps its matching closer', () => {
+  assert.deepEqual(lead.stripLeadOutput('Before.\n{"type":"lead-output",\n"text"\n:\n}\nAfter.'),
+    { text: 'Before.\nAfter.', dropped: true })
+})
+
+test('#2081 R10: missing split-key values recover matching closers through nested containers', () => {
+  for (const [opening, closers] of [
+    ['{"type":"lead-output",', '}'],
+    ['{"type":"lead-output","ask":{', '}}'],
+    ['{"type":"lead-output","refs":[{', '}]'],
+    ['{"type":"lead-output","refs":[{"items":[{', '}]}]'],
+  ] as const) for (const newline of ['\n', '\r\n']) for (const beforeColon of [newline, `${newline}  `]) {
+    const fragment = `${opening}${newline}"missing"${beforeColon}:${newline}${closers}`
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n${fragment}\nAfter.`),
+      { text: 'Before.\nAfter.', dropped: true }, fragment)
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n${fragment} After.`),
+      { text: 'Before.\n After.', dropped: true }, `${fragment} with prose`)
+  }
+})
+
+test('#2081 R10: mismatched closers and non-JSON explanations remain visible', () => {
+  for (const [opening, ending] of [
+    ['{"type":"lead-output",', '] After.'],
+    ['{"type":"lead-output","refs":[{', '] After.'],
+    ['{"type":"lead-output","refs":[{', 'true, but only sometimes'],
+    ['{"type":"lead-output","refs":[{', '1,000 users saw this'],
+    ['{"type":"lead-output","refs":[{', '"quoted", said the worker'],
+  ] as const) {
+    const prose = `"missing"\n:\n${ending}`
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n${opening}\n${prose}`),
+      { text: `Before.\n${prose}`, dropped: true }, prose)
+  }
+})
+
 test('#2081: wrapped JSON continuations stay with a clipped envelope', () => {
   for (const fragment of [
     '{"version":1,"type":"lead-output",\n  "text": "hidden",',
