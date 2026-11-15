@@ -698,6 +698,325 @@ test('a clipped envelope ends at the line break where its JSON stops, so the pro
   assert.deepEqual(lead.stripLeadOutput('Log: {"type":"lead-output","ok":trueish and more text after. Rest stays.'), { text: 'Log: trueish and more text after. Rest stays.', dropped: true })
 })
 
+test('#2081: quoted prose after a clipped envelope keeps its first fragment', () => {
+  assert.deepEqual(lead.stripLeadOutput('Worker said:\n{"version":1,"type":"lead-output",\n"Quoted prose line" said the worker.'),
+    { text: 'Worker said:\n"Quoted prose line" said the worker.', dropped: true })
+  assert.deepEqual(lead.stripLeadOutput('Worker said:\n{"type":"lead-output","text":\n"Quoted prose line" said the worker.'),
+    { text: 'Worker said:\n"Quoted prose line" said the worker.', dropped: true })
+})
+
+test('#2081: a citation after a clipped envelope keeps its first fragment', () => {
+  assert.deepEqual(lead.stripLeadOutput('Worker said:\n{"version":1,"type":"lead-output",\n[1] see the docs'),
+    { text: 'Worker said:\n[1] see the docs', dropped: true })
+  assert.deepEqual(lead.stripLeadOutput('Worker said:\n{"type":"lead-output","text":\n[1] see the docs'),
+    { text: 'Worker said:\n[1] see the docs', dropped: true })
+})
+
+for (const citation of ['[1]: see the docs', '[1]:see the docs', '[123]: see the docs', '[123]:see the docs']) {
+  test(`#2081 R2: preserve ${citation}`, () => {
+    assert.deepEqual(lead.stripLeadOutput(`Worker said:\n{"type":"lead-output","text":\n${citation}`),
+      { text: `Worker said:\n${citation}`, dropped: true })
+  })
+}
+
+test('#2081 R3: clipped object keys are withheld without swallowing later prose', () => {
+  for (const fragment of [
+    '{"type":"lead-output",\n  "tex',
+    '{"type":"lead-output",\n  "te\\"x',
+    '{"type":"lead-output","ask":{\n  "ques',
+    '{"type":"lead-output","ask":{\n  "question":"hidden",\n  "opti',
+    '{"type":"lead-output","ask":{\n  "que\\"stion":"hidden",\n  "opti',
+  ]) {
+    assert.deepEqual(lead.stripLeadOutput(`Worker said:\n${fragment}\nDone.`),
+      { text: 'Worker said:\nDone.', dropped: true }, fragment)
+    assert.deepEqual(lead.stripLeadOutput(`Worker said:\n${fragment}`),
+      { text: 'Worker said:', dropped: true }, fragment)
+  }
+  assert.deepEqual(lead.stripLeadOutput('Worker said:\n{"type":"lead-output","text":\n  "incomplete value\nDone.'),
+    { text: 'Worker said:\nDone.', dropped: true })
+  assert.deepEqual(lead.stripLeadOutput('Worker said:\n{"type":"lead-output",\n"Quoted prose line" said the worker.'),
+    { text: 'Worker said:\n"Quoted prose line" said the worker.', dropped: true })
+})
+
+test('#2081 R4: complete wrapped JSON primitives stay inside a clipped envelope', () => {
+  for (const token of ['1', '0', '-0', '-123.45e+6', '3E-2', 'true', 'false', 'null']) {
+    const fragment = `{"type":"lead-output","refs":[\n  ${token}\n]`
+    assert.deepEqual(lead.stripLeadOutput(`Worker said:\n${fragment}\nDone.`), { text: 'Worker said:\nDone.', dropped: true }, token)
+    const nested = `{"type":"lead-output","ask":{"flag":\n  ${token}\n}`
+    assert.deepEqual(lead.stripLeadOutput(`Worker said:\n${nested}\nDone.`), { text: 'Worker said:\nDone.', dropped: true }, `nested ${token}`)
+  }
+  for (const prose of ['1. First step', '123 more words', 'nullable fields', 'trueish result', 'false alarm', 'null value', '[1] see the docs', '"Quoted prose line" said the worker.']) {
+    assert.deepEqual(lead.stripLeadOutput(`Worker said:\n{"type":"lead-output","refs":[\n${prose}`),
+      { text: `Worker said:\n${prose}`, dropped: true }, prose)
+  }
+})
+
+test('#2081 R5: comma prose remains whole after a clipped value', () => {
+  for (const prose of ['1,000 users saw this', 'true, but only sometimes', '"quoted", said the worker', '1, 2, 3 more prose', 'false, then continue']) {
+    for (const opening of ['{"type":"lead-output","text":', '{"type":"lead-output","refs":[']) {
+      assert.deepEqual(lead.stripLeadOutput(`Worker said:\n${opening}\n${prose}`),
+        { text: `Worker said:\n${prose}`, dropped: true }, `${opening} ${prose}`)
+    }
+  }
+})
+
+test('#2081 R5: whole continuation lines distinguish JSON prefixes from prose', () => {
+  for (const [opening, continuation] of [
+    ['{"type":"lead-output","refs":[', '1, 2, 3'],
+    ['{"type":"lead-output","refs":[', 'true, false, null'],
+    ['{"type":"lead-output","text":', '[1,2,3],'],
+    ['{"type":"lead-output","refs":[', '"one", "two",'],
+    ['{"type":"lead-output","refs":[', '{"id":"x", "next": [1, 2'],
+    ['{"type":"lead-output",', '"refs": [1, 2], "text": "hidden",'],
+    ['{"type":"lead-output",', '"ask": {"question": "hidden", "opti'],
+    ['{"type":"lead-output","text":', '"incomplete value'],
+    ['{"type":"lead-output","refs":[', '-1.25e+3, null,'],
+  ] as const) {
+    assert.deepEqual(lead.stripLeadOutput(`Worker said:\n${opening}\n${continuation}\nDone.`),
+      { text: 'Worker said:\nDone.', dropped: true }, continuation)
+  }
+  for (const prose of ['1, 2, 3 more prose', '1,000 users saw this', 'true, but only sometimes', '"quoted", said the worker', 'false, then continue', 'null, not applicable', '[1,2,3] more people arrived', '1,] more text', '1. First step', 'trueword', 'nullable', '[1]: see the docs']) {
+    assert.deepEqual(lead.stripLeadOutput(`Worker said:\n{"type":"lead-output","refs":[\n${prose}`),
+      { text: `Worker said:\n${prose}`, dropped: true }, prose)
+  }
+})
+
+test('#2081 R5: a wrapped JSON separator stays with its surrounding values', () => {
+  assert.deepEqual(lead.stripLeadOutput('Before.\n{"type":"lead-output", "refs": [\n{"id":1}\n,\n{"id":2}\nAfter.'),
+    { text: 'Before.\nAfter.', dropped: true })
+})
+
+test('#2081 R6: a wrapped object key and colon stay in the clipped envelope', () => {
+  assert.deepEqual(lead.stripLeadOutput('Before.\n{"type":"lead-output",\n"text"\n:\n"hidden"\nAfter.'),
+    { text: 'Before.\nAfter.', dropped: true })
+})
+
+test('#2081 R6: JSON tokens may wrap at every boundary inside a clipped envelope', () => {
+  const samples = [
+    ['{', '"type"', ':', '"lead-output"', ',', '"text"', ':', '"hidden"', ',', '"ask"', ':', '{', '"question"', ':', '"a \\"quote\\" and }"', ',', '"flags"', ':', '[', 'true', ',', 'null', ',', '-1.2e+3', ',', '{', '"id"', ':', '"x"', '}', ']', '}', '}'],
+    ['{', '"type"', ':', '"lead-output"', ',', '"refs"', ':', '[', '0', ',', 'false', ',', '"escaped\\\\path"', ']', ',', '"extra"', ':', '{', '}', '}'],
+  ]
+  for (const tokens of samples) {
+    assert.doesNotThrow(() => JSON.parse(tokens.join('')))
+    for (let boundary = 4; boundary < tokens.length - 2; boundary++) {
+      for (const space of ['\n', ' \r\n  ']) {
+        const clipped = tokens.slice(0, -1).map((token, index) => token + (index === boundary ? space : '')).join('')
+        assert.deepEqual(lead.stripLeadOutput(`Before.\n${clipped}\nAfter.`), { text: 'Before.\nAfter.', dropped: true }, `boundary ${boundary}: ${clipped}`)
+      }
+    }
+    const clipped = tokens.slice(0, -1).join('\n')
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n${clipped}\nAfter.`), { text: 'Before.\nAfter.', dropped: true }, 'every boundary')
+  }
+})
+
+test('#2081 R6: prose survives across clipped JSON prefix contexts', () => {
+  const prefixes = [
+    '{"type":"lead-output",',
+    '{"type":"lead-output","ask":{',
+    '{"type":"lead-output","text":',
+    '{"type":"lead-output","refs":[',
+    '{"type":"lead-output","refs":[true,',
+  ]
+  for (const prefix of prefixes) {
+    for (const prose of ['"Quoted prose line" said the worker.', '1,000 users saw this', '1, 2, 3 more people', 'true, but only sometimes', '[1]: see the docs']) {
+      assert.deepEqual(lead.stripLeadOutput(`Before.\n${prefix}\n${prose}`), { text: `Before.\n${prose}`, dropped: true }, `${prefix}: ${prose}`)
+    }
+  }
+  for (const prose of ['"Quoted prose"\n:\nordinary explanation', '"Quoted prose"\n: true, but only sometimes']) {
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n{"type":"lead-output",\n${prose}`), { text: `Before.\n${prose}`, dropped: true }, prose)
+  }
+})
+
+test('#2081 R7: a malformed envelope still withholds matching closers', () => {
+  for (const fragment of ['{"type":"lead-output",\n}', '{"type":"lead-output","text":\n}', '{"type":"lead-output","refs":[1,\n]']) {
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n${fragment}\nAfter.`),
+      { text: 'Before.\nAfter.', dropped: true }, fragment)
+  }
+})
+
+test('#2081 R7: matching closer recovery preserves nearby prose and mismatched closers', () => {
+  for (const [opening, closers] of [
+    ['{"type":"lead-output",', '}'],
+    ['{"type":"lead-output","text":', '}'],
+    ['{"type":"lead-output","refs":[1,', ']'],
+    ['{"type":"lead-output","refs":[', ']'],
+    ['{"type":"lead-output","ask":{"question":', '}}'],
+    ['{"type":"lead-output","refs":[{"id":', '}]'],
+  ] as const) {
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n${opening}\n${closers}\nAfter.`),
+      { text: 'Before.\nAfter.', dropped: true }, opening)
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n${opening}\n${closers} After.`),
+      { text: 'Before.\n After.', dropped: true }, `${opening} same line`)
+  }
+  for (const [opening, prose] of [
+    ['{"type":"lead-output",', '] After.'],
+    ['{"type":"lead-output","text":', '] After.'],
+    ['{"type":"lead-output","refs":[1,', '} After.'],
+    ['{"type":"lead-output","refs":[', '} After.'],
+  ] as const) {
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n${opening}\n${prose}`),
+      { text: `Before.\n${prose}`, dropped: true }, opening)
+  }
+})
+
+test('#2081 R7: a second mismatched closer is left as prose', () => {
+  assert.deepEqual(lead.stripLeadOutput('Before.\n{"type":"lead-output","refs":[1,\n] ] After.'),
+    { text: 'Before.\n ] After.', dropped: true })
+  assert.deepEqual(lead.stripLeadOutput('Before.\n{"type":"lead-output","ask":{"question":\n} ] After.'),
+    { text: 'Before.\n ] After.', dropped: true })
+})
+
+test('#2081 R8: prose after a recovered nested closer stays whole', () => {
+  for (const [opening, closer] of [
+    ['{"type":"lead-output","refs":[1,', ']'],
+    ['{"type":"lead-output","ask":{"question":', '}'],
+    ['{"type":"lead-output","refs":[{"id":', '}'],
+    ['{"type":"lead-output","refs":[[1,', ']'],
+  ] as const) {
+    for (const prose of ['true story', 'false alarm', 'null result', 'nullable fields', 'trueish result', '1,000 users saw this', '123 more words', '1. First step', '"Quoted prose" said the worker.', '[1] see the docs', '[1]: see the docs']) {
+      assert.deepEqual(lead.stripLeadOutput(`Before.\n${opening}\n${closer} ${prose}`),
+        { text: `Before.\n ${prose}`, dropped: true }, `${opening}: ${prose}`)
+    }
+  }
+})
+
+test('#2081 R8: recovered nested closers accept structural continuations without swallowing comma prose', () => {
+  for (const [opening, continuation] of [
+    ['{"type":"lead-output","refs":[1,', '], "text":"hidden"'],
+    ['{"type":"lead-output","refs":[{"id":', '}, {"id":2}'],
+    ['{"type":"lead-output","ask":{"question":', '} , "text":"hidden"'],
+    ['{"type":"lead-output","refs":[[1,', '], [2]'],
+    ['{"type":"lead-output","refs":[[1,', ']]'],
+  ] as const) {
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n${opening}\n${continuation}\nAfter.`),
+      { text: 'Before.\nAfter.', dropped: true }, `${opening}: ${continuation}`)
+  }
+  for (const prose of [', true story', ', 1,000 users saw this', ', "Quoted prose" said the worker.']) {
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n{"type":"lead-output","refs":[1,\n] ${prose}`),
+      { text: `Before.\n ${prose}`, dropped: true }, prose)
+  }
+})
+
+test('#2081 R9: nested split keys allow their ancestor closers', () => {
+  assert.deepEqual(lead.stripLeadOutput('Before.\n{"type":"lead-output","refs":[{\n"id"\n:\n1}]\nAfter.'),
+    { text: 'Before.\nAfter.', dropped: true })
+})
+
+test('#2081 R9: nested split-key lookahead uses every ancestor', () => {
+  const samples = [
+    ['{', '"type"', ':', '"lead-output"', ',', '"refs"', ':', '[', '{', '"id"', ':', '1', '}', ']', '}'],
+    ['{', '"type"', ':', '"lead-output"', ',', '"refs"', ':', '[', '{', '"inner"', ':', '[', '{', '"value"', ':', 'true', '}', ']', '}', ']', '}'],
+    ['{', '"type"', ':', '"lead-output"', ',', '"ask"', ':', '{', '"inner"', ':', '{', '"a\\"b"', ':', '"escaped\\\\value"', '}', '}', '}'],
+  ]
+  for (const tokens of samples) {
+    assert.doesNotThrow(() => JSON.parse(tokens.join('')))
+    for (let i = 4; i < tokens.length - 2; i++) {
+      if (!tokens[i]!.startsWith('"') || tokens[i + 1] !== ':') continue
+      for (const newline of ['\n', ' \r\n  ']) for (const splitValue of [false, true]) {
+        const clipped = tokens.slice(0, -1).map((token, index) => token +
+          (index === i - 1 || index === i || splitValue && index === i + 1 ? newline : '')).join('')
+        assert.deepEqual(lead.stripLeadOutput(`Before.\n${clipped}\nAfter.`),
+          { text: 'Before.\nAfter.', dropped: true }, `key ${tokens[i]}: ${clipped}`)
+      }
+    }
+  }
+})
+
+test('#2081 R9: nested split-key lookahead preserves non-JSON explanations', () => {
+  for (const prose of ['"id"\n:\ntrue, but only sometimes', '"id"\n:\n1,000 users saw this', '"id"\n:\n"quoted", said the worker']) {
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n{"type":"lead-output","refs":[{\n${prose}`),
+      { text: `Before.\n${prose}`, dropped: true }, prose)
+  }
+})
+
+test('#2081 R10: a split key with a missing value keeps its matching closer', () => {
+  assert.deepEqual(lead.stripLeadOutput('Before.\n{"type":"lead-output",\n"text"\n:\n}\nAfter.'),
+    { text: 'Before.\nAfter.', dropped: true })
+})
+
+test('#2081 R10: missing split-key values recover matching closers through nested containers', () => {
+  for (const [opening, closers] of [
+    ['{"type":"lead-output",', '}'],
+    ['{"type":"lead-output","ask":{', '}}'],
+    ['{"type":"lead-output","refs":[{', '}]'],
+    ['{"type":"lead-output","refs":[{"items":[{', '}]}]'],
+  ] as const) for (const newline of ['\n', '\r\n']) for (const beforeColon of [newline, `${newline}  `]) {
+    const fragment = `${opening}${newline}"missing"${beforeColon}:${newline}${closers}`
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n${fragment}\nAfter.`),
+      { text: 'Before.\nAfter.', dropped: true }, fragment)
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n${fragment} After.`),
+      { text: 'Before.\n After.', dropped: true }, `${fragment} with prose`)
+  }
+})
+
+test('#2081 R10: mismatched closers and non-JSON explanations remain visible', () => {
+  for (const [opening, ending] of [
+    ['{"type":"lead-output",', '] After.'],
+    ['{"type":"lead-output","refs":[{', '] After.'],
+    ['{"type":"lead-output","refs":[{', 'true, but only sometimes'],
+    ['{"type":"lead-output","refs":[{', '1,000 users saw this'],
+    ['{"type":"lead-output","refs":[{', '"quoted", said the worker'],
+  ] as const) {
+    const prose = `"missing"\n:\n${ending}`
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n${opening}\n${prose}`),
+      { text: `Before.\n${prose}`, dropped: true }, prose)
+  }
+})
+
+test('#2081 R11: a recovered nested closer clears its pending key state', () => {
+  assert.deepEqual(lead.stripLeadOutput('Before.\n{"type":"lead-output","refs":[{"missing"\n}\n,\n1\n]\nAfter.'),
+    { text: 'Before.\nAfter.', dropped: true })
+})
+
+test('#2081 R11: nested close recovery resets state for parent siblings and closers', () => {
+  const inner = ['{"missing"', '{"missing":', '{"done":1,', '{"done":1']
+  for (const newline of ['\n', '\r\n']) for (const one of inner) {
+    for (const [opening, suffix] of [
+      ['{"type":"lead-output","refs":[', `${newline},${newline}1${newline}]`],
+      ['{"type":"lead-output","refs":[', `${newline},${newline}"sibling"${newline}]`],
+      ['{"type":"lead-output","refs":[', `${newline},${newline}{"id":1}${newline}]`],
+      ['{"type":"lead-output","ask":{"child":', `${newline},${newline}"next":1${newline}}`],
+      ['{"type":"lead-output","ask":{"child":', `${newline},${newline}"next":"text"${newline}}`],
+      ['{"type":"lead-output","refs":[[', `${newline}]${newline},${newline}1${newline}]`],
+      ['{"type":"lead-output","refs":[', `${newline}]`],
+      ['{"type":"lead-output","ask":{"child":', `${newline}}`],
+    ] as const) {
+      const fragment = `${opening}${one}${newline}}${suffix}`
+      assert.deepEqual(lead.stripLeadOutput(`Before.\n${fragment}\nAfter.`),
+        { text: 'Before.\nAfter.', dropped: true }, fragment)
+    }
+  }
+})
+
+test('#2081 R11: recovered nested closers still leave following prose and mismatches alone', () => {
+  for (const prose of ['true story', 'null result', '1,000 users saw this', '"Quoted prose" said the worker.', '[1]: see the docs', '} wrong closer']) {
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n{"type":"lead-output","refs":[{"missing"\n} ${prose}`),
+      { text: `Before.\n ${prose}`, dropped: true }, prose)
+  }
+})
+
+test('#2081: wrapped JSON continuations stay with a clipped envelope', () => {
+  for (const fragment of [
+    '{"version":1,"type":"lead-output",\n  "text": "hidden",',
+    '{"version":1,"type":"lead-output",\n  \n  "text": "hidden",',
+    '{"version":1,"type":"lead-output","ask":\n  {"question":"hidden",',
+    '{"version":1,"type":"lead-output","refs":\n  [{"id":"hidden",',
+    '{"version":1,"type":"lead-output","refs":\n  [1],',
+    '{"version":1,"type":"lead-output","refs":\n  [123],',
+    '{"version":1,"type":"lead-output","refs":\n  [1] ,',
+    '{"version":1,"type":"lead-output","text":\n  "hidden",',
+    '{"version":1,"type":"lead-output","text":\n  "hidden',
+    '{"version":1,"type":"lead-output","refs":[\n  "hidden",',
+    '{"version":1,"type":"lead-output","refs":[\n  ]',
+  ]) {
+    assert.deepEqual(lead.stripLeadOutput(`Worker said:\n${fragment}\nDone.`), { text: 'Worker said:\nDone.', dropped: true }, fragment)
+  }
+  const complete = '{\n  "version": 1,\n  "type": "lead-output",\n  "text": "Done."\n}'
+  assert.deepEqual(lead.splitLeadOutput(`Before.\n${complete}`), { prose: 'Before.', envelope: { version: 1, type: 'lead-output', text: 'Done.' } })
+  assert.deepEqual(lead.stripLeadOutput('Worker said:\r\n{"type":"lead-output",\r\n[1] see the docs'),
+    { text: 'Worker said:\r\n[1] see the docs', dropped: true })
+})
+
 test('stripping an envelope tidies only where it was: other quote separators, list markers and blank lines stay', () => {
   const envelope = JSON.stringify({ version: 1, type: 'lead-output', text: 'Merging now.' })
   const kept = 'A quote:\n> first\n>\n> second\n\nSteps:\n1.\n   Do the thing.\n\n\n\nLater.'
