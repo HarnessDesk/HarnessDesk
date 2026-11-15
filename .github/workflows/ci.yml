@@ -752,10 +752,41 @@ jobs:
           path: output/playwright/ui-system/
           retention-days: 3
 
+  # One small cross-engine check per PR and full run, independent of the UI shards.
+  site-demo-engines:
+    name: Site demo Firefox and WebKit
+    needs: changes
+    if: github.event_name == 'pull_request' || needs.changes.outputs.tier == 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.4.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        timeout-minutes: 10
+      - run: pnpm run build:node
+      - run: pnpm --filter @harnessdesk/ui build:site-demo
+      - run: pnpm exec playwright install --with-deps firefox webkit
+        timeout-minutes: 10
+      - run: pnpm exec playwright test -c playwright.site-demo-engines.config.ts
+      - uses: actions/upload-artifact@v7
+        if: failure() || cancelled()
+        with:
+          name: site-demo-engines-report
+          path: output/playwright/site-demo-engines/
+          retention-days: 3
+          if-no-files-found: ignore
+
   ui-system-browser-integration:
     name: "${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && 'Label ignored: UI system browser integration' || 'UI system browser integration' }}"
     runs-on: ubuntu-latest
-    needs: [changes, ui-system-build, ui-system-browser, ui-system-server]
+    needs: [changes, ui-system-build, ui-system-browser, ui-system-server, site-demo-engines]
     if: always() && (github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'full-ci')
     timeout-minutes: 5
 
@@ -768,10 +799,20 @@ jobs:
           SHARDS_RESULT: ${{ needs.ui-system-browser.result }}
           SERVER_RESULT: ${{ needs.ui-system-server.result }}
           BUILD_RESULT: ${{ needs.ui-system-build.result }}
+          SITE_ENGINES_RESULT: ${{ needs.site-demo-engines.result }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           echo "CI tier: $CI_TIER"
           if [ "$CHANGES_RESULT" != "success" ]; then
             echo "UI integration input selection did not succeed ($CHANGES_RESULT)."
+            exit 1
+          fi
+          expected_engines=skipped
+          if [ "$EVENT_NAME" = "pull_request" ] || [ "$CI_TIER" = "full" ]; then
+            expected_engines=success
+          fi
+          if [ "$SITE_ENGINES_RESULT" != "$expected_engines" ]; then
+            echo "Site demo engines did not match the requested run ($SITE_ENGINES_RESULT; expected $expected_engines)."
             exit 1
           fi
           expected_build=skipped
