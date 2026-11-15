@@ -15,6 +15,7 @@ test('late observation keeps original failure unchanged and takes one heap only 
  const late=await observeLateFailure(r.options)
  assert.deepEqual(r.original,before)
  assert.equal(late.outcome,'quiescent');assert.equal(late.protection,true);assert.equal(late.quiescent,true)
+ assert.deepEqual(late.counts,{metadata:12,loaded:9,released:3,recovery:0,knownLoaded:9,knownMissing:0})
  assert.deepEqual(late.heap,{usedBytes:40,backingBytes:5});assert.deepEqual(r.counts(),{gc:1,heaps:1,reads:2})
 })
 test('late observer times out with no heap and preserves a failure',async()=>{

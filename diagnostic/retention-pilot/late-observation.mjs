@@ -14,13 +14,15 @@ const quiet=s=>s.enabled===true&&s.pressureRunning===false&&s.pressureDirty===fa
 /** Supplemental observation only; accepts no result/checkpoint object and cannot turn a failure into a pass. */
 export async function observeLateFailure({read,collect,heap,now,sleep}) {
  const start=now(),deadline=start+60000
- let samples=0,previous=null,lastProtected=null
- const result=(outcome,extra={})=>({outcome,elapsedMs:Math.min(60000,Math.max(0,Math.round(now()-start))),samples,quiescent:outcome==='quiescent',protection:lastProtected,...extra})
+ let samples=0,previous=null,lastProtected=null,lastState=null
+ const counts=()=>Object.fromEntries(['metadata','loaded','released','recovery','knownLoaded','knownMissing'].flatMap(key=>Number.isSafeInteger(lastState?.[key])&&lastState[key]>=0?[[key,lastState[key]]]:[]))
+ const result=(outcome,extra={})=>({outcome,elapsedMs:Math.min(60000,Math.max(0,Math.round(now()-start))),samples,quiescent:outcome==='quiescent',protection:lastProtected,...(lastState?{counts:counts()}:{}),...extra})
  while(now()<deadline) {
   let state
   try {state=stageRecord('quiescence',await read(Math.min(2000,Math.max(1,deadline-now())))).state}
   catch {return result('unavailable')}
   samples++
+  lastState=state
   lastProtected=protectedState(state)
   if(!lastProtected)return result('protection-lost')
   if(quiet(state)&&previous!==null&&JSON.stringify(previous)===JSON.stringify(state)) {
