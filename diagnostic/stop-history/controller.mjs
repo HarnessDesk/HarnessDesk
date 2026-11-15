@@ -13,11 +13,12 @@ import { inspectFrame } from './frame-policy.mjs'
 import { locateTarget } from './click-target.mjs'
 import { runGuarded } from './run-guarded.mjs'
 import { assertSource } from './source-guard.mjs'
+import { seedProtectedFlow, exerciseProtectedFlow } from './flow-proof.mjs'
 
 const taskSource = resolve('.')
-const taskSha = '9fac46ae066acbc2ba2dddd4e0815a1b703a7a36' // integrated source commit; repin if source changes.
+const taskSha = 'ecb7b41da2129009440fd3f00030ab7496e58ab7' // integrated source commit; repin if source changes.
 const expectedFixtureSha = '12e1e552085c154e507ac1100dbcd9bcaeaf8184696ad02e9a696c3929c529ac'
-const preparedOnly = false // Parent reviewed bounded scroll readiness correction; product remains9fac.
+const preparedOnly = true // Private preparation; parent must review before activation.
 const sha = path => createHash('sha256').update(readFileSync(path)).digest('hex')
 const git = (...args) => execFileSync('git', ['-C',taskSource,...args], {encoding:'utf8'}).trim()
 const result={source:taskSha,phase:'preflight',checks:{},readiness:{}}
@@ -37,6 +38,14 @@ const fingerprints = {
   'packages/protocol/src/lead.ts':'b6c23570ebd42d66284a059a0e0c14332d4d7c2782ab98b14c1b2dfd6fb330ee',
   'script/lib/desk.mjs':'0d0083de7abeb2c371f2e0723f82585a58c3427ea5a2f5ce4fa08e65355c0ab8',
   'script/shots/audit.mjs':'9922f1cb40d882d792ab3745b4c44a63e318b5d833952ab00cb0d431d85166c8',
+  'packages/server/src/flow-recovery.ts':'e0588af896e631e40aa0d791978c8b5426986d56b5613d04a58da7a4eb0899af',
+  'packages/server/src/flow-execution.ts':'2ac49e3c35201bf226825740eb1eaf36683fddfccaa93fba882f1bde64c538fa',
+  'packages/ui/src/components/TeamActions.tsx':'9cead0bd685d9108ad91291f968055338269c16368f1ddc73c5119ed0fae1c39',
+  'packages/ui/src/components/RunWorkspace.tsx':'cab9ae84575a8337a8fb2f067d6f730f7eaf0f5dc1fe60841961a4cea673575c',
+  'diagnostic/stop-history/flow-proof.test.mjs':'5f62a28353bf91336395a6e066d1a851188a26ea8a247019e01d0800157352e3',
+  'diagnostic/stop-history/seed-flow.mjs':'969a6e78995e7412de1f6e3ed37273203fbabf446da551d4833ff33750a062ee',
+  'diagnostic/stop-history/seed-child.mjs':'6425af2400e65477acdf0dfba5739efc0a612af0d05eb38561c6e7b6f68d68e2',
+  'diagnostic/stop-history/flow-proof.mjs':'ae3bbff6abf8ee83ea8f83c77bf570257157dfacb58fbf6005f2842122afd338',
   'diagnostic/stop-history/scripted-flow.mjs':'1b6f58123021ce772025a525aaedabd99784655772631299d27a6dbe4c8099d7',
   'diagnostic/stop-history/plugin-icon.svg':'611ca48d4da7767c7cc051442c2e389a2d5a288a2fbb09c5edd3f3b1e7499d79',
   'diagnostic/stop-history/ambient-shape.mjs':'d73b2956892802e0203bf1a6c6fc3a1c1161ad7a15f4ff7403c6630d19eb2343',
@@ -77,6 +86,10 @@ accessSync('/usr/bin/false',constants.X_OK)
 const sshProbe=spawnSync(fakeSsh,[],{env:{PATH:'/usr/bin:/bin'},encoding:'utf8',timeout:5000})
 if(sshProbe.status!==1 || sshProbe.stdout!=='' || sshProbe.stderr!=='') throw new Error('ssh refusal probe failed')
 const env={HOME:osHome,USER:process.env.USER??'',LOGNAME:process.env.LOGNAME??'',LANG:'en_US.UTF-8',HARNESSDESK_HOME:taskDeskHome,CODEX_HOME:taskCodexProfile,HARNESSDESK_CODEX_BINARY:fixture,PATH:[taskFakebin,'/usr/bin','/bin','/usr/sbin','/sbin'].join(':'),HARNESSDESK_PATH:taskFakebin,SHELL:'',TMPDIR:taskRoot,HARNESSDESK_NO_UPDATE_CHECK:'1',HARNESSDESK_LEAD:'0',HARNESSDESK_PHONE_LINK:'0',HARNESSDESK_MENU_BAR:'off',HARNESSDESK_CATALOG_REFRESH_MINUTES:'0',HARNESSDESK_ACP_REGISTRY_URL:'http://127.0.0.1:1/disabled',HARNESSDESK_CLOUD_URL:'http://127.0.0.1:1',HD_2065_INTERRUPT_RECEIPT:counter,HD_2065_FORGE_RECEIPT:forgeCounter,HARNESSDESK_CODEX_PROCESS_GROUP:randomUUID(),FAKE_CODEX_ROLLOUT_HOME:taskCodexProfile,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_TERMINAL_PROMPT:'0',GIT_ALLOW_PROTOCOL:'file',GIT_SSH_COMMAND:'/usr/bin/false'}
+execFileSync('/usr/bin/git',['init','-q'],{cwd:project,env,stdio:'ignore',timeout:10000})
+execFileSync('/usr/bin/git',['-c','user.name=Jane Doe','-c','user.email=dev@example.invalid','commit','--allow-empty','-qm','Synthetic initial commit'],{cwd:project,env,stdio:'ignore',timeout:10000})
+const flow = await seedProtectedFlow({source:taskSource,root:taskRoot,deskHome:taskDeskHome,project,env})
+if(interruptCount(counter)!==0 || readFileSync(forgeCounter).length!==0)throw new Error('unexpected seed effect')
 const waitFor=async (label,fn,ms=30000)=>{const until=Date.now()+ms;while(Date.now()<until){const value=await fn();if(value)return value;await sleep(200)}throw new Error(`${label}: readiness deadline`)}
 const assertListeners = (group, probe) => {
  let processOutput
@@ -194,11 +207,14 @@ await waitFor('store reconnected',()=>cdp.eval("window.__hdStore?.getSnapshot().
 await openWorkspace(cdp,project);await goToHistory();verifyLedger('reviewed');await click('button','History')
 await waitFor('review persists visually',()=>cdp.eval("[...document.querySelectorAll('[data-slot=\"list-row\"]')].some(e=>e.innerText.includes('#101') && e.innerText.includes('Reviewed · Stop unconfirmed'))"),10000)
 if(interruptCount(counter)!==0||readFileSync(forgeCounter).length!==0)throw new Error('unexpected restart effect')
-await observedListeners('listenersAtEnd');result.checks.persisted=true;result.checks.noObservedEffects=true;await closeDesk(desk);desk=undefined
+await observedListeners('listenersAtEnd');result.checks.persisted=true;result.checks.noObservedEffects=true
+const flowFrames=await exerciseProtectedFlow({cdp,click,waitFor,result,flow,frame})
+if(interruptCount(counter)!==0 || readFileSync(forgeCounter).length!==0)throw new Error('unexpected Flow effect')
+await observedListeners('listenersAfterFlow');await closeDesk(desk);desk=undefined
 result.phase='frames';if(frameUnavailable || !firstFrame || !secondFrame)throw new Error('frame unavailable')
 mkdirSync(expectedOutput,{mode:0o700})
-for(const [name,photo] of [['unconfirmed',firstFrame],['reviewed',secondFrame]])write(join(expectedOutput,`${name}.png`),photo.bytes)
-const manifest={version:1,presentation:'synthetic-root-shortened',frames:[['unconfirmed',firstFrame],['reviewed',secondFrame]].map(([name,photo])=>({name:`${name}.png`,sha256:photo.sha256,width:photo.width,height:photo.height}))}
+for(const [name,photo] of [['unconfirmed',firstFrame],['reviewed',secondFrame],['flow-menu',flowFrames.menuFrame],['flow-confirm',flowFrames.confirmFrame],['flow-stopped',flowFrames.stoppedFrame]])write(join(expectedOutput,`${name}.png`),photo.bytes)
+const manifest={version:1,presentation:'synthetic-root-shortened',frames:[['unconfirmed',firstFrame],['reviewed',secondFrame],['flow-menu',flowFrames.menuFrame],['flow-confirm',flowFrames.confirmFrame],['flow-stopped',flowFrames.stoppedFrame]].map(([name,photo])=>({name:`${name}.png`,sha256:photo.sha256,width:photo.width,height:photo.height}))}
 write(join(expectedOutput,'manifest.json'),JSON.stringify(manifest)+'\n')
 write(join(expectedOutput,'publication-ready'),'audited\n');result.phase='passed'
 }, async()=>{

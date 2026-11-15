@@ -32,7 +32,7 @@ jobs:
           set -euo pipefail
           proof_dir="$RUNNER_TEMP/hd2065-private-frames"
           test ! -e "$proof_dir"
-          if ! node --test diagnostic/stop-history/seed.test.mjs diagnostic/stop-history/counter.test.mjs diagnostic/stop-history/frame-policy.test.mjs diagnostic/stop-history/run-guarded.test.mjs diagnostic/stop-history/source-guard.test.mjs diagnostic/stop-history/report.test.mjs diagnostic/stop-history/presentation.test.mjs diagnostic/stop-history/click-target.test.mjs > "$RUNNER_TEMP/hd2065-toy.log" 2>&1; then echo 'fixture controls failed'; exit 1; fi
+          if ! node --test diagnostic/stop-history/flow-proof.test.mjs diagnostic/stop-history/seed.test.mjs diagnostic/stop-history/counter.test.mjs diagnostic/stop-history/frame-policy.test.mjs diagnostic/stop-history/run-guarded.test.mjs diagnostic/stop-history/source-guard.test.mjs diagnostic/stop-history/report.test.mjs diagnostic/stop-history/presentation.test.mjs diagnostic/stop-history/click-target.test.mjs > "$RUNNER_TEMP/hd2065-toy.log" 2>&1; then echo 'fixture controls failed'; exit 1; fi
           if ! HD_2065_PINNED_MENTIONS="$PWD/packages/server/dist/src/intake/mentions.js" node --test diagnostic/stop-history/host-parser.test.mjs > "$RUNNER_TEMP/hd2065-parser.log" 2>&1; then echo 'pinned Host parser control failed'; exit 1; fi
           set +e
           node diagnostic/stop-history/controller.mjs > "$RUNNER_TEMP/hd2065-controller.log" 2>&1
@@ -42,6 +42,9 @@ jobs:
           test -f "$proof_dir/publication-ready"
           test -f "$proof_dir/unconfirmed.png"
           test -f "$proof_dir/reviewed.png"
+          test -f "$proof_dir/flow-menu.png"
+          test -f "$proof_dir/flow-confirm.png"
+          test -f "$proof_dir/flow-stopped.png"
           test -f "$proof_dir/manifest.json"
           printf 'ready=true\n' >> "$GITHUB_OUTPUT"
       - name: Upload audited synthetic frames only
@@ -54,4 +57,7 @@ jobs:
           path: |
             ${{ runner.temp }}/hd2065-private-frames/unconfirmed.png
             ${{ runner.temp }}/hd2065-private-frames/reviewed.png
+            ${{ runner.temp }}/hd2065-private-frames/flow-menu.png
+            ${{ runner.temp }}/hd2065-private-frames/flow-confirm.png
+            ${{ runner.temp }}/hd2065-private-frames/flow-stopped.png
             ${{ runner.temp }}/hd2065-private-frames/manifest.json
