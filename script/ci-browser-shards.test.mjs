@@ -61,7 +61,7 @@ test('the plan reaches the shards and metadata selects the tier, with manual dis
 test('the stable browser check requires every shard and keeps reports after failure (#1140)', () => {
   const aggregate = job('ui-system-browser-integration')
   assert.ok(aggregate.includes("|| 'UI system browser integration'"))
-  assert.match(aggregate, /^    needs: \[changes, ui-system-build, ui-system-browser, ui-system-server\]$/m)
+  assert.match(aggregate, /^    needs: \[changes, ui-system-build, ui-system-browser, ui-system-server, site-demo-engines\]$/m)
   assert.match(aggregate, /^    if: always\(\) && \(github\.event_name != 'pull_request' \|\| github\.event\.action != 'labeled' \|\| github\.event\.label\.name == 'full-ci'\)$/m)
   assert.match(aggregate, /SHARDS_RESULT: \$\{\{ needs.ui-system-browser.result \}\}/)
   assert.match(job('ui-system-browser'), /- uses: actions\/upload-artifact@\S+\n        if: failure\(\) \|\| cancelled\(\)\n        with:\n          name: ui-system-browser-report-\$\{\{ matrix.shard \}\}/)
@@ -72,6 +72,7 @@ for (const [name, artifact, path] of [
   ['ui-system-browser', 'ui-system-browser-report-${{ matrix.shard }}', 'output/playwright/ui-system/'],
   ['ui-system-server', 'ui-system-server-report', 'output/playwright/ui-system/'],
   ['ui-system-native', 'ui-system-native-report', 'output/native-ui-system/'],
+  ['site-demo-engines', 'site-demo-engines-report', 'output/playwright/site-demo-engines/'],
 ]) {
   test(`${name} uploads only failed or cancelled diagnostics for three days`, () => {
     const uploads = [...job(name).matchAll(/      - uses: actions\/upload-artifact@\S+\n([\s\S]*?)(?=^      -|$(?![\s\S]))/gm)]
@@ -90,8 +91,8 @@ test('unsigned packaging proves the app builds without retaining an unused bundl
   assert.match(packaging, /name: Build app bundle/)
   assert.match(packaging, /electron-builder --mac dir/)
   assert.doesNotMatch(packaging, /actions\/upload-artifact@|HarnessDesk-unsigned/)
-  // Diagnostics of the three heavy jobs, the two that carry a full run’s records to the map, the Node tests’ measured seconds and the tree proof.
-  assert.equal([...workflow.matchAll(/uses: actions\/upload-artifact@/g)].length, 9)
+  // Failure diagnostics, the full-run records, Node test timings and tree proof.
+  assert.equal([...workflow.matchAll(/uses: actions\/upload-artifact@/g)].length, 10)
 })
 
 // Execute the workflow's actual shell, so the required checks cannot report
@@ -99,7 +100,7 @@ test('unsigned packaging proves the app builds without retaining an unused bundl
 const runAggregate = (name, env) => {
   const block = job(name).match(/        run: \|\n([\s\S]*?)(?=^      -|$(?![\s\S]))/m)
   assert.ok(block, `${name} must run a conclusive check`)
-  return spawnSync('bash', ['-e', '-c', block[1]], { encoding: 'utf8', env: { ...process.env, ...env } })
+  return spawnSync('bash', ['-e', '-c', block[1]], { encoding: 'utf8', env: { ...process.env, EVENT_NAME: 'push', CI_TIER: 'bounded', SITE_ENGINES_RESULT: 'skipped', ...env } })
 }
 
 for (const [event, path, expected] of [
@@ -169,7 +170,7 @@ for (const [name, resultKey, flagKey, heavy] of [
 
 test('browser aggregate receives both results and the three-way decision', () => {
   const aggregate = job('ui-system-browser-integration')
-  assert.match(aggregate, /^    needs: \[changes, ui-system-build, ui-system-browser, ui-system-server\]$/m)
+  assert.match(aggregate, /^    needs: \[changes, ui-system-build, ui-system-browser, ui-system-server, site-demo-engines\]$/m)
   assert.match(aggregate, /^    if: always\(\) && \(github\.event_name != 'pull_request' \|\| github\.event\.action != 'labeled' \|\| github\.event\.label\.name == 'full-ci'\)$/m)
   for (const line of [
     'BROWSER: ${{ needs.changes.outputs.browser }}',
@@ -467,5 +468,30 @@ test('a push reads a proof for its own tree, from this repository only, and aski
     assert.match(run('pull_request', 'echo 123').stdout, /proven=$/m, 'a pull request never reads a proof')
   } finally {
     rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('site demo engines run once for every ordinary PR and full tier', () => {
+  const engines = job('site-demo-engines')
+  assert.match(engines, /^    needs: changes$/m)
+  assert.match(engines, /^    if: github\.event_name == 'pull_request' \|\| needs\.changes\.outputs\.tier == 'full'$/m)
+  assert.match(engines, /^    runs-on: ubuntu-latest$/m)
+  assert.doesNotMatch(engines, /matrix:|--shard=/)
+  for (const command of ['pnpm install --frozen-lockfile', 'pnpm run build:node', 'pnpm --filter @harnessdesk/ui build:site-demo', 'pnpm exec playwright install --with-deps firefox webkit', 'pnpm exec playwright test -c playwright.site-demo-engines.config.ts']) assert.ok(engines.includes(command), command)
+  assert.match(engines, /- run: pnpm install --frozen-lockfile\n        timeout-minutes: 10/)
+  assert.match(engines, /- run: pnpm exec playwright install --with-deps firefox webkit\n        timeout-minutes: 10/)
+  assert.match(engines, /^    timeout-minutes: 15$/m)
+  const aggregate = job('ui-system-browser-integration')
+  assert.match(aggregate, /^    needs: \[changes, ui-system-build, ui-system-browser, ui-system-server, site-demo-engines\]$/m)
+  assert.ok(aggregate.includes('SITE_ENGINES_RESULT: ${{ needs.site-demo-engines.result }}'))
+  assert.ok(aggregate.includes('EVENT_NAME: ${{ github.event_name }}'))
+})
+
+test('browser aggregate requires engine success on PRs and full runs, and only skips on bounded non-PR runs', () => {
+  for (const [event, tier, expected] of [['pull_request', 'scoped', 'success'], ['pull_request', 'full', 'success'], ['push', 'full', 'success'], ['workflow_dispatch', 'full', 'success'], ['push', 'bounded', 'skipped']]) {
+    for (const result of ['success', 'failure', 'cancelled', 'skipped', '']) {
+      const output = runAggregate('ui-system-browser-integration', { EVENT_NAME: event, CI_TIER: tier, SITE_ENGINES_RESULT: result, CHANGES_RESULT: 'success', BROWSER: 'none', SHARDS_RESULT: 'skipped', SERVER_RESULT: 'skipped', BUILD_RESULT: 'skipped' })
+      assert.equal(output.status, result === expected ? 0 : 1, `${event}/${tier}/${result}: ${output.stdout} ${output.stderr}`)
+    }
   }
 })
