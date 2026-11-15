@@ -559,6 +559,11 @@ rl.on('line', (line) => {
       send({ type: 'control_response', response: { subtype: 'success', request_id, response } })
     const refuse = (error) => send({ type: 'control_response', response: { subtype: 'error', request_id, error } })
     switch (request.subtype) {
+      case 'get_usage':
+        log(`usage-skip-behaviors ${request.skip_behaviors}`)
+        if (process.env.FAKE_CLAUDE_USAGE_ERROR) return refuse(process.env.FAKE_CLAUDE_USAGE_ERROR)
+        respond(JSON.parse(process.env.FAKE_CLAUDE_USAGE ?? '{"rate_limits_available":false,"rate_limits":null}'))
+        return
       case 'get_context_usage':
         log(`context-detail ${request.detail}`)
         if (request.detail !== 'summary') return refuse('Only summary detail is permitted in this fixture.')
@@ -575,7 +580,7 @@ rl.on('line', (line) => {
           output_style: outputStyle,
           available_output_styles: ['default', 'Explanatory', 'Concise'],
           models: MODELS,
-          account: { email: 'fake@example.com', subscriptionType: 'fake' },
+          account: JSON.parse(process.env.FAKE_CLAUDE_ACCOUNT ?? '{"email":"fake@example.com","subscriptionType":"fake"}'),
         })
         return
       case 'stop_task':

@@ -77,6 +77,21 @@ const strip = (over: Partial<StripInput> = {}) =>
 const six = ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => runtime(id, `Agent ${id.toUpperCase()}`))
 
 describe('the anchor', () => {
+  it('does not present a ten-day-old full allowance as current', () => {
+    const old = at('a', 100, { fetchedAt: NOON - 10 * 24 * HOUR })
+    const view = strip({ runtimes: six, usage: [old], activeRuntime: runtimeId('a') })
+    const meter = view.anchor?.kind === 'meter' ? view.anchor.meter : null
+    expect(meter?.figure).toBe('—')
+    expect(meter?.unread).toBe(true)
+    expect(view.rest?.leastLeft ?? null).toBeNull()
+  })
+
+  it('invalidates an allowance when its reset passes, without assuming it refilled', () => {
+    const oldCycle = report('a', [lane({ id: 'weekly', usedPercent: 0, resetsAt: NOON - 1 })])
+    const view = strip({ runtimes: six, usage: [oldCycle], activeRuntime: runtimeId('a') })
+    expect(view.anchor?.kind === 'meter' && view.anchor.meter.figure).toBe('—')
+  })
+
   it('is the conversation own agent, not the one in the most trouble', () => {
     const view = strip({
       runtimes: six,

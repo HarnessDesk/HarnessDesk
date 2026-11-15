@@ -432,6 +432,7 @@ export const Submenu = ({
   icons: childIcons = 'none',
   wide = true,
   children,
+  onOpenChange,
 }: {
   icon?: ReactNode
   label: ReactNode
@@ -445,6 +446,7 @@ export const Submenu = ({
   icons?: MenuIcons
   wide?: boolean
   children: ReactNode
+  onOpenChange?: (open: boolean) => void
 }) => {
   const reason = typeof disabled === 'string' ? disabled : undefined
   const data = { icon, label, hint: reason ?? hint, trailing: <>{value}<ChevronIcon size={16} /></> }
@@ -523,6 +525,7 @@ export const Submenu = ({
     <DropdownMenuSub
       onOpenChange={(next, details) => {
         setOpen(next)
+        onOpenChange?.(next)
         closedBy.current = next ? null : details.reason
         stepIn.current = next && details.reason === 'list-navigation'
         if (!next && details.reason === 'escape-key') {

@@ -1,4 +1,4 @@
-import type { AccountStatus, RuntimeHealth, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
+import { usageIsFresh, type AccountStatus, type RuntimeHealth, type RuntimeId, type RuntimeInfo, type UsageReport } from '@harnessdesk/protocol'
 
 import type { Tone } from './limits'
 import { prefsForUsage, shownAccountLabel, type AccountPrefsMap } from './accounts'
@@ -140,7 +140,7 @@ const meterFor = (
   // A 34px bar has no room for "as of 25 minutes ago", so the strip decides nothing on them: it neither counts nor
   // promotes the account as out, and says no figure or Back time from the kept lane.
   const standing = usageStandingOf(report, now)
-  const unread = standing.status === 'unknown' || report.error !== null
+  const unread = standing.status === 'unknown' || report.error !== null || !usageIsFresh(report, now)
   // The balance decided (the source hit its credits): the healthy window beside it is no figure to show.
   const onCredits = !unread && standing.lane === null && (standing.status === 'out' || standing.status === 'overdrawn')
   const spent = !unread && !onCredits && lane.remainingPercent <= 0
@@ -231,7 +231,7 @@ const entryFor = (info: RuntimeInfo, input: StripInput): Entry => {
     .filter((meter): meter is StripMeter => meter !== null)
   // The account that decides, not the first one that happened to arrive — and one whose read failed only when no
   // account has a current reading: a cached 90% is not a reason to stand in front of a live 40%.
-  const live = reports.filter((report) => report.error === null && usageStandingOf(report, input.now).status !== 'unknown')
+  const live = reports.filter((report) => report.error === null && usageIsFresh(report, input.now) && usageStandingOf(report, input.now).status !== 'unknown')
   const decided = workingAccount(live.length > 0 ? live : reports, preferenceFor)
   const meter =
     meters.find((entry) => entry.report === decided) ?? meters.find((entry) => !entry.unread) ?? meters[0] ?? null

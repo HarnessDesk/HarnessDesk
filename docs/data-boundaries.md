@@ -420,6 +420,14 @@ last good copy, or nothing, in its place.
   that agent finishes a turn and when the last one has gone stale; an agent
   with no credential to read is asked nothing. Removing the agent stops it.
   (`packages/server/src/usage/`)
+- **Claude Code's structured usage.** When a visible usage surface asks, or a completed turn invalidates the
+  reading, the host can ask an already-running Claude Code query for the structured data behind `/usage`,
+  with its transcript scan disabled. Claude Code owns any vendor quota request and credential use; the desk
+  starts no conversation and copies no token. The bridge limits reads to one a minute and backs failures off
+  to fifteen minutes, with an eight-second deadline. It verifies account, figures and observation time against
+  the CLI-owned local cache because the control can return old data after a failed request. No live query means
+  file fallback only; a provider/key query without subscription quota cannot borrow the global OAuth cache.
+  (`packages/claude-acp/src/usage.ts`)
 - **A skill from a repository.** Adding or previewing a skill from a GitHub
   address fetches that one repository over HTTPS with `git`, anonymously —
   your credential helpers and `.netrc` are cut off — within 64 MB and 60

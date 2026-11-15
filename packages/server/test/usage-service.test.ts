@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { tempDir } from './scratch.js'
 
 import { isSilentUsage, runtimeId, trackedUsage, type AgentRuntime, type RuntimeId, type SpendSummary, type UsageReport } from '@harnessdesk/protocol'
 
@@ -18,6 +21,198 @@ import { LedgerStore } from '../src/ledger/store.js'
 
 const METERED = runtimeId('metered')
 const SILENT = runtimeId('silent')
+
+test('file-only reads push changed observations, not identical rewrites', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let used = 99
+  const pushed: UsageReport[] = []
+  const usage = new UsageService({ runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, { ...meter, read: async () => ({ ...(await meter.read())!, fetchedAt: 100_000,
+      lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: used, windowMinutes: 10_080, resetsAt: null }] }) }]]),
+    now: () => 110_000, onReport: report => pushed.push(report) })
+  t.after(() => usage.dispose())
+  await usage.reports()
+  for (const value of [99, 99, 100]) {
+    used = value
+    usage.invalidate(METERED, 'file')
+    t.mock.timers.tick(150)
+    await new Promise(resolve => setImmediate(resolve))
+  }
+  assert.deepEqual(pushed.map(report => report.lanes[0]?.usedPercent), [99, 100])
+})
+
+test('legacy limits prefer a newer fresh observation for the same account', async t => {
+  let live = false
+  const agent = { ...runtime(METERED), getRateLimits: async () => live ? {
+    lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 0, windowMinutes: 10_080, resetsAt: null }],
+    account: 'someone@example.com', fetchedAt: 0,
+  } : null }
+  const usage = new UsageService({ runtimes: () => [agent],
+    meters: new Map([[METERED, { ...meter, read: async () => ({ ...(await meter.read())!, fetchedAt: 100_000 }) }]]),
+    now: () => 110_000, onReport: () => {} })
+  t.after(() => usage.dispose())
+  await usage.reports()
+  live = true
+  assert.equal((await usage.limitsFor(agent))?.lanes?.[0]?.usedPercent, 40)
+  assert.equal((await usage.limitsFor(agent))?.fetchedAt, 100_000)
+  const different = { ...agent, getRateLimits: async () => ({ ...(await agent.getRateLimits())!, account: 'other@example.com' }) }
+  assert.equal((await usage.limitsFor(different))?.account, 'other@example.com', 'never borrow a different account')
+})
+
+test('rechecking an old source does not cause unbounded reads or change its observation time', async t => {
+  let now = 10 * 86_400_000
+  let reads = 0
+  const usage = new UsageService({ runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, { ...meter, read: async () => { reads++; return { ...(await meter.read())!, fetchedAt: 1 } } }]]),
+    now: () => now, onReport: () => {} })
+  t.after(() => usage.dispose())
+  await usage.reports()
+  await Promise.all(Array.from({ length: 10 }, () => usage.reports()))
+  assert.equal(reads, 1, 'source age and next permitted read are separate clocks')
+  assert.equal(usage.cached(METERED)?.fetchedAt, 1)
+  now += 66_000
+  await usage.reports()
+  assert.equal(reads, 2)
+})
+
+test('automatic reads back off on failure and explicit refresh may retry', async t => {
+  let now = 1_000_000
+  let reads = 0
+  const usage = new UsageService({ runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, { ...meter, read: async () => { reads++; throw new Error('offline') } }]]),
+    now: () => now, onReport: () => {} })
+  t.after(() => usage.dispose())
+  await usage.reports()
+  await usage.reports()
+  assert.equal(reads, 1, 'a failed first reading also has a retry budget')
+  now += 66_000
+  await usage.reports()
+  assert.equal(reads, 2)
+  now += 66_000
+  await usage.reports()
+  assert.equal(reads, 2, 'the second failure lengthens the cooldown')
+  await usage.refresh(METERED)
+  assert.equal(reads, 3)
+})
+
+test('changed credentials recover a sign-in failure within the floor rather than the escalated backoff', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let now = 1_000_000, reads = 0, signedIn = false
+  const usage = new UsageService({ runtimes: () => [runtime(METERED)], meters: new Map([[METERED, {
+    ...meter, source: { kind: 'api', label: 'from a fixture' }, read: async () => {
+      reads++
+      if (!signedIn) throw new MeterAuthError('sign in required')
+      return { ...(await meter.read())!, fetchedAt: now }
+    },
+  }]]), now: () => now, onReport: () => {} })
+  t.after(() => usage.dispose())
+  for (let index = 0; index < 5; index++) await usage.refresh()
+  assert.equal(reads, 5)
+  signedIn = true
+  now += 10_000
+  for (let index = 0; index < 20; index++) usage.invalidate(METERED, 'file')
+  t.mock.timers.tick(150)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(reads, 5, 'credential rewrite bursts cannot bypass the one-minute floor')
+  now += 50_000
+  t.mock.timers.tick(50_000)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(reads, 6, 'a new login need not wait for the fifteen-minute failure cap')
+  assert.equal(usage.cached(METERED)?.error, null)
+})
+
+for (const fallbackAt of [1_000, 100_000]) test(`a fallback at ${fallbackAt} cannot hide a failed live refresh`, async t => {
+  let fails = false
+  const agent = { ...runtime(METERED), info: { ...runtime(METERED).info, capabilities: { metered: true } },
+    getAccount: async () => ({ accounts: [{ kind: 'oauth', label: 'someone@example.com' }], signInMethods: [] }),
+    getRateLimits: async () => {
+      if (fails) throw new Error('offline')
+      return { lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 99, resetsAt: null, windowMinutes: 10_080 }], fetchedAt: 100_000, staleAfterMs: 60_000 }
+    } } as unknown as AgentRuntime
+  const fallback = { ...meter, read: async () => ({ ...(await meter.read())!, fetchedAt: fallbackAt }) }
+  const usage = new UsageService({ runtimes: () => [agent], meters: new Map([[METERED, fallback]]), now: () => 110_000, onReport: () => {} })
+  t.after(() => usage.dispose())
+  assert.equal((await usage.refresh())[0]?.fetchedAt, 100_000)
+  fails = true
+  const report = (await usage.refresh())[0]!
+  assert.equal(report.lanes[0]?.usedPercent, 99)
+  assert.equal(report.fetchedAt, 100_000)
+  assert.ok(report.error, 'a successful read of an old file does not hide the failed refresh')
+})
+
+test('activity during an in-flight read gets a trailing read after the cooldown', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let now = 1_000_000, used = 0, reads = 0
+  let resume!: () => void
+  const held = new Promise<void>(resolve => { resume = resolve })
+  const agent = { ...runtime(METERED), getAccount: async () => { await held; return { accounts: [], signInMethods: [] } } }
+  const usage = new UsageService({ runtimes: () => [agent], meters: new Map([[METERED,
+    { ...meter, read: async () => { reads++; return { ...(await meter.read())!, account: null, fetchedAt: 1,
+      lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: used, windowMinutes: 10_080, resetsAt: null }] } } }]]),
+    now: () => now, onReport: () => {} })
+  t.after(() => usage.dispose())
+  const first = usage.reports()
+  await new Promise(resolve => setImmediate(resolve))
+  used = 99
+  usage.invalidate(METERED)
+  t.mock.timers.tick(150)
+  resume()
+  await first
+  now += 60_000
+  t.mock.timers.tick(60_000)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(reads, 2)
+  assert.equal(usage.cached(METERED)?.lanes[0]?.usedPercent, 99)
+})
+
+test('an effective credential without plan limits does not borrow the global OAuth cache', async t => {
+  let reads = 0
+  const agent = { ...runtime(METERED), info: { ...runtime(METERED).info, capabilities: { metered: true } },
+    getRateLimits: async () => ({ lanes: [], planLimitsUnavailable: true }) } as unknown as AgentRuntime
+  const usage = new UsageService({ runtimes: () => [agent],
+    meters: new Map([[METERED, { ...meter, read: async () => { reads++; return meter.read() } }]]), onReport: () => {} })
+  t.after(() => usage.dispose())
+  assert.deepEqual(await usage.refresh(), [])
+  assert.equal(reads, 0)
+})
+
+test('a later runtime check with no live query retires an earlier no-plan exclusion', async t => {
+  let noPlan = true
+  const agent = { ...runtime(METERED), info: { ...runtime(METERED).info, capabilities: { metered: true } },
+    getRateLimits: async () => noPlan ? { lanes: [], planLimitsUnavailable: true } : null } as unknown as AgentRuntime
+  const usage = new UsageService({ runtimes: () => [agent], meters: new Map([[METERED, meter]]), onReport: () => {} })
+  t.after(() => usage.dispose())
+  assert.deepEqual(await usage.refresh(), [])
+  noPlan = false
+  assert.equal((await usage.refresh())[0]?.lanes[0]?.usedPercent, 40)
+})
+
+test('a live read writing its own watched cache cannot start a perpetual API refresh loop', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const path = join(tempDir('usage-self-write-'), 'cache.json')
+  writeFileSync(path, '{}')
+  let now = 1_000_000, liveReads = 0, fileReads = 0
+  const agent = { ...runtime(METERED), info: { ...runtime(METERED).info, capabilities: { metered: true } },
+    getRateLimits: async () => { liveReads++; writeFileSync(path, JSON.stringify({ at: now }));
+      return { lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 99, windowMinutes: 10_080, resetsAt: null }], fetchedAt: now } } } as unknown as AgentRuntime
+  const usage = new UsageService({ runtimes: () => [agent], meters: new Map([[METERED,
+    { ...meter, watchPaths: () => [path], read: async () => { fileReads++; return meter.read() } }]]), now: () => now, onReport: () => {} })
+  t.after(() => usage.dispose())
+  await usage.reports()
+  await new Promise(resolve => setImmediate(resolve))
+  await new Promise(resolve => setImmediate(resolve))
+  // Replay the observed file-change boundary explicitly: native fs.watch scheduling varies by platform.
+  usage.invalidate(METERED, 'file')
+  now += 61_000
+  t.mock.timers.tick(61_000)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(liveReads, 1, 'the file event ingests an observation rather than calling its producer again')
+  assert.ok(fileReads > 0)
+  now += 61_000
+  t.mock.timers.tick(61_000)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(liveReads, 1, 'ingestion does not leave another live refresh scheduled')
+})
 
 test('usage carries adapter plan presentation beside its raw type', async () => {
   const agent = runtime(METERED)

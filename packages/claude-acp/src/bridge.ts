@@ -48,6 +48,7 @@ import {
 
 import { SESSION_SOURCE, SESSION_SOURCE_CAPABILITY } from './session-source-wire.js'
 import { SESSION_LOADOUT, SESSION_LOADOUT_CAPABILITY } from './loadout-wire.js'
+import { USAGE_READ, USAGE_CAPABILITY, UsageReader } from './usage.js'
 
 // Public ACP extension contracts advertised by the upstream initialize reply.
 // Keep the host-owned idle fallback: a steer never starts an untracked prompt.
@@ -777,6 +778,7 @@ const rereadReplayed = (params: SessionNotification, loading: LoadReplay): Sessi
 }
 
 export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
+  readonly #usageReader = new UsageReader()
   readonly #controls = new Map<string, StoredControlsWithRuntime>()
   readonly #rawToolResults = new Map<string, Map<string, RawToolResult>>()
   readonly #tasks = new Map<string, TaskRegistry>()
@@ -901,6 +903,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
           [SESSION_SOURCE_CAPABILITY]: true,
           [SESSION_LOADOUT_CAPABILITY]: true,
           [TASKS_CAPABILITY]: true,
+          [USAGE_CAPABILITY]: true,
           [SESSION_DELETE_CAPABILITY]: 'trash',
           readableHistory: true,
           [DELEGATION_CAPABILITY]: true,
@@ -1124,6 +1127,10 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     }
   }
   async extMethod(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (method === USAGE_READ) {
+      // Reuse a live query only. A usage menu never starts a model conversation.
+      return { limits: await this.#usageReader.read(Object.values(this.sessions).flatMap(session => session.query && !session.queryClosed ? [session.query] : [])) }
+    }
     if (method === SESSION_LOADOUT) {
       const sessionId = typeof params['sessionId'] === 'string' ? params['sessionId'] : ''
       if (!sessionId || !Object.hasOwn(this.sessions, sessionId)) throw RequestError.invalidParams('A known session id is required.')
@@ -1343,6 +1350,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       .onRequest(SESSION_LOADOUT, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(SESSION_LOADOUT, ctx.params))
       .onRequest(SESSION_DELETE, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(SESSION_DELETE, ctx.params))
       .onRequest(TASKS_LIST, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(TASKS_LIST, ctx.params))
+      .onRequest(USAGE_READ, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(USAGE_READ, ctx.params))
       .onRequest(TASKS_STOP, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(TASKS_STOP, ctx.params))
       .onRequest(TASKS_CLEAR, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(TASKS_CLEAR, ctx.params))
       .onRequest(DELEGATION_LIST, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(DELEGATION_LIST, ctx.params))

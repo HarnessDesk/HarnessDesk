@@ -22,7 +22,7 @@ const setup = () => {
   </TopBarProvider></StoreProvider>))
   return {node,store,draw,ledger,loadUsage,refreshUsage,readUsageInsight}
 }
-it('pauses clock, usage refresh and corpus reads while hidden, then resumes once',async()=>{
+it('pauses clock, usage cache and corpus reads while hidden, then resumes without forcing a refresh',async()=>{
   vi.useFakeTimers()
   const fixture=setup()
   await fixture.draw(false)
@@ -37,7 +37,10 @@ it('pauses clock, usage refresh and corpus reads while hidden, then resumes once
   await fixture.draw(true)
   expect(fixture.ledger).toHaveBeenCalledTimes(6);expect(fixture.loadUsage).toHaveBeenCalledTimes(2)
   await act(async()=>vi.advanceTimersByTime(120_000))
-  expect(fixture.refreshUsage).toHaveBeenCalledTimes(1)
+  expect(fixture.loadUsage).toHaveBeenCalledTimes(3)
+  await act(async()=>window.dispatchEvent(new Event('focus')))
+  expect(fixture.loadUsage).toHaveBeenCalledTimes(4)
+  expect(fixture.refreshUsage).not.toHaveBeenCalled()
 })
 it('keeps an unavailable scope identifiable and sends its identity to every read',async()=>{
   const fixture=setup(), scope=runtimeId('missing-account')

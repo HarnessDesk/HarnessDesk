@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 import type { UsageLane } from '@harnessdesk/protocol'
 
-import { DEFAULT_STALE_AFTER_MS, WINDOW_MINUTES, type MeterReading, type UsageMeter } from './meter.js'
+import { WINDOW_MINUTES, type MeterReading, type UsageMeter } from './meter.js'
 
 /**
  * The agent's own cache, read where it already sits.
@@ -22,7 +22,7 @@ import { DEFAULT_STALE_AFTER_MS, WINDOW_MINUTES, type MeterReading, type UsageMe
 
 interface RawScope {
   readonly model?: { readonly id?: string | null; readonly display_name?: string | null } | null
-  readonly surface?: string | null
+  readonly surface?: string | { readonly id?: string | null; readonly display_name?: string | null } | null
 }
 
 interface RawLimit {
@@ -51,6 +51,7 @@ interface RawExtraUsage {
 
 interface RawFile {
   readonly cachedUsageUtilization?: {
+    readonly accountUuid?: string
     readonly fetchedAtMs?: number
     readonly utilization?: {
       readonly limits?: readonly RawLimit[]
@@ -60,6 +61,7 @@ interface RawFile {
     } | null
   } | null
   readonly oauthAccount?: {
+    readonly accountUuid?: string
     readonly emailAddress?: string | null
     readonly organizationRateLimitTier?: string | null
     readonly organizationType?: string | null
@@ -103,12 +105,18 @@ const slug = (value: string): string =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
 
+const scopeName = (scope: RawScope | null | undefined): string | null => {
+  const surface = scope?.surface
+  return scope?.model?.display_name ?? scope?.model?.id ??
+    (typeof surface === 'string' ? surface : surface?.display_name ?? surface?.id) ?? null
+}
+
 /**
  * A lane id has to survive a refresh, and two model-scoped weeklies differ only
  * by their scope — so the scope is part of the id rather than a display detail.
  */
 const idFor = (limit: RawLimit, index: number): string => {
-  const scope = limit.scope?.model?.display_name ?? limit.scope?.model?.id ?? limit.scope?.surface
+  const scope = scopeName(limit.scope)
   const base = limit.kind ?? limit.group ?? `lane-${index}`
   return scope ? `${base}:${slug(scope)}` : base
 }
@@ -154,14 +162,15 @@ export class ClaudeFileMeter implements UsageMeter {
     }
 
     const cached = file.cachedUsageUtilization
+    if (cached?.accountUuid && file.oauthAccount?.accountUuid && cached.accountUuid !== file.oauthAccount.accountUuid) return null
     const utilization = cached?.utilization
     if (!utilization) return null
 
     const lanes: UsageLane[] = []
     const limits = Array.isArray(utilization.limits) ? utilization.limits : []
     for (const [index, limit] of limits.entries()) {
-      if (typeof limit.percent !== 'number') continue
-      const scope = limit.scope?.model?.display_name ?? limit.scope?.surface ?? null
+      if (limit.is_active === false || typeof limit.percent !== 'number' || !Number.isFinite(limit.percent)) continue
+      const scope = scopeName(limit.scope)
       lanes.push({
         id: idFor(limit, index),
         label: labelFor(limit.kind, limit.group),
@@ -175,7 +184,7 @@ export class ClaudeFileMeter implements UsageMeter {
 
     // Older builds wrote only the two named windows. Used as a fallback rather
     // than a supplement, so one release cannot report a lane twice.
-    if (lanes.length === 0) {
+    if (lanes.length === 0 && limits.length === 0) {
       const named: readonly [string, string, number, RawWindow | null | undefined][] = [
         ['session', 'Session', WINDOW_MINUTES.session, utilization.five_hour],
         ['weekly', 'Weekly', WINDOW_MINUTES.weekly, utilization.seven_day],
@@ -230,10 +239,10 @@ export class ClaudeFileMeter implements UsageMeter {
       // actually turned it on.
       billing: { kinds: credits ? ['windows', 'metered'] : ['windows'] },
       fetchedAt:
-        typeof cached?.fetchedAtMs === 'number' && cached.fetchedAtMs > 0
+        typeof cached?.fetchedAtMs === 'number' && Number.isFinite(cached.fetchedAtMs) && cached.fetchedAtMs > 0
           ? cached.fetchedAtMs
-          : Date.now(),
-      staleAfterMs: DEFAULT_STALE_AFTER_MS,
+          : 0,
+      staleAfterMs: 120_000,
     }
   }
 }

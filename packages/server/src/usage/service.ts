@@ -1,8 +1,11 @@
 import { watch, type FSWatcher } from 'node:fs'
+import { basename, dirname } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 
 import {
   bindingLane,
   hasReading,
+  usageIsFresh,
   type AgentRuntime,
   type AccountActivity,
   type RateLimits,
@@ -114,6 +117,15 @@ export class UsageService {
   /** The agents a read has finished for since this service started, whether or not anything answered. */
   readonly #asked = new Set<RuntimeId>()
   readonly #watchers: FSWatcher[] = []
+  readonly #nextRead = new Map<RuntimeId, number>()
+  readonly #lastRead = new Map<RuntimeId, number>()
+  readonly #credentialChanges = new Set<RuntimeId>()
+  readonly #failures = new Map<RuntimeId, number>()
+  readonly #readFailed = new Set<RuntimeId>()
+  readonly #meterDenied = new Set<RuntimeId>()
+  readonly #invalidations = new Map<RuntimeId, ReturnType<typeof setTimeout>>()
+  /** true: ingest the file only; false: activity also asks the live source. Activity wins when coalesced. */
+  readonly #dirty = new Map<RuntimeId, boolean>()
   #disposed = false
 
   constructor(options: UsageServiceOptions) {
@@ -153,8 +165,13 @@ export class UsageService {
    */
   async limitsFor(runtime: AgentRuntime): Promise<RateLimits | null> {
     const own = await runtime.getRateLimits().catch(() => null)
-    if (own && (own.lanes?.length || own.windows?.length)) return own
-    const report = await this.#reportFor(runtime, false)
+    if (own?.planLimitsUnavailable) return own
+    const cached = this.#cache.get(runtime.info.id)
+    const newer = own?.fetchedAt !== undefined && cached && own.account !== undefined &&
+      (own.account ?? '') === (cached.account ?? '') && !cached.error && usageIsFresh(cached, this.#now()) &&
+      (!Number.isFinite(own.fetchedAt) || own.fetchedAt < cached.fetchedAt) ? cached : null
+    if (!newer && own && (own.lanes?.length || own.windows?.length)) return own
+    const report = newer ?? await this.#reportFor(runtime, false)
     if (!report || report.lanes.length === 0) return own
     return {
       planType: report.plan,
@@ -171,6 +188,9 @@ export class UsageService {
         ? { hasCredits: true, balance: report.credits.remaining, unlimited: report.credits.unlimited === true }
         : {}),
       source: report.source,
+      fetchedAt: report.fetchedAt,
+      staleAfterMs: report.staleAfterMs,
+      account: report.account,
     }
   }
 
@@ -193,7 +213,7 @@ export class UsageService {
    * fee/budget, when the host supplies one) is applied exactly once and
    * never skipped on one path while another remembers it.
    */
-  async #finish(id: RuntimeId, report: UsageReport): Promise<UsageReport> {
+  async #finish(id: RuntimeId, report: UsageReport, deduplicate = false): Promise<UsageReport> {
     let complete = report
     const balances = this.#options.balances
     if (balances) {
@@ -227,6 +247,7 @@ export class UsageService {
     }
     const overlaid = this.#options.overlay ? await this.#options.overlay(complete) : complete
     const previous = this.#cache.get(id)
+    if (deduplicate && previous && isDeepStrictEqual(previous, overlaid)) return previous
     this.#cache.set(id, overlaid)
     if (!this.#disposed) {
       // Silence may still earn a ledger-only report with no signed-in account.
@@ -268,21 +289,84 @@ export class UsageService {
     this.#disposed = true
     for (const watcher of this.#watchers) watcher.close()
     this.#watchers.length = 0
+    for (const timer of this.#invalidations.values()) clearTimeout(timer)
+    this.#invalidations.clear()
+    this.#dirty.clear()
+    this.#credentialChanges.clear()
   }
 
-  async #reportFor(runtime: AgentRuntime, force: boolean): Promise<UsageReport | null> {
+  /** Activity invalidates one source; bursts share a trailing read within its retry budget. */
+  invalidate(id: RuntimeId, source: 'activity' | 'file' = 'activity'): void {
+    if (this.#disposed) return
+    // Only a local file meter is an observation to ingest. A credential-file change for an HTTP/CLI meter
+    // still asks its producer and must respect the network/process floor. New sign-in evidence
+    // can shorten an authentication failure's backoff without allowing rewrite storms to bypass it.
+    const fileOnly = source === 'file' && this.#options.meters.get(id)?.source.kind === 'file'
+    if (source === 'file' && !fileOnly && this.#cache.get(id)?.error?.needsSignIn && !this.#credentialChanges.has(id)) {
+      this.#credentialChanges.add(id)
+      const pending = this.#invalidations.get(id)
+      if (pending) { clearTimeout(pending); this.#invalidations.delete(id) }
+    }
+    this.#dirty.set(id, (this.#dirty.get(id) ?? true) && fileOnly)
+    this.#scheduleInvalidation(id)
+  }
+
+  #permittedRead(id: RuntimeId): number {
+    const next = this.#nextRead.get(id) ?? 0
+    return this.#credentialChanges.has(id) && this.#cache.get(id)?.error?.needsSignIn
+      ? Math.min(next, (this.#lastRead.get(id) ?? this.#now()) + 60_000) : next
+  }
+
+  #scheduleInvalidation(id: RuntimeId): void {
+    if (this.#disposed || !this.#dirty.has(id)) return
+    if (this.#invalidations.has(id)) return
+    const fileOnly = this.#dirty.get(id) === true
+    const delay = fileOnly ? 150 : Math.max(150, this.#permittedRead(id) - this.#now())
+    const timer = setTimeout(() => {
+      this.#invalidations.delete(id)
+      const runtime = this.#options.runtimes().find(entry => entry.info.id === id)
+      const fromFile = this.#dirty.get(id) === true
+      if (!fromFile && this.#now() < this.#permittedRead(id)) { this.#scheduleInvalidation(id); return }
+      if (runtime && !this.#disposed) void this.#reportFor(runtime, false, true, fromFile).catch(() => undefined)
+      else this.#dirty.delete(id)
+    }, delay)
+    timer.unref()
+    this.#invalidations.set(id, timer)
+  }
+
+  async #reportFor(runtime: AgentRuntime, force: boolean, invalidated = false, fileOnly = false): Promise<UsageReport | null> {
     const id = runtime.info.id
     const cached = this.#cache.get(id)
-    if (!force && cached && this.#now() - cached.fetchedAt < cached.staleAfterMs) return cached
     const running = this.#inFlight.get(id)
     if (running) return running
+    if (!force && !fileOnly && this.#now() < this.#permittedRead(id)) return cached ?? null
+    if (!force && !invalidated && cached && !cached.error && usageIsFresh(cached, this.#now())) return cached
+    this.#dirty.delete(id)
+    if (!fileOnly) this.#credentialChanges.delete(id)
+    const pending = this.#invalidations.get(id)
+    if (pending) { clearTimeout(pending); this.#invalidations.delete(id) }
 
     // A read that throws past the runtime's own guards is that agent's failure, never every agent's: `reports()`
     // gathers with Promise.all, and one rejection there left the screen with no readings and nothing asked.
-    const work = this.#build(runtime)
+    this.#readFailed.delete(id)
+    const work = this.#build(runtime, fileOnly)
       .catch((cause: unknown) => this.#failed(id, cause))
-      .then((report) => { this.#asked.add(id); return report })
-      .finally(() => this.#inFlight.delete(id))
+      .then((report) => {
+        if (!fileOnly) {
+          this.#lastRead.set(id, this.#now())
+          const failed = Boolean(report?.error) || this.#readFailed.has(id)
+          const failures = failed ? (this.#failures.get(id) ?? 0) + 1 : 0
+          this.#failures.set(id, failures)
+          const cooldown = Math.min(15 * 60_000, 60_000 * 2 ** Math.min(Math.max(0, failures - 1), 4))
+          this.#nextRead.set(id, this.#now() + Math.min(15 * 60_000, cooldown * (failed ? 1 + Math.random() * 0.1 : 1)))
+        }
+        this.#asked.add(id)
+        return report
+      })
+      .finally(() => {
+        this.#inFlight.delete(id)
+        if (this.#dirty.has(id)) this.#scheduleInvalidation(id)
+      })
     this.#inFlight.set(id, work)
     return work
   }
@@ -313,7 +397,7 @@ export class UsageService {
     return report
   }
 
-  async #build(runtime: AgentRuntime): Promise<UsageReport | null> {
+  async #build(runtime: AgentRuntime, fileOnly = false): Promise<UsageReport | null> {
     const id = runtime.info.id
     const meter = this.#options.meters.get(id) ?? null
     const spend = this.#options.spend?.spendFor(id) ?? null
@@ -339,9 +423,10 @@ export class UsageService {
     let accountActivity: AccountActivity | undefined
     // Another sign-in's source failing, kept apart from the agent's own error.
     let unverifiedFailure: string | null = null
+    let meterAllowed = !this.#meterDenied.has(id)
 
     // The runtime first: it is the only source that can be live.
-    if (runtime.info.capabilities.metered || runtime.getAccountActivity) {
+    if (!fileOnly && (runtime.info.capabilities.metered || runtime.getAccountActivity)) {
       const [limitsResult, activityResult] = await Promise.all([
         runtime.info.capabilities.metered
           ? Promise.resolve().then(() => runtime.getRateLimits())
@@ -353,11 +438,19 @@ export class UsageService {
           : Promise.resolve({ activity: null }),
       ])
       if ('error' in limitsResult) {
+        this.#readFailed.add(id)
         const cause = limitsResult.error
         error = { message: cause instanceof Error ? cause.message : String(cause), ...(signInStands ? { needsSignIn: true } : {}) }
       } else {
         const limits = limitsResult.limits
+        // A successful check with no live reading retires old exclusion evidence. File-only ingestion and a
+        // failed check cannot make that judgement; they retain it until the runtime can answer again.
+        if (limits === null) { meterAllowed = true; this.#meterDenied.delete(id) }
         if (limits) {
+          meterAllowed = limits.planLimitsUnavailable !== true
+          if (meterAllowed) this.#meterDenied.delete(id)
+          else this.#meterDenied.add(id)
+          if (limits.account !== undefined) account = limits.account
           lanes = lanesFrom(limits)
           plan = limits.planType ?? null
           planLabel = limits.planLabel ?? null
@@ -365,8 +458,11 @@ export class UsageService {
           if (limits.unlimited || limits.hasCredits) {
             credits = { remaining: limits.balance ?? null, unit: 'credits', unlimited: limits.unlimited === true }
           }
+          if (limits.credits) credits = limits.credits
           if (limits.source) source = limits.source
           if (limits.billing) billing = limits.billing
+          if (limits.fetchedAt !== undefined) fetchedAt = limits.fetchedAt
+          if (limits.staleAfterMs !== undefined) staleAfterMs = limits.staleAfterMs
         }
       }
       accountActivity = activityResult.activity ?? undefined
@@ -382,7 +478,7 @@ export class UsageService {
     // live figures with a cache.
     let answered = false
     const take = async (candidate: UsageMeter | null): Promise<void> => {
-      if (!candidate || lanes.length > 0) return
+      if (!candidate || !meterAllowed || lanes.length > 0) return
       const read = await this.#readMeter(id, candidate)
       // A meter that fails keeps the reading it had, below — but only one it
       // had. With nothing before it, a failure is still silence rather than a
@@ -405,6 +501,23 @@ export class UsageService {
       const reading = read.reading
       if (!reading) return
       answered = true
+      // Reading an older file is not recovery from a failed live refresh. Keep the newer observation for this
+      // account, including its source clock and the failure; a different account must still replace it.
+      if (previous && kept && reading.unverified === undefined && reading.account === previous.account &&
+          (reading.fetchedAt < previous.fetchedAt || reading.fetchedAt === previous.fetchedAt && (error !== null || previous.error !== null))) {
+        lanes = previous.lanes
+        plan = previous.plan
+        planLabel = previous.planLabel ?? null
+        account = previous.account
+        credits = previous.credits
+        reached = previous.reached
+        billing = previous.billing
+        source = previous.source
+        fetchedAt = previous.fetchedAt
+        staleAfterMs = previous.staleAfterMs
+        error ??= previous.error
+        return
+      }
       source = candidate.source
       fetchedAt = reading.fetchedAt
       staleAfterMs = reading.staleAfterMs
@@ -443,14 +556,14 @@ export class UsageService {
         error,
         unverified: { ...previous.unverified, error: { message: unverifiedFailure } },
       }
-      return this.#finish(id, lastGood)
+      return this.#finish(id, lastGood, fileOnly)
     }
 
     // One provider being down does not blank a card. The last good reading
     // stands with its own age, and the failure is shown beside it.
     if (lanes.length === 0 && !credits && !unverified && error && previous && (kept || previous.unverified)) {
       const lastGood: UsageReport = { ...previous, spend, error }
-      return this.#finish(id, lastGood)
+      return this.#finish(id, lastGood, fileOnly)
     }
 
     if (lanes.length === 0 && !credits && !spend && !error && !unverified && !accountActivity) {
@@ -489,7 +602,7 @@ export class UsageService {
       ...(turns ? { turns } : {}),
       ...(accountActivity ? { accountActivity } : {}),
     }
-    return this.#finish(id, report)
+    return this.#finish(id, report, fileOnly)
   }
 
   /**
@@ -505,6 +618,7 @@ export class UsageService {
     try {
       return { reading: await meter.read() }
     } catch (cause) {
+      this.#readFailed.add(id)
       const failure = cause instanceof Error ? cause.message : String(cause)
       this.#options.log?.('a usage meter failed', { runtime: id, meter: meter.id, error: failure })
       return { failure, ...(cause instanceof MeterAuthError ? { needsSignIn: true } : {}) }
@@ -590,8 +704,11 @@ export class UsageService {
     for (const [runtime, meter] of this.#options.meters) {
       for (const path of meter.watchPaths()) {
         try {
-          const watcher = watch(path, { persistent: false }, () => {
-            void this.refresh(runtime).catch(() => undefined)
+          // Watch the directory so an atomic rename does not strand us on the old inode.
+          const watcher = watch(dirname(path), { persistent: false }, (_event, name) => {
+            // The producer may have written this file in response to our last read. Ingest it without asking
+            // the producer again, or its own cache write creates a permanent network-refresh loop.
+            if (name === null || name.toString() === basename(path)) this.invalidate(runtime, 'file')
           })
           watcher.on('error', () => watcher.close())
           this.#watchers.push(watcher)
