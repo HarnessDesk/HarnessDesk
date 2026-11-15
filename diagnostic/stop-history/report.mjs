@@ -18,7 +18,8 @@ export function sanitizeReport(text, exit) {
   }
   const checks={}
   for(const key of ['recovery','review','persisted','noObservedEffects','flowCancel','flowManualCleanup'])if(record?.checks?.[key]===true)checks[key]=true
-  return {outcome:passed?'passed':'failed',phase,...(Object.keys(checks).length?{checks}:{}),...(Object.keys(readiness).length?{readiness}:{}),...(failurePhase?{failurePhase}:{}),...(reason?{reason}:{}),...(record?.cleanupError===true?{cleanupError:true}:{})}
+  const frameReasons=Array.isArray(record?.frameReasons) ? record.frameReasons.slice(0,5).filter(one=>['privacy_refused','frame_invalid','frame_unavailable'].includes(one)) : []
+  return {outcome:passed?'passed':'failed',phase,...(frameReasons.length?{frameReasons}:{}),...(Object.keys(checks).length?{checks}:{}),...(Object.keys(readiness).length?{readiness}:{}),...(failurePhase?{failurePhase}:{}),...(reason?{reason}:{}),...(record?.cleanupError===true?{cleanupError:true}:{})}
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
  const [file,rawExit]=process.argv.slice(2);let report={outcome:'unavailable'}

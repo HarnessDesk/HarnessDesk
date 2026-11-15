@@ -15,3 +15,10 @@ test('readiness report preserves only bounded numeric fields for fixed checkpoin
  const bad=JSON.stringify({phase:'failed',readiness:{review_target:{attempts:-1,matches:1001,eligible:'1',inViewport:0,hits:0,scrolls:0}}})
  assert.equal(JSON.stringify(sanitizeReport(bad,1)).includes('readiness'),false)
 })
+test('frame reports expose only bounded fixed failure categories',()=>{
+ const raw=JSON.stringify({phase:'failed',frameReasons:['privacy_refused','secret-sentinel','frame_invalid','frame_unavailable','privacy_refused','privacy_refused'],checks:{flowCancel:true,flowManualCleanup:true}})
+ const result=sanitizeReport(raw,1)
+ assert.deepEqual(result.frameReasons,['privacy_refused','frame_invalid','frame_unavailable','privacy_refused'])
+ assert.deepEqual(result.checks,{flowCancel:true,flowManualCleanup:true})
+ assert.equal(JSON.stringify(result).includes('secret-sentinel'),false)
+})

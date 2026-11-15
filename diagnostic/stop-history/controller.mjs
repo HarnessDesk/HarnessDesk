@@ -13,7 +13,7 @@ import { inspectFrame } from './frame-policy.mjs'
 import { locateTarget } from './click-target.mjs'
 import { runGuarded } from './run-guarded.mjs'
 import { assertSource } from './source-guard.mjs'
-import { seedProtectedFlow, exerciseProtectedFlow } from './flow-proof.mjs'
+import { seedProtectedFlow, exerciseProtectedFlow, captureSafely } from './flow-proof.mjs'
 
 const taskSource = resolve('.')
 const taskSha = 'ecb7b41da2129009440fd3f00030ab7496e58ab7' // integrated source commit; repin if source changes.
@@ -42,10 +42,11 @@ const fingerprints = {
   'packages/server/src/flow-execution.ts':'2ac49e3c35201bf226825740eb1eaf36683fddfccaa93fba882f1bde64c538fa',
   'packages/ui/src/components/TeamActions.tsx':'9cead0bd685d9108ad91291f968055338269c16368f1ddc73c5119ed0fae1c39',
   'packages/ui/src/components/RunWorkspace.tsx':'cab9ae84575a8337a8fb2f067d6f730f7eaf0f5dc1fe60841961a4cea673575c',
-  'diagnostic/stop-history/flow-proof.test.mjs':'5f62a28353bf91336395a6e066d1a851188a26ea8a247019e01d0800157352e3',
+  'diagnostic/stop-history/click-target.test.mjs':'882c0f3f8a7bc7827f397f9453f3cfe0bae0a92de03067fa3cf6517fe0c5fdc3',
+  'diagnostic/stop-history/flow-proof.test.mjs':'2f8e3425f9fc646f00122a49c659c1aeda671935953cc3d39f63270e8b15e3de',
   'diagnostic/stop-history/seed-flow.mjs':'969a6e78995e7412de1f6e3ed37273203fbabf446da551d4833ff33750a062ee',
   'diagnostic/stop-history/seed-child.mjs':'6425af2400e65477acdf0dfba5739efc0a612af0d05eb38561c6e7b6f68d68e2',
-  'diagnostic/stop-history/flow-proof.mjs':'ae3bbff6abf8ee83ea8f83c77bf570257157dfacb58fbf6005f2842122afd338',
+  'diagnostic/stop-history/flow-proof.mjs':'c571c7efbc026ed6e5d7d14dc48c8dab91e575850288f8f272035fa35de84afe',
   'diagnostic/stop-history/scripted-flow.mjs':'1b6f58123021ce772025a525aaedabd99784655772631299d27a6dbe4c8099d7',
   'diagnostic/stop-history/plugin-icon.svg':'611ca48d4da7767c7cc051442c2e389a2d5a288a2fbb09c5edd3f3b1e7499d79',
   'diagnostic/stop-history/ambient-shape.mjs':'d73b2956892802e0203bf1a6c6fc3a1c1161ad7a15f4ff7403c6630d19eb2343',
@@ -175,7 +176,8 @@ const goToHistory=async()=>{
 }
 const expectedOutput=resolve(process.env.RUNNER_TEMP??'', 'hd2065-private-frames')
 if(!process.env.RUNNER_TEMP || expectedOutput!==join(resolve(process.env.RUNNER_TEMP),'hd2065-private-frames'))throw new Error('invalid output location')
-let firstFrame,secondFrame,frameUnavailable=false
+let firstFrame,secondFrame
+const safeFrame=()=>captureSafely(frame,result)
 result.phase='launch'
 desk=await launchDesk({app:taskSource,home:taskDeskHome,userDataDir:taskElectron,env})
 await observedListeners('listenersAtLaunch');cdp=desk.cdp
@@ -187,7 +189,7 @@ await waitFor('durable recovery',()=>{try{return verifyLedger('unconfirmed')}cat
 await waitFor('unconfirmed rows',()=>cdp.eval("[...document.querySelectorAll('[data-slot=\"list-row\"]')].filter(e=>e.innerText.includes('Stop unconfirmed')).length===2"),10000)
 result.checks.recovery=true
 verifyLedger('unconfirmed')
-try {firstFrame=await frame()} catch {frameUnavailable=true}
+firstFrame=await safeFrame()
 const beforeCounts=await cdp.json('window.__hd2065counts')
 if(Object.values(beforeCounts).some(Boolean)||interruptCount(counter)!==0||readFileSync(forgeCounter).length!==0)throw new Error('unexpected pre-review effect')
 result.phase='review_target';await click('button','Mark reviewed','#101','review_target')
@@ -199,7 +201,7 @@ if(afterCounts.review!==1||afterCounts.stop||afterCounts.interrupt||afterCounts.
 await click('button','History')
 await waitFor('reviewed visible',()=>cdp.eval("[...document.querySelectorAll('[data-slot=\"list-row\"]')].some(e=>e.innerText.includes('#101') && e.innerText.includes('Reviewed · Stop unconfirmed'))"),10000)
 verifyLedger('reviewed')
-try {secondFrame=await frame()} catch {frameUnavailable=true}
+secondFrame=await safeFrame()
 await observedListeners('listenersAfterReview')
 await closeDesk(desk);desk=undefined
 result.phase='restart';desk=await launchDesk({app:taskSource,home:taskDeskHome,userDataDir:taskElectron,env});await observedListeners('listenersAtRestart');cdp=desk.cdp
@@ -208,10 +210,10 @@ await openWorkspace(cdp,project);await goToHistory();verifyLedger('reviewed');aw
 await waitFor('review persists visually',()=>cdp.eval("[...document.querySelectorAll('[data-slot=\"list-row\"]')].some(e=>e.innerText.includes('#101') && e.innerText.includes('Reviewed · Stop unconfirmed'))"),10000)
 if(interruptCount(counter)!==0||readFileSync(forgeCounter).length!==0)throw new Error('unexpected restart effect')
 await observedListeners('listenersAtEnd');result.checks.persisted=true;result.checks.noObservedEffects=true
-const flowFrames=await exerciseProtectedFlow({cdp,click,waitFor,result,flow,frame})
+const flowFrames=await exerciseProtectedFlow({cdp,click,waitFor,result,flow,frame:safeFrame})
 if(interruptCount(counter)!==0 || readFileSync(forgeCounter).length!==0)throw new Error('unexpected Flow effect')
 await observedListeners('listenersAfterFlow');await closeDesk(desk);desk=undefined
-result.phase='frames';if(frameUnavailable || !firstFrame || !secondFrame)throw new Error('frame unavailable')
+result.phase='frames';if(!firstFrame || !secondFrame || !flowFrames.menuFrame || !flowFrames.confirmFrame || !flowFrames.stoppedFrame)throw new Error('frame unavailable')
 mkdirSync(expectedOutput,{mode:0o700})
 for(const [name,photo] of [['unconfirmed',firstFrame],['reviewed',secondFrame],['flow-menu',flowFrames.menuFrame],['flow-confirm',flowFrames.confirmFrame],['flow-stopped',flowFrames.stoppedFrame]])write(join(expectedOutput,`${name}.png`),photo.bytes)
 const manifest={version:1,presentation:'synthetic-root-shortened',frames:[['unconfirmed',firstFrame],['reviewed',secondFrame],['flow-menu',flowFrames.menuFrame],['flow-confirm',flowFrames.confirmFrame],['flow-stopped',flowFrames.stoppedFrame]].map(([name,photo])=>({name:`${name}.png`,sha256:photo.sha256,width:photo.width,height:photo.height}))}

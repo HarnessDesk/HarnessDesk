@@ -19,6 +19,17 @@ export async function seedProtectedFlow({ source, root, deskHome, project, env }
   return { ...data, read }
 }
 
+export async function captureSafely(frame, result) {
+  try { return await frame() } catch (error) {
+    const message = typeof error?.message === 'string' ? error.message : ''
+    const reason = message === 'privacy audit failed' || message === 'frame changed or privacy audit failed' ? 'privacy_refused'
+      : message === 'invalid frame' || message === 'invalid frame dimensions' ? 'frame_invalid' : 'frame_unavailable'
+    result.frameReasons ??= []
+    if (result.frameReasons.length < 5) result.frameReasons.push(reason)
+    return null
+  }
+}
+
 export async function exerciseProtectedFlow({ cdp, click, waitFor, result, flow, frame }) {
   const runId = JSON.stringify(flow.run)
   const projection = `(()=>{const r=window.__hdStore?.getSnapshot().flowExecutions.get(${runId});return r ? {stopped:r.state==='stopped',canStop:r.canStop===true,absent:!Object.hasOwn(r,'canStop')} : null})()`
@@ -35,7 +46,8 @@ export async function exerciseProtectedFlow({ cdp, click, waitFor, result, flow,
   result.checks.flowCancel=true
   result.phase='flow_run_view'
   await click('[data-region="team-row"] button:not([aria-label^="Actions for"])','Review the synthetic change',null,'flow_open_team')
-  await click('[aria-label="Run"] button','',null,'flow_open_run')
+  await click('[role="tablist"][aria-label="Team views"] [role="tab"][data-team-page="overview"]','Work',null,'flow_open_run')
+  await waitFor('Team Work view',()=>cdp.eval("document.querySelectorAll('[role=\"tablist\"][aria-label=\"Team views\"] [role=\"tab\"][data-team-page=\"overview\"][aria-selected=\"true\"]').length===1 && document.querySelectorAll('[data-slot=\"run-workspace\"]').length===1"),10000)
   await click('[data-slot="page-options"] button','Stop run…',null,'flow_run_stop')
   await waitFor('ended confirmation',()=>cdp.eval("document.querySelectorAll('[role=alertdialog]').length===1 && document.querySelector('[role=alertdialog]').innerText.includes('Finish stopping this Run?')"),10000)
   await click('[role="alertdialog"] button[data-slot="button"]','Stop run',null,'flow_confirm')

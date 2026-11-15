@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { exerciseProtectedFlow } from './flow-proof.mjs'
+import { captureSafely, exerciseProtectedFlow } from './flow-proof.mjs'
 
 const fixture = ({ cancelEffect = false, retainMarker = false } = {}) => {
   let count=0, marked=true, frames=0
@@ -34,4 +34,14 @@ test('a stop observed on cancel aborts before manual cleanup',async()=>{
 test('an uncleared durable marker cannot pass the cleanup check',async()=>{
   const f=fixture({retainMarker:true});await assert.rejects(exerciseProtectedFlow(f.args),/control readiness failure/)
   assert.equal(f.result.checks.flowManualCleanup,undefined)
+})
+
+test('a privacy failure is classified without suppressing subsequent Flow control evidence',async()=>{
+  const f=fixture(), capture=async()=>{throw Error('privacy audit failed')}
+  f.args.frame=()=>captureSafely(capture,f.result)
+  const frames=await exerciseProtectedFlow(f.args)
+  assert.deepEqual(f.result.frameReasons,['privacy_refused','privacy_refused','privacy_refused'])
+  assert.equal(f.result.checks.flowManualCleanup,true)
+  assert.deepEqual(frames,{menuFrame:null,confirmFrame:null,stoppedFrame:null})
+  assert.equal(JSON.stringify(f.result).includes('privacy audit failed'),false)
 })

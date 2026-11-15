@@ -35,3 +35,19 @@ test('blocked and disabled targets fail closed; icon-only History uses its acces
   const blocked=locateTarget(d,'button','History');assert.equal(blocked.matches,1);assert.equal(blocked.eligible,1);assert.equal(blocked.inViewport,1);assert.equal(blocked.hits,0);assert.equal(blocked.point,null)
  } finally {dom.window.close()}
 })
+
+test('Team Work navigation and dialog footer Close never select the Tools Run section or header Close',()=>{
+ const dom=new JSDOM('<div role="tablist" aria-label="Team views"><button role="tab" data-team-page="overview">Work</button></div><section data-slot="tool-section" aria-label="Run"><button>Run</button></section><div role="alertdialog"><button aria-label="Close">×</button><button data-slot="button">Close</button></div>')
+ try {
+  const d=dom.window.document, work=d.querySelector('[data-team-page="overview"]'), footer=d.querySelector('[data-slot="button"]')
+  for(const button of d.querySelectorAll('button')){button.getBoundingClientRect=()=>({left:10,top:20,width:100,height:40});button.scrollIntoView=()=>{}}
+  d.elementFromPoint=()=>work
+  const tab=locateTarget(d,'[role="tablist"][aria-label="Team views"] [role="tab"][data-team-page="overview"]','Work')
+  assert.equal(tab.matches,1);assert.equal(tab.eligible,1);assert.equal(tab.hits,1)
+  const wrong=locateTarget(d,'[role="tablist"][aria-label="Team views"] [role="tab"][data-team-page="overview"]','Run')
+  assert.equal(wrong.matches,0);assert.equal(wrong.point,null)
+  d.elementFromPoint=()=>footer
+  const close=locateTarget(d,'[role="alertdialog"] button[data-slot="button"]','Close')
+  assert.equal(close.matches,1);assert.equal(close.eligible,1);assert.equal(close.hits,1)
+ } finally {dom.window.close()}
+})
