@@ -5,7 +5,7 @@ import { tmpdir, homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { allowed, inspectPaths, SSH_SHIM } from './ambient-shape.mjs'
-import { checkListeners } from './listener-guard.mjs'
+import { probeListeners } from './listener-probe.mjs'
 
 const taskSource=resolve('.'), taskSha='b7d814084bc2c88e6d05ea634f65e3d82089339a'
 const git=(...args)=>execFileSync('git',['-C',taskSource,...args],{encoding:'utf8'}).trim()
@@ -31,26 +31,9 @@ try {
  const wait=async(fn,ms=30000)=>{const end=Date.now()+ms;while(Date.now()<end){const value=await fn();if(value)return value;await sleep(200)}throw Error('deadline')}
  const request=(method,params={})=>desk.cdp.json(`window.__hdStore.transport.request(${JSON.stringify(method)},${JSON.stringify(params)})`)
  const receipts=()=>{try{return readFileSync(receipt,'utf8').trim().split('\n').filter(Boolean).map(JSON.parse)}catch(e){if(e.code==='ENOENT')return [];throw e}}
- const listeners=(phonePort,appPort,diagnostic)=>{
-  let output
-  try {output=execFileSync('/bin/ps',['-axo','pid=,ppid=,pgid='],{encoding:'utf8'})}
-  catch(error){diagnostic.failure='ps_failed';diagnostic.exit=Number.isInteger(error.status)?error.status:null;throw error}
-  const rows=output.trim().split('\n').map(x=>x.trim().split(/\s+/).map(Number));const owned=new Set(rows.filter(x=>x[2]===desk.processGroup).map(x=>x[0]));let changed=true
-  while(changed){changed=false;for(const [pid,ppid] of rows)if(owned.has(ppid)&&!owned.has(pid)){owned.add(pid);changed=true}}
-  diagnostic.ownedProcesses=owned.size
-  if(!owned.size){diagnostic.failure='no_owned_processes';throw Error('ownership')}
-  let raw
-  try {raw=execFileSync('/usr/sbin/lsof',['-nP','-a','-p',[...owned].join(','),'-iTCP','-sTCP:LISTEN','-Fpn'],{encoding:'utf8'});diagnostic.exit=0}
-  catch(error){
-   diagnostic.failure='lsof_failed';diagnostic.exit=Number.isInteger(error.status)?error.status:null;diagnostic.signaled=!!error.signal
-   // Partial output never authorizes success; report only bounded classification of it.
-   if(typeof error.stdout==='string' && error.stdout) try {checkListeners(error.stdout,owned,phonePort,appPort);diagnostic.partialValid=true}
-   catch(partial){diagnostic.partialValid=false;if(partial.counts)diagnostic.counts=partial.counts}
-   throw error
-  }
-  try {const result=checkListeners(raw,owned,phonePort,appPort);diagnostic.failure=null;return result}
-  catch(error){const codes=['foreign_owner','unexpected_nonloopback','no_listeners','phone_listener_count','app_listener_missing','wrong_phone_owner'];diagnostic.failure=codes.includes(error.code)?error.code:'guard_failed';if(error.counts)diagnostic.counts=error.counts;throw error}
- }
+ const listeners=(phonePort,appPort,diagnostic)=>probeListeners({phonePort,appPort,diagnostic,
+  scan:()=>{const output=execFileSync('/bin/ps',['-axo','pid=,ppid=,pgid='],{encoding:'utf8'});const rows=output.trim().split('\n').map(x=>x.trim().split(/\s+/).map(Number));const owned=new Set(rows.filter(x=>x[2]===desk.processGroup).map(x=>x[0]));let changed=true;while(changed){changed=false;for(const [pid,ppid] of rows)if(owned.has(ppid)&&!owned.has(pid)){owned.add(pid);changed=true}}return {owned,live:new Set(rows.map(row=>row[0]))}},
+  lsof:owned=>execFileSync('/usr/sbin/lsof',['-nP','-a','-p',[...owned].join(','),'-iTCP','-sTCP:LISTEN','-Fpn'],{encoding:'utf8'})})
  result.phase='launch';desk=await launchDesk({app:taskSource,home,userDataDir:electron,env});await wait(()=>desk.cdp.eval("window.__hdStore?.getSnapshot().status === 'open'"));await openWorkspace(desk.cdp,project)
  const runtimes=await desk.cdp.json('window.__hdStore.getSnapshot().runtimes.map(r=>r.id)');if(!Array.isArray(runtimes)||runtimes.some(id=>id!=='codex'))throw Error('runtime');result.checks.fakeOnly=true
  const key=await seat(desk.cdp,{work:project,runtime:'codex',picks:{}});const [runtime,id]=key.split(String.fromCharCode(0));if(runtime!=='codex'||!id)throw Error('session');const phoneKey=`${runtime}:${id}`

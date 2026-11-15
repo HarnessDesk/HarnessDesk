@@ -56,3 +56,30 @@ test('listener refusal reports bounded categories without leaking listener addre
   catch(error) {assert.equal(error.code,expected);assert.equal(typeof error.counts.total,'number');assert.doesNotMatch(JSON.stringify(error.counts),/127|9999|1000|2000/)}
  }
 })
+
+test('listener probe retries once only after an exited owned process caused a valid partial status-1 result', async()=>{
+ const {probeListeners}=await import('./listener-probe.mjs')
+ const valid='p17\nn127.0.0.1:1000\nn*:2000\n', bad=valid+'n*:9999\n'
+ const fail=(stdout,status=1,signal=null)=>Object.assign(new Error('fixture'),{stdout,status,signal})
+ const execute=(scans,results)=>{
+  let scanCount=0,callCount=0;const info={}
+  const run=()=>probeListeners({phonePort:2000,appPort:1000,diagnostic:info,
+   scan:()=>{const row=scans[Math.min(scanCount++,scans.length-1)];return {owned:new Set(row.owned??row),live:new Set(row.live??row)}} ,
+   lsof:()=>{const value=results[Math.min(callCount++,results.length-1)];if(value instanceof Error)throw value;return value}})
+  return {run,info,counts:()=>({scanCount,callCount})}
+ }
+ const recovered=execute([[17,18],[17]],[fail(valid),valid])
+ assert.deepEqual(recovered.run(),{total:2,nonloopback:1,owned:true})
+ assert.deepEqual(recovered.counts(),{scanCount:2,callCount:2})
+ assert.equal(recovered.info.departedProcesses,1);assert.equal(recovered.info.attempts,2)
+ for(const scenario of [
+  execute([[17],[17]],[fail(valid),valid]),
+  execute([[17,18],{owned:[17],live:[17,18]}],[fail(valid),valid]),
+  execute([[17,18],[17]],[fail(bad),valid]),
+  execute([[17,18],[17]],[fail(valid,1,'SIGTERM'),valid]),
+  execute([[17,18],[17]],[fail(valid),fail(valid)]),
+  execute([[17,18],[17]],[fail(valid),bad]),
+  execute([[17,18],[17]],[fail(valid,2),valid]),
+ ]) assert.throws(scenario.run)
+ assert.doesNotMatch(JSON.stringify(recovered.info),/127|1000|2000|17|18/)
+})
