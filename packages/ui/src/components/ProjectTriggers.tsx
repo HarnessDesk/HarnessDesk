@@ -8,7 +8,7 @@ import { triggerProblemPlace, triggerRowWords, triggerSkipWords } from '../lib/i
 import { shortPath } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
 import { ClockIcon } from './Icons'
-import { MentionDecisionRows, useMentionTriage } from './MentionDecisions'
+import { MentionDecisionRows, MentionStopAttention, useMentionTriage } from './MentionDecisions'
 import { TriggerArm } from './TriggerArm'
 import { TriggerCreate } from './TriggerCreate'
 import { useLeadLabel } from './use-lead-name'
@@ -345,9 +345,10 @@ const TriggerRowGroup = ({
   const stale = trigger.state === 'changed' || trigger.state === 'refused'
   const gap = trigger.source?.state === 'gap' ? trigger.source : null
   // A mention trigger records what it would do until this machine switches it to act.
-  const mention = trigger.definition?.on.kind === 'mention' && trigger.armed
+  const isMention = trigger.definition?.on.kind === 'mention'
+  const mention = isMention && trigger.armed
   const revision = useSnapshot().triggerRevisions[root]
-  const triage = useMentionTriage(root, trigger.id, mention, revision)
+  const triage = useMentionTriage(root, trigger.id, isMention, revision)
   const observing = mention && triage.page?.mode === 'observe'
   const stateChip = trigger.state === 'changed' ? <Chip tone="warning">Changed</Chip>
     : trigger.state === 'refused' ? <Chip tone="danger">Refused</Chip>
@@ -404,7 +405,8 @@ const TriggerRowGroup = ({
           )}
         />
       )}
-      {expanded && mention && <MentionDecisionRows triage={triage} />}
+      {isMention && <MentionStopAttention triage={triage} expanded={expanded} />}
+      {expanded && isMention && <MentionDecisionRows triage={triage} stopsOnly={!mention} />}
       {expanded && <TriggerHistory root={root} id={trigger.id} />}
     </>
   )

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { TriggerDecision, TriggerDecisionsPage, TriggerMode, TriggerWorkThread } from '@harnessdesk/protocol'
+import type { TriggerDecision, TriggerDecisionsPage, TriggerMode, TriggerUnconfirmedStop, TriggerWorkThread } from '@harnessdesk/protocol'
 
 import { Button, Chip, EmptyState, ListRow } from '../design'
 import { triageThreadWords, triageWords } from '../lib/intake'
@@ -22,6 +22,7 @@ export interface MentionTriageState {
   readonly reload: () => void
   readonly setMode: (mode: TriggerMode) => Promise<void>
   readonly reevaluate: (decision: string) => Promise<void>
+  readonly reviewStop: (stop: string) => Promise<void>
 }
 
 export const useMentionTriage = (root: string, id: string, enabled: boolean, revision: number | undefined): MentionTriageState => {
@@ -30,6 +31,7 @@ export const useMentionTriage = (root: string, id: string, enabled: boolean, rev
   const [problem, setProblem] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const generation = useRef(0)
+  const identity = useRef({ root, id })
 
   const reload = useCallback((): void => {
     const epoch = ++generation.current
@@ -40,13 +42,18 @@ export const useMentionTriage = (root: string, id: string, enabled: boolean, rev
   }, [store, root, id])
 
   useEffect(() => {
+    if (identity.current.root !== root || identity.current.id !== id) {
+      identity.current = { root, id }
+      setPage(null); setProblem(null)
+    }
+    setBusy(false)
     if (!enabled) {
       setPage(null)
       return
     }
     reload()
     return () => { generation.current++ }
-  }, [enabled, reload, revision])
+  }, [enabled, reload, revision, root, id])
 
   const act = async (work: () => Promise<void>): Promise<void> => {
     setBusy(true)
@@ -66,6 +73,20 @@ export const useMentionTriage = (root: string, id: string, enabled: boolean, rev
       generation.current++
       setPage(await store.setTriggerMode(root, id, mode))
     }),
+    reviewStop: async (stop) => {
+      const epoch = ++generation.current
+      setBusy(true); setProblem(null)
+      try {
+        const reviewed = await store.reviewTriggerStop(root, id, stop)
+        if (generation.current !== epoch) return
+        if (reviewed.id !== stop || reviewed.state !== 'reviewed') throw new Error('The review could not be confirmed.')
+        setPage(current => current ? { ...current, unconfirmedStops: current.unconfirmedStops?.map(item => item.id === stop ? reviewed : item) } : current)
+      } catch (error) {
+        if (generation.current === epoch) setProblem(error instanceof Error ? error.message : String(error))
+      } finally {
+        if (generation.current === epoch) setBusy(false)
+      }
+    },
     reevaluate: (decision) => act(async () => {
       await store.reevaluateTriggerDecision(root, id, decision)
       reload()
@@ -96,6 +117,23 @@ const DecisionRow = ({ decision, busy, onReevaluate }: { readonly decision: Trig
   )
 }
 
+const StopRow = ({ stop, busy, onReview }: { readonly stop: TriggerUnconfirmedStop; readonly busy: boolean; readonly onReview: () => void }) => {
+  const excerpt = sanitizeText(stop.excerpt)
+  const title = stop.state === 'inFlight' ? 'Stopping…' : stop.state === 'reviewed' ? 'Reviewed · Stop unconfirmed' : 'Stop unconfirmed'
+  return <ListRow density="compact" title={<>{title} {stop.state !== 'reviewed' && <Chip tone="warning">Check the work</Chip>}</>} wrapTitle
+    subtitle={`${stop.project} · ${stop.repository} · ${triageThreadWords(stop.thread)} · ${stop.author ?? 'Someone'}${excerpt ? ` · “${excerpt}”` : ''} — ${stop.summary}${stop.state === 'unconfirmed' ? ' Check the work before taking further action.' : ''}`}
+    wrapSubtitle
+    trail={stop.state === 'unconfirmed' ? <Button variant="ghost" size="sm" disabled={busy} onClick={onReview} title="Acknowledge this uncertainty; this does not retry the stop">Mark reviewed</Button> : undefined} />
+}
+
+/** Persistent attention is separate from ordinary decision history. */
+export const MentionStopAttention = ({ triage, expanded }: { readonly triage: MentionTriageState; readonly expanded: boolean }) => <>
+  {triage.page?.stopHistoryFull && <ListRow density="compact" title="Stop history cannot safely hold this request. Stop the work directly before taking further action." wrapTitle />}
+  {!expanded && triage.problem && triage.page && <ListRow density="compact" title="That did not go through" subtitle={triage.problem} wrapSubtitle />}
+  {!expanded && triage.page?.unconfirmedStops?.filter(stop => stop.state !== 'reviewed').map(stop =>
+    <StopRow key={stop.id} stop={stop} busy={triage.busy} onReview={() => void triage.reviewStop(stop.id)} />)}
+</>
+
 const threadFacts = (thread: TriggerWorkThread): string => {
   const pulls = thread.links.pulls.length
   const parts = [
@@ -107,13 +145,18 @@ const threadFacts = (thread: TriggerWorkThread): string => {
 }
 
 /** The rows a mention trigger's history shows above its firings. */
-export const MentionDecisionRows = ({ triage }: { readonly triage: MentionTriageState }) => {
+export const MentionDecisionRows = ({ triage, stopsOnly = false }: { readonly triage: MentionTriageState; readonly stopsOnly?: boolean }) => {
   const { page, problem, busy } = triage
   if (problem && !page) return <ListRow density="compact" title="Its decisions could not be read" subtitle={problem} wrapSubtitle />
   if (!page) return <ListRow density="compact" title="Reading its decisions…" />
+  if (stopsOnly) return <>
+    {problem && <ListRow density="compact" title="That did not go through" subtitle={problem} wrapSubtitle />}
+    {page.unconfirmedStops?.map(stop => <StopRow key={stop.id} stop={stop} busy={busy} onReview={() => void triage.reviewStop(stop.id)} />)}
+  </>
   return (
     <>
       {problem && <ListRow density="compact" title="That did not go through" subtitle={problem} wrapSubtitle />}
+      {page.unconfirmedStops?.map(stop => <StopRow key={stop.id} stop={stop} busy={busy} onReview={() => void triage.reviewStop(stop.id)} />)}
       {page.threads.map((thread) => (
         <ListRow
           key={thread.id}
@@ -122,7 +165,7 @@ export const MentionDecisionRows = ({ triage }: { readonly triage: MentionTriage
           subtitle={threadFacts(thread)}
         />
       ))}
-      {page.decisions.length === 0
+      {page.decisions.length === 0 && !page.unconfirmedStops?.length && !page.stopHistoryFull
         ? <EmptyState variant="row" title="No mentions yet" />
         : page.decisions.map((decision) => (
           <DecisionRow key={decision.id} decision={decision} busy={busy} onReevaluate={() => void triage.reevaluate(decision.id)} />
