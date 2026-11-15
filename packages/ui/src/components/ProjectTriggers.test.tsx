@@ -429,7 +429,7 @@ const unconfirmedStop = (state: 'inFlight' | 'unconfirmed' | 'reviewed' = 'uncon
   thread: { kind: 'issue' as const, number: 42 }, author: 'jane-doe', excerpt: '@dex <img src=x> stop',
   url: 'https://example.com/comment', createdAt: 1, state,
   progress: { queuedCancelled: 1, runsMarkedStopped: 1, interruptRequestsIssued: 1, leadRunsMarkedStopped: 0, leadPlanStopped: false },
-  summary: 'One run marked stopped; interruption could not be confirmed.',
+  summary: '1 queued cancelled; 1 runs marked stopped; 1 interrupt requests issued; 0 Lead runs marked stopped; Lead plan not confirmed stopped. Check the work before taking further action.',
 })
 
 it('shows unreviewed stop uncertainty without opening history and keeps reviewed records in history', async () => {
@@ -439,7 +439,7 @@ it('shows unreviewed stop uncertainty without opening history and keeps reviewed
   expect(container.textContent).toContain('Stopping…')
   expect(container.textContent).toContain('Stop unconfirmed')
   expect(container.textContent).toContain('example/storefront')
-  expect(container.textContent).toContain('interruption could not be confirmed')
+  expect(container.textContent).toContain('1 interrupt requests issued')
   expect(container.textContent).toContain('Check the work before taking further action.')
   expect(container.textContent).not.toContain('Reviewed · Stop unconfirmed')
   expect(container.textContent).not.toContain('No mentions yet')
@@ -545,4 +545,14 @@ it('does not show a delayed stop-history reply from the previously selected proj
   await act(async () => { finish({ stopHistoryFull: true }) })
   expect(container.textContent).not.toContain('Stop history cannot safely hold this request.')
   expect(triggerStopHistory).toHaveBeenCalledWith('/home/dev/code/other')
+})
+
+it('shows the Host stop summary with its check-work sentence exactly once', async () => {
+  const summary = '1 queued cancelled; 1 runs marked stopped; 1 interrupt requests issued; 0 Lead runs marked stopped; Lead plan not confirmed stopped. Check the work before taking further action.'
+  const stop = { ...unconfirmedStop(), summary }
+  mount({ projectTriggers: vi.fn(async () => mentionView()), triggerDecisions: vi.fn(async () => triggerDecisionsPage({ decisions: [], threads: [], unconfirmedStops: [stop] })) })
+  await settle()
+  const row = [...container.querySelectorAll('[data-slot="list-row"]')].find(item => item.textContent?.includes('Stop unconfirmed'))
+  expect(row).toBeTruthy()
+  expect((row?.textContent ?? '').split('Check the work before taking further action.')).toHaveLength(2)
 })

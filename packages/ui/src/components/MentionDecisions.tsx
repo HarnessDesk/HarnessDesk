@@ -122,7 +122,7 @@ const StopRow = ({ stop, busy, onReview }: { readonly stop: TriggerUnconfirmedSt
   const excerpt = sanitizeText(stop.excerpt)
   const title = stop.state === 'inFlight' ? 'Stopping…' : stop.state === 'reviewed' ? 'Reviewed · Stop unconfirmed' : 'Stop unconfirmed'
   return <ListRow density="compact" title={<>{title} {stop.state !== 'reviewed' && <Chip tone="warning">Check the work</Chip>}</>} wrapTitle
-    subtitle={`${stop.project} · ${stop.repository} · ${triageThreadWords(stop.thread)} · ${stop.author ?? 'Someone'}${excerpt ? ` · “${excerpt}”` : ''} — ${stop.summary}${stop.state === 'unconfirmed' ? ' Check the work before taking further action.' : ''}`}
+    subtitle={`${stop.project} · ${stop.repository} · ${triageThreadWords(stop.thread)} · ${stop.author ?? 'Someone'}${excerpt ? ` · “${excerpt}”` : ''} — ${stop.summary}`}
     wrapSubtitle
     trail={stop.state === 'unconfirmed' ? <Button variant="ghost" size="sm" disabled={busy} onClick={onReview} title="Acknowledge this uncertainty; this does not retry the stop">Mark reviewed</Button> : undefined} />
 }
