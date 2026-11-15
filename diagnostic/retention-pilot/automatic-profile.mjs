@@ -276,7 +276,7 @@ try {
    analyze:async()=>{
     const expected=keys.map((key,i)=>({needle:Array.from({length:4},(_,counter)=>createHash('sha256').update(`${addr(key).sessionId}:${counter}`).digest('hex')).join(''),loaded:latestStatuses[i]}))
     write(keysPath,JSON.stringify(expected))
-    const child=spawnSync(process.execPath,[join(taskSource,'diagnostic/retention-pilot/heap-worker.mjs'),snapshotPath,keysPath],{env:{PATH:'/usr/bin:/bin'},encoding:'utf8',timeout:25000,maxBuffer:4096})
+    const child=spawnSync(process.execPath,[join(taskSource,'diagnostic/retention-pilot/heap-worker.mjs'),snapshotPath,keysPath],{env:{PATH:'/usr/bin:/bin'},encoding:'utf8',timeout:25000,maxBuffer:32768})
     if(child.status!==0||child.error||child.stderr)return {status:'unavailable'}
     try {return JSON.parse(child.stdout)}catch{return {status:'unavailable'}}
    },

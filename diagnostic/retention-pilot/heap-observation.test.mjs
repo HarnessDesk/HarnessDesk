@@ -7,7 +7,7 @@ test('detects known loaded and released bodies and reports a bounded safe path c
  const snapshot=graph(['aaaa-body','bbbb-body'])
  const value=analyzeHeap(snapshot,[{needle:'aaaa',loaded:true},{needle:'bbbb',loaded:false},{needle:'cccc',loaded:false}])
  assert.equal(value.status,'ok');assert.equal(value.loadedDetected,1);assert.equal(value.releasedDetected,1);assert.equal(value.releasedUnknown,1)
- assert.equal(value.pathCategories.appStore,1);assert.doesNotMatch(JSON.stringify(value),/aaaa|bbbb|cccc|AppStore/)
+ assert.equal(value.pathCategories.appStore,1);assert.doesNotMatch(JSON.stringify(value),/aaaa|bbbb|cccc/)
 })
 test('missing loaded control is unavailable, including truncated or cons representations',()=>{
  const snapshot=graph(['aaa'])
@@ -72,4 +72,27 @@ test('a partial snapshot chunk write fails closed',async()=>{
  assert.equal(writeSnapshotChunk('é',()=>2),true)
  assert.equal(writeSnapshotChunk('é',()=>1),false)
  assert.equal(writeSnapshotChunk('abcd',()=>{throw Error('private')}),false)
+})
+
+test('released ordinal buckets and strong paths reveal only allowed vocabulary',()=>{
+ const snapshot=graph(['aaaa-body','bbbb-body','cccc-body'])
+ snapshot.strings.push('memoizedState','private-url-unique-sentinel','(GC roots)')
+ snapshot.nodes[1]=snapshot.strings.indexOf('(GC roots)')
+ // Root -> AppStore (private property); AppStore -> loaded and released outputs.
+ snapshot.edges[1]=snapshot.strings.indexOf('private-url-unique-sentinel')
+ snapshot.edges[7]=snapshot.strings.indexOf('memoizedState')
+ const expected=Array.from({length:400},(_,i)=>({needle:'not-found-'+i,loaded:true}))
+ expected[0]={needle:'aaaa',loaded:true};expected[72]={needle:'bbbb',loaded:false};expected[200]={needle:'cccc',loaded:false}
+ const out=analyzeHeap(snapshot,expected)
+ assert.deepEqual(out.releasedMatchedOrdinalBuckets,{zeroTo71:0,seventyTwoTo199:1,twoHundredTo271:1,twoSeventyTwoTo399:0})
+ assert.equal(out.strongPaths.length,2);assert.equal(out.strongPaths[0].status,'rooted')
+ assert.equal(out.strongPaths[0].rootKind,'gcRoots')
+ assert.equal(out.strongPaths[0].steps.some(s=>s.edgeLabel==='memoizedState'),true)
+ assert.equal(out.strongPaths[0].steps.some(s=>s.edgeLabel==='other'),true)
+ assert.doesNotMatch(JSON.stringify(out),/private-url-unique-sentinel|aaaa|bbbb|cccc/)
+})
+test('weak-only path produces a fixed unavailable path',()=>{
+ const snapshot=graph(['aaaa-body','bbbb-body']);snapshot.snapshot.meta.edge_types[0].push('weak');snapshot.edges[0]=2
+ const out=analyzeHeap(snapshot,[{needle:'aaaa',loaded:true},{needle:'bbbb',loaded:false}])
+ assert.deepEqual(out.strongPaths,[{status:'unavailable'}])
 })

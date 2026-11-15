@@ -22,21 +22,37 @@ export function analyzeHeap(s,expected) {
   for(let p=0;p<nodes.length;p+=nw){for(let j=0;j<nodes[p+n.edge_count];j++,ep+=ew,idx++){const to=edges[ep+e.to_node]/nw;if(!Number.isInteger(to)||to<0||to>=count)return unavailable;source[idx]=p/nw;next[idx]=-1;if(edgeTypes[edges[ep+e.type]]!=='weak'){next[idx]=head[to];head[to]=idx}}}
   if(idx!==edgeCount)return unavailable
   const categories={appStore:0,react:0,observer:0,debugger:0,other:0,unknown:0}
-  // Fixed bounded sample; category is an observed incoming-path hint, not a dominator.
+  const nodeTypes=new Set(['synthetic','object','string','concatenated string','sliced string','closure','array','native','hidden','code','number','regexp','bigint','symbol'])
+  const edgeKinds=new Set(['context','element','property','internal','hidden','shortcut'])
+  const fieldNames=new Set(['sessions','turns','items','output','memoizedState','memoizedProps','pendingProps','lastRenderedState','alternate','current','cache','selected','selection','getSnapshot','#snapshot','#sessions','snapshot','__hd1545Closes','__hd1545Rpc','__hd1545Wait'])
+  const nodeNames=new Map([['AppStore','AppStore'],['Object','Object'],['Map','Map'],['Array','Array'],['system / Context','systemContext'],['system / NativeContext','nativeContext'],['FiberNode','FiberNode'],['FiberRootNode','FiberRootNode'],['Debugger','Debugger'],['object group','objectGroup'],['(GC roots)','gcRoots'],['(Stack roots)','stackRoots'],['(Global handles)','globalHandles'],['(Handle scope)','handleScope']])
+  const buckets={zeroTo71:0,seventyTwoTo199:0,twoHundredTo271:0,twoSeventyTwoTo399:0}
+  for(const i of releasedIndices)buckets[i<72?'zeroTo71':i<200?'seventyTwoTo199':i<272?'twoHundredTo271':'twoSeventyTwoTo399']++
+  const strongPaths=[]
+  // A single bounded strong path is an ownership hint, never a dominator.
   for(const i of releasedIndices.slice(0,8)){
-   const queue=[[found.get(i),'other']],seen=new Set([found.get(i)]);let category='unknown',visited=0
-   for(let q=0;q<queue.length&&visited<50000;q++,visited++){
-    const [node,prior]=queue[q],name=names[nodes[node*nw+n.name]]||''
-    let hint=prior
-    if(name==='AppStore')hint='appStore'
-    else if(/^(FiberNode|FiberRootNode)$/.test(name)&&hint==='other')hint='react'
-    else if(/^__hd1545/.test(name)&&hint==='other')hint='observer'
-    else if(/^(object group|Debugger)$/.test(name)&&hint==='other')hint='debugger'
-    if(node===0){category=hint;break}
-    for(let j=head[node];j!==-1;j=next[j]){const from=source[j];if(!seen.has(from)&&seen.size<50000){seen.add(from);queue.push([from,hint])}}
+   const queue=[{node:found.get(i),parent:-1,edge:-1}],seen=new Set([found.get(i)]);let root=-1
+   for(let q=0;q<queue.length&&q<50000;q++){
+    const node=queue[q].node;if(node===0){root=q;break}
+    for(let j=head[node];j!==-1;j=next[j]){const from=source[j];if(!seen.has(from)&&seen.size<50000){seen.add(from);queue.push({node:from,parent:q,edge:j})}}
+   }
+   if(root<0){categories.unknown++;strongPaths.push({status:'unavailable'});continue}
+   const steps=[];let category='other',rootKind='other'
+   for(let q=root;q!==-1;q=queue[q].parent){
+    const {node,edge}=queue[q],rawType=types[nodes[node*nw+n.type]],rawName=names[nodes[node*nw+n.name]],label=nodeNames.get(rawName)??'other'
+    const edgeType=edge<0?'none':edgeTypes[edges[edge*ew+e.type]]
+    const rawField=edge>=0&&['property','internal','context','shortcut'].includes(edgeType)?names[edges[edge*ew+e.name_or_index]]:null
+    const edgeLabel=fieldNames.has(rawField)?rawField:'other'
+    if(label==='AppStore')category='appStore'
+    else if((label==='FiberNode'||label==='FiberRootNode')&&category==='other')category='react'
+    else if(edgeLabel.startsWith('__hd1545')&&category==='other')category='observer'
+    else if((label==='Debugger'||label==='objectGroup')&&category==='other')category='debugger'
+    if(['gcRoots','stackRoots','globalHandles','handleScope'].includes(label))rootKind=label
+    steps.push({nodeType:nodeTypes.has(rawType)?rawType:'other',nodeLabel:label,edgeType:edge<0?'none':edgeKinds.has(edgeType)?edgeType:'other',edgeLabel})
    }
    categories[category]++
+   strongPaths.push({status:'rooted',rootKind,depth:steps.length-1,truncated:steps.length>16,steps:steps.length>16?[...steps.slice(0,8),...steps.slice(-8)]:steps})
   }
-  return {status:'ok',loadedDetected,releasedDetected:releasedIndices.length,releasedUnknown:releasedTotal-releasedIndices.length,loadedMatchedStringSelfBytesLowerBound:matchedBytes(true),releasedMatchedStringSelfBytesLowerBound:matchedBytes(false),pathsSampled:Math.min(8,releasedIndices.length),pathCategories:categories}
+  return {status:'ok',loadedDetected,releasedDetected:releasedIndices.length,releasedUnknown:releasedTotal-releasedIndices.length,loadedMatchedStringSelfBytesLowerBound:matchedBytes(true),releasedMatchedStringSelfBytesLowerBound:matchedBytes(false),pathsSampled:Math.min(8,releasedIndices.length),pathCategories:categories,releasedMatchedOrdinalBuckets:buckets,strongPaths}
  }catch{return unavailable}
 }
