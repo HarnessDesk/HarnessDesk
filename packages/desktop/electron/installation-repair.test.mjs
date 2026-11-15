@@ -171,3 +171,52 @@ test('repair retries after an updater throws after entering checking', async () 
   assert.match(dialogs[1].detail,/update check failed/i); assert.equal(dialogs[1].buttons[1],'Check for Updates')
   flow.dispose()
 })
+
+for (const shutdown of [false, true]) test(`resumed repair owns a dialog rejection${shutdown ? ' during shutdown' : ''}`, async () => {
+  const { readFile } = await import('node:fs/promises')
+  const { EventEmitter } = await import('node:events')
+  const { attachAppUpdates } = await import('./app-updates.mjs')
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const helper = source.indexOf('const startAppUpdates = () => {'), start = source.indexOf('const start = async () => {', helper)
+  const bootstrap = source.indexOf('  const bootstrap = createDefaultHost(', start)
+  assert.ok(helper >= 0 && start > helper && bootstrap > start)
+  const text = source.slice(helper, start) + source.slice(start, bootstrap) + "\nreturn 'host-reached'\n}\nreturn { start, stop: () => { repairStopping = true } }"
+  const AsyncFunction = Object.getPrototypeOf(async function() {}).constructor
+  const make = new AsyncFunction('attachAppUpdates', 'repairMissingInterface', 'electronUpdater', 'app', 'existsSync', 'uiRoot', 'showMessage', 'shell', 'process', 'buildMenu', 'appUpdateBridge',
+    'let appUpdates=null, updateMenuItem=null, repairMode=false, repairStopping=false, repairActive=false, repairResume=false, repairCheckStatus=null, logger=null;\n' + text)
+  const updater = new EventEmitter(); let quits = 0, dialogs = 0, rejectResumed
+  updater.checkForUpdates = () => Promise.resolve(null)
+  updater.quitAndInstall = () => { throw new Error('synthetic install') }; updater.setFeedURL = () => {}
+  const pending = []
+  const { start: startRepair, stop } = await make(attachAppUpdates, repairMissingInterface, {autoUpdater:updater},
+    {isPackaged:true, getVersion:()=>'1.0', quit:()=>{quits++}}, () => false, '/synthetic/ui', () => {
+      dialogs++
+      if (dialogs === 4) return new Promise((_, reject) => { rejectResumed = reject })
+      return new Promise(resolve => pending.push(resolve))
+    }, {openExternal:async()=>{}}, {env:{}}, ()=>{}, {publish:()=>{}})
+  const started = startRepair()
+  await tick(); updater.emit('update-downloaded',{version:'2'}); pending.shift()(1); await tick()
+  pending.shift()(1); await tick(); assert.equal(await started, undefined)
+  pending.shift()(0); await tick(); assert.equal(dialogs,4)
+  if (shutdown) stop()
+  rejectResumed(new Error('synthetic resumed dialog rejection'))
+  await tick(); await tick()
+  assert.equal(quits, shutdown ? 0 : 1)
+  assert.equal(dialogs,4, 'rejection never opens another dialog')
+})
+
+test('a rejected active repair does not restart a queued resume', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const source = await readFile(new URL('./main.mjs', import.meta.url), 'utf8')
+  const helper = source.indexOf('const startAppUpdates = () => {'), start = source.indexOf('const start = async () => {', helper)
+  assert.ok(helper >= 0 && start > helper)
+  const AsyncFunction = Object.getPrototypeOf(async function() {}).constructor
+  const make = new AsyncFunction('attachAppUpdates', 'repairMissingInterface', 'electronUpdater', 'app', 'showMessage', 'shell', 'process',
+    'let appUpdates=null, updateMenuItem=null, repairMode=false, repairStopping=false, repairActive=false, repairResume=false, repairCheckStatus=null, logger=null;\n' + source.slice(helper, start) + '\nreturn openInstallationRepair')
+  let failed, calls = 0
+  const open = await make(options => { failed = options.onInstallFailed; return {} }, async () => {
+    calls++; failed(); throw new Error('synthetic active dialog rejection')
+  }, {autoUpdater:{}}, {isPackaged:true,getVersion:()=> '1'}, async()=>0, {openExternal:async()=>{}}, {env:{}})
+  await assert.rejects(open(), /synthetic active dialog rejection/)
+  await tick(); assert.equal(calls, 1)
+})

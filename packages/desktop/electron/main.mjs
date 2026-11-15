@@ -677,7 +677,7 @@ const startAppUpdates = () => {
     },
     showDialog: showMessage,
     onCheckResult: status => { if (repairMode) repairCheckStatus = status },
-    onInstallFailed: () => { if (repairMode && !repairStopping) { repairResume = true; if (!repairActive) void openInstallationRepair() } },
+    onInstallFailed: () => { if (repairMode && !repairStopping) { repairResume = true; if (!repairActive) resumeInstallationRepair() } },
     log: (message, data) => logger?.info(message, data),
   })
 
@@ -690,15 +690,27 @@ const openInstallationRepair = async () => {
   repairMode = true
   repairActive = true
   repairResume = false
+  let completed = false
   try {
     const updates = startAppUpdates()
     await repairMissingInterface({ updates, showDialog: showMessage, openExternal: url => shell.openExternal(url),
       quit: () => { repairStopping = true; app.quit() }, stopped: () => repairStopping,
       status: () => repairCheckStatus, onCheck: () => { repairCheckStatus = null } })
+    completed = true
   } finally {
     repairActive = false
-    if (repairResume && !repairStopping) void openInstallationRepair()
+    if (completed && repairResume && !repairStopping) resumeInstallationRepair()
   }
+}
+
+// Resumes outlive the original startup promise, so own their failures here.
+const resumeInstallationRepair = () => {
+  void openInstallationRepair().catch(error => {
+    if (repairStopping) return
+    repairStopping = true
+    try { logger?.error('Installation repair dialog failed', { error: String(error?.stack ?? error) }) } catch { /* Still quit if logging fails. */ }
+    app.quit()
+  })
 }
 
 const start = async () => {
