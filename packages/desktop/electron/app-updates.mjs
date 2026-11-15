@@ -73,6 +73,8 @@ export const attachAppUpdates = ({
   version,
   onMenu,
   showDialog,
+  onInstallFailed = () => {},
+  onCheckResult = () => {},
   log = () => {},
 }) => {
   if (!updatesAllowed({ packaged, env })) {
@@ -102,6 +104,8 @@ export const attachAppUpdates = ({
   // answers a failed one with an `error` event, and nothing sets `interactive`
   // on the way to an install (review of #221, round 2).
   let installing = false
+  let checkGeneration = 0
+  let reportedGeneration = -1
 
   const menu = () =>
     menuFor(phase, readyVersion) === null
@@ -118,13 +122,14 @@ export const attachAppUpdates = ({
   /* Every dialog goes through here. The shell treats an unhandled rejection
      as a crash and relaunches, so a dialog that fails, say because its window
      closed under it, is logged and read as no answer (review, round 1). */
-  const ask = (request, onAnswer = () => {}) => {
+  const ask = (request, onAnswer = () => {}, onError = () => {}) => {
     /* An answer that throws is caught the same way: the only one calls
        quitAndInstall, and a throw from it read as a crash too (#175). */
     void showDialog(request)
       .then(onAnswer)
       .catch((error) => {
         log('app update dialog failed', { error: String(error?.message ?? error) })
+        onError()
       })
   }
 
@@ -142,7 +147,7 @@ export const attachAppUpdates = ({
     installing = false
     const reason = String(error?.message ?? error)
     log('app update install failed', { error: reason })
-    ask({ type: 'error', message: "The update couldn't be installed.", detail: reason, buttons: ['OK'] })
+    ask({ type: 'error', message: "The update couldn't be installed.", detail: reason, buttons: ['OK'] }, onInstallFailed, onInstallFailed)
   }
   const install = () => {
     installing = true
@@ -171,6 +176,24 @@ export const attachAppUpdates = ({
     )
   }
 
+  /** A rejected check, whether emitted, thrown or returned as a rejection, makes retry possible again. */
+  const checkFailed = (error) => {
+    // A downloaded update stays downloaded; anything earlier starts over.
+    if (phase !== 'ready') phase = 'idle'
+    reportedGeneration = checkGeneration
+    onCheckResult('failed')
+    log('app update check failed', { error: String(error?.message ?? error) })
+    publish()
+    if (interactive) {
+      interactive = false
+      ask({
+        message: 'The update check failed',
+        detail: String(error?.message ?? error),
+        buttons: ['OK'],
+      })
+    }
+  }
+
   const check = (wanted = false) => {
     if (phase === 'checking' || phase === 'downloading') return
     /* A downloaded update is the newest there is to find, and checking again
@@ -183,10 +206,16 @@ export const attachAppUpdates = ({
       return
     }
     interactive = Boolean(wanted)
-    updater.checkForUpdates()?.catch?.(() => {})
+    const generation = ++checkGeneration
+    const failed = (error) => {
+      if (generation === checkGeneration && reportedGeneration !== generation) checkFailed(error)
+    }
+    try { updater.checkForUpdates()?.catch?.(failed) }
+    catch (error) { failed(error) }
   }
 
   updater.on('checking-for-update', () => {
+    onCheckResult('checking')
     phase = 'checking'
     publish()
   })
@@ -198,6 +227,8 @@ export const attachAppUpdates = ({
   })
 
   updater.on('update-not-available', () => {
+    reportedGeneration = checkGeneration
+    onCheckResult('up-to-date')
     phase = 'idle'
     publish()
     if (interactive) {
@@ -211,6 +242,8 @@ export const attachAppUpdates = ({
   })
 
   updater.on('update-downloaded', (info) => {
+    onCheckResult('ready')
+    reportedGeneration = checkGeneration
     phase = 'ready'
     readyVersion = info?.version ?? 'update'
     log('app update downloaded', { version: readyVersion })
@@ -227,18 +260,7 @@ export const attachAppUpdates = ({
       installFailed(error)
       return
     }
-    // A downloaded update stays downloaded; anything earlier starts over.
-    if (phase !== 'ready') phase = 'idle'
-    log('app update check failed', { error: String(error?.message ?? error) })
-    publish()
-    if (interactive) {
-      interactive = false
-      ask({
-        message: 'The update check failed',
-        detail: String(error?.message ?? error),
-        buttons: ['OK'],
-      })
-    }
+    checkFailed(error)
   })
 
   publish()

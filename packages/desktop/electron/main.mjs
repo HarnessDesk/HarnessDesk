@@ -14,6 +14,7 @@ import { downloadOutcome, remember, uniqueName } from './downloads.mjs'
 import { respondToCrash } from './crash-policy.mjs'
 import { attachQuitSignals } from './quit-signals.mjs'
 import { attachAppUpdates, attachAppUpdateBridge } from './app-updates.mjs'
+import { repairMissingInterface } from './installation-repair.mjs'
 import { attachAppProtocol, loadMainWindow } from './main-window.mjs'
 import { createPromptLinkInbox } from './prompt-link.mjs'
 import { MENU_LABEL, createCommandLineTool, targetOf } from './cli-install.mjs'
@@ -113,6 +114,12 @@ let logger = null
 let extensions = null
 /** The app menu's update item — `app-updates.mjs` decides what it says. */
 let updateMenuItem = null
+let repairMode = false
+let repairStopping = false
+let repairActive = false
+let repairResume = false
+let repairCheckStatus = null
+let appUpdates = null
 const appUpdateBridge = attachAppUpdateBridge({ ipcMain, currentWindow: () => mainWindow, currentMenu: () => updateMenuItem })
 
 /** A prompt link waits here until the app window's renderer takes it, once. */
@@ -645,7 +652,72 @@ const watchDownloads = (guestSession, profile) => {
   })
 }
 
+/** Set up the same updater in ordinary and missing-interface startup, once. */
+const startAppUpdates = () => {
+  if (appUpdates) return appUpdates
+  // The app keeping itself current: a check soon after launch and every few
+  // hours, speaking through one menu item unless the person asked. All the
+  // rules live in `app-updates.mjs`; this block only lends it the menu, the
+  // dialog box and the log. electron-updater's own logger is ours too, so
+  // its complaints land in the same NDJSON file the diagnostics bundle ships.
+  electronUpdater.autoUpdater.logger = {
+    info: (message) => logger?.debug('app updater', { message: String(message) }),
+    warn: (message) => logger?.warn('app updater', { message: String(message) }),
+    error: (message) => logger?.warn('app updater', { message: String(message) }),
+    debug: (message) => logger?.debug('app updater', { message: String(message) }),
+  }
+  appUpdates = attachAppUpdates({
+    updater: electronUpdater.autoUpdater,
+    env: process.env,
+    packaged: app.isPackaged,
+    version: app.getVersion(),
+    onMenu: (item) => {
+      updateMenuItem = item
+      if (!repairMode) { buildMenu(); appUpdateBridge.publish() }
+    },
+    showDialog: showMessage,
+    onCheckResult: status => { if (repairMode) repairCheckStatus = status },
+    onInstallFailed: () => { if (repairMode && !repairStopping) { repairResume = true; if (!repairActive) resumeInstallationRepair() } },
+    log: (message, data) => logger?.info(message, data),
+  })
+
+  return appUpdates
+}
+
+/** The repair dialog owns its lifetime; install failure returns here only after the error is answered. */
+const openInstallationRepair = async () => {
+  if (repairStopping || repairActive) return
+  repairMode = true
+  repairActive = true
+  repairResume = false
+  let completed = false
+  try {
+    const updates = startAppUpdates()
+    await repairMissingInterface({ updates, showDialog: showMessage, openExternal: url => shell.openExternal(url),
+      quit: () => { repairStopping = true; app.quit() }, stopped: () => repairStopping,
+      status: () => repairCheckStatus, onCheck: () => { repairCheckStatus = null } })
+    completed = true
+  } finally {
+    repairActive = false
+    if (completed && repairResume && !repairStopping) resumeInstallationRepair()
+  }
+}
+
+// Resumes outlive the original startup promise, so own their failures here.
+const resumeInstallationRepair = () => {
+  void openInstallationRepair().catch(error => {
+    if (repairStopping) return
+    repairStopping = true
+    try { logger?.error('Installation repair dialog failed', { error: String(error?.stack ?? error) }) } catch { /* Still quit if logging fails. */ }
+    app.quit()
+  })
+}
+
 const start = async () => {
+  if (app.isPackaged && !existsSync(uiRoot)) {
+    await openInstallationRepair()
+    return
+  }
   const bootstrap = createDefaultHost({
     leadEnabled: leadEnabled(process.env),
     mobileEnabled: process.env['HARNESSDESK_PHONE_LINK'] === '1',
@@ -781,30 +853,7 @@ const start = async () => {
   buildMenu()
   createTray()
 
-  // The app keeping itself current: a check soon after launch and every few
-  // hours, speaking through one menu item unless the person asked. All the
-  // rules live in `app-updates.mjs`; this block only lends it the menu, the
-  // dialog box and the log. electron-updater's own logger is ours too, so
-  // its complaints land in the same NDJSON file the diagnostics bundle ships.
-  electronUpdater.autoUpdater.logger = {
-    info: (message) => logger?.debug('app updater', { message: String(message) }),
-    warn: (message) => logger?.warn('app updater', { message: String(message) }),
-    error: (message) => logger?.warn('app updater', { message: String(message) }),
-    debug: (message) => logger?.debug('app updater', { message: String(message) }),
-  }
-  attachAppUpdates({
-    updater: electronUpdater.autoUpdater,
-    env: process.env,
-    packaged: app.isPackaged,
-    version: app.getVersion(),
-    onMenu: (item) => {
-      updateMenuItem = item
-      buildMenu()
-      appUpdateBridge.publish()
-    },
-    showDialog: showMessage,
-    log: (message, data) => logger?.info(message, data),
-  })
+  startAppUpdates()
 
   await createWindow(sessionUrl())
   // Native UI-system verification opens the real auxiliary window without
@@ -938,6 +987,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', async (event) => {
+  repairStopping = true
   if (!running && !host) return
   event.preventDefault()
   const closingDoor = clientDoor
