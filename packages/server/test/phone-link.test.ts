@@ -8,7 +8,7 @@ import { PhoneSim } from '@harnessdesk/phone-link/sim'
 import { LEAD_LIMITS, parseLeadAcceptanceContract, type PhoneLinkState, type WireNotification } from '@harnessdesk/protocol'
 import { Logger } from '../src/log.js'
 import { dispatch, type HostContext } from '../src/methods/index.js'
-import { PHONE_POLICY, phoneLinkOff, startPhoneLink, type PhoneLinkControl } from '../src/phone-link.js'
+import { PHONE_POLICY, phoneLinkOff, phoneResult, startPhoneLink, type PhoneLinkControl } from '../src/phone-link.js'
 
 test('repeat history, repeat controls and direct limit raises require their own phone tiers', () => {
   assert.equal(PHONE_POLICY.methods['lead/schedule/read'], 'read')
@@ -88,6 +88,11 @@ const rig = async () => {
   }
   return { ...d, running, pair, done: async () => { await running.close(); await rm(home, { recursive: true, force: true }) } }
 }
+
+test('phone response filtering does not remove coincident fields from other domains', () => {
+  const value = { recordedStepInFlight: true, other: 'synthetic' }
+  assert.deepEqual(phoneResult('workspace/read', value), value)
+})
 
 test('phone receives the old Lead reply state without the desktop-only recorded-step field', async () => {
   const s = await rig()

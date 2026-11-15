@@ -178,7 +178,7 @@ const PHONE_RESULTS: Record<AutonomyViewMethod, (result: LeadAutonomyView) => Le
 /** A host answer as the phone may have it. */
 export const phoneResult = (method: string, result: unknown): unknown => {
   const projected = Object.hasOwn(PHONE_RESULTS, method) && result && typeof result === 'object' ? PHONE_RESULTS[method as AutonomyViewMethod](result as LeadAutonomyView) : result
-  if (!projected || typeof projected !== 'object' || Array.isArray(projected) || !Object.hasOwn(projected, 'recordedStepInFlight')) return projected
+  if (!method.startsWith('lead/') || !projected || typeof projected !== 'object' || Array.isArray(projected) || !Object.hasOwn(projected, 'recordedStepInFlight')) return projected
   const { recordedStepInFlight: _desktopOnly, ...phone } = projected as Record<string, unknown>
   return phone
 }
