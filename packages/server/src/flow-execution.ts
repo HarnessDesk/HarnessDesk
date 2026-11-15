@@ -567,6 +567,7 @@ export const projectExecution = (run: StoredFlowExecution): FlowExecution => ({
   ...(run.currentEndedAt !== undefined ? { currentEndedAt: run.currentEndedAt } : {}),
   ...(run.end !== undefined ? { end: run.end } : {}),
   state: run.state,
+  ...(run.state === 'stopped' && run.mentionStopOnce ? { canStop: true as const } : {}),
   rounds: run.rounds.map(round => ({ ...round, blind: blindRound(run, round) })),
   operations: run.operations,
   legacyRun: run.legacyRun,

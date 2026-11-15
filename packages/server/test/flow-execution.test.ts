@@ -1293,6 +1293,7 @@ test('a stopped run’s pending release names the card and the Seat in its own f
   assert.ok(!rig.events.includes('release:seat-1'))
   const before = rig.flows.executionsFor(run.goal)[0]!
   assert.equal(before.state, 'stopped')
+  assert.equal(before.canStop, undefined, 'ordinary stopped runs do not gain a new retry capability')
   assert.equal(before.reason, STOP_WHY, 'the run’s own reason is never touched by a pending release')
   // Deferred, and already visible on its own field — a plain "waiting" line, never silence — but not yet the overdue sentence.
   assert.match(before.pendingReleaseNote ?? '', /Waiting for/)
@@ -1927,6 +1928,7 @@ test('stopping a run that already settled tells the stop listeners, and leaves i
   await rig.flows.flush()
   const settled = rig.flows.executionOf(run.id)!
   assert.equal(settled.state, 'settled')
+  assert.equal(settled.canStop, undefined, 'ordinary settled runs do not gain a retry capability')
   const told: string[] = []
   rig.flows.onRunStopped(async (id) => { told.push(id) })
   assert.deepEqual(await rig.flows.stopRun(run.id, 'A person stops what settled'), settled, 'an ended run is answered as it stands')
@@ -2498,13 +2500,23 @@ test('a person can retry protected-run cleanup after a Seat operation fails', as
   const run = await rig.startTriggered(source, [agent('reviewer', ['approve'])])
   await rig.flows.resumeTriggered(run.id)
   await rig.flows.flush()
+  assert.equal(rig.flows.executionOf(run.id)?.canStop, undefined, 'ordinary running state needs no extra capability')
   const target = rig.flows.freezeMentionRun(run.id)!
   await rig.flows.markMentionRun(target, 'synthetic stop', `u-${'d'.repeat(64)}`, async () => {})
+  assert.equal(rig.flows.executionOf(run.id)?.state, 'stopped')
+  assert.equal(rig.flows.executionOf(run.id)?.canStop, true, 'manual cleanup is available without claiming the run is active')
+  assert.equal(JSON.parse(JSON.stringify(rig.flows.executionOf(run.id))).canStop, true, 'the additive capability survives the wire encoding')
+  assert.equal(rig.flows.executionsFor(run.goal).find(one => one.id === run.id)?.canStop, true, 'the Team list gets the same capability')
   await assert.rejects(rig.flows.stopRun(run.id, 'Person explicitly stopped the work'), /synthetic approval cleanup failure/)
   assert.equal(rig.flows.protectedMentionStop(run.id), true, 'failed cleanup retains the fence')
+  assert.equal(rig.flows.executionOf(run.id)?.canStop, true, 'retry remains available after failure')
+  await rig.restart()
+  assert.equal(rig.flows.executionOf(run.id)?.state, 'stopped')
+  assert.equal(rig.flows.executionOf(run.id)?.canStop, true, 'retry remains available after restart')
   fail = false
   await rig.flows.stopRun(run.id, 'Person explicitly stopped the work')
   assert.equal(rig.flows.protectedMentionStop(run.id), false)
+  assert.equal(rig.flows.executionOf(run.id)?.canStop, undefined, 'completed cleanup is not offered again')
 })
 
 test('restart does not sweep a claimed Seat of a protected one-shot run', async t => {
