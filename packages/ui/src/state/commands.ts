@@ -276,6 +276,59 @@ const resolvePath = (store: AppStore, argument: string): string | null => {
   return root ? `${root.replace(/\/$/, '')}/${raw}` : null
 }
 
+// Keep returned handlers independent of the snapshot used to build the list.
+const contributedCommand = (entry: Extract<CapabilityContribution, { kind: 'command' }>, source: string | undefined): CommandDefinition => ({
+  name: entry.name,
+  description: entry.description,
+  ...(entry.argumentHint ? { argumentHint: entry.argumentHint } : {}),
+  source,
+  kind: {
+    type: 'action',
+    run: async (store: AppStore, argument: string) => {
+      const handled = await store.runCommand(entry.name, argument)
+      if (!handled) store.notice('warning', `Nothing handled /${entry.name}.`)
+    },
+  },
+})
+
+// A wrapped Team keeps its record, so its skills cannot receive messages.
+const skillAvailable = (here: AppSnapshot): boolean => !isRecordConversation(here.goals.values(), here.activeSessionKey)
+
+const skillCommand = (skill: AppSnapshot['skills'][number], agentName: string | undefined): CommandDefinition => ({
+  name: skill.name,
+  description: skill.description,
+  source: agentName,
+  available: skillAvailable,
+  kind: {
+    type: 'action',
+    // Skills queue like typed messages so they wait behind an active turn.
+    run: async (store: AppStore, argument: string) => {
+      const text = argument ? `/${skill.name} ${argument}` : `/${skill.name}`
+      await store.queue([{ type: 'text', text }])
+    },
+  },
+})
+
+const panelCommand = (entry: Extract<CapabilityContribution, { kind: 'ui' }>, source: string | undefined): CommandDefinition => ({
+  name: entry.label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+  description: `Show the ${entry.label} panel`,
+  source,
+  kind: {
+    type: 'action',
+    run: (store: AppStore) => {
+      const mounts = entry.mounts ?? []
+      const area = mounts[0]
+      if (!area) return
+      store.showViewIn(area, {
+        kind: 'plugin',
+        contribution: String(entry.id),
+        label: entry.label,
+        mounts,
+      })
+    },
+  },
+})
+
 /** Built-ins plus whatever plugins currently contribute, filtered by availability. */
 export const availableCommands = (snapshot: AppSnapshot): CommandDefinition[] => {
   /* What applies where the palette was opened. The renderer is pushed every
@@ -286,43 +339,11 @@ export const availableCommands = (snapshot: AppSnapshot): CommandDefinition[] =>
   const offered = offeredHere(snapshot, snapshot.activeSessionKey)
   const contributed: CommandDefinition[] = offered
     .filter((entry): entry is Extract<typeof entry, { kind: 'command' }> => entry.kind === 'command')
-    .map((entry) => ({
-      name: entry.name,
-      description: entry.description,
-      ...(entry.argumentHint ? { argumentHint: entry.argumentHint } : {}),
-      source: pluginNameOf(snapshot, entry.owner),
-      kind: {
-        type: 'action' as const,
-        run: async (store: AppStore, argument: string) => {
-          const handled = await store.runCommand(entry.name, argument)
-          if (!handled) store.notice('warning', `Nothing handled /${entry.name}.`)
-        },
-      },
-    }))
+    .map((entry) => contributedCommand(entry, pluginNameOf(snapshot, entry.owner)))
 
   const agentRuntime = snapshot.runtimes.find((entry) => entry.id === snapshot.activeRuntime)
   const agentName = agentRuntime?.presentation.name
-  const agentCommands: CommandDefinition[] = snapshot.skills.map((skill) => ({
-    name: skill.name,
-    description: skill.description,
-    source: agentName,
-    /* A skill is a message into the open conversation, and one a wrapped Team
-       keeps takes none — the host refuses it. A palette has no greyed row, so
-       the entry is withdrawn there rather than offered to fail. */
-    available: (here) => !isRecordConversation(here.goals.values(), here.activeSessionKey),
-    kind: {
-      type: 'action' as const,
-      /* Queued, like every other message from that box. A skill is typed into
-         the composer, and the composer's plain text waits for a running turn
-         to end — a `/skill` that instead tried to start a second turn beside
-         it asked the agent two things at once, which is a thing an agent
-         cannot be asked. */
-      run: async (store: AppStore, argument: string) => {
-        const text = argument ? `/${skill.name} ${argument}` : `/${skill.name}`
-        await store.queue([{ type: 'text', text }])
-      },
-    },
-  }))
+  const agentCommands: CommandDefinition[] = snapshot.skills.map((skill) => skillCommand(skill, agentName))
 
   return [
     ...optionCommands(snapshot),
@@ -354,25 +375,7 @@ const panelCommands = (
       (entry): entry is Extract<CapabilityContribution, { kind: 'ui' }> =>
         entry.kind === 'ui' && Array.isArray(entry.mounts) && entry.mounts.length > 0,
     )
-    .map((entry) => ({
-      name: entry.label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
-      description: `Show the ${entry.label} panel`,
-      source: pluginNameOf(snapshot, entry.owner),
-      kind: {
-        type: 'action' as const,
-        run: (store: AppStore) => {
-          const mounts = entry.mounts ?? []
-          const area = mounts[0]
-          if (!area) return
-          store.showViewIn(area, {
-            kind: 'plugin',
-            contribution: String(entry.id),
-            label: entry.label,
-            mounts,
-          })
-        },
-      },
-    }))
+    .map((entry) => panelCommand(entry, pluginNameOf(snapshot, entry.owner)))
 
 const pluginNameOf = (snapshot: AppSnapshot, owner: string): string | undefined =>
   snapshot.plugins.find((plugin) => plugin.instanceId === owner)?.identity.name

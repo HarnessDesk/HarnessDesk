@@ -215,6 +215,88 @@ type Trigger =
   | { readonly kind: 'file'; readonly query: string }
   | { readonly kind: 'choose'; readonly command: CommandDefinition }
 
+// Isolate snapshot-dependent memo callbacks from Composer's retained event handlers.
+const useComposerScope = (snapshot: ReturnType<typeof useSnapshot>, key: ReturnType<typeof useSessionKey>) =>
+  useMemo(() => scopeHere(snapshot, key), [snapshot, key])
+
+const useComposerCommands = (snapshot: ReturnType<typeof useSnapshot>) =>
+  useMemo(() => availableCommands(snapshot), [snapshot])
+
+const useComposerItems = (
+  snapshot: ReturnType<typeof useSnapshot>, trigger: Trigger,
+  commands: readonly CommandDefinition[], files: readonly FileMatch[],
+): TriggerItem[] => {
+  return useMemo(() => {
+    if (trigger.kind === 'command') {
+      return matchCommands(commands, trigger.query).map((command) => ({
+        id: command.name,
+        name: `/${command.name}`,
+        hint: command.argumentHint
+          ? `${command.argumentHint} — ${command.description}`
+          : command.description,
+        mono: true,
+        ...(command.source ? { badge: command.source } : {}),
+      }))
+    }
+    if (trigger.kind === 'file') {
+      // Skills and files share the `@` menu because they are the same gesture:
+      // pointing the agent at something by name.
+      const needle = trigger.query.toLowerCase()
+      // Other sessions are referenceable too: "what did we decide over there" is
+      // a question people ask constantly, and re-explaining it is the tax.
+      const sessions = snapshot.history
+        .filter(
+          (entry) =>
+            // By key, not id: `history` spans every agent, and two of them can
+            // both hold a session called "1". Excluding by id alone would hide
+            // someone else's conversation and offer this one.
+            sessionKey(entry.runtime, entry.id) !== snapshot.activeSessionKey &&
+            `${entry.title ?? ''} ${entry.preview ?? ''}`.toLowerCase().includes(needle),
+        )
+        .slice(0, 3)
+        .map((entry) => ({
+          // The runtime travels in the id: the menu hands back only the item,
+          // and the id is the one place to put what picking it needs to know.
+          id: `session:${entry.runtime}:${entry.id}`,
+          name: entry.title?.trim() || entry.preview?.trim() || 'Untitled session',
+          hint: entry.cwd.split('/').pop() ?? entry.cwd,
+          badge: 'session',
+        }))
+      const skills = snapshot.skills
+        .filter((skill) => skill.enabled && skill.name.toLowerCase().includes(needle))
+        .slice(0, 4)
+        .map((skill) => ({
+          id: `skill:${skill.name}`,
+          name: skill.name,
+          hint: skill.description,
+          badge: 'skill',
+        }))
+      return [
+        ...skills,
+        ...sessions,
+        ...files.map((file) => ({
+          id: file.path,
+          name: file.relativePath.split('/').pop() ?? file.relativePath,
+          hint: file.relativePath,
+          pathStyle: true,
+        })),
+      ]
+    }
+    if (trigger.kind === 'choose' && trigger.command.kind.type === 'choose') {
+      return trigger.command.kind.choices(snapshot).map((choice) => ({
+        id: choice.id,
+        name: choice.label,
+        ...(choice.hint ? { hint: choice.hint } : {}),
+        ...(choice.selected ? { selected: true } : {}),
+      }))
+    }
+    return []
+  }, [trigger, commands, files, snapshot])
+}
+
+const usePendingPlanNote = (key: ReturnType<typeof useSessionKey>, session: ReturnType<typeof useActiveSession>, planEdits: ReturnType<typeof useSnapshot>['planEdits']) =>
+  useMemo(() => (key ? planEditNote(sessionPlan(session) ?? [], planEdits[key] ?? []) : null), [key, session, planEdits])
+
 // Folder selection can replace the composer before its send has settled.
 // Every incarnation of the new-session draft shares one submission hold.
 const draftSubmissions = new WeakMap<ReturnType<typeof useStore>, object>()
@@ -223,13 +305,16 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
   const store = useStore()
   const messagesHeld = useContext(RoomMessagesHeld)
   const snapshot = useSnapshot()
+  const { goals, workbench, windowWidth, health, draftHandoff, contributions, planEdits, workspace, activeRuntime, history, skills, recoverableDrafts } = snapshot
   const session = useActiveSession()
+  const sessionPresent = Boolean(session)
+  const currentPlan = sessionPlan(session)
   const key = useSessionKey()
   const pane = usePane()
-  const record = isRecordConversation(snapshot.goals.values(), key)
+  const record = isRecordConversation(goals.values(), key)
   const focused = useIsFocusedPane()
   const mount = useMount()
-  const isNoticeHost = mount?.area === 'main' && mainNoticeHost(snapshot.workbench, snapshot.windowWidth) === mount.id
+  const isNoticeHost = mount?.area === 'main' && mainNoticeHost(workbench, windowWidth) === mount.id
   const textarea = useRef<HTMLTextAreaElement>(null)
   const filePicker = useRef<HTMLInputElement>(null)
 
@@ -294,27 +379,27 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
   const waiting = queue?.messages.length ?? 0
   // No session yet is not a locked composer: typing is how a session starts.
   // A folder is chosen when sending; it never blocks typing.
-  const ready = snapshot.health?.state === 'ready' || snapshot.health?.state === 'idle'
+  const ready = health?.state === 'ready' || health?.state === 'idle'
   const canType = !record
   // A revealed key is not a conversation until its read succeeds. Keep the
   // draft editable, but never clear and submit it to a handle not yet open.
   const awaitingConversation = key !== null && !session
   // A hand-off chip rides on the draft only; it leaves with the first message.
-  const handoff = session ? null : snapshot.draftHandoff
+  const handoff = session ? null : draftHandoff
   /* What may be offered *here* — this conversation, its agent, this project.
      Asked once and used twice: the same scope decides which providers the +
      menu lists and which conversation a chip is then resolved for, so the
      composer cannot offer something it would go on to ask the wrong question
      about. A contribution scoped to one project or one conversation used to be
      offered in every one of them (`lib/contributions.ts`). */
-  const scope = useMemo(() => scopeHere(snapshot, key), [snapshot, key])
+  const scope = useComposerScope(snapshot, key)
   // Context providers that asked to be chips (docs/extending.md).
   const chipProviders = useMemo(
     () =>
-      contributionsHere(snapshot.contributions, scope).filter(
+      contributionsHere(contributions, scope).filter(
         (entry): entry is Extract<typeof entry, { kind: 'context' }> => entry.kind === 'context' && !!entry.chip,
       ),
-    [snapshot.contributions, scope],
+    [contributions, scope],
   )
   const [refPrompt, setRefPrompt] = useState<(typeof chipProviders)[number] | null>(null)
   // Whether the agent this draft will go to can look at an image at all. The
@@ -403,16 +488,13 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
    * person's wording, which needs no sentence around it — and without this the
    * only way to deliver a correction was to type filler beside it.
    */
-  const pendingPlanNote = useMemo(
-    () => (key ? planEditNote(sessionPlan(session) ?? [], snapshot.planEdits[key] ?? []) : null),
-    [key, session, snapshot.planEdits],
-  )
+  const pendingPlanNote = usePendingPlanNote(key, session, planEdits)
   const canSend =
     canType &&
     (Boolean(session) || ready) &&
     !awaitingConversation &&
     (text.trim().length > 0 || attachments.length > 0 || handoff !== null || pendingPlanNote !== null)
-  const root = snapshot.workspace?.path ?? session?.cwd
+  const root = workspace?.path ?? session?.cwd
 
   useLayoutEffect(() => {
     const element = textarea.current
@@ -449,7 +531,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
           root,
           query: trigger.query,
           limit: 8,
-          ...(snapshot.activeRuntime ? { runtime: snapshot.activeRuntime } : {}),
+          ...(activeRuntime ? { runtime: activeRuntime } : {}),
         })
         .then((found) => {
           if (!cancelled) setFiles([...found])
@@ -460,76 +542,11 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [trigger, root, store, snapshot.activeRuntime])
+  }, [trigger, root, store, activeRuntime])
 
-  const commands = useMemo(() => availableCommands(snapshot), [snapshot])
+  const commands = useComposerCommands(snapshot)
 
-  const items: TriggerItem[] = useMemo(() => {
-    if (trigger.kind === 'command') {
-      return matchCommands(commands, trigger.query).map((command) => ({
-        id: command.name,
-        name: `/${command.name}`,
-        hint: command.argumentHint
-          ? `${command.argumentHint} — ${command.description}`
-          : command.description,
-        mono: true,
-        ...(command.source ? { badge: command.source } : {}),
-      }))
-    }
-    if (trigger.kind === 'file') {
-      // Skills and files share the `@` menu because they are the same gesture:
-      // pointing the agent at something by name.
-      const needle = trigger.query.toLowerCase()
-      // Other sessions are referenceable too: "what did we decide over there" is
-      // a question people ask constantly, and re-explaining it is the tax.
-      const sessions = snapshot.history
-        .filter(
-          (entry) =>
-            // By key, not id: `history` spans every agent, and two of them can
-            // both hold a session called "1". Excluding by id alone would hide
-            // someone else's conversation and offer this one.
-            sessionKey(entry.runtime, entry.id) !== snapshot.activeSessionKey &&
-            `${entry.title ?? ''} ${entry.preview ?? ''}`.toLowerCase().includes(needle),
-        )
-        .slice(0, 3)
-        .map((entry) => ({
-          // The runtime travels in the id: the menu hands back only the item,
-          // and the id is the one place to put what picking it needs to know.
-          id: `session:${entry.runtime}:${entry.id}`,
-          name: entry.title?.trim() || entry.preview?.trim() || 'Untitled session',
-          hint: entry.cwd.split('/').pop() ?? entry.cwd,
-          badge: 'session',
-        }))
-      const skills = snapshot.skills
-        .filter((skill) => skill.enabled && skill.name.toLowerCase().includes(needle))
-        .slice(0, 4)
-        .map((skill) => ({
-          id: `skill:${skill.name}`,
-          name: skill.name,
-          hint: skill.description,
-          badge: 'skill',
-        }))
-      return [
-        ...skills,
-        ...sessions,
-        ...files.map((file) => ({
-          id: file.path,
-          name: file.relativePath.split('/').pop() ?? file.relativePath,
-          hint: file.relativePath,
-          pathStyle: true,
-        })),
-      ]
-    }
-    if (trigger.kind === 'choose' && trigger.command.kind.type === 'choose') {
-      return trigger.command.kind.choices(snapshot).map((choice) => ({
-        id: choice.id,
-        name: choice.label,
-        ...(choice.hint ? { hint: choice.hint } : {}),
-        ...(choice.selected ? { selected: true } : {}),
-      }))
-    }
-    return []
-  }, [trigger, commands, files, snapshot])
+  const items = useComposerItems(snapshot, trigger, commands, files)
 
   useEffect(() => {
     setActive(0)
@@ -591,7 +608,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
         }
         if (item.id.startsWith('skill:')) {
           const name = item.id.slice('skill:'.length)
-          const skill = snapshot.skills.find((entry) => entry.name === name)
+          const skill = skills.find((entry) => entry.name === name)
           setAttachments((current) =>
             current.some((entry) => entry.path === (skill?.path ?? name))
               ? current
@@ -621,7 +638,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
         textarea.current?.focus()
       }
     },
-    [commands, files, runCommand, snapshot.history, snapshot.skills, store, trigger],
+    [commands, files, runCommand, history, skills, store, trigger],
   )
 
   /**
@@ -650,8 +667,8 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
   }, [store])
 
   const storedRecoverable = [
-    ...(key ? (snapshot.recoverableDrafts.get(key) ?? []).map((item) => ({ key, item })) : []),
-    ...(snapshot.recoverableDrafts.get(UNSCOPED_RECOVERY_KEY) ?? [])
+    ...(key ? (recoverableDrafts.get(key) ?? []).map((item) => ({ key, item })) : []),
+    ...(recoverableDrafts.get(UNSCOPED_RECOVERY_KEY) ?? [])
       .map((item) => ({ key: UNSCOPED_RECOVERY_KEY, item })),
   ]
   const restoreStoredDraft = useCallback((ownerKey: ReturnType<typeof sessionKey>, id: number) => {
@@ -793,7 +810,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
     // runtime lets the desk set its plan, so this is the whole of how an edit
     // reaches the agent — and the edit retires itself once the agent's own
     // plan comes back carrying the new wording.
-    const plan = sessionPlan(session)
+    const plan = currentPlan
     if (plan && key) {
       if (pendingPlanNote) content.push(deskContextContent(wrapContext(PLAN_EDIT_SOURCE, pendingPlanNote)))
       store.retirePlanEdits(plan, key)
@@ -1085,7 +1102,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
   const placeholder = useMemo(() => {
     if (record) return RECORD_REASON
     if (awaitingConversation) return 'Opening the conversation — you can keep typing'
-    if (!session) return 'Describe a task to start a session — / for commands, @ for files'
+    if (!sessionPresent) return 'Describe a task to start a session — / for commands, @ for files'
     if (busy) {
       return canSteer
         ? 'Type the next message — ↵ queues it, ⌘↵ adds it to this turn'
@@ -1104,11 +1121,11 @@ export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderCh
   // Drafts keep their typing prompt. Runtime readiness earns a short fact
   // on the toolbar, with the full reason and remediation on Send.
   const draftReadiness = !session && !awaitingConversation
-    ? snapshot.health?.state === 'unavailable' ? 'broken'
-      : snapshot.health?.state === 'starting' ? 'starting' : null
+    ? health?.state === 'unavailable' ? 'broken'
+      : health?.state === 'starting' ? 'starting' : null
     : null
-  const readinessTitle = draftReadiness === 'broken' && snapshot.health?.state === 'unavailable'
-    ? [snapshot.health.message, snapshot.health.remediation].filter(Boolean).join(' ')
+  const readinessTitle = draftReadiness === 'broken' && health?.state === 'unavailable'
+    ? [health.message, health.remediation].filter(Boolean).join(' ')
     : draftReadiness === 'starting' ? 'Waiting for the runtime to start' : undefined
   const sendTitle = readinessTitle ?? (awaitingConversation
     ? 'Waiting for the conversation to open'
