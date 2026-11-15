@@ -1,0 +1,30 @@
+{
+  "pr": 2240,
+  "productHead": "516ca195ce287563188a04a40f7df98af13dd9b1",
+  "frames": [
+    {
+      "name": "01-before.png",
+      "sha256": "44c540835690a77f855c458a66098ad95c9b06884981b578078fb3b1524dc374",
+      "width": 1000,
+      "height": 123,
+      "bytes": 7536,
+      "caption": "Before: compact Card renders an 8px gap."
+    },
+    {
+      "name": "02-after.png",
+      "sha256": "44c540835690a77f855c458a66098ad95c9b06884981b578078fb3b1524dc374",
+      "width": 1000,
+      "height": 123,
+      "bytes": 7536,
+      "caption": "After: same 8px gap with shared Card spacing."
+    },
+    {
+      "name": "03-native.png",
+      "sha256": "f8a6875d5f27f223c827ad87678aa4a5ca22c92855be0794e64f6afa969070e1",
+      "width": 1280,
+      "height": 813,
+      "bytes": 63155,
+      "caption": "After: synthetic Teams board in the Linux Electron app."
+    }
+  ]
+}
