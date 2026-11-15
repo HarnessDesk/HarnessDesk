@@ -1,0 +1,47 @@
+{
+  "pr": 2238,
+  "scope": "synthetic component previews; no native Host or provider proof",
+  "beforeSource": "7824cf3065b5549558843062dfe98c4c4d014f2d",
+  "afterUiSource": "c803ac04c0f9e7ff0067545576e8e838c3d8b7ec",
+  "integratedSource": "ecb7b41da2129009440fd3f00030ab7496e58ab7",
+  "parentViewedAll": true,
+  "privacyReasons": 0,
+  "frames": [
+    {
+      "name": "before-run.png",
+      "sha256": "ecc980d1d639cb27f2599a76645c3b11c3a78729ead26cc37469c596eec97af1",
+      "width": 171,
+      "height": 27
+    },
+    {
+      "name": "after-run.png",
+      "sha256": "8b0a221cd34c84a05f6bcfb100129c3e49e029b19b4a5ec74c1f8c864c54418f",
+      "width": 171,
+      "height": 27
+    },
+    {
+      "name": "after-run-confirm.png",
+      "sha256": "8a364a926e83fbf0d221090370e389e6509adfd59c71f7495812bd3dc1263ca9",
+      "width": 460,
+      "height": 512
+    },
+    {
+      "name": "before-team.png",
+      "sha256": "e9dd216131978e042adca7a5d7f86f9d69a1669fdc66b0df66fa0714e6e6c24e",
+      "width": 1136,
+      "height": 137
+    },
+    {
+      "name": "after-team.png",
+      "sha256": "b0f61eb33d4e2999f53d5d0b3ce93c89f68bcd94110d264d420a463c92d2cc3e",
+      "width": 1136,
+      "height": 121
+    },
+    {
+      "name": "after-team-confirm.png",
+      "sha256": "f7dfbe10f5aced01769513153f3cc95dbf956e1ef045c1b99f7237253b5325c5",
+      "width": 460,
+      "height": 512
+    }
+  ]
+}
