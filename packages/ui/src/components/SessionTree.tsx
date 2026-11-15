@@ -1157,112 +1157,18 @@ const foldProjects = (store: Pick<AppStore, 'setProjectsCollapsed'>, roots: read
 const projectFoldAction = (store: Pick<AppStore, 'setProjectsCollapsed'>, roots: readonly string[], collapsed: boolean): (() => void) =>
   foldProjects.bind(null, store, roots, collapsed)
 
-export const SessionTree = ({ now, searching = false, filter = '', searchEmptyState = null, suppressSelection = false }: {
-  now: number
-  searching?: boolean
-  filter?: string
-  searchEmptyState?: ReactNode
-  suppressSelection?: boolean
-}) => {
-  const store = useStore()
-  const snapshot = useSnapshot()
-  const treeRef = useRef<HTMLElement>(null)
-  const typeahead = useRef({ text: '', timer: 0 })
-  const [navigationTarget, setNavigationTarget] = useState<{ root: string; index: number } | null>(null)
-  const lastReveal = useRef<string | null>(null)
-  const [expandedTeams, setExpandedTeams] = useState<ReadonlyMap<string, boolean>>(() => new Map())
-  // Default expansion becomes session state, so leaving a Team does not fold it.
-  useEffect(() => {
-    const selected = panes(snapshot.layout.root).flatMap(pane => pane.view.kind === 'room' ? [pane.view.room] : [])
-    setExpandedTeams(current => {
-      const missing = selected.filter(id => !current.has(id))
-      return missing.length > 0 ? new Map([...current, ...missing.map(id => [id, true] as const)]) : current
-    })
-  }, [snapshot.layout.root])
-  const filterKey = JSON.stringify([searching ? filter.trim() : null, snapshot.listPrefs.agent])
-  const [filterExpansion, setFilterExpansion] = useState<{ key: string; teams: ReadonlyMap<string, boolean> }>(() => ({ key: filterKey, teams: new Map() }))
-  useEffect(() => {
-    setFilterExpansion(current => current.key === filterKey ? current : { key: filterKey, teams: new Map() })
-  }, [filterKey])
-  const historyByKey = useMemo(() => new Map(snapshot.history.map(one => [String(sessionKey(one.runtime, one.id)), one])), [snapshot.history])
-  const [expandedProjects, setExpandedProjects] = useState<ReadonlySet<string>>(() => new Set())
-  const { groups, noFolder, chatFolders, hiddenPinned, gone } = useProjectList({ searching })
-  const noFolderGroup = useMemo<ProjectGroup>(() => ({ root: 'no-folder', name: 'Chats', sessions: noFolder, folders: chatFolders, updatedAt: 0 }), [noFolder, chatFolders])
-  const [noFolderOpen, setNoFolderOpen] = useState(false)
-  const collapsed = useMemo(
-    () => new Set(migratedRoots(snapshot.listPrefs.collapsed, snapshot.workspace, groups)),
-    [snapshot.listPrefs.collapsed, snapshot.workspace, groups],
-  )
+// Keep stable row handlers independent of the surrounding render snapshot.
+const useClearSessionSelection = (setSelection: React.Dispatch<React.SetStateAction<ReadonlySet<string>>>, anchor: { current: string | null }) =>
+  useCallback(() => { setSelection(new Set()); anchor.current = null }, [])
 
-  /* A pin or a fold recorded under a folder that has since been folded into a
-     project — a clone, say, that was a row of its own — is the project's, and
-     is read that way above. It is rewritten under the project's home as well,
-     once, so a toggle or a move works on what is stored and a stale spelling
-     cannot bring the pin back after it is undone. Only from the whole list: a
-     filtered or searched one is a part of it, and a part must not decide. */
-  const listIsWhole = !searching && snapshot.listPrefs.agent === null && !snapshot.historyLoading && snapshot.historyCursor === null
-  useEffect(() => {
-    if (!listIsWhole) return
-    const pinned = migratedRoots(snapshot.listPrefs.pinned, null, groups)
-    const folded = migratedRoots(snapshot.listPrefs.collapsed, null, groups)
-    const same = (left: readonly string[], right: readonly string[]) =>
-      left.length === right.length && left.every((entry, index) => entry === right[index])
-    if (same(pinned, snapshot.listPrefs.pinned) && same(folded, snapshot.listPrefs.collapsed)) return
-    store.setListPrefs({ pinned: [...pinned], collapsed: [...folded] })
-  }, [groups, listIsWhole, snapshot.listPrefs.collapsed, snapshot.listPrefs.pinned, store])
-
-  const toggle = useMemo(
-    () => projectToggleAction(store, groups.map(({ root, folders }) => ({ root, folders: [...folders] }))),
-    [groups, store],
-  )
-
-  const teamKeys = useMemo(() => new Set([...snapshot.teams.values()].flatMap(team =>
-    teamSeats(snapshot.goals.get(team.id), team, goalRunOf(team.id, snapshot.goals.get(team.id), snapshot.flowExecutions))
-      .filter(hasConversation).map(one => String(one.key)))), [snapshot.teams, snapshot.goals, snapshot.flowExecutions])
-  const pinnedRows = useMemo(() => {
-    const byKey = new Map([...groups.flatMap((group) => group.sessions), ...noFolder, ...hiddenPinned].map((summary) => [String(sessionKey(summary.runtime, summary.id)), summary]))
-    return snapshot.listPrefs.pinnedSessions
-      .filter(key => !teamKeys.has(String(key)))
-      .map((key) => byKey.get(String(key)))
-      .filter((summary): summary is SessionSummary => summary !== undefined)
-  }, [groups, noFolder, hiddenPinned, snapshot.listPrefs.pinnedSessions, teamKeys])
-  const liftedKeys = useMemo(
-    () => new Set(pinnedRows.map((summary) => String(sessionKey(summary.runtime, summary.id)))),
-    [pinnedRows],
-  )
-
-
-  /* The rooms in each project, so a room can be drawn where it belongs.
-     There used to be one line above the whole tree reading "Room · 2 open · 1
-     claimed" for whichever folder was open, which is not a place in a tree:
-     it named one project's room while standing over all of them, it could
-     only ever name *one*, and a project can hold several. Rooms are rows in
-     the tree now, beside the sessions, which is where the things you open
-     live. */
-  const roomsByProject = useMemo(() => roomsByProjectFor(snapshot.teams, snapshot.foldersGone, [snapshot.workspace, ...snapshot.workspaces], searching), [snapshot.teams, snapshot.foldersGone, snapshot.workspace, snapshot.workspaces, searching])
-
-  // The current project stays open; the rest fold under "Other projects"
-  // once there are enough of them for the fold to save anything. The fold's
-  // state lives in preferences rather than in localStorage: the renderer is
-  // served from a fresh origin on every launch, so anything written there is
-  // gone by the next one.
-  const othersOpen = snapshot.listPrefs.othersOpen
-  const setOthersOpen = useCallback((open: boolean) => store.setOthersOpen(open), [store])
-  // One dialog for the whole list rather than one per row: it is modal, only
-  // one can be open, and a row that unmounts while its own dialog was open —
-  // which is exactly what a delete does — would take the dialog with it.
-  const [deleting, setDeleting] = useState<SessionSummary | null>(null)
-  const [selection, setSelection] = useState<ReadonlySet<string>>(() => new Set())
-  const anchor = useRef<string | null>(null)
-  const [bulkDelete, setBulkDelete] = useState<readonly SessionSummary[] | null>(null)
-  const [bulkBusy, setBulkBusy] = useState(false)
-  const [bulkError, setBulkError] = useState<string | null>(null)
-  const selectionOrder: SessionSummary[] = [...pinnedRows]
-  const clearSelection = useCallback(() => { setSelection(new Set()); anchor.current = null }, [])
-  const picks = useRef({ rows: selectionOrder, activeKey: snapshot.activeSessionKey as string | null })
-  picks.current = { rows: selectionOrder, activeKey: snapshot.activeSessionKey }
-  const selectionMenu = useContextMenu()
-  const pickSession = useCallback((summary: SessionSummary, event: Pick<ReactMouseEvent, 'shiftKey' | 'metaKey' | 'ctrlKey'>) => {
+const usePickSession = (
+  store: AppStore,
+  clearSelection: () => void,
+  picks: { current: { rows: SessionSummary[]; activeKey: string | null } },
+  anchor: { current: string | null },
+  setSelection: React.Dispatch<React.SetStateAction<ReadonlySet<string>>>,
+) => {
+  return useCallback((summary: SessionSummary, event: Pick<ReactMouseEvent, 'shiftKey' | 'metaKey' | 'ctrlKey'>) => {
     const key = String(sessionKey(summary.runtime, summary.id))
     const { rows, activeKey } = picks.current
     if (event.shiftKey) {
@@ -1280,32 +1186,18 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
       void store.openSession(summary.id, { runtime: summary.runtime })
     }
   }, [store, clearSelection])
+}
 
-  // The project the folder you have open belongs to — its home, or a clone of
-  // it — read from the groups, never by comparing the folder with a home.
-  const currentGroup = groupHolding(groups, snapshot.workspace)
-  const pinnedRoots = migratedRoots(snapshot.listPrefs.pinned, snapshot.workspace, groups)
-  const near = groups.filter(
-    (group) =>
-      group === currentGroup || pinnedRoots.includes(group.root) || groups.length <= 2,
-  )
-  const far = groups.filter((group) => !near.includes(group))
-
-  const activeKey = snapshot.activeSessionKey ? String(snapshot.activeSessionKey) : null
-  useEffect(() => {
-    const tree = treeRef.current
-    if (!tree) return
-    const rows = [...tree.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')]
-    const held = rows.find((row) => row === document.activeElement)
-    const active = rows.find((row) => row.hasAttribute('aria-current'))
-    tree.querySelectorAll<HTMLButtonElement>('button').forEach((button) => {
-      if (!button.closest('[role="toolbar"]') && button.tabIndex !== -1) button.tabIndex = -1
-    })
-    const entry = held ?? active ?? rows[0]
-    if (entry && entry.tabIndex !== 0) entry.tabIndex = 0
-  })
-
-  const onTreeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
+const useSessionTreeKeyDown = (
+  setSelection: React.Dispatch<React.SetStateAction<ReadonlySet<string>>>,
+  anchor: { current: string | null },
+  picks: { current: { rows: SessionSummary[]; activeKey: string | null } },
+  pickSession: ReturnType<typeof usePickSession>,
+  treeRef: { current: HTMLElement | null },
+  typeahead: { current: { text: string; timer: number } },
+  setNavigationTarget: React.Dispatch<React.SetStateAction<{ root: string; index: number } | null>>,
+) => {
+  return useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
     if (event.key === 'Escape') { setSelection(new Set()); anchor.current = null; return }
     const target = event.target
     if (!(target instanceof HTMLButtonElement) || !target.matches('[data-slot="sidebar-menu-button"]')) return
@@ -1429,6 +1321,208 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
       }
     }
   }, [])
+}
+
+const useArrangeProjects = (
+  groups: readonly ProjectGroup[], near: readonly ProjectGroup[], pinned: AppSnapshot['listPrefs']['pinned'],
+  workspace: AppSnapshot['workspace'], store: AppStore, setAnnouncement: React.Dispatch<React.SetStateAction<string>>,
+) => {
+  return useCallback(
+    (root: string, beforeRoot: string | null) => {
+      const order = near.map((group) => group.root).filter((entry) => entry !== root)
+      const at = beforeRoot === null ? order.length : order.indexOf(beforeRoot)
+      const index = at === -1 ? order.length : at
+      const arranged = [...order.slice(0, index), root, ...order.slice(index)]
+      // Only the project you dragged joins the run: moving one thing must not
+      // quietly arrange the others, and the folder you happen to have open is
+      // in this list for a different reason than the ones you put here.
+      const existingPinned = migratedRoots(pinned, workspace, groups)
+      const keep = new Set([...existingPinned, root])
+      const shown = arranged.filter((entry) => keep.has(entry))
+      // A pinned project whose sessions have all been archived has no row to
+      // be arranged among. It keeps its pin rather than losing it to a drag
+      // that was never about it.
+      const offscreen = existingPinned.filter((entry) => !shown.includes(entry))
+      store.setListPrefs({ pinned: [...shown, ...offscreen] })
+      setAnnouncement(`Moved to position ${shown.indexOf(root) + 1} of ${shown.length}`)
+    },
+    [groups, near, pinned, workspace, store],
+  )
+}
+
+const projectDragHandlers = (
+  dragging: string | null, over: DropTarget | null, near: readonly ProjectGroup[],
+  arrange: ReturnType<typeof useArrangeProjects>, setDragging: React.Dispatch<React.SetStateAction<string | null>>,
+  setOver: React.Dispatch<React.SetStateAction<DropTarget | null>>,
+): DragHandlers => {
+
+
+  return {
+    dragging,
+    over,
+    onStart: (event, root) => {
+      event.dataTransfer.setData(PROJECT_MIME, root)
+      event.dataTransfer.effectAllowed = 'move'
+      setDragging(root)
+    },
+    onOver: (event, root) => {
+      if (!dragging || dragging === root) return
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'move'
+      const box = event.currentTarget.getBoundingClientRect()
+      setOver({ root, edge: event.clientY < box.top + box.height / 2 ? 'before' : 'after' })
+    },
+    onLeave: () => setOver(null),
+    onDrop: (event, root) => {
+      if (!dragging || dragging === root) return
+      event.preventDefault()
+      const edge = over?.root === root ? over.edge : 'before'
+      const after = near[near.findIndex((group) => group.root === root) + 1]
+      arrange(dragging, edge === 'before' ? root : (after?.root ?? null))
+      setDragging(null)
+      setOver(null)
+    },
+    onEnd: () => {
+      setDragging(null)
+      setOver(null)
+    },
+  }
+}
+
+const useSetOthersOpen = (store: AppStore) => useCallback((open: boolean) => store.setOthersOpen(open), [store])
+
+export const SessionTree = ({ now, searching = false, filter = '', searchEmptyState = null, suppressSelection = false }: {
+  now: number
+  searching?: boolean
+  filter?: string
+  searchEmptyState?: ReactNode
+  suppressSelection?: boolean
+}) => {
+  const store = useStore()
+  const snapshot = useSnapshot()
+  const treeRef = useRef<HTMLElement>(null)
+  const typeahead = useRef({ text: '', timer: 0 })
+  const [navigationTarget, setNavigationTarget] = useState<{ root: string; index: number } | null>(null)
+  const lastReveal = useRef<string | null>(null)
+  const [expandedTeams, setExpandedTeams] = useState<ReadonlyMap<string, boolean>>(() => new Map())
+  // Default expansion becomes session state, so leaving a Team does not fold it.
+  useEffect(() => {
+    const selected = panes(snapshot.layout.root).flatMap(pane => pane.view.kind === 'room' ? [pane.view.room] : [])
+    setExpandedTeams(current => {
+      const missing = selected.filter(id => !current.has(id))
+      return missing.length > 0 ? new Map([...current, ...missing.map(id => [id, true] as const)]) : current
+    })
+  }, [snapshot.layout.root])
+  const filterKey = JSON.stringify([searching ? filter.trim() : null, snapshot.listPrefs.agent])
+  const [filterExpansion, setFilterExpansion] = useState<{ key: string; teams: ReadonlyMap<string, boolean> }>(() => ({ key: filterKey, teams: new Map() }))
+  useEffect(() => {
+    setFilterExpansion(current => current.key === filterKey ? current : { key: filterKey, teams: new Map() })
+  }, [filterKey])
+  const historyByKey = useMemo(() => new Map(snapshot.history.map(one => [String(sessionKey(one.runtime, one.id)), one])), [snapshot.history])
+  const [expandedProjects, setExpandedProjects] = useState<ReadonlySet<string>>(() => new Set())
+  const { groups, noFolder, chatFolders, hiddenPinned, gone } = useProjectList({ searching })
+  const noFolderGroup = useMemo<ProjectGroup>(() => ({ root: 'no-folder', name: 'Chats', sessions: noFolder, folders: chatFolders, updatedAt: 0 }), [noFolder, chatFolders])
+  const [noFolderOpen, setNoFolderOpen] = useState(false)
+  const collapsed = useMemo(
+    () => new Set(migratedRoots(snapshot.listPrefs.collapsed, snapshot.workspace, groups)),
+    [snapshot.listPrefs.collapsed, snapshot.workspace, groups],
+  )
+
+  /* A pin or a fold recorded under a folder that has since been folded into a
+     project — a clone, say, that was a row of its own — is the project's, and
+     is read that way above. It is rewritten under the project's home as well,
+     once, so a toggle or a move works on what is stored and a stale spelling
+     cannot bring the pin back after it is undone. Only from the whole list: a
+     filtered or searched one is a part of it, and a part must not decide. */
+  const listIsWhole = !searching && snapshot.listPrefs.agent === null && !snapshot.historyLoading && snapshot.historyCursor === null
+  useEffect(() => {
+    if (!listIsWhole) return
+    const pinned = migratedRoots(snapshot.listPrefs.pinned, null, groups)
+    const folded = migratedRoots(snapshot.listPrefs.collapsed, null, groups)
+    const same = (left: readonly string[], right: readonly string[]) =>
+      left.length === right.length && left.every((entry, index) => entry === right[index])
+    if (same(pinned, snapshot.listPrefs.pinned) && same(folded, snapshot.listPrefs.collapsed)) return
+    store.setListPrefs({ pinned: [...pinned], collapsed: [...folded] })
+  }, [groups, listIsWhole, snapshot.listPrefs.collapsed, snapshot.listPrefs.pinned, store])
+
+  const toggle = useMemo(
+    () => projectToggleAction(store, groups.map(({ root, folders }) => ({ root, folders: [...folders] }))),
+    [groups, store],
+  )
+
+  const teamKeys = useMemo(() => new Set([...snapshot.teams.values()].flatMap(team =>
+    teamSeats(snapshot.goals.get(team.id), team, goalRunOf(team.id, snapshot.goals.get(team.id), snapshot.flowExecutions))
+      .filter(hasConversation).map(one => String(one.key)))), [snapshot.teams, snapshot.goals, snapshot.flowExecutions])
+  const pinnedRows = useMemo(() => {
+    const byKey = new Map([...groups.flatMap((group) => group.sessions), ...noFolder, ...hiddenPinned].map((summary) => [String(sessionKey(summary.runtime, summary.id)), summary]))
+    return snapshot.listPrefs.pinnedSessions
+      .filter(key => !teamKeys.has(String(key)))
+      .map((key) => byKey.get(String(key)))
+      .filter((summary): summary is SessionSummary => summary !== undefined)
+  }, [groups, noFolder, hiddenPinned, snapshot.listPrefs.pinnedSessions, teamKeys])
+  const liftedKeys = useMemo(
+    () => new Set(pinnedRows.map((summary) => String(sessionKey(summary.runtime, summary.id)))),
+    [pinnedRows],
+  )
+
+
+  /* The rooms in each project, so a room can be drawn where it belongs.
+     There used to be one line above the whole tree reading "Room · 2 open · 1
+     claimed" for whichever folder was open, which is not a place in a tree:
+     it named one project's room while standing over all of them, it could
+     only ever name *one*, and a project can hold several. Rooms are rows in
+     the tree now, beside the sessions, which is where the things you open
+     live. */
+  const roomsByProject = useMemo(() => roomsByProjectFor(snapshot.teams, snapshot.foldersGone, [snapshot.workspace, ...snapshot.workspaces], searching), [snapshot.teams, snapshot.foldersGone, snapshot.workspace, snapshot.workspaces, searching])
+
+  // The current project stays open; the rest fold under "Other projects"
+  // once there are enough of them for the fold to save anything. The fold's
+  // state lives in preferences rather than in localStorage: the renderer is
+  // served from a fresh origin on every launch, so anything written there is
+  // gone by the next one.
+  const othersOpen = snapshot.listPrefs.othersOpen
+  const setOthersOpen = useSetOthersOpen(store)
+  // One dialog for the whole list rather than one per row: it is modal, only
+  // one can be open, and a row that unmounts while its own dialog was open —
+  // which is exactly what a delete does — would take the dialog with it.
+  const [deleting, setDeleting] = useState<SessionSummary | null>(null)
+  const [selection, setSelection] = useState<ReadonlySet<string>>(() => new Set())
+  const anchor = useRef<string | null>(null)
+  const [bulkDelete, setBulkDelete] = useState<readonly SessionSummary[] | null>(null)
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkError, setBulkError] = useState<string | null>(null)
+  const selectionOrder: SessionSummary[] = [...pinnedRows]
+  const clearSelection = useClearSessionSelection(setSelection, anchor)
+  const picks = useRef({ rows: selectionOrder, activeKey: snapshot.activeSessionKey as string | null })
+  picks.current = { rows: selectionOrder, activeKey: snapshot.activeSessionKey }
+  const selectionMenu = useContextMenu()
+  const pickSession = usePickSession(store, clearSelection, picks, anchor, setSelection)
+
+  // The project the folder you have open belongs to — its home, or a clone of
+  // it — read from the groups, never by comparing the folder with a home.
+  const currentGroup = groupHolding(groups, snapshot.workspace)
+  const pinnedRoots = migratedRoots(snapshot.listPrefs.pinned, snapshot.workspace, groups)
+  const near = groups.filter(
+    (group) =>
+      group === currentGroup || pinnedRoots.includes(group.root) || groups.length <= 2,
+  )
+  const far = groups.filter((group) => !near.includes(group))
+
+  const activeKey = snapshot.activeSessionKey ? String(snapshot.activeSessionKey) : null
+  useEffect(() => {
+    const tree = treeRef.current
+    if (!tree) return
+    const rows = [...tree.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')]
+    const held = rows.find((row) => row === document.activeElement)
+    const active = rows.find((row) => row.hasAttribute('aria-current'))
+    tree.querySelectorAll<HTMLButtonElement>('button').forEach((button) => {
+      if (!button.closest('[role="toolbar"]') && button.tabIndex !== -1) button.tabIndex = -1
+    })
+    const entry = held ?? active ?? rows[0]
+    if (entry && entry.tabIndex !== 0) entry.tabIndex = 0
+  })
+
+  const onTreeKeyDown = useSessionTreeKeyDown(setSelection, anchor, picks, pickSession, treeRef, typeahead, setNavigationTarget)
   const teamInputs = teamsInput(snapshot)
   const teamInputsById = new Map(teamInputs.map(input => [input.team.id, input]))
   const teamRows = new Map(teamInputs.map(input => [input.team.id, teamListRow(input)]))
@@ -1489,58 +1583,8 @@ export const SessionTree = ({ now, searching = false, filter = '', searchEmptySt
   const [over, setOver] = useState<DropTarget | null>(null)
   const [announcement, setAnnouncement] = useState('')
 
-  const arrange = useCallback(
-    (root: string, beforeRoot: string | null) => {
-      const order = near.map((group) => group.root).filter((entry) => entry !== root)
-      const at = beforeRoot === null ? order.length : order.indexOf(beforeRoot)
-      const index = at === -1 ? order.length : at
-      const arranged = [...order.slice(0, index), root, ...order.slice(index)]
-      // Only the project you dragged joins the run: moving one thing must not
-      // quietly arrange the others, and the folder you happen to have open is
-      // in this list for a different reason than the ones you put here.
-      const existingPinned = migratedRoots(snapshot.listPrefs.pinned, snapshot.workspace, groups)
-      const keep = new Set([...existingPinned, root])
-      const shown = arranged.filter((entry) => keep.has(entry))
-      // A pinned project whose sessions have all been archived has no row to
-      // be arranged among. It keeps its pin rather than losing it to a drag
-      // that was never about it.
-      const offscreen = existingPinned.filter((entry) => !shown.includes(entry))
-      store.setListPrefs({ pinned: [...shown, ...offscreen] })
-      setAnnouncement(`Moved to position ${shown.indexOf(root) + 1} of ${shown.length}`)
-    },
-    [groups, near, snapshot.listPrefs.pinned, snapshot.workspace, store],
-  )
-
-  const drag: DragHandlers = {
-    dragging,
-    over,
-    onStart: (event, root) => {
-      event.dataTransfer.setData(PROJECT_MIME, root)
-      event.dataTransfer.effectAllowed = 'move'
-      setDragging(root)
-    },
-    onOver: (event, root) => {
-      if (!dragging || dragging === root) return
-      event.preventDefault()
-      event.dataTransfer.dropEffect = 'move'
-      const box = event.currentTarget.getBoundingClientRect()
-      setOver({ root, edge: event.clientY < box.top + box.height / 2 ? 'before' : 'after' })
-    },
-    onLeave: () => setOver(null),
-    onDrop: (event, root) => {
-      if (!dragging || dragging === root) return
-      event.preventDefault()
-      const edge = over?.root === root ? over.edge : 'before'
-      const after = near[near.findIndex((group) => group.root === root) + 1]
-      arrange(dragging, edge === 'before' ? root : (after?.root ?? null))
-      setDragging(null)
-      setOver(null)
-    },
-    onEnd: () => {
-      setDragging(null)
-      setOver(null)
-    },
-  }
+  const arrange = useArrangeProjects(groups, near, snapshot.listPrefs.pinned, snapshot.workspace, store, setAnnouncement)
+  const drag = projectDragHandlers(dragging, over, near, arrange, setDragging, setOver)
 
   /* The folders that are gone, in one quiet line where the list ends: at the
      end of "Other projects" when that fold is drawn, and under the projects

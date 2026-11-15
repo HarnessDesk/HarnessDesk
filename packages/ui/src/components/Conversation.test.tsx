@@ -1,3 +1,5 @@
+import '../panels/builtins'
+import { registerView, views } from '../panels/views'
 import { FRAME } from '../design/frame'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -1536,4 +1538,37 @@ it('routes window scroll keys only to the last transcript touched by the pointer
   })
   expect([...container.querySelectorAll('button')].filter(button => button.textContent === 'Jump to latest')).toHaveLength(1)
   await act(async () => {})
+})
+
+
+it('keeps a menu view live while its conversation is open', () => {
+  const original = views.get('board')!
+  registerView({ ...original, label: 'Synthetic live view', menu: true,
+    live: (snapshot) => snapshot.activeSessionKey === KEY && (snapshot.tasks.get(KEY) ?? []).some((task) => task.state === 'running') })
+  try {
+    const { store } = rig(session())
+    let current = store.getSnapshot()
+    const listeners = new Set<() => void>()
+    const showView = vi.fn()
+    Object.assign(store, {
+      getSnapshot: () => current,
+      subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
+      showView,
+    })
+    render(store)
+    const more = container.querySelector<HTMLButtonElement>('header button[aria-label="More"]')
+    expect(more).not.toBeNull()
+    act(() => more!.click())
+    const viewRow = () => [...document.body.querySelectorAll<HTMLElement>('[role^=menuitem]')]
+      .find((item) => item.textContent?.includes('Synthetic live view'))
+    expect(viewRow()).toBeDefined()
+    expect(viewRow()?.textContent).not.toContain('Live')
+    act(() => {
+      current = { ...current, tasks: new Map([[KEY, [{ id: 'synthetic-task', label: 'Synthetic task', kind: 'command', state: 'running', stoppable: true }]]]) }
+      for (const listener of listeners) listener()
+    })
+    expect(viewRow()?.textContent).toContain('Live')
+    act(() => viewRow()!.click())
+    expect(showView).toHaveBeenCalledWith('board')
+  } finally { registerView(original) }
 })

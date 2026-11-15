@@ -265,10 +265,10 @@ export const iconOf = (view: PaneView): ComponentType<IconProps> | null =>
  * header can never disagree about what a room is called.
  */
 export const useViewTitle = (): ((view: PaneView) => string) => {
-  const snapshot = useSnapshot()
+  const { teams } = useSnapshot()
   const rooms = useMemo(
-    () => new Map([...snapshot.teams].map(([id, state]) => [id, state.name])),
-    [snapshot.teams],
+    () => new Map([...teams].map(([id, state]) => [id, state.name])),
+    [teams],
   )
   return useCallback((view: PaneView) => titleOf(view, { rooms }), [rooms])
 }

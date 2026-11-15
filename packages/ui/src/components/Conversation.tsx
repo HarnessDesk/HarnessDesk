@@ -314,30 +314,30 @@ const ConversationEmpty = ({
  * capability, so a backend without one shows a shorter menu rather than a
  * disabled row — and no item is keyed to a runtime id.
  */
-const ConversationMenu = ({ owner, folderActions }: { owner?: string; folderActions?: (close: () => void) => ReactNode }) => {
-  const store = useStore()
-  const runtime = useRuntime()
+const ConversationMenuBody = ({
+  close, store, runtime, sessionKey, refusal, memoryOn, several, pane, folderActions, setConfirmUndo, setSaving,
+}: {
+  close: () => void
+  store: ReturnType<typeof useStore>
+  runtime: ReturnType<typeof useRuntime>
+  sessionKey: ReturnType<typeof useSessionKey>
+  refusal: string | null
+  memoryOn: boolean
+  several: boolean
+  pane: ReturnType<typeof usePane>
+  folderActions?: (close: () => void) => ReactNode
+  setConfirmUndo: React.Dispatch<React.SetStateAction<boolean>>
+  setSaving: React.Dispatch<React.SetStateAction<boolean>>
+}) => {
   const snapshot = useSnapshot()
-  const session = useActiveSession()
-  // This menu's own conversation, which is also the one its verbs act on: a
-  // wrapped Team's record is refused by the host, so the row says so up front.
-  const key = useSessionKey()
-  const record = isRecordConversation(snapshot.goals.values(), key)
   const capabilities = runtime.capabilities
-  const [confirmUndo, setConfirmUndo] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const pane = usePane()
-  const unavailable = sessionUnavailable(snapshot, session)
-  const refusal = record ? RECORD_REASON : unavailable
-  const memoryOn = session?.memory === true
-  const several = snapshot.layout.root.kind === 'split'
-  const menuBody = (close: () => void) => <>
+  return <>
     {capabilities.memory && <MenuToggle icon={<BrainIcon size={16} />} label="Remember this conversation"
       title={refusal ?? `Let ${runtime.presentation.name} carry what it learns here into new ones.`} disabled={refusal ?? false} checked={memoryOn}
-      onChange={() => { void store.setMemoryMode(!memoryOn, key); close() }} />}
+      onChange={() => { void store.setMemoryMode(!memoryOn, sessionKey); close() }} />}
     {capabilities.compaction && <MenuItem icon={<CompactIcon size={16} />} label="Compact now"
-      title="Summarise older turns to free up context." disabled={record ? RECORD_REASON : sessionUnavailable(snapshot, session) ?? false}
-      onSelect={() => void store.compact(key)} />}
+      title="Summarise older turns to free up context." disabled={refusal ?? false}
+      onSelect={() => void store.compact(sessionKey)} />}
     {capabilities.undo && <MenuItem icon={<UndoIcon size={16} />} label="Undo the last turn"
       hint="Files are left as they are." disabled={refusal ?? false} onSelect={() => setConfirmUndo(true)} />}
     <MenuItem icon={<AgentIcon size={16} />} label="Save as an Agent…"
@@ -353,6 +353,27 @@ const ConversationMenu = ({ owner, folderActions }: { owner?: string; folderActi
     {pane && several && <MenuItem icon={<CrossIcon size={16} />} label="Close this pane" shortcut="⌘W"
       hint="The conversation stays in the sidebar." onSelect={() => store.closePane(pane.paneId)} />}
   </>
+}
+
+const ConversationMenu = ({ owner, folderActions }: { owner?: string; folderActions?: (close: () => void) => ReactNode }) => {
+  const store = useStore()
+  const runtime = useRuntime()
+  const { goals, runtimes, healthByRuntime, activeRuntime, health, layout } = useSnapshot()
+  const session = useActiveSession()
+  // This menu's own conversation, which is also the one its verbs act on: a
+  // wrapped Team's record is refused by the host, so the row says so up front.
+  const key = useSessionKey()
+  const record = isRecordConversation(goals.values(), key)
+  const [confirmUndo, setConfirmUndo] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const pane = usePane()
+  const unavailable = sessionUnavailable({ runtimes, healthByRuntime, activeRuntime, health }, session)
+  const refusal = record ? RECORD_REASON : unavailable
+  const memoryOn = session?.memory === true
+  const several = layout.root.kind === 'split'
+  const menuBody = (close: () => void) => <ConversationMenuBody
+    close={close} store={store} runtime={runtime} sessionKey={key} refusal={refusal} memoryOn={memoryOn}
+    several={several} pane={pane} folderActions={folderActions} setConfirmUndo={setConfirmUndo} setSaving={setSaving} />
   useTopBarMore(owner ?? pane?.paneId ?? '', menuBody, Boolean(session && pane))
   return <>
     {confirmUndo && <ConfirmDialog title="Undo the last turn?" confirmLabel="Undo turn" cancelLabel="Keep" onCancel={() => setConfirmUndo(false)}
