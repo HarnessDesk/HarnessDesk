@@ -1509,3 +1509,97 @@ test('a brief whose observer returns after its lifetime ends is neither saved no
   assert.equal(r.pushes.length, 0)
   assert.equal(JSON.parse(await readFile(r.file, 'utf8')).briefDigest, undefined)
 })
+
+const repeatRequestCases: readonly [string, string, boolean][] = [
+  ['再帮我开一个修 build a game 的 chat', '再开一遍修 build a game 的 chat', true],
+  ['修一下 game', '现在修 game', true],
+  ['Fix the game', 'Fix the game!!! come on', true],
+  ["Don't merge, fix the game", "fix the game, don't merge", true],
+  ['Fix the game', 'why is it not fixed, fix the game', true],
+  ['merge PR 1234', 'merge PR 12345', false],
+  ['fix issue 12', 'fix issue 123', false],
+  ['deploy to staging', 'deploy to staging2', false],
+  ['merge it', 'merge it twice', false],
+  ['do not merge, fix game', 'merge, do not fix game', false],
+  ['修 game', '修 game 明天', false],
+  ['fix game', 'fix game now', false],
+  ['fix game', 'fix game, deploy', false],
+  ['fix 2 bugs', 'fix 3 bugs', false],
+  ['修一个 game', '修两个 game', false],
+  ['修 game', '删 game', false],
+  ['deploy to staging', 'deploy to production', false],
+  ['fix issue 12', 'fix issue 12, then merge', false],
+  ['merge PR 123, deploy staging', 'deploy staging, merge PR 123', false],
+  ['fix game tomorrow', '现在修 game', false],
+  ['修 game 明天', '现在修 game 明天', false],
+  ['修 game 三天后', '现在修 game 三天后', false],
+  ['Fix the game', 'why is it not fixed in production, fix the game', false],
+  ['fix game', 'Check, fix game', false],
+  ['fix game now', 'now fix game', false], // formerly accepted by arbitrary word movement
+  ['fix alpha beta', 'fix beta alpha', false], // the action arguments can change when words move
+  ['set timeout -1', 'set timeout 1', false],
+  ['set timeout 1', 'set timeout -1', false],
+  ['set ratio .5', 'set ratio 5', false],
+  ['set ratio 5', 'set ratio .5', false],
+  ['remove /cache', 'remove cache', false],
+  ['remove cache', 'remove /cache', false],
+  ['run rm -f', 'run rm f', false],
+  ['run rm f', 'run rm -f', false],
+  ['remove ./cache', 'remove cache', false],
+  ['remove cache', 'remove ./cache', false],
+  ['remove ../cache', 'remove cache', false],
+  ['remove cache', 'remove ../cache', false],
+  ['remove ~/cache', 'remove cache', false],
+  ['remove cache', 'remove ~/cache', false],
+]
+
+for (const [index, [earlier, later, repeated]] of repeatRequestCases.entries()) {
+  test(`#2080 hold ${index + 1}: ${earlier} → ${later}`, async t => {
+    const r = await rig(t)
+    const request = { id: 'request', role: 'user', text: earlier, source: 'person' as const }
+    const question = { id: 'question', role: 'assistant', text: 'Which?', ask: { question: 'Which?', options: [{ id: 'a', label: 'Proceed' }, { id: 'b', label: 'Wait' }], recommended: 'a' } }
+    r.setMessages([request, question])
+    await r.store.observe()
+    assert.equal(await r.store.beforeSend(phone, later), null, 'free text is not an option answer')
+    r.setMessages([request, question, { id: 'later', role: 'user', text: later, source: 'person' as const }])
+    assert.equal(r.store.askHoldingChatStart()?.id ?? null, repeated ? 'question' : null)
+    assert.equal(r.store.openAsk()?.id, 'question', 'a new request does not itself answer the question')
+  })
+}
+
+test('#2080: a repeated request matching an option does not answer without an explicit tap', async t => {
+  const r = await rig(t)
+  const request = { id: 'request', role: 'user', text: 'Fix the game' }
+  const question = { id: 'question', role: 'assistant', text: 'Which?', ask: { question: 'Which?', options: [{ id: 'a', label: 'Fix the game!!! come on' }, { id: 'b', label: 'Wait' }], recommended: 'a' } }
+  r.setMessages([request, question])
+  await r.store.observe()
+  assert.equal(await r.store.beforeSend(phone, 'Fix the game!!! come on'), null, 'a repeat is not an implicit option')
+  assert.equal((await r.store.read(desktop, { active: true })).asks[0]?.answer, undefined)
+  const tap = await r.store.beforeSend(phone, 'Fix the game!!! come on', 'question')
+  assert.ok(tap)
+  await tap(true)
+  assert.equal((await r.store.read(desktop, { active: true })).asks[0]?.answer?.option, 'Fix the game!!! come on')
+})
+
+test('#2080: identifier boundaries and Chinese words are not erased as punctuation or filler', () => {
+  assert.equal(leadRepeatsRequest('deploy staging-prod', 'deploy staging prod'), false)
+  assert.equal(leadRepeatsRequest('ask @alice', 'ask alice'), false)
+  assert.equal(leadRepeatsRequest('set x=1', 'set x+1'), false)
+  assert.equal(leadRepeatsRequest('run git reset --hard', 'run git reset hard'), false)
+  assert.equal(leadRepeatsRequest("don't merge", 'don t merge'), false)
+  assert.equal(leadRepeatsRequest('修一下订单', '修订单'), false)
+  assert.equal(leadRepeatsRequest('fix '.repeat(600), 'fix '.repeat(600)), false, 'overlong inputs are not truncated to equality')
+  assert.equal(leadRepeatsRequest('do not merge PR 123, fix issue 12', 'fix issue 12, do not merge PR 123'), true)
+})
+
+test('#2080: only the configured Lead name is accepted as an address', async t => {
+  const r = await rig(t, { name: () => 'Ari' })
+  const request = { id: 'request', role: 'user', text: 'Fix the game' }
+  const question = { id: 'question', role: 'assistant', text: 'Which?', ask: ask() }
+  r.setMessages([request, question])
+  await r.store.observe()
+  r.setMessages([request, question, { id: 'later', role: 'user', text: 'Ari, fix the game' }])
+  assert.equal(r.store.askHoldingChatStart()?.id, 'question')
+  r.setMessages([request, question, { id: 'later', role: 'user', text: 'Dex, fix the game' }])
+  assert.equal(r.store.askHoldingChatStart(), null)
+})

@@ -186,47 +186,84 @@ const unreadable = () => Object.assign(new Error('The Lead presence file could n
  */
 /** Polite words and fillers that do not make a request new: said with or without them, it is the same request. */
 const POLITE = /\b(?:please|pls|plz|kindly|(?:can|could|would) you|just|again|once more|thanks?|thank you)\b|请|麻烦|再|帮我|帮忙|一下|一次|一遍|吧|好吗|谢谢/gu
-/** Words that turn a request around. One the earlier request did not carry makes the later one never the request said
- * again; the same words with the same negation are. "停" alone is not one: 停车场 is a car park. */
-const NEGATION = /\b(?:don['\u2019]?t|do not|stop|never|cancel|not)\b|别|不要|不用|不必|停下|停掉|停止|取消|算了/gu
-const negations = (text: string): Map<string, number> => {
-  const counts = new Map<string, number>()
-  for (const [word] of text.normalize('NFKC').toLowerCase().replaceAll('\u2019', "'").matchAll(NEGATION)) counts.set(word, (counts.get(word) ?? 0) + 1)
-  return counts
-}
 const CJK_CHAR = /([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])/gu
 /** Words with each Chinese, Japanese or Korean character a word of its own, since those carry no spaces. */
 const charWords = (words: readonly string[]): string[] => words.join(' ').replace(CJK_CHAR, ' $1 ').split(/\s+/u).filter(Boolean)
-/** Whether the two say the same words with one of them moved ("修停车场的 bug", "停车场的 bug 修"). */
-const oneMoved = (a: readonly string[], b: readonly string[]): boolean => {
-  if (a.length !== b.length || a.length < 3 || a.join(' ') === b.join(' ')) return false
-  return a.some((word, i) => b.some((other, j) => other === word &&
-    a.filter((_, index) => index !== i).join(' ') === b.filter((_, index) => index !== j).join(' ')))
-}
 /** The words of a request, folded for comparison: compatibility forms, case, polite words, punctuation and symbols. */
 const requestWords = (text: string): string[] =>
   text.normalize('NFKC').toLowerCase().replace(POLITE, ' ').split(/[\p{P}\p{S}\s]+/u).filter(Boolean)
-/** The shorter of two folded requests must hold this much of the longer one's characters for containment to be a repeat. */
-const CONTAINED = 0.8
+/** A comparison is deliberately bounded; overlong requests are never truncated into equality. */
+const REPEAT_MAX_CHARS = 2_048
+const REPEAT_MAX_CLAUSES = 16
 
-/**
- * Whether `later` only says `earlier` again. Punctuation, symbols, spacing and polite words never make it new, nor
- * does an address or a word more or less around the same request: one contains the other and is at least four fifths
- * of it, they differ by one word, or one word moved. A negation the request did not carry ("don't", "stop", "别…了",
- * "不要") is never a repeat; the same words again, negation and all, are. Anything else is the person moving on.
- */
-export const leadRepeatsRequest = (earlier: string, later: string): boolean => {
-  const before = negations(earlier)
-  for (const [word, count] of negations(later)) if (count > (before.get(word) ?? 0)) return false
-  const a = requestWords(earlier), b = requestWords(later)
-  const joinedA = a.join(''), joinedB = b.join('')
-  if (joinedA === joinedB) return true
-  const [short, long] = joinedA.length <= joinedB.length ? [joinedA, joinedB] : [joinedB, joinedA]
-  if (short.length >= 4 && long.includes(short) && short.length >= CONTAINED * long.length) return true
-  if (oneMoved(charWords(a), charWords(b))) return true
-  const [fewer, more] = a.length <= b.length ? [a, b] : [b, a]
-  if (more.length - fewer.length !== 1 || fewer.length < 2) return false
-  return more.some((_, skip) => more.filter((__, index) => index !== skip).join(' ') === fewer.join(' '))
+/** Remove a configured vocative and the recognized request wrappers at the edges. */
+const repeatText = (text: string, name?: string): string => {
+  let value = text.normalize('NFKC').toLowerCase().replaceAll('’', "'").trim()
+  const address = name?.normalize('NFKC').toLowerCase().trim()
+  if (address && value.startsWith(address)) {
+    const rest = value.slice(address.length)
+    if (/^\s*,/u.test(rest)) value = rest.replace(/^\s*,\s*/u, '')
+  }
+  // These wrappers apply at the edge, never to an action, quantity or later clause.
+  value = value.replace(/^(?:(?:(?:please|pls|plz|kindly|(?:can|could|would) you|again|once more)\b|请|麻烦|再|帮我|帮忙)\s*)+/u, '')
+  value = value.replace(/(?:吧|好吗|谢谢)\s*[\p{P}\p{S}]*\s*$/u, '')
+  value = value.replace(/^修一下(?=\s|$|[\p{P}\p{S}])/u, '修')
+  value = value.replace(/\bopen\s+a\s+chat\b/gu, 'open chat')
+  value = value.replace(/[!?！。．]+\s*come on[.!?！。]*\s*$/u, '')
+  return value.trim()
+}
+
+/** Preserve recognized identifiers, numeric forms, flags and path prefixes in the comparison. */
+const repeatTokens = (text: string): string[] => text.split(/[\p{P}\p{S}\s]+/u).filter(Boolean)
+const protectedIdentifiers = (text: string): string[] =>
+  [...text.matchAll(/(?:~\/|\.{1,2}\/|\/)[\p{L}\p{N}_.-]+(?:\/[\p{L}\p{N}_.-]+)*\/?|--?[\p{L}_][\p{L}\p{N}_-]*|[+-]?(?:\d+(?:\.\d+)?|\.\d+)|!={1,2}|[=+*%<>]+|[@#]?[\p{L}_][\p{L}\p{N}_]*(?:[-.\/:'][\p{L}\p{N}_]+)*|[@#]\d+/gu)]
+    .map(match => match[0]).filter(token => token !== 'build-a-game' && /[@#\p{N}_./:'=+*%<>!~\-]/u.test(token))
+
+/** Whether later repeats the earlier request while the Lead's question remains unanswered.
+ * This is deliberately conservative: no substring, arbitrary word deletion or broad CJK edit distance. */
+export const leadRepeatsRequest = (earlier: string, later: string, name?: string): boolean => {
+  if (earlier.length > REPEAT_MAX_CHARS || later.length > REPEAT_MAX_CHARS) return false
+  let a = repeatText(earlier, name), b = repeatText(later, name)
+  if (a.length > REPEAT_MAX_CHARS || b.length > REPEAT_MAX_CHARS) return false
+  // This exact status complaint adds no instruction when followed by the same fix request.
+  if (/^fix\b/u.test(a)) b = b.replace(/^why is it not fixed\s*,\s*(?=fix\b)/u, '')
+  if (/^fix\b/u.test(b)) a = a.replace(/^why is it not fixed\s*,\s*(?=fix\b)/u, '')
+  // Leading 现在 is a discourse wrapper only on the simple Chinese fix formulation.
+  const simpleFix = /^修\s+[a-z]+[\p{P}\p{S}]*$/u
+  if (simpleFix.test(a) && b.startsWith('现在修')) b = b.slice(2)
+  if (simpleFix.test(b) && a.startsWith('现在修')) a = a.slice(2)
+
+  // The issue's singular chat re-request: 一遍 means repeating the same request here, not a general count deletion.
+  const singularChat = (one: string, other: string): boolean => {
+    if (!one.startsWith('开一个修') || !other.startsWith('开一遍修')) return false
+    const rest = one.slice('开一个修'.length)
+    return rest === other.slice('开一遍修'.length) && /(?:^|\s)chat[\p{P}\p{S}]*$/u.test(rest)
+  }
+  if (singularChat(a, b) || singularChat(b, a)) return true
+
+  // Preserve the existing narrow Chinese moved-修 formulation, without moving arbitrary words or negation.
+  const movedFix = (one: string, other: string): boolean => {
+    const match = /^([\p{Script=Han}]+的\s+[a-z]+)\s*再修一次$/u.exec(other)
+    return !!match && !/(?:别|不要|不用|不必|停下|停掉|停止|取消|先|再)/u.test(match[1]!) && one === `修${match[1]}`
+  }
+  if (movedFix(a, b) || movedFix(b, a)) return true
+
+  const clauses = (text: string): string[] => text.split(/[,，]/u).flatMap(clause => {
+    const tokens = repeatTokens(clause).join(' ')
+    return tokens ? [JSON.stringify([tokens, protectedIdentifiers(clause)])] : []
+  })
+  const left = clauses(a), right = clauses(b)
+  if (!left.length || !right.length || left.length > REPEAT_MAX_CLAUSES || right.length > REPEAT_MAX_CLAUSES) return false
+  if (left.join('\n') === right.join('\n')) return true
+  if (left.length !== 2 || right.length !== 2) return false
+  // Only a negative directive and a separate affirmative one commute. Two affirmative actions may imply order.
+  if (/\b(?:then|before|after|first|next)\b|先|然后|之后|再/u.test(`${a} ${b}`)) return false
+  const raw = a.split(/[,，]/u).map(clause => clause.trim()).filter(Boolean)
+  const negative = /^(?:don't\b|do not\b|never\b|不要|别|不用|不必)/u
+  const anyNegation = /\b(?:don't|do not|not|never|stop|cancel)\b|不要|别|不用|不必|停下|停掉|停止|取消/u
+  if (raw.length !== 2 || raw.filter(clause => negative.test(clause)).length !== 1 ||
+      raw.filter(clause => !negative.test(clause)).some(clause => anyNegation.test(clause))) return false
+  return [...left].sort().join('\n') === [...right].sort().join('\n')
 }
 
 /** Words around a choice that do not change which option it names: "the", "I pick", "选". */
@@ -741,7 +778,7 @@ export class LeadPresenceStore {
     const person = (one: (typeof messages)[number]) => one.role === 'user' && (one.source === undefined || one.source === 'person')
     const asked = messages.slice(0, at).findLast(person)
     const since = messages.slice(at + 1).filter(person)
-    if (since.some(one => !asked || !leadRepeatsRequest(asked.text, one.text))) return null
+    if (since.some(one => !asked || !leadRepeatsRequest(asked.text, one.text, this.ports.name()))) return null
     return { id: message.id, question: ask.question, options: ask.options.map(option => option.label) }
   }
 
@@ -875,7 +912,7 @@ export class LeadPresenceStore {
   #repeatsAskedRequest(id: string, text: string): boolean {
     const messages = this.ports.messages(), at = messages.findIndex(message => message.id === id)
     const asked = messages.slice(0, Math.max(at, 0)).findLast(one => one.role === 'user' && (one.source === undefined || one.source === 'person'))
-    return asked !== undefined && leadRepeatsRequest(asked.text, text)
+    return asked !== undefined && leadRepeatsRequest(asked.text, text, this.ports.name())
   }
   #askById(id: string): { id: string; ask: LeadAsk } | undefined {
     const message = this.ports.messages().find(candidate => candidate.id === id), ask = message ? askOf(message) : undefined
