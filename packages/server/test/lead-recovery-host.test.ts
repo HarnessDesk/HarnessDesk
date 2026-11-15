@@ -5,6 +5,7 @@ import test, { type TestContext } from 'node:test'
 import { createLeadJournal, initialLeadState, type LeadJournal, type LeadPermissionCall, type LeadPermissionContext } from '@harnessdesk/lead'
 import { canonicalTranscriptBody, runtimeId, sessionId, turnId, type AgentError, type WireNotification } from '@harnessdesk/protocol'
 import { TranscriptStore } from '../src/transcripts.js'
+import { LeadFileJournal } from '../src/lead/journal.js'
 import { evidenceDesk } from './fixtures/evidence-desk.js'
 import { FakeRuntime, FakeSession } from './fixtures/fake-runtime.js'
 
@@ -13,7 +14,7 @@ const policySnapshot = (r: { journal: { state: { policy: unknown; budget: { caps
 const deferred = () => { let resolve!: () => void; const promise = new Promise<void>(done => { resolve = done }); return { promise, resolve } }
 const after = async (r: { idle(): Promise<void> }, probe: () => unknown | Promise<unknown>, label: string) => { await r.idle(); assert.ok(await probe(), label) }
 
-const rig = async (t: TestContext, previous?: Awaited<ReturnType<typeof evidenceDesk>> & { journal?: LeadJournal; now?: () => number }) => {
+const rig = async (t: TestContext, previous?: Awaited<ReturnType<typeof evidenceDesk>> & { journal?: LeadJournal; now?: () => number }, durable = false) => {
   let clock = previous?.now?.() ?? 1_800_000_000_000
   const scheduled = new Map<() => void, number>()
   const now = () => clock
@@ -24,7 +25,9 @@ const rig = async (t: TestContext, previous?: Awaited<ReturnType<typeof evidence
     desk.runtime.sessions.set(id, new FakeSession(desk.runtime, sessionId(id), { cwd, model: 'fake-1' }, { model: 'fake-1', tone: 'plain', uppercase: false }))
   }
   const project = { id: 'fixture-project', path: await realpath(desk.repo.dir) }
-  const journal = await createLeadJournal({ read: async () => [], append: async () => {}, checkpoint: () => previous?.journal?.state ?? ({ ...initialLeadState(), workerApprovals: [{ id: 'saved-rule', contractDigest: 'a'.repeat(64), goalStartedSeq: 1, key: { kind: 'tool', tool: 'read' }, target: 'Read files', count: 4 }] }) })
+  const disk = durable ? await LeadFileJournal.open(desk.stateDir, 'recovery-test') : null
+  if (disk) t.after(() => disk.close())
+  const journal = await createLeadJournal(disk ?? { read: async () => [], append: async () => {}, checkpoint: () => previous?.journal?.state ?? ({ ...initialLeadState(), workerApprovals: [{ id: 'saved-rule', contractDigest: 'a'.repeat(64), goalStartedSeq: 1, key: { kind: 'tool', tool: 'read' }, target: 'Read files', count: 4 }] }) })
   if (!previous?.journal) {
   await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
   await journal.updateBudget({ version: 1, type: 'initialize', logicalGoalId: 'recovery-fixture', now: now(), caps: { usdMicros: 100000, rounds: 3 }, freshnessMs: 60000 })
@@ -59,7 +62,7 @@ const rig = async (t: TestContext, previous?: Awaited<ReturnType<typeof evidence
   const start = () => execute({ method: 'lead/chat/start', params: { text: 'Add the helper\n\nPreserve its API.' } })
   const fail = (id: string, code: AgentError['code']) => desk.runtime.sessions.get(id.slice(id.indexOf(':') + 1))!.fail('Synthetic provider failure', code)
   const stored = async () => JSON.parse(await readFile(join(desk.stateDir, 'lead', 'incidents.json'), 'utf8'))
-  return { ...desk, now, idle, advance, nextRetry, initialPolicy, onResolve: (hook: typeof resolveHook) => { resolveHook = hook }, project, journal, service, notifications, prompts, execute, start, fail, incident, stored, models: () => modelRequests }
+  return { ...desk, now, idle, advance, nextRetry, initialPolicy, onResolve: (hook: typeof resolveHook) => { resolveHook = hook }, project, journal, service, notifications, prompts, execute, start, fail, incident, stored, disk, models: () => modelRequests }
 }
 
 test('fake provider reset gives one retry at a time with no model request or allowance movement while waiting', async t => {
@@ -607,7 +610,7 @@ test('a queued renewal rejected by the outer host admission settles before its t
 
 // A retry the host sends on its own is automatic work: after the goal's time has run out it goes nowhere.
 test('a stuck-chat retry the host schedules is refused once the goal\'s deadline has passed', async t => {
-  const r = await rig(t)
+  const r = await rig(t, undefined, true)
   const created = await r.start()
   const reset = r.now() + 200
   const deadlineAt = Date.now() + 1000
@@ -618,8 +621,18 @@ test('a stuck-chat retry the host schedules is refused once the goal\'s deadline
   await after(r, async () => (await r.stored().catch(() => null))?.records[0]?.state === 'waiting-reset' ? true : null, 'persisted reset wait')
   // The autonomy store keeps real time, the retry clock is the rig's: wait until the deadline has really passed.
   await new Promise(resolve => setTimeout(resolve, Math.max(0, deadlineAt - Date.now()) + 100))
-  await r.advance(500)
+  await r.nextRetry()
   await r.idle()
   assert.equal(r.prompts.length, 1, 'no continue goes out after the time has run out')
   assert.equal(await r.host.leadAutonomy.deadlineElapsed('recovery-fixture'), true)
+  const retries = [...r.journal.state.attempts.values()].filter(one => one.id.startsWith('chat-retry-'))
+  assert.equal(retries.length, 1, 'the scheduled retry actually reached the host')
+  assert.equal(retries[0]!.method, 'lead/chat/send')
+  assert.equal(retries[0]!.outcome, 'failed', 'the refusal is recorded as a failed send')
+  await r.stop(); await r.disk!.close()
+  const replay = await LeadFileJournal.open(r.stateDir, 'recovery-test')
+  try {
+    const records = await replay.read()
+    assert.ok(records.some(record => record.type === 'result' && record.id === retries[0]!.id && record.outcome === 'failed'))
+  } finally { await replay.close() }
 })

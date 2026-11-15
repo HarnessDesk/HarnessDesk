@@ -132,7 +132,7 @@ export const LeadPlanSettingsSection = ({ label, focus }: { readonly label: stri
   return <>
     {error && <Banner role="alert" tone="warning">{error}</Banner>}
     {schedule && <LeadScheduleSettings projects={snapshot.workspaces.filter(project => !!project.repo || !!project.git)} label={label} schedule={schedule} pending={pending}
-      focus={focus} canRunNow={!!lead.thread && ['draft', 'accepted', 'declined', 'stopped'].includes(lead.thread.state) && !lead.requestInFlight && !lead.progress}
+      focus={focus} canRunNow={!!lead.thread && ['draft', 'accepted', 'declined', 'stopped'].includes(lead.thread.state) && !lead.requestInFlight && !lead.recordedStepInFlight && !lead.progress}
       control={(taskId, action) => run(() => store.lead.controlRepeat(taskId, action), value => setSchedule(parseLeadSchedule(value)))}
       reminders={lead.work?.reminders ?? []} cancelReminder={id => run(() => store.lead.cancelReminder(id), () => {})}
       save={next => run(() => store.lead.updateSchedule(next), value => setSchedule(parseLeadSchedule(value)))} />}

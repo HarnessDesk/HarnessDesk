@@ -519,6 +519,8 @@ export interface LeadWindowProjection extends LeadHostProjection {
   readonly revokedApprovals?: readonly LeadSavedApproval[]
   readonly personActions?: readonly LeadAction[]
   readonly requestInFlight: boolean
+  /** An unfinished recorded desk step blocks a new scheduled goal; absent on older hosts. */
+  readonly recordedStepInFlight?: boolean
   /** Host request clock and admitted desk operation; presentation only, no model prose. */
   readonly activity?: { readonly since: number; readonly method: string | null
     /** The step in plain words (`lead-steps.ts`): thinking, the desk call in flight or the last one, or writing the reply. Absent on older desks. */
@@ -1080,7 +1082,7 @@ const parseLeadAction: Validator<LeadAction> = (value, path = '') => {
     : object<Extract<LeadAction, { kind: 'check' }>>({ ...actionBase, kind: literalUnion('check'), name: text(40), command: boundedText(2000, false, proseControls) })(value, path)
 }
 export const parseLeadWindowProjection: Validator<LeadWindowProjection> = ipc(object({
-  version, revision, canStop: optional(isBoolean), stage: optional(literalUnion(...LEAD_STAGES)), stageReason: optional(text(80)), thread: parseLeadThread, settings: parseLeadSettingsProjection, requestInFlight: isBoolean, activity: optional(object({ since: integer(0, Number.MAX_SAFE_INTEGER), method: nullable(text(120)), step: optional(text(80)) })), wayOut: nullable(literalUnion('resume', 'decide-plan')),
+  version, revision, canStop: optional(isBoolean), stage: optional(literalUnion(...LEAD_STAGES)), stageReason: optional(text(80)), thread: parseLeadThread, settings: parseLeadSettingsProjection, requestInFlight: isBoolean, recordedStepInFlight: optional(isBoolean), activity: optional(object({ since: integer(0, Number.MAX_SAFE_INTEGER), method: nullable(text(120)), step: optional(text(80)) })), wayOut: nullable(literalUnion('resume', 'decide-plan')),
   waitReason: nullable(literalUnion(...LEAD_MANAGEMENT_REASONS)), failure: optional(object<LeadRequestFailure>({ reason: literalUnion(...LEAD_REQUEST_FAILURES), detail: text(400) })), planConsentExpiresAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)), progress: optional(parseLeadProgress), team: optional(id),
   savedApprovals: optional(list(object<LeadSavedApproval>({ id, target: text(240), count: integer(), uncertain: optional((value, path) => value === true ? true : fail(path ?? '', 'expected true')), entries: optional(parseLeadApprovalEntries) }), 128, 0, rule => rule.id)),
   revokedApprovals: optional(list(object<LeadSavedApproval>({ id, target: text(240), count: integer(), uncertain: optional((value, path) => value === true ? true : fail(path ?? '', 'expected true')), entries: optional(parseLeadApprovalEntries) }), 128, 0, rule => rule.id)),
