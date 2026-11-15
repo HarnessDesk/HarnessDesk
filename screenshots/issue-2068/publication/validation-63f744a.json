@@ -1,0 +1,40 @@
+{
+  "head": "63f744a441b5a33ef402c8befd54d9ff239934f9",
+  "base": "9939dbf6a1f36d902c50ffbe82be78c8b8a53439",
+  "hostSyntheticProjection": {
+    "held": {
+      "requestInFlight": false,
+      "recordedStepInFlight": true
+    },
+    "settled": {
+      "requestInFlight": false,
+      "recordedStepInFlight": "omitted"
+    }
+  },
+  "preview": {
+    "kind": "Isolated Electron preview of actual Settings component using captured synthetic Host projections; no live Host-to-Electron transport.",
+    "heldDisabled": true,
+    "disabledClickFakeActions": 0,
+    "settledEnabled": true,
+    "enabledClickFakeActions": 1,
+    "textPrivacyAndCaptureEquality": "passed"
+  },
+  "images": [
+    {
+      "name": "held.png",
+      "sha256": "7b55a90a18fc64823ea661e9881f0ebb52e1059f5f81800ea336016985169b5d",
+      "dimensions": [
+        2560,
+        1936
+      ]
+    },
+    {
+      "name": "settled.png",
+      "sha256": "c819d11f64d2ae1e1d7f2be957845623ab3b0e2c2d5565b1aa59398cb6d8f3d5",
+      "dimensions": [
+        2560,
+        1936
+      ]
+    }
+  ]
+}
