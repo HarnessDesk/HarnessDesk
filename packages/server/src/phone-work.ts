@@ -6,7 +6,7 @@ import {
   findOption, leadTeamKey, leadWorkWaiting, recommendedOptionValues, refuseOptionValue, runtimeId, sessionId as makeSessionId, wireCodeOf, type ConfigOption, type OptionValue, type Approval, type HostParams, type HostResult, type PhoneApprovalState, type PhoneWorkCapabilities, type PhoneWorkSnapshot,
   type PhoneWorkThread, type RuntimeId, type Session, type SessionId, type SessionSummary,
 } from '@harnessdesk/protocol'
-import { assessApproval, buildThread, type PhoneApprovalTurn, type ThreadContext } from './phone-thread.js'
+import { assessApproval, buildThread, phoneApprovalId, type PhoneApprovalTurn, type ThreadContext } from './phone-thread.js'
 import { folderName, phoneAppliesAtDesk, phoneProposalLine, scrub, scrubText } from './phone-redact.js'
 import type { PhoneWorkspace } from './phone-workspace.js'
 
@@ -477,8 +477,18 @@ export class PhoneWork {
   async approvalDecide(params: { id: string; session: string; allow: boolean; scope?: 'once' | 'session' }): Promise<Record<string, never>> {
     const { runtime, session, key } = this.#target(params.session)
     const held = this.#ports.live(runtime, session)
-    const approval = held.pending.find(one => String(one.id) === params.id)
-    if (!approval) return refuse('That request is not waiting any more.')
+    const counts = new Map<string, number>()
+    const candidates = held.pending.filter(one => {
+      const raw = String(one.id)
+      const occurrence = counts.get(raw) ?? 0
+      counts.set(raw, occurrence + 1)
+      return raw === params.id || phoneApprovalId(raw, occurrence) === params.id
+    })
+    if (candidates.length === 0) return refuse('That request is not waiting any more.')
+    const approval = candidates[0]!
+    if (candidates.length !== 1 || held.pending.filter(one => one.id === approval.id).length !== 1) {
+      return refuse('That request is ambiguous. Answer it on the desk.')
+    }
     const assessed = assessApproval(approval, held.cwd, this.#context(runtime))
     if (!assessed) return refuse('The agent asked a question. Answer it on the desk.')
     const scope = params.scope ?? 'once'
