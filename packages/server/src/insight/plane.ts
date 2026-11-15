@@ -308,7 +308,8 @@ export class InsightPlane implements InsightReadApi {
       const ledger = this.port.ledger()
       // Older adapters used by callers can continue to provide the array API.
       if (typeof ledger.withInsightSources !== 'function') return this.#goalReport(document, query, this.#scanOf(query, await ledger.readInsight(query, { refresh: true })))
-      return ledger.withInsightSources(query, 1, (view) => this.#goalReport(document, query, this.#scanGoalsFromSources([document], query, view)))
+      return ledger.withInsightSources(query, 1, (view) => this.#goalReport(document, query,
+        view.select && view.facts ? this.#prepareIndexedGoals([document], query, view)(document) : this.#scanGoalsFromSources([document], query, view)))
     })
   }
 
@@ -395,6 +396,107 @@ export class InsightPlane implements InsightReadApi {
           projectSeats: (hasProjectUsage || finalGaps.length) ? projectSeats : [], seatOf: (sample) => owned.get(sample) ?? attributed.get(sample) ?? seatFor(sample, windows) }
   }
 
+  /** Project-wide consult decisions, followed by one authenticated Team buffer at a time. */
+  #prepareIndexedGoals(documents: readonly GoalDocument[], query: InsightQuery, view: InsightSourceView,
+    held?: { readonly goals: readonly Goal[]; readonly seats: readonly SeatRecord[] }): (document: GoalDocument) => ProjectScan {
+    const allSeats = held?.seats ?? this.port.seats()
+    const projectSeats = allSeats.filter((seat) => sameCanonicalPath(seat.checkout.project, query.root))
+    const byId = new Map(projectSeats.map((seat) => [seat.id, seat]))
+    const consults = this.port.consults?.() ?? []
+    const relevant = consults.flatMap((consult) => { const caller = byId.get(consult.seat); return caller ? [{ consult, caller }] : [] })
+    const windows = [...projectSeats.map(seatWindowOf), ...relevant.map(({ consult, caller }) => ({ ...seatWindowOf(caller),
+      runtime: consult.runtime, sessionId: consult.sessionId, openedAt: consult.openedAt, closedAt: consult.closedAt }))]
+    const keyOf = (runtime: string, session: string) => JSON.stringify([runtime, session])
+    const bySession = new Map<string, SeatWindow[]>(); const bySeat = new Map<string, SeatWindow[]>()
+    for (const window of windows) {
+      const key = keyOf(window.runtime, window.sessionId); const session = bySession.get(key) ?? []; session.push(window); bySession.set(key, session)
+      const seat = bySeat.get(window.id) ?? []; seat.push(window); bySeat.set(window.id, seat)
+    }
+    const ownerOf = (sample: UsageSample): string | null => sample.sessionId === null ? null : seatFor(sample, bySession.get(keyOf(sample.runtime, sample.sessionId)) ?? [])
+    type Largest = { readonly source: number; readonly ordinal: number; readonly usd: number | null }
+    type Plan = { count: number; sum: number; unknown: number; sessions: number; sessionUnknown: number; largest: Largest | null;
+      moved: number; synthetic: UsageSample | null; owner: string | null }
+    const groups = new Map<string, Plan>()
+    for (const { consult } of relevant) {
+      if (consult.closedAt === null || consult.openedAt < query.from || consult.openedAt >= query.to) continue
+      const key = keyOf(consult.runtime, consult.sessionId)
+      if (!groups.has(key)) groups.set(key, { count: 0, sum: 0, unknown: 0, sessions: 0, sessionUnknown: 0, largest: null, moved: -1, synthetic: null, owner: null })
+    }
+    const consultSessions = [...groups.keys()].map((key) => { const [runtime, session] = JSON.parse(key) as [string, string]; return { runtime, session } })
+    view.select!(consultSessions, (sample, source, ordinal) => {
+      const group = sample.sessionId === null ? undefined : groups.get(keyOf(sample.runtime, sample.sessionId))
+      if (!group) return
+      if (sample.scope === 'session') {
+        group.sessions++
+        if (sample.usd.value === null) group.sessionUnknown++
+        if (group.largest === null || (sample.usd.value ?? -1) > (group.largest.usd ?? -1)) group.largest = { source, ordinal, usd: sample.usd.value }
+      } else {
+        group.count++; group.sum += sample.usd.value ?? 0
+        if (sample.usd.value === null) group.unknown++
+      }
+    })
+    const facts = view.facts!
+    const gaps = [...view.gaps, ...(facts.unpriced ? ['Some recorded usage has no known USD rate.'] : [])]
+    let moved = 0; let changed = false
+    for (const { consult, caller } of relevant) {
+      if (consult.closedAt === null || consult.openedAt < query.from || consult.openedAt >= query.to) continue
+      const group = groups.get(keyOf(consult.runtime, consult.sessionId))!
+      const count = group.count + group.sessions; const usage = consult.usage ?? null
+      if (usage === null && count === 0) { gaps.push(CONSULT_UNKNOWN_GAP); changed = true; continue }
+      const counted = group.sum + (group.largest?.usd ?? 0)
+      if (usage === null || (count > 0 && group.unknown === 0 && group.sessionUnknown === 0 && counted >= usage.usd)) {
+        group.sessions = group.largest ? 1 : 0
+        group.sessionUnknown = group.largest?.usd === null ? 1 : 0
+      } else {
+        group.synthetic = consultSample(consult, usage, caller.checkout.project); group.owner = caller.id
+        group.count = 1; group.sum = group.synthetic.usd.value ?? 0; group.unknown = group.synthetic.usd.value === null ? 1 : 0
+        group.sessions = 0; group.sessionUnknown = 0; group.largest = null
+      }
+      group.moved = moved++; changed = true
+    }
+    const finalGaps = changed ? [...new Set(gaps)] : gaps
+    const syntheticByOwner = new Map<string, Plan[]>()
+    for (const group of groups.values()) if (group.synthetic && group.owner) {
+      const held = syntheticByOwner.get(group.owner) ?? []; held.push(group); syntheticByOwner.set(group.owner, held)
+    }
+    const hasProjectUsage = facts.hasUsage || [...groups.values()].some((group) => group.count + group.sessions > 0)
+    const goals = (hasProjectUsage || finalGaps.length) ? (held?.goals ?? this.port.goals.store.list().map((one) => one.goal)) : []
+    const projectGoals = goals.filter((goal) => sameCanonicalPath(goal.root, query.root))
+    return (document) => {
+      const seatIds = new Set(document.receipt?.seats ?? projectSeats.filter((seat) => seat.board === document.goal.id).map((seat) => seat.id))
+      const sessions = [...seatIds].flatMap((id) => (bySeat.get(id) ?? []).map((window) => ({ runtime: window.runtime, session: window.sessionId })))
+      const samples: UsageSample[] = []; const selectedGroups = new Map<string, { calls: UsageSample[]; largest: UsageSample | null }>()
+      const owned = new Map<UsageSample, string>(); const attributed = new Map<UsageSample, string>()
+      const selected = (sample: UsageSample): boolean => {
+        const seat = owned.get(sample) ?? ownerOf(sample)
+        if (seat === null || !seatIds.has(seat)) return false
+        attributed.set(sample, seat); return true
+      }
+      view.select!(sessions, (sample, source, ordinal) => {
+        const group = sample.sessionId === null ? undefined : groups.get(keyOf(sample.runtime, sample.sessionId))
+        if (!group || group.moved < 0) { if (selected(sample)) samples.push(sample); return }
+        if (group.synthetic) return
+        if (!selected(sample)) return
+        const key = keyOf(sample.runtime, sample.sessionId!); const kept = selectedGroups.get(key) ?? { calls: [], largest: null }
+        if (sample.scope !== 'session') kept.calls.push(sample)
+        else if (group.largest?.source === source && group.largest.ordinal === ordinal) kept.largest = sample
+        selectedGroups.set(key, kept)
+      })
+      const movedGroups: { group: Plan; kept?: { calls: UsageSample[]; largest: UsageSample | null } }[] = []
+      for (const [key, kept] of selectedGroups) movedGroups.push({ group: groups.get(key)!, kept })
+      for (const id of seatIds) for (const group of syntheticByOwner.get(id) ?? []) movedGroups.push({ group })
+      movedGroups.sort((a, b) => a.group.moved - b.group.moved)
+      for (const { group, kept } of movedGroups) {
+        if (group.synthetic && group.owner) { owned.set(group.synthetic, group.owner); samples.push(group.synthetic) }
+        else if (kept) { for (const sample of kept.calls) samples.push(sample); if (kept.largest) samples.push(kept.largest) }
+      }
+      const sources = [...new Map([...view.sources, ...samples.map((sample) => sample.source)].map((source) => [source.id, source])).values()]
+      const detail: UsageDetail = { samples, sources, gaps: finalGaps, complete: hasProjectUsage && view.gaps.length === 0 && !facts.unpriced }
+      return { detail, hasProjectUsage, projectGoals, projectSeats: (hasProjectUsage || finalGaps.length) ? projectSeats : [],
+        seatOf: (sample) => owned.get(sample) ?? attributed.get(sample) ?? ownerOf(sample) }
+    }
+  }
+
   /**
    * Many Teams' usage from one ledger read: every project's share of the
    * usage sources comes from a single pass over them, rather than one pass
@@ -421,8 +523,14 @@ export class InsightPlane implements InsightReadApi {
       const read = [...projects.values()]
       // The multiplied budget and the one shared source scan are the same as readInsights.
       const queries = read.flatMap(({ query, documents }) => documents.map(() => query))
-      const ledger = this.port.ledger()
-      if (queries.length && typeof ledger.withInsightProjects === 'function') {
+      let ledger: Ledger | undefined
+      if (queries.length) {
+        try { ledger = this.port.ledger() } catch {
+          for (const { documents } of read) for (const document of documents) failed.add(document.goal.id)
+          return { reports, failed: ids.filter((id) => failed.has(id)) }
+        }
+      }
+      if (queries.length && ledger && typeof ledger.withInsightProjects === 'function') {
         try {
           return await ledger.withInsightProjects(queries, (views) => {
             const held = { goals: this.port.goals.store.list().map((document) => document.goal), seats: this.port.seats() }
@@ -430,10 +538,18 @@ export class InsightPlane implements InsightReadApi {
             for (const { query, documents } of read) {
               const view = views[first]!
               first += documents.length
-              let scan: ProjectScan
-              try { scan = this.#scanGoalsFromSources(documents, query, view, held) } catch { for (const document of documents) failed.add(document.goal.id); continue }
-              for (const document of documents) {
-                try { reports.push(this.#goalReport(document, query, scan)) } catch { failed.add(document.goal.id) }
+              if (view.select && view.facts) {
+                let prepare: (document: GoalDocument) => ProjectScan
+                try { prepare = this.#prepareIndexedGoals(documents, query, view, held) } catch { for (const document of documents) failed.add(document.goal.id); continue }
+                for (const document of documents) {
+                  try { reports.push(this.#goalReport(document, query, prepare(document))) } catch { failed.add(document.goal.id) }
+                }
+              } else {
+                let scan: ProjectScan
+                try { scan = this.#scanGoalsFromSources(documents, query, view, held) } catch { for (const document of documents) failed.add(document.goal.id); continue }
+                for (const document of documents) {
+                  try { reports.push(this.#goalReport(document, query, scan)) } catch { failed.add(document.goal.id) }
+                }
               }
             }
             return { reports, failed: ids.filter((id) => failed.has(id)) }
@@ -447,7 +563,7 @@ export class InsightPlane implements InsightReadApi {
       try {
         // One query per Team: each keeps the source-data budget its own read
         // had, so Teams sharing a project do not share one read's budget.
-        if (queries.length) details = await ledger.readInsights(queries, { refresh: true })
+        if (queries.length) details = await ledger!.readInsights(queries, { refresh: true })
       } catch {
         for (const { documents } of read) for (const document of documents) failed.add(document.goal.id)
         return { reports, failed: ids.filter((id) => failed.has(id)) }

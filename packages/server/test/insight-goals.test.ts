@@ -134,7 +134,10 @@ test('an ephemeral consult’s spend is kept with its link and folded into the a
   const plane = (more: readonly import('../src/evidence/records.js').SeatConsult[] = [], streaming = false) => new InsightPlane({
     ledger: () => ({ readInsight: async () => detail, readInsights: async (queries: readonly InsightQuery[]) => queries.map(() => detail),
       ...(streaming ? { withInsightSources: async (_query: InsightQuery, _n: number, consume: (view: unknown) => unknown) => consume({
-        sources: detail.sources, gaps: detail.gaps, each: (visit: (value: UsageSample) => void) => detail.samples.forEach(visit),
+        sources: detail.sources, gaps: detail.gaps, facts: { hasUsage: detail.samples.length > 0, unpriced: detail.samples.some((one) => one.usd.value === null) },
+        each: (visit: (value: UsageSample) => void) => detail.samples.forEach(visit),
+        select: (sessions: readonly { runtime: string; session: string }[], visit: (value: UsageSample, source: number, ordinal: number) => void) =>
+          detail.samples.forEach((value, ordinal) => { if (sessions.some((one) => one.runtime === value.runtime && one.session === value.sessionId)) visit(value, 0, ordinal) }),
       }) } : {}) }) as never,
     goals: goals as never, seats: () => [seat('seat-a', 'goal-a', '/repo')] as never, seating: {} as never, now: () => 90 * 86_400_000,
     consults: () => [...consults, ...more],
@@ -185,7 +188,12 @@ test('streamed Team reports match the array path for receipts, ambiguity, and un
     const rows = forRoot(root)
     return { samples: rows, sources: [source], gaps: rows.some((one) => one.usd.value === null) ? ['Some recorded usage has no known USD rate.'] : [], complete: false }
   }
-  const view = (root: string) => ({ sources: [source], gaps: [], each: (visit: (value: UsageSample) => void) => forRoot(root).forEach(visit) })
+  const view = (root: string) => ({ sources: [source], gaps: [],
+    facts: { hasUsage: forRoot(root).length > 0, unpriced: forRoot(root).some((one) => one.usd.value === null) },
+    each: (visit: (value: UsageSample) => void) => forRoot(root).forEach(visit),
+    select: (sessions: readonly { runtime: string; session: string }[], visit: (value: UsageSample, source: number, ordinal: number) => void) =>
+      forRoot(root).forEach((value, ordinal) => { if (sessions.some((one) => one.runtime === value.runtime && one.session === value.sessionId)) visit(value, 0, ordinal) }),
+  })
   const plane = (streaming: boolean) => new InsightPlane({ ledger: () => ({
     readInsight: async (query: InsightQuery) => full(query.root),
     readInsights: async (queries: readonly InsightQuery[]) => queries.map((query) => full(query.root)),
@@ -199,4 +207,39 @@ test('streamed Team reports match the array path for receipts, ambiguity, and un
   const oldBatch = await old.goals(['goal-b', 'goal-a', 'goal-c', 'missing'])
   const nextBatch = await next.goals(['goal-b', 'goal-a', 'goal-c', 'missing'])
   assert.deepEqual({ ...nextBatch, reports: nextBatch.reports.map(without) }, { ...oldBatch, reports: oldBatch.reports.map(without) })
+})
+
+test('a throwing Ledger factory fails requested Teams but is not called for an empty or missing-only batch', async () => {
+  let calls = 0
+  const plane = new InsightPlane({ ledger: () => { calls++; throw new Error('synthetic unavailable ledger') },
+    goals: goals as never, seats: () => [], seating: {} as never, now: () => 90 * 86_400_000 })
+  assert.deepEqual(await plane.goals([]), { reports: [], failed: [] })
+  assert.deepEqual(await plane.goals(['missing']), { reports: [], failed: ['missing'] })
+  assert.equal(calls, 0, 'empty and missing-only batches do not instantiate the Ledger')
+  assert.deepEqual(await plane.goals(['goal-a', 'missing', 'goal-c']), { reports: [], failed: ['goal-a', 'missing', 'goal-c'] })
+  assert.equal(calls, 1)
+})
+
+test('indexed per-Team reports preserve floating-point order across interleaved Seats', async () => {
+  const seat = counted({ built: 0 })
+  const seats = [seat('seat-a', 'goal-a', '/repo'), seat('seat-b', 'goal-a', '/repo'), seat('seat-c', 'goal-b', '/repo')]
+  const values = [0.1, 1e16, 0.2, 0.3, 1e-9, 1e16, 0.4]
+  const entries = values.map((usd, index) => sample('/repo', ['seat-a', 'seat-b', 'seat-c'][index % 3]!, usd))
+  const detail = { samples: entries, sources: [source], gaps: [], complete: true }
+  const view = {
+    sources: [source], gaps: [], facts: { hasUsage: true, unpriced: false },
+    each: (visit: (value: UsageSample) => void) => entries.forEach(visit),
+    select: (sessions: readonly { runtime: string; session: string }[], visit: (value: UsageSample, source: number, ordinal: number) => void) => {
+      entries.forEach((value, ordinal) => { if (sessions.some((one) => one.runtime === value.runtime && one.session === value.sessionId)) visit(value, 0, ordinal) })
+    },
+  }
+  const plane = (indexed: boolean) => new InsightPlane({ ledger: () => ({
+    readInsight: async () => detail, readInsights: async (queries: readonly InsightQuery[]) => queries.map(() => detail),
+    ...(indexed ? { withInsightSources: async (_query: InsightQuery, _n: number, consume: (input: unknown) => unknown) => consume(view),
+      withInsightProjects: async (queries: readonly InsightQuery[], consume: (input: unknown) => unknown) => consume(queries.map(() => view)) } : {}),
+  }) as never, goals: goals as never, seats: () => seats as never, seating: {} as never, now: () => 90 * 86_400_000 })
+  const old = plane(false), next = plane(true)
+  assert.deepEqual(without(await next.goal('goal-a')), without(await old.goal('goal-a')))
+  const before = await old.goals(['goal-a', 'goal-b']); const after = await next.goals(['goal-a', 'goal-b'])
+  assert.deepEqual({ ...after, reports: after.reports.map(without) }, { ...before, reports: before.reports.map(without) })
 })

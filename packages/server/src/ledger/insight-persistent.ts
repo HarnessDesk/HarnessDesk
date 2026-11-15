@@ -34,7 +34,7 @@ export interface PersistentEntry {
 const zeroTag = '__hd_insight_negative_zero__'
 const encodeSample = (sample: UsageSample): string => JSON.stringify(sample, (_key, value: unknown) =>
   typeof value === 'number' && Object.is(value, -0) ? { [zeroTag]: true } : value)
-const decodeSample = (payload: string): UsageSample => JSON.parse(payload, (_key, value: unknown) => {
+export const decodeSample = (payload: string): UsageSample => JSON.parse(payload, (_key, value: unknown) => {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     const row = value as Record<string, unknown>
     if (Object.keys(row).length === 1 && row[zeroTag] === true) return -0
@@ -42,7 +42,7 @@ const decodeSample = (payload: string): UsageSample => JSON.parse(payload, (_key
   return value
 }) as UsageSample
 
-const sourceKey = (target: ScanTarget): string => createHash('sha256').update(JSON.stringify([target.runtime, target.kind, target.path])).digest('hex')
+export const sourceKey = (target: ScanTarget): string => createHash('sha256').update(JSON.stringify([target.runtime, target.kind, target.path])).digest('hex')
 
 /** Only recognized scanner state is stored. Other formats miss safely until their cursors have a safe projection. */
 const safeTail = (entry: PersistentEntry): readonly string[] | null => {
@@ -98,12 +98,12 @@ export class PersistentInsight {
       this.#lock.exec('PRAGMA busy_timeout = 0; CREATE TABLE IF NOT EXISTS lease (id INTEGER PRIMARY KEY)')
       this.#lock.exec('BEGIN IMMEDIATE')
       this.#leased = true
-      this.#db ??= new DatabaseSync(privateFile(join(this.stateDir, 'insight-cache-v1.sqlite')))
-      this.#db.exec(`PRAGMA busy_timeout = 0;
+      this.#db ??= new DatabaseSync(privateFile(join(this.stateDir, 'insight-cache-v2.sqlite')))
+      this.#db.exec(`PRAGMA busy_timeout = 0; PRAGMA journal_mode = WAL;
         CREATE TABLE IF NOT EXISTS generations (id TEXT PRIMARY KEY, source TEXT NOT NULL, entry TEXT NOT NULL, digest TEXT NOT NULL, bytes INTEGER NOT NULL, used INTEGER NOT NULL);
         CREATE INDEX IF NOT EXISTS generations_source ON generations(source);
-        CREATE TABLE IF NOT EXISTS observations (generation TEXT NOT NULL, ordinal INTEGER NOT NULL, project TEXT, payload TEXT NOT NULL, PRIMARY KEY(generation, ordinal));
-        CREATE INDEX IF NOT EXISTS observations_project ON observations(generation, project, ordinal);
+        CREATE TABLE IF NOT EXISTS observations (generation TEXT NOT NULL, ordinal INTEGER NOT NULL, project TEXT, runtime TEXT NOT NULL, session TEXT, at REAL, payload TEXT NOT NULL, PRIMARY KEY(generation, ordinal));
+        CREATE INDEX IF NOT EXISTS observations_lookup ON observations(project, runtime, session, generation, ordinal);
         CREATE TABLE IF NOT EXISTS published (source TEXT PRIMARY KEY, generation TEXT NOT NULL);`)
       return true
     } catch {
@@ -177,12 +177,12 @@ export class PersistentInsight {
       }
       let ordinal = 0
       if (baseGeneration) {
-        this.#db.prepare('INSERT INTO observations SELECT ?, ordinal, project, payload FROM observations WHERE generation = ?').run(id, baseGeneration)
+        this.#db.prepare('INSERT INTO observations SELECT ?, ordinal, project, runtime, session, at, payload FROM observations WHERE generation = ?').run(id, baseGeneration)
         const count = this.#db.prepare('SELECT COUNT(*) AS n FROM observations WHERE generation = ?').get(id) as { n: number }
         ordinal = count.n
       }
-      const insert = this.#db.prepare('INSERT INTO observations VALUES (?, ?, ?, ?)')
-      for (const sample of samples) insert.run(id, ordinal++, sample.project, encodeSample(sample))
+      const insert = this.#db.prepare('INSERT INTO observations VALUES (?, ?, ?, ?, ?, ?, ?)')
+      for (const sample of samples) insert.run(id, ordinal++, sample.project, sample.runtime, sample.sessionId, sample.from, encodeSample(sample))
       const hash = createHash('sha256').update(data)
       let bytes = Buffer.byteLength(data)
       const rows = this.#db.prepare('SELECT project, payload FROM observations WHERE generation = ? ORDER BY ordinal').iterate(id) as Iterable<{ project: string | null; payload: string }>

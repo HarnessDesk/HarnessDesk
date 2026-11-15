@@ -1,5 +1,8 @@
+import { join } from 'node:path'
+import { InsightSnapshot } from './insight-snapshot.js'
 import { PersistentInsight } from './insight-persistent.js'
-import { InsightBudgetExceededError, type UsageSample } from './insight.js'
+import { InsightBudgetExceededError, InsightCacheUnavailableError, type UsageSample } from './insight.js'
+export { InsightCacheUnavailableError } from './insight.js'
 import { scanFile, wholeFile, type ScanTarget } from './scan.js'
 
 interface Entry {
@@ -11,17 +14,18 @@ interface Entry {
 }
 
 export interface InsightReference { readonly target: ScanTarget; readonly generation?: string; readonly samples?: readonly UsageSample[] }
-export class InsightCacheUnavailableError extends Error {
-  constructor() { super('Recorded usage cache is temporarily unavailable. Try again.'); this.name = 'InsightCacheUnavailableError' }
-}
-
 /** Disposable source index; a legacy in-memory cache is used when its lease is unavailable. */
 export class InsightCache {
   readonly #files = new Map<string, Entry>()
   readonly #persistent: PersistentInsight
   #leased = false
   readonly #fileLimit: number
-  constructor(stateDir: string, limit?: number, fileLimit = 10_000) { this.#persistent = new PersistentInsight(stateDir, limit); this.#fileLimit = fileLimit }
+  readonly #stateDir: string
+  constructor(stateDir: string, limit?: number, fileLimit = 10_000) { this.#stateDir = stateDir; this.#persistent = new PersistentInsight(stateDir, limit); this.#fileLimit = fileLimit }
+  snapshot(refs: readonly InsightReference[]): InsightSnapshot | null {
+    if (!this.#leased || refs.length === 0 || refs.some((ref) => !ref.generation)) return null
+    return new InsightSnapshot(join(this.#stateDir, 'insight-cache-v2.sqlite'), refs.map((ref) => ({ target: ref.target, generation: ref.generation! })))
+  }
   #remember(key: string, entry: Entry): void {
     this.#files.delete(key)
     this.#files.set(key, entry)

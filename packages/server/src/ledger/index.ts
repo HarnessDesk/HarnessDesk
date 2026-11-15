@@ -118,6 +118,8 @@ export interface InsightSourceView {
   readonly sources: readonly InsightSource[]
   readonly gaps: readonly string[]
   readonly each: (visit: (sample: UsageSample) => void) => void
+  readonly facts?: { readonly hasUsage: boolean; readonly unpriced: boolean }
+  readonly select?: (sessions: readonly { readonly runtime: string; readonly session: string }[], visit: (sample: UsageSample, source: number, ordinal: number) => void) => void
 }
 
 /** One pass over the usage sources for a range, shared by every root read over it. */
@@ -314,16 +316,55 @@ export class Ledger {
     const read = this.#insightRead.then(() => this.#insightCache.withLease(() => withCanonicalPaths(async () => {
       const roots = new Set(queries.map((one) => canonicalPath(one.root)))
       const pass = await this.#insightPass(query, {}, this.#insightByteLimit * queries.length, undefined, roots, true)
-      const views = queries.map((one): InsightSourceView => ({ sources: pass.sources, gaps: pass.gaps, each: (visit) => {
-        for (const ref of pass.refs) {
-          const samples = this.#insightCache.resolve(ref, (project) => project !== null && canonicalPath(project) === canonicalPath(one.root))
-          for (const sample of samples) {
-            if (sample.from === null || !(sample.from >= one.from && sample.from < one.to)) continue
-            visit(this.price({ ...sample, source: { ...sample.source, checkedAt: this.#now() } }))
+      const snapshot = this.#insightCache.snapshot(pass.refs)
+      if (!snapshot) {
+        const views = queries.map((one): InsightSourceView => ({ sources: pass.sources, gaps: pass.gaps, each: (visit) => {
+          for (const ref of pass.refs) {
+            const samples = this.#insightCache.resolve(ref, (project) => project !== null && canonicalPath(project) === canonicalPath(one.root))
+            for (const sample of samples) {
+              if (sample.from === null || !(sample.from >= one.from && sample.from < one.to)) continue
+              visit(this.price({ ...sample, source: { ...sample.source, checkedAt: this.#now() } }))
+            }
           }
+        } }))
+        return consume(views)
+      }
+      try {
+        // Rates and project-wide unknown facts are captured before the post-read Seat/consult callbacks.
+        const rates = new Map<string, ModelRates | null>()
+        const price = (sample: UsageSample): UsageSample => {
+          if (sample.usd.value !== null || !sample.model) return sample
+          if (!rates.has(sample.model)) rates.set(sample.model, this.#pricing.rateObservation(sample.model).rates)
+          const rate = rates.get(sample.model)
+          if (!rate || [sample.input, sample.output, sample.cacheRead, sample.cacheWrite].some((part) => part.value === null)) return sample
+          const value = sample.input.value! * rate.input + sample.output.value! * rate.output + sample.cacheRead.value! * rate.cacheRead + sample.cacheWrite.value! * rate.cacheWrite
+          return { ...sample, usd: { value, quality: 'estimate' as const }, moneyBasis: 'listPrice' as const }
         }
-      } }))
-      return consume(views)
+        const facts = new Map([...roots].map((root) => [root, { hasUsage: false, unpriced: false }]))
+        snapshot.each((sample) => {
+          if (sample.project === null || sample.from === null || !(sample.from >= query.from && sample.from < query.to)) return
+          const held = facts.get(canonicalPath(sample.project))
+          if (!held) return
+          held.hasUsage = true
+          if (price(sample).usd.value === null) held.unpriced = true
+        })
+        // A Goal batch reports the validation time consistently for every source it selects.
+        const verifiedAt = this.#now()
+        const projects = snapshot.projects()
+        const views = queries.map((one): InsightSourceView => {
+          const root = canonicalPath(one.root); const aliases = projects.filter((project) => canonicalPath(project) === root)
+          const convert = (sample: UsageSample): UsageSample => price({ ...sample, source: { ...sample.source, checkedAt: verifiedAt } })
+          return { sources: pass.sources, gaps: pass.gaps, facts: facts.get(root)!,
+            each: (visit) => snapshot.each((sample) => {
+              if (sample.project !== null && canonicalPath(sample.project) === root && sample.from !== null && sample.from >= one.from && sample.from < one.to) visit(convert(sample))
+            }),
+            select: (sessions, visit) => snapshot.select(aliases, sessions, (sample, source, ordinal) => {
+              if (sample.from !== null && sample.from >= one.from && sample.from < one.to) visit(convert(sample), source, ordinal)
+            }),
+          }
+        })
+        return await consume(views)
+      } finally { snapshot.close() }
     })))
     this.#insightRead = read.catch(() => undefined)
     return read

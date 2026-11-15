@@ -1665,7 +1665,9 @@ quotas; a miss, eviction, busy cache or oversized entry falls back to the source
 reader and can use the host-lifetime in-memory cache. Goal reports visit the
 project's observations for attribution and consult reconciliation while holding
 only requested Teams' observations and the necessary consult state in the normal
-indexed path. The largest source and the requested results still cost memory.
+indexed path. The largest source and the requested results still cost memory. Goal reports
+use the index snapshot's validation time as each selected source's checked
+time; direct Ledger reads continue to report their own source-read times.
 
 If the index becomes unreadable after source bytes were spent and a Goal report
 cannot recover the needed observations, that report fails with a temporary cache

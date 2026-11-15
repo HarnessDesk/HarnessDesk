@@ -151,7 +151,7 @@ test('cache use is refreshed once after the lease and retains recently used sour
   }
   const seed = new InsightCache(dir)
   await seed.withLease(async () => { await seed.read(targets[0]!, 10_000) }); seed.close()
-  const db = new DatabaseSync(join(dir, 'insight-cache-v1.sqlite'))
+  const db = new DatabaseSync(join(dir, 'insight-cache-v2.sqlite'))
   const bytes = (db.prepare('SELECT bytes FROM generations').get() as { bytes: number }).bytes
   const cache = new InsightCache(dir, bytes * 2 + 100); t.after(() => { cache.close(); db.close() })
   await cache.withLease(async () => { await cache.read(targets[1]!, 10_000) })
@@ -173,7 +173,7 @@ test('a failed deferred cache-use refresh does not lose the completed usage read
   const { ledger, corpus, dir } = await fixture(); t.after(() => ledger.close())
   const count = reads(t, corpus)
   const before = await ledger.readInsight(query)
-  const cache = new DatabaseSync(join(dir, 'insight-cache-v1.sqlite'))
+  const cache = new DatabaseSync(join(dir, 'insight-cache-v2.sqlite'))
   cache.exec("CREATE TRIGGER fail_usage_refresh BEFORE UPDATE OF used ON generations BEGIN SELECT RAISE(ROLLBACK, 'synthetic LRU failure'); END")
   cache.close()
   const bytes = count.bytes()
@@ -187,7 +187,7 @@ test('a rejected cache write after an append keeps the source reading without re
   const count = reads(t, corpus)
   assert.equal((await ledger.readInsight(query)).samples.length, 1)
   const prefix = (await stat(path)).size
-  const cache = new DatabaseSync(join(dir, 'insight-cache-v1.sqlite'))
+  const cache = new DatabaseSync(join(dir, 'insight-cache-v2.sqlite'))
   cache.exec("CREATE TRIGGER fail_cache_insert BEFORE INSERT ON observations BEGIN SELECT RAISE(ROLLBACK, 'synthetic cache failure'); END")
   cache.close()
   await appendFile(path, event(1))
@@ -202,7 +202,7 @@ test('a rejected cache write after an append keeps the source reading without re
 test('a killed cache publication leaves the previous generation usable', { skip: process.platform === 'win32' }, async (t) => {
   const { ledger, corpus, dir } = await fixture()
   const before = await ledger.readInsight(query); ledger.close()
-  const cache = new DatabaseSync(join(dir, 'insight-cache-v1.sqlite'))
+  const cache = new DatabaseSync(join(dir, 'insight-cache-v2.sqlite'))
   const row = cache.prepare('SELECT entry FROM generations').get() as { entry: string }
   cache.close()
   const entry = { ...JSON.parse(row.entry), samples: before.samples.map((one) => ({ ...one, key: 'uncommitted-synthetic-key' })) }
@@ -232,7 +232,7 @@ test('a killed cache publication leaves the previous generation usable', { skip:
 test('a pass keeps a superseded pinned generation while another source is published', async (t) => {
   const { ledger, path, corpus, dir } = await fixture(); t.after(() => ledger.close())
   await ledger.readInsight(query)
-  const cache = new DatabaseSync(join(dir, 'insight-cache-v1.sqlite'))
+  const cache = new DatabaseSync(join(dir, 'insight-cache-v2.sqlite'))
   const before = cache.prepare('SELECT generation FROM published').get() as { generation: string }
   await appendFile(path, event(1))
   await writeFile(join(corpus, 'zz-later.jsonl'), meta + event(2))
@@ -253,7 +253,7 @@ test('a small disposable-cache budget evicts an unpinned source for a new source
   await utimes(firstPath, new Date('2026-09-01'), new Date('2026-09-01'))
   await writeFile(nextPath, meta + event(1))
   assert.equal((await ledger.readInsight(query)).samples.length, 1)
-  const cache = new DatabaseSync(join(dir, 'insight-cache-v1.sqlite'))
+  const cache = new DatabaseSync(join(dir, 'insight-cache-v2.sqlite'))
   const rows = cache.prepare('SELECT source FROM published').all()
   cache.close()
   assert.equal(rows.length, 1, 'only one admitted source fits the test budget')
@@ -268,7 +268,7 @@ test('a corrupt disposable cache is a miss, not a zero usage result', async (t) 
   const { ledger, corpus, dir } = await fixture()
   const original = await ledger.readInsight(query)
   ledger.close()
-  await writeFile(join(dir, 'insight-cache-v1.sqlite'), 'synthetic corrupt cache')
+  await writeFile(join(dir, 'insight-cache-v2.sqlite'), 'synthetic corrupt cache')
   const reopened = new Ledger({ stateDir: dir, corpora: [{ runtime: 'alpha', kind: 'codex', root: corpus }],
     pricing: new Pricing({ cachePath: join(dir, 'rates.json'), overlayPath: join(dir, 'pricing.json'), fetchCatalogue: async () => ({}) }) })
   t.after(() => reopened.close())
@@ -281,7 +281,7 @@ test('a corrupt disposable cache is a miss, not a zero usage result', async (t) 
 test('a damaged but valid cached JSON payload cannot become a zero observation', async (t) => {
   const { ledger, corpus, dir } = await fixture()
   const before = await ledger.readInsight(query); ledger.close()
-  const cache = new DatabaseSync(join(dir, 'insight-cache-v1.sqlite'))
+  const cache = new DatabaseSync(join(dir, 'insight-cache-v2.sqlite'))
   const row = cache.prepare('SELECT id, entry FROM generations').get() as { id: string; entry: string }
   const entry = JSON.parse(row.entry); entry.offset = 0
   cache.prepare('UPDATE generations SET entry = ? WHERE id = ?').run(JSON.stringify(entry), row.id)
@@ -299,28 +299,44 @@ test('disposable cache files are private even under a permissive process umask',
   const { ledger, dir } = await fixture(); t.after(() => ledger.close())
   const previous = process.umask(0)
   try { await ledger.readInsight(query) } finally { process.umask(previous) }
-  for (const name of ['insight-pass-lock.sqlite', 'insight-cache-v1.sqlite']) {
+  for (const name of ['insight-pass-lock.sqlite', 'insight-cache-v2.sqlite']) {
     assert.equal((await stat(join(dir, name))).mode & 0o077, 0, name)
   }
 })
 
-test('a cache transaction journal is private under a permissive process umask', { skip: process.platform === 'win32' }, async (t) => {
+test('the disposable cache supports a concurrent read snapshot while another connection commits', async (t) => {
   const { ledger, dir } = await fixture(); t.after(() => ledger.close())
-  let journalMode: number | null = null
+  await ledger.readInsight(query)
+  const reader = new DatabaseSync(join(dir, 'insight-cache-v2.sqlite'), { readOnly: true })
+  const writer = new DatabaseSync(join(dir, 'insight-cache-v2.sqlite'))
+  t.after(() => { reader.close(); writer.close() })
+  reader.exec('BEGIN')
+  const before = reader.prepare('SELECT entry FROM generations').get() as { entry: string }
+  writer.exec("UPDATE generations SET entry = '{}' WHERE id IN (SELECT generation FROM published)")
+  const during = reader.prepare('SELECT entry FROM generations').get() as { entry: string }
+  assert.equal(during.entry, before.entry, 'the read snapshot stays stable across the external commit')
+  reader.exec('ROLLBACK')
+})
+
+test('cache WAL sidecars are private under a permissive process umask', { skip: process.platform === 'win32' }, async (t) => {
+  const { ledger, dir } = await fixture(); t.after(() => ledger.close())
+  const modes = new Map<string, number>()
   const exec = DatabaseSync.prototype.exec
   t.mock.method(DatabaseSync.prototype, 'exec', function (this: DatabaseSync, sql: string) {
     if (sql === 'COMMIT') {
-      const journal = join(dir, 'insight-cache-v1.sqlite-journal')
-      if (fs.existsSync(journal)) journalMode = fs.statSync(journal).mode & 0o077
+      for (const suffix of ['-wal', '-shm']) {
+        const sidecar = join(dir, `insight-cache-v2.sqlite${suffix}`)
+        if (fs.existsSync(sidecar)) modes.set(suffix, fs.statSync(sidecar).mode & 0o077)
+      }
     }
     return exec.call(this, sql)
   })
   const previous = process.umask(0)
   try { await ledger.readInsight(query) } finally { process.umask(previous) }
-  assert.equal(journalMode, 0, 'the observed SQLite journal is private')
+  assert.deepEqual([...modes.entries()].sort(), [['-shm', 0], ['-wal', 0]], 'observed SQLite sidecars are private')
 })
 
-for (const name of ['insight-pass-lock.sqlite', 'insight-cache-v1.sqlite']) test(`a symlinked ${name} is not opened or modified`, { skip: process.platform === 'win32' }, async (t) => {
+for (const name of ['insight-pass-lock.sqlite', 'insight-cache-v2.sqlite']) test(`a symlinked ${name} is not opened or modified`, { skip: process.platform === 'win32' }, async (t) => {
   const { ledger, dir } = await fixture(); t.after(() => ledger.close())
   const victim = join(dir, 'other.sqlite'); const db = new DatabaseSync(victim)
   db.exec('CREATE TABLE sentinel (id INTEGER)'); db.close()
@@ -332,12 +348,24 @@ for (const name of ['insight-pass-lock.sqlite', 'insight-cache-v1.sqlite']) test
   check.close()
 })
 
+for (const suffix of ['-wal', '-shm']) test(`a symlinked cache ${suffix} sidecar cannot modify its target`, { skip: process.platform === 'win32' }, async (t) => {
+  const { ledger, corpus, dir } = await fixture()
+  await ledger.readInsight(query); ledger.close()
+  const victim = join(dir, 'sidecar-victim'); await writeFile(victim, 'synthetic sidecar target')
+  await symlink(victim, join(dir, `insight-cache-v2.sqlite${suffix}`))
+  const reopened = new Ledger({ stateDir: dir, corpora: [{ runtime: 'alpha', kind: 'codex', root: corpus }],
+    pricing: new Pricing({ cachePath: join(dir, 'rates.json'), overlayPath: join(dir, 'pricing.json'), fetchCatalogue: async () => ({}) }) })
+  t.after(() => reopened.close())
+  assert.equal((await reopened.readInsight(query)).samples.length, 1)
+  assert.equal(await readFile(victim, 'utf8'), 'synthetic sidecar target')
+})
+
 test('a hard-linked cache file is not modified', { skip: process.platform === 'win32' }, async (t) => {
   const { ledger, dir } = await fixture(); t.after(() => ledger.close())
   const victim = join(dir, 'other.sqlite'); const db = new DatabaseSync(victim)
   db.exec('CREATE TABLE sentinel (id INTEGER)'); db.close()
   const beforeMode = (await stat(victim)).mode & 0o777
-  await link(victim, join(dir, 'insight-cache-v1.sqlite'))
+  await link(victim, join(dir, 'insight-cache-v2.sqlite'))
   assert.equal((await ledger.readInsight(query)).samples.length, 1)
   assert.equal((await stat(victim)).mode & 0o777, beforeMode)
   const check = new DatabaseSync(victim)
@@ -394,6 +422,23 @@ test('a cached observation is repriced using the current price overlay', async (
   const second = await ledger.readInsight(query)
   assert.equal(second.samples[0]!.usd.value, 22 / 1_000_000)
   assert.equal(count.streams.length, 1, 'repricing does not reread unchanged source bytes')
+})
+
+test('indexed project pricing is captured before the post-read callback', async (t) => {
+  const dir = tempDir('hd-insight-price-snapshot-'); const corpus = join(dir, 'corpus'); await mkdir(corpus)
+  const record = { type: 'assistant', timestamp: '2026-09-20T00:00:00.000Z', cwd: query.root,
+    message: { id: 'provider-id', model: 'test-model', usage: { input_tokens: 10, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
+  await writeFile(join(corpus, 'messages.jsonl'), `${JSON.stringify(record)}\n`)
+  const pricing = new Pricing({ cachePath: join(dir, 'rates.json'), overlayPath: join(dir, 'pricing.json'), fetchCatalogue: async () => ({}) })
+  let rate = 1 / 1_000_000
+  t.mock.method(pricing, 'rateObservation', () => ({ rates: { input: rate, output: rate, cacheRead: rate, cacheWrite: rate }, observedAt: null, kind: 'overlay', fingerprint: 'fake' }))
+  const ledger = new Ledger({ stateDir: dir, corpora: [{ runtime: 'alpha', kind: 'claude', root: corpus }], pricing })
+  t.after(() => ledger.close())
+  const observed = await ledger.withInsightSources(query, 1, (view) => {
+    rate = 10 / 1_000_000
+    const values: (number | null)[] = []; view.each((one) => values.push(one.usd.value)); return values
+  })
+  assert.deepEqual(observed, [11 / 1_000_000], 'callback-time price changes do not rewrite the completed source pass')
 })
 
 test('a cached project alias is resolved again after a symlink retarget', { skip: process.platform === 'win32' }, async (t) => {
@@ -677,6 +722,40 @@ test('a pass for several reads carries each read’s byte budget, so none stops 
   assert.equal(repeated[1], repeated[0], 'and are answered once')
 })
 
+test('indexed Goal source timestamps are frozen at validation before the Seat snapshot', async (t) => {
+  const { InsightPlane } = await import('../src/insight/plane.js')
+  const { ledger: original, corpus, dir } = await fixture(); original.close()
+  let clock = Date.parse('2026-09-21T00:00:00Z'); let seatSnapshot = 0
+  const now = () => clock++
+  const ledger = new Ledger({ stateDir: dir, now, corpora: [{ runtime: 'alpha', kind: 'codex', root: corpus }],
+    pricing: new Pricing({ cachePath: join(dir, 'rates.json'), overlayPath: join(dir, 'pricing.json'), fetchCatalogue: async () => ({}) }) })
+  t.after(() => ledger.close())
+  const doc = { goal: { id: 'goal-a', root: query.root, sentence: 'Team', state: 'open' } }
+  const seat = { id: 'seat-a', board: 'goal-a', agent: null, briefDigest: 'same', seat: { runtime: 'alpha' }, seatLabel: 'Seat',
+    checkout: { project: query.root }, session: { runtime: 'alpha', sessionId: 'session-1' }, openedAt: 0, closed: null, restored: null }
+  const plane = new InsightPlane({ ledger: () => ledger, goals: { store: { list: () => [doc], read: () => doc } } as never,
+    seats: () => { seatSnapshot = clock; return [seat] as never }, seating: {} as never, now })
+  const report = await plane.goal('goal-a')
+  assert.equal(report.sources.length, 1)
+  assert.ok(report.sources[0]!.checkedAt < seatSnapshot, 'validation time precedes the Seat snapshot')
+})
+
+test('a streamed Goal preserves repeated discovery of the same source', async (t) => {
+  const { InsightPlane } = await import('../src/insight/plane.js')
+  const { ledger: first, corpus, dir } = await fixture(); first.close()
+  const target = { runtime: 'alpha', kind: 'codex' as const, root: corpus }
+  const ledger = new Ledger({ stateDir: dir, corpora: [target, target],
+    pricing: new Pricing({ cachePath: join(dir, 'rates.json'), overlayPath: join(dir, 'pricing.json'), fetchCatalogue: async () => ({}) }) })
+  t.after(() => ledger.close())
+  assert.equal((await ledger.readInsight(query)).samples.length, 2, 'legacy detail retains both discovery positions')
+  const doc = { goal: { id: 'goal-a', root: query.root, sentence: 'Team', state: 'open' } }
+  const seat = { id: 'seat-a', board: 'goal-a', agent: null, briefDigest: 'same', seat: { runtime: 'alpha' }, seatLabel: 'Seat',
+    checkout: { project: query.root }, session: { runtime: 'alpha', sessionId: 'session-1' }, openedAt: 0, closed: null, restored: null }
+  const plane = new InsightPlane({ ledger: () => ledger, goals: { store: { list: () => [doc], read: () => doc } } as never,
+    seats: () => [seat] as never, seating: {} as never, now: () => Date.parse('2026-09-21T00:00:00Z') })
+  assert.equal((await plane.goal('goal-a')).totals.turns.value, 2, 'streaming authenticates once and expands both references')
+})
+
 test('a streamed Goal attributes against Seats after its source read completes', async (t) => {
   const { InsightPlane } = await import('../src/insight/plane.js')
   const { ledger, path } = await fixture(); t.after(() => ledger.close())
@@ -763,7 +842,7 @@ test('a damaged prior index after a partial append fails instead of returning an
     pricing: new Pricing({ cachePath: join(dir, 'rates.json'), overlayPath: join(dir, 'pricing.json'), fetchCatalogue: async () => ({}) }) })
   t.after(() => reopened.close())
   t.mock.method(PersistentInsight.prototype, 'put', () => {
-    const cache = new DatabaseSync(join(dir, 'insight-cache-v1.sqlite'))
+    const cache = new DatabaseSync(join(dir, 'insight-cache-v2.sqlite'))
     cache.exec("UPDATE generations SET entry = '{}'")
     cache.close()
     return false
@@ -785,7 +864,7 @@ for (const batch of [false, true]) test(`post-read cache damage makes ${batch ? 
     seats: () => {
       if (!damaged) {
         damaged = true
-        const cache = new DatabaseSync(join(dir, 'insight-cache-v1.sqlite'))
+        const cache = new DatabaseSync(join(dir, 'insight-cache-v2.sqlite'))
         cache.exec("UPDATE generations SET entry = '{}'")
         cache.close()
       }
