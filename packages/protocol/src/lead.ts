@@ -1111,12 +1111,12 @@ export interface LeadDeskItem {
 export interface LeadDeskSummary {
   /** Exact aggregate counts, independent of the bounded detail scan. */
   readonly totals: LeadDeskTotals
-  /** Per-project counts cover only sessionsScanned when true; totals stay exact. */
+  /** When true, per-project chat counts and chat entries cover only sessionsScanned; totals stay exact. */
   readonly countsPartial: boolean
   readonly sessionsScanned: number
   readonly projectsMore: number
   readonly projects: readonly (LeadDeskTotals & { readonly project: string | null })[]
-  /** Newest first, default eight, at most twenty. */
+  /** Newest first among scanned sessions and Teams, default eight, at most twenty. */
   readonly recent: readonly LeadDeskItem[]
   /** Up to twenty working items, including those outside recent. */
   readonly running: readonly LeadDeskItem[]
@@ -1189,11 +1189,11 @@ export interface LeadUsageSummary {
     readonly spend: { readonly currency: string; readonly today: number | null; readonly last30Days: number | null; readonly provenance: import('./usage.js').SpendProvenance } | null
     /** Allowance that expires unspent: more than half is left and a window is about to refill. Absent otherwise. */
     readonly useFirst?: true
-    /** Whole minutes between when these figures were read and `asOf`. */
-    readonly readAgeMinutes: number
-    /** The same age in the words every surface uses (`formatElapsed`, "8d ago"): said as written, never rounded. */
+    /** Whole minutes between when these figures were read and `asOf`, or null when the source time is unknown. */
+    readonly readAgeMinutes: number | null
+    /** The same age in the words every surface uses, or "read time unknown": said as written, never rounded. */
     readonly readAge: string
-    /** The latest refresh failed; the windows are the last good figures, read `readAgeMinutes` ago. Absent otherwise. */
+    /** The latest refresh failed; the windows are the last good figures, dated by `readAge`. Absent otherwise. */
     readonly refreshFailed?: true
     /**
      * A tracked agent nothing has read: no windows, and no reading to date. Every surface lists it as "Not reporting";
@@ -1209,7 +1209,7 @@ export interface LeadUsageSummary {
     readonly unverified?: {
       readonly whose: string
       readonly windows: readonly LeadUsageWindow[]
-      readonly readAgeMinutes: number
+      readonly readAgeMinutes: number | null
       readonly readAge: string
       readonly stale: boolean
     }

@@ -69,6 +69,7 @@ export interface PhoneWorkspacePorts {
     /** `byRuntime` lets a count leave out agents the desk cannot show, as the list does. */
     counts(): { active: number; archived: number; byRuntime?: readonly { runtime: RuntimeId; active: number; archived: number }[] }
     touchedSince(since: number): number
+    coldStoppedSince(since: number, live: readonly PhoneLiveSession[]): number
     costliestSince(since: number, limit: number): { summary: SessionSummary; cost: number }[]
   }
   /** The person's own open conversations that are live in this host right now. */
@@ -339,12 +340,13 @@ export class PhoneWorkspace {
           reached: lane.placeholder !== true && (hit === lane.id || hit === lane.label || remainingOf(lane) === 0), projection,
         }
       })
-      const windows = windowsOf(report.lanes, report.error !== null, report.reached)
+      const windows = windowsOf(report.lanes, report.error !== null || !knownReadTime(report.fetchedAt, now), report.reached)
       // Another sign-in's figures, as the Dashboard draws them for this agent: said as that sign-in's, never as its own.
       const other = report.unverified
       const borrowed = other && other.lanes.length > 0 ? {
-        whose: safe(other.whose), windows: windowsOf(other.lanes, Boolean(other.error), other.reached),
-        readAgeMinutes: ageMinutes(other.fetchedAt, now), readAge: formatElapsed(other.fetchedAt, now), stale: Boolean(other.error) || now - other.fetchedAt > other.staleAfterMs,
+        whose: safe(other.whose), windows: windowsOf(other.lanes, Boolean(other.error) || !knownReadTime(other.fetchedAt, now), other.reached),
+        readAgeMinutes: readAgeMinutes(other.fetchedAt, now), readAge: readAge(other.fetchedAt, now),
+        stale: Boolean(other.error) || !knownReadTime(other.fetchedAt, now) || now - other.fetchedAt > other.staleAfterMs,
       } : null
       if (report.credits) windows.push({ label: 'Balance', kind: 'balance', unlimited: report.credits.unlimited === true, windowMinutes: null,
         remainingPercent: null, remaining: report.credits.remaining, unit: safe(report.credits.unit), resetsAt: null, resetsIn: null,
@@ -356,14 +358,14 @@ export class PhoneWorkspace {
         runtime, label: `${runtime}${plan ? ` · ${safe(plan)}` : ''}${totals.get(runtime)! > 1 ? ` · account ${ordinal}` : ''}`,
         plan: plan === null ? null : safe(plan), runningSessions: running.get(runtime) ?? 0, windows,
         reached: report.reached !== null, fetchedAt: report.fetchedAt,
-        stale: !silent && now - report.fetchedAt > report.staleAfterMs,
+        stale: !silent && (!knownReadTime(report.fetchedAt, now) || now - report.fetchedAt > report.staleAfterMs),
         ...(nothing ? { notReporting: true as const } : {}),
         ...(borrowed ? { unverified: borrowed } : {}),
         ...(useFirstNote(report, now) ? { useFirst: true as const } : {}),
         error: report.error ? report.error.needsSignIn === true ? 'sign-in needed' as const : 'reading failed' as const : null,
         spend: report.spend ? { currency: safe(report.spend.currency), today: report.spend.todayCost,
           last30Days: report.spend.windowDays === 30 ? report.spend.windowCost : null, provenance: report.spend.provenance } : null,
-        readAgeMinutes: ageMinutes(report.fetchedAt, now), readAge: formatElapsed(report.fetchedAt, now),
+        readAgeMinutes: readAgeMinutes(report.fetchedAt, now), readAge: readAge(report.fetchedAt, now),
         ...(keptReading(report) ? { refreshFailed: true as const } : {}),
       }
     })
@@ -468,7 +470,8 @@ export class PhoneWorkspace {
     // A stopped conversation finished nothing, so it is not counted as finished either.
     const busy = live.filter(one => one.running || one.waiting || one.stopped === true && (one.updatedAt ?? 0) >= since).length
     const wrapped = teams.filter(({ view }) => view.goal.state === 'wrapped' && view.goal.updatedAt >= since).length
-    return Math.max(0, touched - busy) + wrapped
+    const coldStopped = this.#ports.sessions.coldStoppedSince(since, live)
+    return Math.max(0, touched - busy - coldStopped) + wrapped
   }
 
   // ------------------------------------------------------------ the phone's workspace
@@ -509,7 +512,7 @@ export class PhoneWorkspace {
     // Read once: the Lead's view walks its seats and approvals, and every Team row consults it.
     const lead = this.#ports.leadChats?.() ?? null
     const items: PhoneWorkItem[] = [
-      ...sessions.map(row => this.#sessionItem(row, lead?.name, [...live.values()].find(one => `${one.runtime}:${one.id}` === row.id))),
+      ...sessions.map(row => this.#sessionItem(row, lead?.name, [...live.values()].find(one => `${one.runtime}:${one.id}` === row.id) ?? this.#keptStop(row))),
       ...inputs.map(input => this.#teamItem(input, live, lead)),
     ]
     return items.sort((a, b) => b.updatedAt - a.updatedAt)
@@ -713,6 +716,9 @@ const pacingSaid = (account: string, reason: 'use-first' | 'resets-soonest', win
 
 /** Whole minutes since a reading, rounded down and never negative: the protocol's one elapsed rule (#2150). */
 const ageMinutes = (at: number, now: number): number => elapsedMinutes(at, now)
+const knownReadTime = (at: number, now: number): boolean => Number.isFinite(at) && at > 0 && at <= now
+const readAgeMinutes = (at: number, now: number): number | null => knownReadTime(at, now) ? ageMinutes(at, now) : null
+const readAge = (at: number, now: number): string => knownReadTime(at, now) ? formatElapsed(at, now) : 'read time unknown'
 
 /**
  * A time on the desk's own clock, as a person reads it, with its zone: "Tue, Nov 17, 5:00 PM PST". The zone is the

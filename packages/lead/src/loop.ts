@@ -200,7 +200,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   const noteFailure = (stage: LeadChildFailureStage, failure: unknown): void => { try { options.onFailure?.(stage, failure) } catch { /* A log never owns a turn. */ } }
   let instructionsFor: string | null = null, instructions = '', epoch = journal.state.context?.epoch ?? 0
   // The Core an epoch first read is journaled, so a restart in the same epoch reads it again rather than a later one.
-  let memoryRecorded: Promise<unknown> = Promise.resolve()
+  let memoryRecorded: Promise<unknown> = Promise.resolve(), memoryRecordFailed = false
   const standingInstructions = (record = true): string => {
     const state = journal.state, goal = state.budget?.logicalGoalId ?? '', key = `${goal}\u0000${epoch}`
     if (instructionsFor !== key) {
@@ -212,7 +212,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       // settings writes nothing per epoch. Otherwise the rules ride too: the settings note compares against them (#2165).
       if (!same && record && (state.memory.revision > 0 || state.autonomy !== null)) {
         const at = epoch
-        memoryRecorded = memoryRecorded.then(() => journal.memoryEpoch?.(goal, at, memory, rules)).catch(failure => { noteFailure('memoryEpoch', failure) })
+        memoryRecorded = memoryRecorded.then(() => journal.memoryEpoch?.(goal, at, memory, rules)).then(() => { memoryRecordFailed = false }, failure => { memoryRecordFailed = true; noteFailure('memoryEpoch', failure) })
       }
       let addendum = ''
       try { addendum = options.onEpoch?.({ memory, rules }).standingAddendum?.trim() ?? '' } catch { /* An epoch hook never blocks a turn. */ }
@@ -425,6 +425,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     // The step's last request and what it carried: the store's pressure is that request, never the sum of a retry.
     let last: { usage: MessagesUsage; messages: readonly MessagesTurn[] } | undefined
     try {
+      await memoryRecorded
+      if (memoryRecordFailed) { instructionsFor = null; throw new Error('lead-memory-epoch-unrecorded') }
       const sent = request.messages
       result = await messages.request({ ...request, messages: sent, system }, active.signal)
       spent = result.usage
@@ -871,6 +873,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           } catch { /* Written from the request's own turns either way. */ }
         }
         const system = [input.system, input.epoch === undefined || input.epoch === epoch ? standingInstructions() : standingInstructionsAt(input.epoch)].filter(Boolean).join('\n')
+        await memoryRecorded
+        if (memoryRecordFailed) { instructionsFor = null; throw new Error('lead-memory-epoch-unrecorded') }
         return messages.request({ messages: input.messages, maxTokens: Math.min(input.maxTokens, LEAD_CONTEXT.checkpointTokens), compaction: true, system,
           ...(input.stable ? { stable: input.stable } : {}) }, signal ?? new AbortController().signal)
       }).finally(() => { requested--; reportActivity() })

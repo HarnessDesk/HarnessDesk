@@ -60,30 +60,116 @@ const trailing = (text: string, start: number, end: number): boolean => {
   return (before.match(/```/g)?.length ?? 0) % 2 === 0
 }
 
+/** A continuation must be a JSON prefix through the whole line, not just begin like one. */
+const continuationLine = (text: string, containers: readonly string[], previous: string, keyAwaitColon = false): boolean => {
+  type State = 'key' | 'keyOrEnd' | 'value' | 'valueOrEnd' | 'colon' | 'after'
+  const stack = containers.map(kind => ({ kind, state: 'after' as State }))
+  const top = stack.at(-1)
+  if (!top) return false
+  top.state = keyAwaitColon ? 'colon' : previous === ':' ? 'value' : top.kind === '[' && previous === '[' ? 'valueOrEnd'
+    : top.kind === '[' && previous === ',' ? 'value' : top.kind === '{' && previous === '{' ? 'keyOrEnd'
+      : top.kind === '{' && previous === ',' ? 'key' : 'after'
+  const line = text.split(/[\r\n]/, 1)[0]!
+  let i = 0
+  while (i < line.length) {
+    if (/[ \t]/.test(line[i]!)) { i++; continue }
+    const frame = stack.at(-1)
+    if (!frame) return false
+    const char = line[i]!
+    if ((char === '}' && frame.kind === '{' || char === ']' && frame.kind === '[') &&
+        (frame.state === 'after' || frame.state === 'keyOrEnd' || frame.state === 'valueOrEnd')) {
+      stack.pop(); i++; continue
+    }
+    if (frame.state === 'colon') { if (char !== ':') return false; frame.state = 'value'; i++; continue }
+    if (frame.state === 'after') { if (char !== ',') return false; frame.state = frame.kind === '{' ? 'key' : 'value'; i++; continue }
+    if (char === '"') {
+      let closed = false
+      i++
+      while (i < line.length) {
+        const c = line[i++]!
+        if (c === '"') { closed = true; break }
+        if (c.charCodeAt(0) < 0x20) return false
+        if (c === '\\') {
+          if (i === line.length) return true
+          const escape = line[i++]!
+          if (escape === 'u') {
+            const digits = line.slice(i, i + 4)
+            if (!/^[0-9a-fA-F]{0,4}$/.test(digits)) return false
+            i += digits.length
+            if (digits.length < 4) return true
+          } else if (!'"\\/bfnrt'.includes(escape)) return false
+        }
+      }
+      if (!closed) return true
+      frame.state = frame.state === 'key' || frame.state === 'keyOrEnd' ? 'colon' : 'after'
+      continue
+    }
+    if (frame.state === 'key' || frame.state === 'keyOrEnd') return false
+    if (char === '{' || char === '[') { frame.state = 'after'; stack.push({ kind: char, state: char === '{' ? 'keyOrEnd' : 'valueOrEnd' }); i++; continue }
+    const token = /^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/.exec(line.slice(i))
+    if (!token) return false
+    i += token[0].length; frame.state = 'after'
+  }
+  return true
+}
+
 /** Where a run of JSON-shaped text that opens at `start` stops: just past the brace that balances it, at the first
  * character JSON could not hold there (a word, a backtick, "nullable"), or at a line break inside a string, which no
  * JSON string holds. With `multiline` it goes on past a line break only when the next line carries on as JSON, its
- * first character a quote, brace or bracket; a prose line after it ends it at the break. Without, it stops at the end
- * of the line. String-aware. */
+ * next token a key, a matching close, or a value where one is expected; a prose line ends it at the break. Without,
+ * it stops at the end of the line. String-aware. */
 const jsonEnd = (text: string, start: number, multiline: boolean): number => {
-  let depth = 0, quoted = false, escaped = false, index = start
+  const containers: string[] = []
+  let previous = '', quoted = false, escaped = false, keyString = false, keyAwaitColon = false, index = start
   for (; index < text.length; index++) {
     const char = text[index]!
     if (char === '\n' || char === '\r') {
-      if (quoted || !multiline || !/^\s*["{[\]}]/.test(text.slice(index))) return index
+      const next = text.slice(index).replace(/^[\r\n \t]*/, '')
+      const top = containers.at(-1)
+      const key = /^"(?:[^"\\\r\n]|\\.)*"[ \t]*:/.test(next)
+      // A key on a line of its own needs a colon and a JSON value or matching
+      // closer ahead. A colon followed by a prose explanation remains prose.
+      const splitKey = top === '{' && (previous === '{' || previous === ',')
+        ? /^"(?:[^"\\\r\n]|\\.)*"[ \t]*\r?\n[ \t\r\n]*:[ \t\r\n]*(?=\S)/.exec(next) : null
+      const splitValue = splitKey ? next.slice(splitKey[0].length) : ''
+      const wrappedKey = !!splitKey && (splitValue[0] === '}' ||
+        /^(?:[\[{\"]|true|false|null|-?(?:0|[1-9]\d*))/.test(splitValue) && continuationLine(splitValue, containers, ':'))
+      // An unfinished object key has no closing quote or colon yet; only take
+      // it where the current object expects a key, leaving complete quoted prose.
+      const clippedKey = top === '{' && (previous === '{' || previous === ',') && /^"(?:[^"\\\r\n]|\\[^\r\n])*\\?(?=\r|\n|$)/.test(next)
+      const close = next[0] === (top === '{' ? '}' : ']') && top !== undefined
+      const value = previous === ':' || top === '[' && (previous === '[' || previous === ',')
+      const citation = /^\[\d+\](?::|[ \t]+[^\s,}\]])/.test(next)
+      const primitive = /^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=[ \t]*(?:[,}\]]|\r|\n|$))/.test(next)
+      const valueToken = !citation && (/^[{[]/.test(next) || primitive || /^"(?:[^"\\\r\n]|\\.)*(?:"(?=[ \t]*(?:[,}\]]|\r|\n|$))|(?=\r|\n|$))/.test(next))
+      // Even malformed JSON can end at its matching closer. Leave any prose
+      // after it to the scanner instead of requiring a valid whole line.
+      if (quoted || !multiline || !(key || wrappedKey || clippedKey || close || next[0] === ',' || keyAwaitColon && next[0] === ':' || value && valueToken) || !close && !continuationLine(next, containers, previous, keyAwaitColon)) return index
       continue
     }
     if (quoted) {
       if (escaped) escaped = false
       else if (char === '\\') escaped = true
-      else if (char === '"') quoted = false
+      else if (char === '"') { quoted = false; previous = '"'; keyAwaitColon = keyString }
       continue
     }
-    if (char === '"') quoted = true
-    else if (char === '{' || char === '[') depth++
-    else if (char === '}' || char === ']') { if (--depth <= 0) return index + 1 }
+    if (char === '"') { keyString = containers.at(-1) === '{' && (previous === '{' || previous === ','); quoted = true }
+    else if (char === '{' || char === '[') containers.push(char)
+    else if (char === '}' || char === ']') {
+      if (containers.at(-1) !== (char === '}' ? '{' : '[')) return index
+      containers.pop(); keyAwaitColon = false
+      if (containers.length === 0) return index + 1
+      // Once a nested value ends, only a separator or the parent's matching
+      // closer can continue it on this line. Keep any following prose whole.
+      const rest = text.slice(index + 1).replace(/^[ \t]*/, '')
+      const parentClose = containers.at(-1) === '{' ? '}' : ']'
+      if (rest[0] && rest[0] !== '\r' && rest[0] !== '\n' && rest[0] !== parentClose &&
+          (rest[0] !== ',' || !continuationLine(rest, containers, char))) return index + 1
+    }
     else if (/^(?:true|false|null)(?![\p{L}\p{N}_])/u.test(text.slice(index, index + 6))) index += text[index] === 'f' ? 4 : 3
     else if (!/[ \t:,0-9.eE+-]/.test(char)) return index
+    if (char === ':') keyAwaitColon = false
+    if (!/[ \t]/.test(char)) previous = char
   }
   return index
 }

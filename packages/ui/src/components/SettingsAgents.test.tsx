@@ -13,8 +13,9 @@ import type {
   InstallInfo,
   RuntimeInfo,
   RuntimeId,
+  UsageReport,
 } from '@harnessdesk/protocol'
-import { NO_CAPABILITIES } from '@harnessdesk/protocol'
+import { NO_CAPABILITIES, runtimeId } from '@harnessdesk/protocol'
 
 import { accountKey } from '../lib/accounts'
 import { StoreProvider } from '../state/context'
@@ -402,12 +403,21 @@ const ROSTER = {
   },
   usage: [
     {
-      runtime: 'alpha',
+      runtime: runtimeId('alpha'),
       account: 'ada@example.com',
       plan: 'Pro',
-      lanes: [{ label: '5h', usedPercent: 30 }, { label: 'weekly', usedPercent: 73 }],
+      lanes: [
+        { id: 'session', label: '5h', usedPercent: 30, windowMinutes: 300, resetsAt: null },
+        { id: 'weekly', label: 'weekly', usedPercent: 73, windowMinutes: 10_080, resetsAt: null },
+      ],
+      credits: null,
+      spend: null,
       reached: null,
-    },
+      source: { kind: 'runtime', label: 'from the agent' },
+      fetchedAt: Date.now(),
+      staleAfterMs: 900_000,
+      error: null,
+    } satisfies UsageReport,
   ],
 }
 

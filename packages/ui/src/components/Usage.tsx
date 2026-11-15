@@ -45,6 +45,7 @@ export const DashboardPage = ({ view, scope, onView, onScope, onSignIn, onOpenPl
   const store = useStore()
   const snapshot = useSnapshot()
   const [now, setNow] = useState(() => Date.now())
+  useEffect(() => setNow(Date.now()), [snapshot.usage])
   const [pivot, setPivot] = useState<Pivot>('runtime')
   const [range, setRange] = useState<number>(DEFAULT_RANGE)
   const [ledger, setLedger] = useState<LedgerReport | null>(null)
@@ -89,8 +90,15 @@ export const DashboardPage = ({ view, scope, onView, onScope, onSignIn, onOpenPl
 
   useEffect(() => {
     if (!active) return
-    const timer = window.setInterval(() => void store.refreshUsage(), 120_000)
-    return () => window.clearInterval(timer)
+    const read = () => { if (document.visibilityState !== 'hidden') void store.loadUsage() }
+    const timer = window.setInterval(read, 120_000)
+    window.addEventListener('focus', read)
+    document.addEventListener('visibilitychange', read)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('focus', read)
+      document.removeEventListener('visibilitychange', read)
+    }
   }, [active, store])
 
   useEffect(() => {

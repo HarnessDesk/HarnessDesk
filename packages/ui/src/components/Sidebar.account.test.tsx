@@ -122,7 +122,9 @@ const mount = (overrides: Partial<AppSnapshot> = {}) => {
     accountPrefs: { [accountKey(CLAUDE, claudeAccount.accounts[0]!)]: { nickname: 'Shane-Claude' } },
     ...overrides,
   } as AppSnapshot
+  const loadUsage = vi.fn().mockResolvedValue(undefined)
   const store = {
+    loadUsage,
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     selectRuntime,
@@ -135,8 +137,30 @@ const mount = (overrides: Partial<AppSnapshot> = {}) => {
       </StoreProvider>,
     )
   })
-  return { selectRuntime, signOutAgent, onOpenSettings, onOpenUsage, onSignIn, signInToHarnessDesk, openHarnessDeskSignIn, cancelHarnessDeskSignIn, signOutOfHarnessDesk }
+  return { selectRuntime, signOutAgent, onOpenSettings, onOpenUsage, onSignIn, signInToHarnessDesk, openHarnessDeskSignIn, cancelHarnessDeskSignIn, signOutOfHarnessDesk, loadUsage }
 }
+
+it('marks old quota as historical and only asks for readings when Usage opens', () => {
+  const old = { ...usageReport(CLAUDE, [lane({ id: 'weekly', usedPercent: 0 })]), fetchedAt: Date.now() - 10 * 86_400_000 }
+  const { loadUsage } = mount({ usage: [old] })
+  click(row())
+  expect(loadUsage).not.toHaveBeenCalled()
+  expect(usageTrigger().textContent).not.toContain('100% left')
+  const details = openUsage()
+  expect(details.textContent).toContain('Outdated reading · last known values')
+  expect(loadUsage).toHaveBeenCalledTimes(1)
+})
+
+it('shows a newly arrived reading immediately after the menu clock tick', () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  const time = Date.now()
+  mount({ usage: [usageReport(CLAUDE, [lane({ id: 'weekly', usedPercent: 30 })])] })
+  click(row())
+  openUsage()
+  vi.setSystemTime(time + 10_000)
+  mount({ usage: [usageReport(CLAUDE, [lane({ id: 'weekly', usedPercent: 99 })])] })
+  expect(usageTrigger().textContent).toContain('1% left')
+})
 
 const row = (): HTMLButtonElement => {
   const found = container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')

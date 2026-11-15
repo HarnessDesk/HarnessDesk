@@ -182,20 +182,24 @@ const REMEMBER: readonly RegExp[] = [
 const ADDRESS = /^(?:@?[\p{L}\p{N}_.'\u2019-]{1,16}[\s,、:;!~]*){1,3}$/u
 const STARTS_CJK = /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u
 /** Where the address ends, it must say so: a comma or colon after it, an `@` name, or, before a Chinese or Japanese verb,
- * a space or a name in Latin letters ("嗯嗯 记住", "Dex记住"). "I will remember to…" and "我不记得了" are not requests. */
-const addressed = (address: string, rest: string): boolean =>
-  /[,、:;!~]\s*$/.test(address) || address.startsWith('@') || STARTS_CJK.test(rest) && (/\s$/.test(address) || /^[A-Za-z0-9_.-]+$/.test(address))
+ * a space or a name in Latin letters ("嗯嗯 记住", "Dex记住"). An English remember verb followed immediately by a
+ * colon may follow the configured Lead name, optionally preceded by a greeting, and a space instead. "I will remember to…" and "我不记得了" are not requests. */
+const addressed = (address: string, rest: string, name: string): boolean => {
+  const words = address.trim().toLowerCase().split(/\s+/)
+  const named = words.at(-1) === name.toLowerCase() && (words.length === 1 || words.length === 2 && ['hey', 'hi', 'hello'].includes(words[0]!))
+  return /[,、:;!~]\s*$/.test(address) || address.startsWith('@') || /\s$/.test(address) && named && /^(?:remember|keep in mind|note down)\s*:/i.test(rest) || STARTS_CJK.test(rest) && (/\s$/.test(address) || /^[A-Za-z0-9_.-]+$/.test(address))
+}
 /**
  * The words a person's message asks the Lead to keep, when it opens by asking that ("记住这条：…", "Hey Dex, remember:
  * …"); null for any other message. The text is cleaned first, as a memory entry is, so an invisible character cannot
  * hide the verb. Only the opening is read, past at most three words of address: a message that mentions remembering
  * somewhere later is just a message.
  */
-export const leadRememberRequest = (text: string): string | null => {
+export const leadRememberRequest = (text: string, name = 'Dex'): string | null => {
   const opening = leadMemoryCleanLines(text).join('\n').trim()
   for (let at = 0; at <= Math.min(opening.length - 1, 60); at++) {
     const address = opening.slice(0, at), rest = opening.slice(at)
-    if (at > 0 && (!ADDRESS.test(address) || !addressed(address, rest))) continue
+    if (at > 0 && (!ADDRESS.test(address) || !addressed(address, rest, name))) continue
     for (const pattern of REMEMBER) {
       const words = pattern.exec(rest)?.[1]?.trim()
       // "你记得吗" asks whether the Lead remembers; a particle alone is not words to keep.

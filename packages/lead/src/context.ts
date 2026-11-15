@@ -3,7 +3,7 @@ import type { MessagesText, MessagesToolResult, MessagesTurn } from './messages-
 import type { LeadState } from './state.js'
 import { LEAD_MEMORY_STATUS_CLOSE, LEAD_MEMORY_STATUS_OPEN, leadMemorySnapshot, type LeadMemoryCore } from './memory.js'
 import { LEAD_SETTINGS_STATUS_CLOSE, LEAD_SETTINGS_STATUS_OPEN } from './settings.js'
-import { leadCleanUntrusted } from './untrusted.js'
+import { leadCleanUntrusted, leadCleanUntrustedLegacy } from './untrusted.js'
 
 /**
  * The Lead's context engine, as pure functions: how full the conversation is, what the desk may trim without a
@@ -219,13 +219,13 @@ export const LEAD_EPOCH_ADDENDA: readonly ((state: LeadState) => string | null)[
  */
 export const LEAD_RULES_OPEN = '<person-rules>'
 export const LEAD_RULES_CLOSE = '</person-rules>'
-export function leadRulesAddendum(state: LeadState): string | null {
+export function leadRulesAddendum(state: LeadState, legacy = false): string | null {
   const rules = state.autonomy?.rules
   if (!rules) return null
   const parts = LEAD_RULE_SECTIONS.flatMap(id => {
     const rule = rules[id]
     if (!rule) return []
-    const clean = leadCleanUntrusted(rule.text, LEAD_RULE_LIMITS.chars)
+    const clean = (legacy ? leadCleanUntrustedLegacy : leadCleanUntrusted)(rule.text, LEAD_RULE_LIMITS.chars)
     return clean ? [`${LEAD_RULE_TITLES[id]}:
 ${clean}`] : []
   })
@@ -238,8 +238,8 @@ export interface LeadEpochHeld { readonly memory: LeadMemoryCore; readonly rules
 /** The state an epoch's addenda read: the state with the Core and rules the epoch began with, when the loop has them. */
 export const leadEpochState = (state: LeadState, at?: LeadEpochHeld): LeadState => !at ? state : { ...state, memory: at.memory,
   ...(at.rules ? { autonomy: { ...(state.autonomy ?? { modes: LEAD_AUTONOMY_DEFAULTS }), rules: at.rules } } : {}) }
-export const leadEpochAddendum = (state: LeadState, addenda: readonly ((state: LeadState) => string | null)[] = LEAD_EPOCH_ADDENDA): string =>
-  addenda.flatMap(addendum => { try { const line = addendum(state)?.trim(); return line ? [line] : [] } catch { return [] } }).join('\n')
+export const leadEpochAddendum = (state: LeadState, addenda: readonly ((state: LeadState) => string | null)[] = LEAD_EPOCH_ADDENDA, legacy = false): string =>
+  addenda.flatMap(addendum => { try { const line = (legacy && addendum === leadRulesAddendum ? leadRulesAddendum(state, true) : addendum(state))?.trim(); return line ? [line] : [] } catch { return [] } }).join('\n')
 
 /** What one step adds to the stored conversation: blocks to add to the last stored turn and the turns after it. */
 export interface LeadContextRecord {

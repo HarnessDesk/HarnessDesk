@@ -65,6 +65,7 @@ const fixture = async (): Promise<Fixture> => {
       isOwn: (runtime, id) => index.isOwn(runtime, id),
       counts: () => index.phoneCounts(),
       touchedSince: since => index.touchedSince(since),
+      coldStoppedSince: (since, live) => index.coldStoppedSince(since, live),
       costliestSince: (since, limit) => index.costliestSince(since, limit),
     },
     live: () => state.live,
@@ -619,6 +620,23 @@ test('a session the person stopped says Stopped with its own stage reason, and i
   } finally { await f.done() }
 })
 
+test('cold stopped work is excluded from both dashboard and work usage periods', async () => {
+  const f = await fixture()
+  try {
+    f.index.upsert(summary('stopped')); f.index.upsert(summary('finished'))
+    f.db.prepare("INSERT INTO turns(runtime,id,turn_id,seq,payload,fingerprint) VALUES(?,?,?,?,?,'synthetic')").run(agent, 'stopped', 't1', 1, JSON.stringify({ turn: { status: 'interrupted' } }))
+    f.stopped = new Set([`${agent}:stopped`])
+    f.ledger = () => ledgerOf([], 0)
+    const dashboard = await f.workspace.dashboardRead({ range: '7d' })
+    assert.equal(dashboard.counts.doneToday, 1)
+    assert.equal(dashboard.period.finished, 1)
+    const usage = (await f.workspace.workUsage())!
+    assert.equal(usage.week.finished, 1)
+    assert.equal(usage.month.finished, 1)
+    assert.equal((await f.workspace.workItems()).find(item => item.id.endsWith(':stopped'))?.line, 'Stopped')
+  } finally { await f.done() }
+})
+
 test('ready Teams, stopped Teams and failed sessions now count as needing you', async () => {
   const f = await fixture()
   try {
@@ -802,6 +820,26 @@ test('Lead allowance is private, cached, account-distinct and counts running cha
   } finally { await f.done() }
 })
 
+test('Lead allowance names an unknown observation time instead of an age since the epoch', async () => {
+  const f = await fixture()
+  try {
+    for (const fetchedAt of [0, NaN, NOW + 1]) {
+      const other = report('other@example.com', { fetchedAt })
+      const result = await f.workspace.usageSummary([report('dev@example.com', { fetchedAt,
+        unverified: { ...other, whose: 'Another sign-in' } })])
+      const account = result.accounts[0]!
+      assert.equal(account.readAgeMinutes, null)
+      assert.equal(account.readAge, 'read time unknown')
+      assert.equal(account.stale, true)
+      assert.ok(account.windows.every(window => window.projection === null))
+      assert.equal(account.unverified?.readAgeMinutes, null)
+      assert.equal(account.unverified?.readAge, 'read time unknown')
+      assert.equal(account.unverified?.stale, true)
+      assert.ok(account.unverified?.windows.every(window => window.projection === null))
+    }
+  } finally { await f.done() }
+})
+
 test('Lead allowance keeps unknown figures unknown and shares the Dashboard lasts-to-reset projection', async () => {
   const f = await fixture()
   try {
@@ -885,6 +923,19 @@ test('Lead summary scans stop at the Sessions paging bound and expose partial co
     assert.equal(usage.sessionsScanned, 2000)
     assert.equal(usage.countsPartial, true)
     assert.equal(usage.accounts[0]!.runningSessions, 0, 'a partial count is explicitly marked, never presented as exact')
+  } finally { await f.done() }
+})
+
+test('#2029: a partial scan can omit a visible recent chat behind unknown runtimes', async () => {
+  const f = await fixture()
+  try {
+    for (let n = 0; n < 2000; n++) f.index.upsert(summary(`hidden-${n}`, { runtime: stranger, updatedAt: NOW - n }))
+    f.index.upsert(summary('visible', { updatedAt: NOW - 2001 }))
+    const result = await f.workspace.deskSummary({})
+    assert.equal(result.countsPartial, true)
+    assert.equal(result.sessionsScanned, 0)
+    assert.equal(result.totals.chats.idle, 1, 'the known-runtime aggregate remains exact')
+    assert.deepEqual(result.recent, [], 'recent is drawn from the scanned rows, not all visible chats')
   } finally { await f.done() }
 })
 

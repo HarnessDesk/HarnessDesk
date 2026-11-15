@@ -118,17 +118,56 @@ it; `check-layering.mjs` only forbids it above.
 
 | Tier | Mechanism | Covers | Cost |
 | --- | --- | --- | --- |
-| 1 | Runtime adapter queries | Codex, live, already wired | free |
+| 1 | Runtime adapter queries | Codex; Claude Code's existing query through the negotiated `accountUsage` ACP control, with `skipBehaviors` | no model request or new process; quota reads are budgeted |
 | 2 | A declared local file the agent already writes | Claude Code: `~/.claude.json → cachedUsageUtilization` — session, weekly, model-scoped lanes, plan, identity, `severity` | free, and watched on disk |
 | 3 | A declared credential plus one HTTP call | Cursor (`state.vscdb` → `cursor.com/api/usage-summary`, plus `api/auth/me` and the legacy `api/usage` on a request-based plan only), Gemini (`~/.gemini/oauth_creds.json` → Cloud Code quota API), Copilot (device token in `~/.config/github-copilot/` → `copilot_internal/user`), Cline (`~/.cline/data/settings/providers.json` → `api.cline.bot` balance), DeepSeek Harness (`DEEPSEEK_API_KEY`, in the row's own environment or `${DSH_HOME:-~/.dsh}/.credentials.yaml` → `api.deepseek.com/user/balance`), OpenRouter (`OPENROUTER_API_KEY` in any agent's own environment → `openrouter.ai/api/v1/key` and `/credits`) | one request, cached (two more for a request-based Cursor plan; two for OpenRouter's pair of endpoints) |
 | 3′ | The agent vendor's own CLI, asked for its own report | Antigravity (`agy --print /usage --output-format json` → Google's `retrieveUserQuotaSummary`, a weekly limit per group of models), Amp (`amp usage` → the credit balance) | one process start and one request, at most once a minute (Amp: every five) |
 | 4 | The local ledger — the agent's own records | tokens and cost per day, model and project: `~/.codex/sessions/**.jsonl`, `~/.claude/projects/**.jsonl`, Gemini CLI's `~/.gemini/tmp/*/chats/*.jsonl`, Qwen Code's `~/.qwen/projects/*/chats/*.jsonl` (list price); OpenCode's `opencode.db` and Cline's `sessions.db` (the cost the agent recorded) | one incremental scan |
 
-Tier 2 is the discovery that makes this cheap. Claude Code caches its full
-utilization payload — every lane, the reset times, the plan, the account, and
-its own severity — in a plain JSON file it rewrites as it runs. No keychain
-prompt, no token, no network, and HarnessDesk *runs Claude Code*, so the cache
-stays warm on its own. A file watch is the whole implementation.
+Tier 2 is a fallback observation, not a refresh mechanism. Claude Code can leave
+its utilization cache unchanged for days. Re-reading it cannot make it current.
+The bridge asks the existing SDK query for structured `/usage`, skipping the
+transcript scan. That experimental control is feature-checked and bounded; no
+query means no runtime reading, so a newer file can still answer. Only queries
+whose stream is still open are eligible. Initialization metadata has a
+short shared deadline, independently of the usage-control deadline.
+The SDK can silently return cached figures on failure, so a successful control reply alone
+does not date them: the bridge checks the live query's account against the
+CLI-owned cache, matches the figures and reset times, and preserves its
+`fetchedAtMs`. Missing or mismatched evidence yields unknown age.
+The CLI may omit modern rows in a seeded reply. When its complete legacy
+projection matches the same cache, the bridge retains the cache's richer
+rows and stable IDs with that original time; mismatched projections stay undated.
+API-key and other provider sessions never borrow a global OAuth allowance. Extra usage
+keeps its monetary amount and billing kind through the live path.
+
+Source age and retry time are independent. Concurrent reads share one request;
+automatic reads have a one-minute floor and failed reads back off with jitter
+to at most fifteen minutes. File changes and completed turns coalesce into a
+trailing read; a local cache change ingests the observation without calling
+its producer again, so an SDK cache write cannot create a refresh loop.
+An identical file-only observation does not push another report.
+Credential-file changes for HTTP/CLI meters still use the network/process
+floor. A changed credential after a sign-in failure shortens the escalated
+backoff to that one-minute floor; repeated writes cannot bypass it.
+Activity arriving during an in-flight read stays dirty until
+that read finishes and the budget permits another. Directory watches survive
+atomic file replacement. Menus and the dashboard ask only while visible, and
+focus asks again through the cache. No new perpetual host poller is added.
+
+The shared compact projection refuses expired observations and windows whose
+reset passed. Details keep their historical figures with an explicit stale
+message. No reading, an undated reading, and an inactive model allowance are
+never interpreted as a fresh zero-percent-used allowance.
+The legacy footer and composer use the same source clock and account-wide
+binding lane. Accepted same-account usage reports also update their timestamped
+limits directly, without another request. Older runtime replies cannot roll
+that reading back. The Lead says `read time unknown` and returns a null minute age
+when a source supplies no valid observation time.
+
+The metered capability also lets the Team overview show known monetary usage
+instead of turns. List-price amounts remain labelled estimates; having plan
+windows does not make those amounts vendor-reported spend.
 
 Tier 4 is where money comes from, and both corpora carry what is needed: a
 Codex rollout records `token_count` events with input, cached, output and

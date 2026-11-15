@@ -1138,6 +1138,17 @@ const deskOf = (items: readonly LeadDeskItem[]): LeadDeskSummary => {
 const note = (id: string, text: string, at: number, extra: Partial<LeadMemoryEntry> = {}): LeadMemoryEntry =>
   ({ id, text, kind: 'preference', by: 'person', tier: 'core', source: { kind: 'message', id: 'msg-1' }, createdAt: at, usedAt: at, version: 1, ...extra })
 
+test('the Lead recap calls a known stopped chat stopped rather than done', async t => {
+  let items: LeadDeskItem[] = []
+  const r = await rig(t, { desk: async () => deskOf(items), stoppedChat: (id: string) => id === 'fake:stopped' })
+  items = [
+    { id: 'fake:stopped', kind: 'chat', title: 'Stopped work', project: 'demo', state: 'idle', updatedAt: r.now() },
+    { id: 'fake:finished', kind: 'chat', title: 'Finished work', project: 'demo', state: 'idle', updatedAt: r.now() },
+  ]
+  const digest = (await r.store.read(desktop, { recap: true })).digest!
+  assert.deepEqual(digest.items.map(one => [one.id, one.kind]), [['chat:fake:stopped', 'stopped'], ['chat:fake:finished', 'done']])
+})
+
 test('the away card and "What happened?" tell one list: reminders, Teams and chats on the desk, notes kept and settings applied, each with its door (#2147)', async t => {
   let desk: LeadDeskItem[] = [], notes: LeadMemoryEntry[] = [], changes: LeadAutonomyChange[] = [], reminders: LeadReminder[] = []
   let items: LeadWorkCard[] = []

@@ -5,7 +5,7 @@ import type { FlowPermission } from './flow.js'
 import type { RuntimeId, SessionId, TurnId } from './ids.js'
 import type { AgentItem, UserContent } from './items.js'
 import type { ConfigOption, OptionValue } from './options.js'
-import type { UsageBilling, UsageLane, UsageSource } from './usage.js'
+import type { UsageBilling, UsageCredits, UsageLane, UsageSource } from './usage.js'
 
 /**
  * Session, turn, and settings — the container model around items.
@@ -390,6 +390,14 @@ export interface UsageWindow {
  * hit and turns will fail.
  */
 export interface RateLimits {
+  /** Source observation time and lifetime when an adapter reuses a reading. */
+  readonly fetchedAt?: number
+  readonly staleAfterMs?: number
+  /** Identity of the effective credential, when a session-specific provider differs from the global login. */
+  readonly account?: string | null
+  /** The effective credential has no plan quota; a meter from a different sign-in must not fill it in. */
+  readonly planLimitsUnavailable?: boolean
+  readonly credits?: UsageCredits
   readonly hasCredits?: boolean
   readonly unlimited?: boolean
   readonly balance?: number | null

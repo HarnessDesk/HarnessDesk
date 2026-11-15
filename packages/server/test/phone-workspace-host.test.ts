@@ -13,7 +13,7 @@ import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
 
 /** A real host over a fake agent and an index seeded the way a desk's own is, asked the phone's way. */
-const desk = async (t: TestContext, bulk = false, interrupt = true, startTimes?: boolean, metered = false, deleteHistory: false | 'trash' | 'erase' = 'trash') => {
+const desk = async (t: TestContext, bulk = false, interrupt = true, startTimes?: boolean, metered = false, deleteHistory: false | 'trash' | 'erase' = 'trash', autoCleanup = true) => {
   const root = tempDir('hd-phone-host-')
   const runtime = new FakeRuntime({ capabilities: { archiveHistory: false, interrupt, metered, deleteHistory, ...(startTimes === undefined ? {} : { startTimes }) } })
   const row = (id: string, over: Partial<SessionSummary>): SessionSummary =>
@@ -40,7 +40,7 @@ const desk = async (t: TestContext, bulk = false, interrupt = true, startTimes?:
   const host = new Host({ state, logger: silent, builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
   host.register(runtime)
   await host.start()
-  t.after(() => host.dispose())
+  if (autoCleanup) t.after(() => host.dispose())
   return { host, root, runtime, state }
 }
 
@@ -661,4 +661,43 @@ test('a failed seed resumes legacy pin order after preferences are replaced', as
   await finished
   assert.deepEqual(await second.call('session/pins', {}), ['fake:seeded', 'fake:kept', 'fake:new'])
   assert.deepEqual((await second.call('app/state/get', {}))['listPrefs'], { sort: 'recent' })
+})
+
+test('a stopped chat is not finished after a cold Host restart', async t => {
+  const { host, runtime, root, state } = await desk(t, false, true, undefined, false, 'trash', false)
+  let disposed = false
+  t.after(async () => { if (!disposed) await host.dispose() })
+  await state.setPreferences({ chatsFolder: join(root, 'chats') })
+  runtime.onSend = null
+  const stopped = await host.call('workspace/session/start', { text: 'Work until stopped' })
+  const stamp = (id: string) => {
+    const local = sessionId(id.slice(id.indexOf(':') + 1))
+    const record = host.registry.get(runtime.info.id, local)!
+    runtime.emit({ type: 'session/started', session: { ...record.session, updatedAt: Date.now() } })
+  }
+  stamp(stopped.id)
+  assert.deepEqual(await host.call('workspace/stop', { id: stopped.id }), {})
+  runtime.onSend = live => live.finish('Finished answer')
+  const finished = await host.call('workspace/session/start', { text: 'Finish this work' })
+  stamp(finished.id)
+  const warm = await host.call('phone/dashboard/read', { range: '7d' })
+  assert.equal(warm.counts.doneToday, 1)
+  assert.equal(warm.period.finished, 1)
+  await host.dispose(); disposed = true
+
+  const coldRuntime = new FakeRuntime({ capabilities: { archiveHistory: false, interrupt: true, deleteHistory: 'trash' } })
+  let reads = 0
+  const read = coldRuntime.readSession.bind(coldRuntime)
+  coldRuntime.readSession = async (...args) => { reads++; return read(...args) }
+  const cold = new Host({ state: new StateStore(join(root, 'state.json')), logger: silent, builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  cold.register(coldRuntime); await cold.start(); t.after(() => cold.dispose())
+  assert.equal(cold.registry.all().length, 0, 'neither conversation body was opened')
+  const dashboard = await cold.call('phone/dashboard/read', { range: '7d' })
+  assert.equal(dashboard.counts.doneToday, 1, 'a cold stopped turn is not done')
+  assert.equal(dashboard.period.finished, 1, 'the period counts the finished chat only')
+  const items = (await cold.call('workspace/read', {})).items
+  assert.equal(items.find(item => item.id === stopped.id)?.line, 'Stopped')
+  assert.equal(items.find(item => item.id === finished.id)?.line, 'Done')
+  assert.equal(reads, 0, 'the dashboard and work projection never ask the runtime for the body')
+  assert.equal(cold.registry.all().length, 0, 'the dashboard did not load the conversations')
 })

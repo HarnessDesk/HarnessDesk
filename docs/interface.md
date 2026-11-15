@@ -527,6 +527,10 @@ account** and **Manage runtimes** live at the bottom of the picker.
 
 **Usage** opens a separate level with the current report's account identity,
 windows, resets, blocks, source and age, followed by scoped **Open usage**.
+Opening Usage asks for current readings; while open it rechecks once a minute and on focus, only while visible.
+An expired observation or a passed reset supplies no current percentage or Back time to the compact strip or menu.
+Details retain its last figures under **Outdated reading · last known values** (or **Couldn't refresh** on failure),
+with the source's original age; an undated source says **read time unknown**.
 Other reporting accounts have one direct usage action each. Opening either
 picker leaves the root menu's size unchanged and closes the other picker;
 Escape returns one level at a time. Dashboard in the sidebar opens on everything.

@@ -1830,7 +1830,7 @@ test('a completed desk scan pushes the fresh turn count through the host', async
       },
     },
   })
-  const initial = (await client.call('usage/reports', {})) as { turns?: { count: number } }[]
+  const initial = (await client.call('usage/reports', {})) as { fetchedAt: number; turns?: { count: number } }[]
   assert.equal(initial[0]?.turns, undefined)
 
   const session = (await client.call('session/create', {
@@ -1838,21 +1838,21 @@ test('a completed desk scan pushes the fresh turn count through the host', async
   })) as Session
   await client.call('turn/send', { runtime: FAKE_RUNTIME_ID, sessionId: session.id, input: [{ type: 'text', text: 'hello' }] })
   const live = harness.runtime.sessions.get(session.id) as FakeSession
-  const updatesBeforeTurn = client.notifications.length
   live.finish()
   await client.until(() => client.events.some((event) => event.type === 'turn/completed'))
   await client.until(() => readStored(harness.stateDir, FAKE_RUNTIME_ID, String(session.id))?.turns.some(turn => turn.status === 'completed') ?? false,
     5_000, 'the completed synthetic transcript')
   // The fake omits clocks; place its stored turn in today's ledger window.
   editStoredTurn(harness.stateDir, FAKE_RUNTIME_ID, String(session.id), turn => { turn.startedAt = Date.now() })
-  await client.until(() => client.notifications.slice(updatesBeforeTurn).some((message) =>
-    'method' in message && message.method === 'usage/updated' && message.params.report.runtime === FAKE_RUNTIME_ID && !message.params.report.turns,
-  ), 5_000, 'the turn-completion meter refresh')
+  // Turn completion queues its source read within the cooldown. A local scan
+  // can settle the ledger without waiting for, or forcing, another meter read.
+  assert.equal(reads, 1)
   const readsBeforeScan = reads
   const before = client.notifications.length
   await client.call('usage/scan', {})
   await client.until(() => client.notifications.slice(before).some((message) =>
-    'method' in message && message.method === 'usage/updated' && message.params.report.runtime === FAKE_RUNTIME_ID && message.params.report.turns?.count === 1,
+    'method' in message && message.method === 'usage/updated' && message.params.report.runtime === FAKE_RUNTIME_ID &&
+      message.params.report.turns?.count === 1 && message.params.report.fetchedAt === initial[0]?.fetchedAt,
   ), 5_000, 'the host-pushed desk turn')
   assert.equal(reads, readsBeforeScan, 'the scan settlement reuses the cached meter reading')
 })

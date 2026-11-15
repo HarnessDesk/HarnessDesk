@@ -344,6 +344,17 @@ export class SessionIndex {
       AND updated_at >= ?`).get(since) as unknown as { n: number }).n
   }
 
+  /** Cold own conversations touched in the window whose latest retained turn was interrupted. */
+  coldStoppedSince(since: number, live: readonly { readonly runtime: RuntimeId; readonly id: SessionId }[]): number {
+    const excluded = JSON.stringify(live.map(one => [one.runtime, one.id]))
+    const row = this.#db.prepare(`SELECT COUNT(*) AS n FROM sessions s
+      WHERE s.origin='desk' AND s.removed_at IS NULL AND s.team_id IS NULL AND s.archived=0 AND s.updated_at >= ?
+      AND NOT EXISTS (SELECT 1 FROM json_each(?) x WHERE json_extract(x.value,'$[0]')=s.runtime AND json_extract(x.value,'$[1]')=s.id)
+      AND (SELECT CASE WHEN json_valid(t.payload) THEN json_extract(t.payload,'$.turn.status') END
+        FROM turns t WHERE t.runtime=s.runtime AND t.id=s.id ORDER BY t.seq DESC LIMIT 1)='interrupted'`).get(since, excluded) as unknown as { n: number }
+    return row.n
+  }
+
   /** Whether this is one of the person's own conversations; archives are admitted only for explicit reads. */
   isOwn(runtime: RuntimeId, id: SessionId, includeArchived = false): boolean {
     return this.#db.prepare(`SELECT 1 AS own FROM sessions WHERE runtime=? AND id=? AND origin='desk' AND removed_at IS NULL AND team_id IS NULL

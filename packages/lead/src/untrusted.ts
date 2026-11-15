@@ -24,4 +24,8 @@ export const leadEscape = (line: string): string => line.replaceAll('<', '&lt;')
  * `max` characters.
  */
 export const leadCleanUntrusted = (text: string, max: number): string =>
+  leadEscape(leadClip(leadUntrustedLines(text.normalize('NFKC')).join('\n').trim(), max))
+
+/** Preserve bytes of instructions frozen before source-length clipping was introduced. */
+export const leadCleanUntrustedLegacy = (text: string, max: number): string =>
   leadClip(leadEscape(leadUntrustedLines(text.normalize('NFKC')).join('\n')).trim(), max)
