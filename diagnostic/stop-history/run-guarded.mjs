@@ -5,7 +5,7 @@ const CODES = new Map([
   ['fixture fingerprint mismatch','source_mismatch'], ['ambient profile location exists','ambient_refused'],
   ['privacy audit failed','privacy_refused'], ['frame changed or privacy audit failed','privacy_refused'],
   ['invalid frame','frame_invalid'], ['invalid frame dimensions','frame_invalid'], ['frame unavailable','frame_unavailable'],
-  ['ledger mismatch','ledger_invalid'], ['ledger state mismatch','ledger_invalid'],
+  ['ledger mismatch','ledger_invalid'], ['ledger identity mismatch','ledger_invalid'], ['ledger state mismatch','ledger_invalid'],
   ['unexpected pre-review effect','effect_observed'], ['unexpected review effect','effect_observed'],
   ['unexpected restart effect','effect_observed'], ['transport unavailable','transport_unavailable'],
 ])

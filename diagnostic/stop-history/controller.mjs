@@ -43,7 +43,7 @@ const fingerprints = {
   'diagnostic/stop-history/seed.mjs':'ac35c958f83509ac3807183d7955ec45614d5b8cd9bd99db0543696d5bdb8ca4',
   'diagnostic/stop-history/counter.mjs':'5d9ed3b4b2963a490cd5b565accf302aa184ceacb710a00c1372fcbae8033474',
   'diagnostic/stop-history/frame-policy.mjs':'3f22a99e3cb8bd7ffeaa5276a2a86c01a6592e3c1bf6d710ab3f46011a856abf',
-  'diagnostic/stop-history/run-guarded.mjs':'61ad161046bc3cdcfdee34007ea10040d48c65b96633b0f642fefe5974c0b80d',
+  'diagnostic/stop-history/run-guarded.mjs':'29815be8925f7643eb7297f9eacfd355c1cbf5b945388dbc80332c8fc4819aac',
   'diagnostic/stop-history/source-guard.mjs':'56ae7de03897f455068b85c827dd159eb990e2d478e4cbda72f8ce26361be036',
 }
 assertSource({git,sha:fileName=>sha(join(taskSource,fileName)),base:taskSha,expected:fingerprints})
@@ -52,7 +52,7 @@ if (inspectPaths(osHome).some(row => !allowed(row))) throw new Error('ambient pr
 const deskLib = await import(pathToFileURL(join(taskSource,'script/lib/desk.mjs')).href)
 const { launchDesk, openWorkspace, sleep } = deskLib
 closeDesk = deskLib.closeDesk
-const { COLLECT, textReasons } = await import(pathToFileURL(join(taskSource,'script/shots/audit.mjs')).href)
+const { COLLECT, TILDIFY, textReasons } = await import(pathToFileURL(join(taskSource,'script/shots/audit.mjs')).href)
 result.phase='setup'
  taskRoot=realpathSync(mkdtempSync(join(tmpdir(),'hd2065-proof-')))
 const taskDeskHome=join(taskRoot,'desk'), taskCodexProfile=join(taskRoot,'codex'), taskFakebin=join(taskRoot,'bin'), taskElectron=join(taskRoot,'electron'), taskProject=join(taskRoot,'project')
@@ -117,6 +117,8 @@ const click = async (selector,label,row=null) => {
   await cdp.send('Input.dispatchMouseEvent',{type:'mouseReleased',...hit,button:'left',clickCount:1})
 }
 const frame = async () => {
+  // Presentation only: shorten the exact resolved, exclusively owned synthetic root.
+  await cdp.eval(TILDIFY(taskRoot,'~/synthetic-stop-proof'))
   const observed=await cdp.json(COLLECT)
   const reasons=textReasons(observed,{user:process.env.USER??''})
   if(reasons.length)throw new Error('privacy audit failed')
@@ -129,6 +131,10 @@ const readLedger=()=>JSON.parse(readFileSync(ledgerFile,'utf8'))
 const verifyLedger = (expected101) => {
   const value=readLedger(), records=value.stopIntents
   if(value.version!==2 || !Array.isArray(records) || records.length!==3)throw new Error('ledger mismatch')
+  for (const original of ledger.stopIntents) {
+    const row=records.find(one=>one.id===original.id)
+    if(!row || JSON.stringify(row.key)!==JSON.stringify(original.key) || JSON.stringify(row.thread)!==JSON.stringify(original.thread))throw new Error('ledger identity mismatch')
+  }
   const states=new Map(records.map(row=>[row.key.comment,row.state]))
   if(states.get('101')!==expected101||states.get('102')!=='unconfirmed'||states.get('103')!=='reviewed')throw new Error('ledger state mismatch')
   return true
@@ -153,6 +159,7 @@ result.phase='recovery';await goToHistory()
 await waitFor('durable recovery',()=>{try{return verifyLedger('unconfirmed')}catch{return false}},30000)
 await waitFor('unconfirmed rows',()=>cdp.eval("[...document.querySelectorAll('[data-slot=\"list-row\"]')].filter(e=>e.innerText.includes('Stop unconfirmed')).length===2"),10000)
 result.checks.recovery=true
+verifyLedger('unconfirmed')
 try {firstFrame=await frame()} catch {frameUnavailable=true}
 const beforeCounts=await cdp.json('window.__hd2065counts')
 if(Object.values(beforeCounts).some(Boolean)||interruptCount(counter)!==0||readFileSync(forgeCounter).length!==0)throw new Error('unexpected pre-review effect')
@@ -163,6 +170,7 @@ const afterCounts=await cdp.json('window.__hd2065counts')
 if(afterCounts.review!==1||afterCounts.stop||afterCounts.interrupt||afterCounts.reevaluate||interruptCount(counter)!==0||readFileSync(forgeCounter).length!==0)throw new Error('unexpected review effect')
 await click('button','History')
 await waitFor('reviewed visible',()=>cdp.eval("[...document.querySelectorAll('[data-slot=\"list-row\"]')].some(e=>e.innerText.includes('#101') && e.innerText.includes('Reviewed · Stop unconfirmed'))"),10000)
+verifyLedger('reviewed')
 try {secondFrame=await frame()} catch {frameUnavailable=true}
 await observedListeners('listenersAfterReview')
 await closeDesk(desk);desk=undefined
@@ -175,7 +183,7 @@ await observedListeners('listenersAtEnd');result.checks.persisted=true;result.ch
 result.phase='frames';if(frameUnavailable || !firstFrame || !secondFrame)throw new Error('frame unavailable')
 mkdirSync(expectedOutput,{mode:0o700})
 for(const [name,photo] of [['unconfirmed',firstFrame],['reviewed',secondFrame]])write(join(expectedOutput,`${name}.png`),photo.bytes)
-const manifest={version:1,frames:[['unconfirmed',firstFrame],['reviewed',secondFrame]].map(([name,photo])=>({name:`${name}.png`,sha256:photo.sha256,width:photo.width,height:photo.height}))}
+const manifest={version:1,presentation:'synthetic-root-shortened',frames:[['unconfirmed',firstFrame],['reviewed',secondFrame]].map(([name,photo])=>({name:`${name}.png`,sha256:photo.sha256,width:photo.width,height:photo.height}))}
 write(join(expectedOutput,'manifest.json'),JSON.stringify(manifest)+'\n')
 write(join(expectedOutput,'publication-ready'),'audited\n');result.phase='passed'
 }, async()=>{
