@@ -364,14 +364,16 @@ const emit = (
   project: string | null, tokens: { input: unknown; output: unknown; cacheRead: unknown; cacheWrite: unknown }, scope: 'call' | 'session',
   vendorCost: number | null = null,
   sessionId: string | null = null,
+  fallbackIdentity = false,
 ): void => {
   if (!insight) return
   if (insight.signal?.aborted) throw new DOMException('Insight read cancelled.', 'AbortError')
   const source = sourceFor(target, at)
   const sourceKey = `${source.id}:${identity}`
+  const key = createHash('sha256').update(sourceKey).digest('hex')
   insight.emit({
-    key: createHash('sha256').update(sourceKey).digest('hex'), source, runtime: target.runtime,
-    sessionId, turnId: null, requestId: identity || null, project, model, from: at, to: at,
+    key, source, runtime: target.runtime,
+    sessionId, turnId: null, requestId: fallbackIdentity ? key : identity || null, project, model, from: at, to: at,
     scope, includesChildren: null, input: measure(tokens.input), output: measure(tokens.output),
     cacheRead: measure(tokens.cacheRead), cacheWrite: measure(tokens.cacheWrite),
     usd: vendorCost === null ? { value: null, quality: 'unknown' } : { value: vendorCost, quality: 'exact' },
@@ -608,7 +610,7 @@ export const scanCodexRollout = async (
     emit(insight, target, JSON.stringify(raw), at, context.model, context.project || null, {
       input: typeof last.input_tokens === 'number' && typeof last.cached_input_tokens === 'number' ? Math.max(0, last.input_tokens - last.cached_input_tokens) : last.input_tokens,
       output: last.output_tokens, cacheRead: last.cached_input_tokens, cacheWrite: undefined,
-    }, 'call', null, context.sessionId ?? null)
+    }, 'call', null, context.sessionId ?? null, true)
   }, insight?.byteLimit, insight?.incremental ? target.size : undefined)
   return { rows: [...into.rows.values()], hours: [...into.hours.values()], offset: consumed, tail: [JSON.stringify(context)], bytesRead, ...(limited === undefined ? {} : { limited }) }
 }
@@ -798,9 +800,10 @@ export const scanClaudeTranscript = async (
     if (!usage) return
     const id = record.message?.id ?? record.requestId
     if (typeof id === 'string' && id !== '') {
-      if (seen.has(id)) return
-      seen.add(id)
-      order.push(id)
+      const seenId = insight?.incremental ? createHash('sha256').update(id).digest('hex') : id
+      if (seen.has(seenId)) return
+      seen.add(seenId)
+      order.push(seenId)
     }
     const at = parseTime(record.timestamp)
     if (at === null) return
@@ -818,7 +821,7 @@ export const scanClaudeTranscript = async (
     add(into, target.path, target.runtime, at, model, project, tokens)
     emit(insight, target, id ?? JSON.stringify(raw), at, model, project || null, {
       input: usage.input_tokens, output: usage.output_tokens, cacheRead: usage.cache_read_input_tokens, cacheWrite: usage.cache_creation_input_tokens,
-    }, 'call')
+    }, 'call', null, null, id == null)
   }, insight?.byteLimit, insight?.incremental ? target.size : undefined)
   // Consecutive turn candidates with no model call between them are one
   // turn, not several: a slash command's own line and its real prompt both
@@ -929,9 +932,10 @@ export const scanQwenTranscript = async (
     // the one at its seam twice.
     const id = record.uuid
     if (typeof id === 'string' && id !== '') {
-      if (seen.has(id)) return
-      seen.add(id)
-      order.push(id)
+      const seenId = insight?.incremental ? createHash('sha256').update(id).digest('hex') : id
+      if (seen.has(seenId)) return
+      seen.add(seenId)
+      order.push(seenId)
     }
     const at = parseTime(record.timestamp)
     if (at === null) return
@@ -953,7 +957,7 @@ export const scanQwenTranscript = async (
       answer: positive(usage.candidatesTokenCount), thoughts: positive(usage.thoughtsTokenCount), tool: positive(usage.toolUsePromptTokenCount),
     })
     add(into, target.path, target.runtime, at, model, project, aggregateTokens(aggregate))
-    emit(insight, target, id ?? JSON.stringify(raw), at, model, project || null, tokens, 'call')
+    emit(insight, target, id ?? JSON.stringify(raw), at, model, project || null, tokens, 'call', null, null, id == null)
   }, insight?.byteLimit, insight?.incremental ? target.size : undefined)
   let lastModel = -1
   for (let index = pending.length - 1; index >= 0; index -= 1) {
@@ -1181,7 +1185,7 @@ export const scanGeminiChat = async (target: ScanTarget, insight?: InsightScanOp
       prompt: positive(tokens.input), cached: positive(tokens.cached), answer: positive(tokens.output), thoughts: positive(tokens.thoughts), tool: positive(tokens.tool),
     })
     add(into, target.path, target.runtime, at, call.model, project, aggregateTokens(aggregate))
-    emit(insight, target, call.id ?? JSON.stringify(call), at, call.model, project || null, normalized, 'call')
+    emit(insight, target, call.id ?? JSON.stringify(call), at, call.model, project || null, normalized, 'call', null, null, call.id == null)
   }
   return { rows: [...into.rows.values()], hours: [...into.hours.values()], offset: size, tail: [], bytesRead: size }
 }
@@ -1314,7 +1318,7 @@ export const scanOpencodeDatabase = async (target: ScanTarget, insight?: Insight
       ...tokens,
       vendorCost: cost,
     }, { hour: false })
-    emit(insight, target, JSON.stringify(session), at, model, project || null, observed, 'session', cost)
+    emit(insight, target, JSON.stringify(session), at, model, project || null, observed, 'session', cost, null, true)
   }
   return { rows: [...into.rows.values()], hours: [...into.hours.values()], offset: size, tail: [], bytesRead: size }
 }
@@ -1421,7 +1425,7 @@ export const scanClineDatabase = async (target: ScanTarget, insight?: InsightSca
       ...tokens,
       vendorCost: cost,
     }, { hour: false })
-    emit(insight, target, JSON.stringify(session), at, model, project || null, observed, 'session', cost)
+    emit(insight, target, JSON.stringify(session), at, model, project || null, observed, 'session', cost, null, true)
   }
   return { rows: [...into.rows.values()], hours: [...into.hours.values()], offset: size, tail: [], bytesRead: size }
 }

@@ -21,7 +21,7 @@ import type { RemoteEventsSource } from './remote.js'
 import { HOUR_CAPABLE_KINDS, listTargets, scanFile, wholeFile, type CorpusSpec, type ScanTarget } from './scan.js'
 import { LedgerStore, type UsageRow } from './store.js'
 import { INSIGHT_BYTE_LIMIT, INSIGHT_BYTE_LIMIT_MESSAGE, InsightBudgetExceededError, InsightSourceChangedError, type UsageDetail, type UsageSample } from './insight.js'
-import { InsightCache } from './insight-cache.js'
+import { InsightCache, InsightCacheUnavailableError, type InsightReference } from './insight-cache.js'
 
 /**
  * Tokens and money, read off the agents' own transcripts.
@@ -72,6 +72,8 @@ export interface LedgerOptions {
    * bound without fixtures sized in tens of megabytes.
    */
   readonly insightByteLimit?: number
+  /** Soft budget for disposable Insight cache entries; overridden in bounded eviction tests. */
+  readonly insightCacheLimit?: number
 }
 
 const DAY = 86_400_000
@@ -112,9 +114,18 @@ const IDLE: ScanProgress = {
   error: null,
 }
 
+export interface InsightSourceView {
+  readonly sources: readonly InsightSource[]
+  readonly gaps: readonly string[]
+  readonly each: (visit: (sample: UsageSample) => void) => void
+  readonly facts?: { readonly hasUsage: boolean; readonly unpriced: boolean }
+  readonly select?: (sessions: readonly { readonly runtime: string; readonly session: string }[], visit: (sample: UsageSample, source: number, ordinal: number) => void) => void
+}
+
 /** One pass over the usage sources for a range, shared by every root read over it. */
 interface InsightPass {
   readonly samples: readonly UsageSample[]
+  readonly refs: readonly InsightReference[]
   readonly sources: readonly InsightSource[]
   readonly gaps: readonly string[]
   /** The samples by canonical folder, filed on the first root's read. */
@@ -165,11 +176,12 @@ export class Ledger {
   #progress: ScanProgress = IDLE
   #scanning: Promise<void> | null = null
   #warmed: Promise<void> | null = null
-  readonly #insightCache = new InsightCache()
+  readonly #insightCache: InsightCache
   #insightRead: Promise<unknown> = Promise.resolve()
 
   constructor(options: LedgerOptions) {
     this.#options = options
+    this.#insightCache = new InsightCache(options.stateDir, options.insightCacheLimit)
     this.#insightByteLimit = options.insightByteLimit ?? INSIGHT_BYTE_LIMIT
     // The live set itself, never a copy: a runtime bound after this ledger
     // was built (`host.ts`'s `bindUsage`, called any time an agent is added)
@@ -201,6 +213,7 @@ export class Ledger {
   }
 
   close(): void {
+    this.#insightCache.close()
     this.#store.close()
   }
 
@@ -252,10 +265,16 @@ export class Ledger {
   async readInsights(queries: readonly InsightQuery[], options: { readonly refresh?: boolean; readonly signal?: AbortSignal } = {}): Promise<UsageDetail[]> {
     // Every sample's folder is compared with the root: one read resolves each
     // folder once, or a busy desk spends its main thread in realpath (#1567).
-    const read = this.#insightRead.then(() => withCanonicalPaths(async () => {
+    const read = this.#insightRead.then(() => this.#insightCache.withLease(() => withCanonicalPaths(async () => {
       const keyOf = (query: InsightQuery) => `${query.from}\0${query.to}\0${query.runtime ?? ''}`
       const reads = new Map<string, number>()
-      for (const query of queries) reads.set(keyOf(query), (reads.get(keyOf(query)) ?? 0) + 1)
+      const roots = new Map<string, Set<string>>()
+      for (const query of queries) {
+        const key = keyOf(query)
+        reads.set(key, (reads.get(key) ?? 0) + 1)
+        const held = roots.get(key) ?? new Set<string>()
+        held.add(canonicalPath(query.root)); roots.set(key, held)
+      }
       const passes = new Map<string, Promise<InsightPass>>()
       const answered = new Map<string, UsageDetail>()
       const details: UsageDetail[] = []
@@ -265,13 +284,13 @@ export class Ledger {
         const known = answered.get(root)
         if (known) { details.push(known); continue }
         let pass = passes.get(key)
-        if (!pass) { pass = this.#insightPass(query, options, this.#insightByteLimit * reads.get(key)!); passes.set(key, pass) }
+        if (!pass) { pass = this.#insightPass(query, options, this.#insightByteLimit * reads.get(key)!, undefined, roots.get(key)!); passes.set(key, pass) }
         const detail = await this.#readInsight(query, options, await pass)
         answered.set(root, detail)
         details.push(detail)
       }
       return details
-    }))
+    })))
     this.#insightRead = read.catch(() => undefined)
     return read
   }
@@ -283,15 +302,81 @@ export class Ledger {
    * and an unread source is a gap that makes the meter's whole reading unknown.
    */
   async readSessions(query: InsightQuery, sessions: readonly { readonly runtime: string; readonly sessionId: string }[], options: { readonly signal?: AbortSignal } = {}): Promise<UsageDetail> {
-    const read = this.#insightRead.then(() => withCanonicalPaths(async () =>
-      this.#readInsight(query, {}, await this.#insightPass(query, options, this.#insightByteLimit, sessions))))
+    const read = this.#insightRead.then(() => this.#insightCache.withLease(() => withCanonicalPaths(async () =>
+      this.#readInsight(query, {}, await this.#insightPass(query, options, this.#insightByteLimit, sessions)))))
     this.#insightRead = read.catch(() => undefined)
     return read
   }
 
+  /** Consume an indexed pass while its source generations remain pinned. */
+  async withInsightProjects<T>(queries: readonly InsightQuery[], consume: (views: readonly InsightSourceView[]) => T): Promise<T> {
+    if (queries.length === 0) return consume([])
+    const query = queries[0]!
+    if (queries.some((one) => one.from !== query.from || one.to !== query.to || one.runtime !== query.runtime)) throw new Error('Insight project batch ranges must match.')
+    const read = this.#insightRead.then(() => this.#insightCache.withLease(() => withCanonicalPaths(async () => {
+      const roots = new Set(queries.map((one) => canonicalPath(one.root)))
+      const pass = await this.#insightPass(query, {}, this.#insightByteLimit * queries.length, undefined, roots, true)
+      const snapshot = this.#insightCache.snapshot(pass.refs)
+      if (!snapshot) {
+        const views = queries.map((one): InsightSourceView => ({ sources: pass.sources, gaps: pass.gaps, each: (visit) => {
+          for (const ref of pass.refs) {
+            const samples = this.#insightCache.resolve(ref, (project) => project !== null && canonicalPath(project) === canonicalPath(one.root))
+            for (const sample of samples) {
+              if (sample.from === null || !(sample.from >= one.from && sample.from < one.to)) continue
+              visit(this.price({ ...sample, source: { ...sample.source, checkedAt: this.#now() } }))
+            }
+          }
+        } }))
+        return consume(views)
+      }
+      try {
+        // Rates and project-wide unknown facts are captured before the post-read Seat/consult callbacks.
+        const rates = new Map<string, ModelRates | null>()
+        const price = (sample: UsageSample): UsageSample => {
+          if (sample.usd.value !== null || !sample.model) return sample
+          if (!rates.has(sample.model)) rates.set(sample.model, this.#pricing.rateObservation(sample.model).rates)
+          const rate = rates.get(sample.model)
+          if (!rate || [sample.input, sample.output, sample.cacheRead, sample.cacheWrite].some((part) => part.value === null)) return sample
+          const value = sample.input.value! * rate.input + sample.output.value! * rate.output + sample.cacheRead.value! * rate.cacheRead + sample.cacheWrite.value! * rate.cacheWrite
+          return { ...sample, usd: { value, quality: 'estimate' as const }, moneyBasis: 'listPrice' as const }
+        }
+        const facts = new Map([...roots].map((root) => [root, { hasUsage: false, unpriced: false }]))
+        snapshot.each((sample) => {
+          if (sample.project === null || sample.from === null || !(sample.from >= query.from && sample.from < query.to)) return
+          const held = facts.get(canonicalPath(sample.project))
+          if (!held) return
+          held.hasUsage = true
+          if (price(sample).usd.value === null) held.unpriced = true
+        })
+        // A Goal batch reports the validation time consistently for every source it selects.
+        const verifiedAt = this.#now()
+        const projects = snapshot.projects()
+        const views = queries.map((one): InsightSourceView => {
+          const root = canonicalPath(one.root); const aliases = projects.filter((project) => canonicalPath(project) === root)
+          const convert = (sample: UsageSample): UsageSample => price({ ...sample, source: { ...sample.source, checkedAt: verifiedAt } })
+          return { sources: pass.sources, gaps: pass.gaps, facts: facts.get(root)!,
+            each: (visit) => snapshot.each((sample) => {
+              if (sample.project !== null && canonicalPath(sample.project) === root && sample.from !== null && sample.from >= one.from && sample.from < one.to) visit(convert(sample))
+            }),
+            select: (sessions, visit) => snapshot.select(aliases, sessions, (sample, source, ordinal) => {
+              if (sample.from !== null && sample.from >= one.from && sample.from < one.to) visit(convert(sample), source, ordinal)
+            }),
+          }
+        })
+        return await consume(views)
+      } finally { snapshot.close() }
+    })))
+    this.#insightRead = read.catch(() => undefined)
+    return read
+  }
+
+  async withInsightSources<T>(query: InsightQuery, multiplicity: number, consume: (view: InsightSourceView) => T): Promise<T> {
+    return this.withInsightProjects(Array.from({ length: multiplicity }, () => query), (views) => consume(views[0]!))
+  }
+
   /** Every usage source over a query's range and runtime, read once for every root that shares them, within `budget` bytes. */
   async #insightPass(query: InsightQuery, options: { readonly signal?: AbortSignal }, budget: number,
-    sessions?: readonly { readonly runtime: string; readonly sessionId: string }[]): Promise<InsightPass> {
+    sessions?: readonly { readonly runtime: string; readonly sessionId: string }[], roots: ReadonlySet<string> = new Set([canonicalPath(query.root)]), references = false): Promise<InsightPass> {
     if (!Number.isFinite(query.from) || !Number.isFinite(query.to) || query.from >= query.to) {
       throw new Error('Choose a valid Insight time range.')
     }
@@ -302,6 +387,7 @@ export class Ledger {
        discarded the call identity needed for conservative historical joins. */
     await this.warm()
     const detailSamples: UsageSample[] = []
+    const refs: InsightReference[] = []
     const detailSources: InsightSource[] = []
     const gaps: string[] = []
     let bytes = 0
@@ -344,19 +430,22 @@ export class Ledger {
       // would let such a source spend past what this read promises overall.
       if (target.mtime < query.from) continue
       try {
-        const result = await this.#insightCache.read(target, budget - bytes, options.signal)
-        // `bytesRead`, never `offset`: `offset` is the incremental-scan
-        // cursor, advanced only for a line actually committed, and a line
-        // `take()` rejects as not JSON was still read off disk before it
-        // was rejected — `offset` alone said none of it had been (round 3
-        // review).
+        if (references) {
+          const result = await this.#insightCache.reference(target, budget - bytes, options.signal)
+          bytes += result.bytesRead
+          if (result.ref) refs.push(result.ref)
+          if (result.limited && !gaps.includes(INSIGHT_BYTE_LIMIT_MESSAGE)) gaps.push(INSIGHT_BYTE_LIMIT_MESSAGE)
+          continue
+        }
+        const result = await this.#insightCache.read(target, budget - bytes, options.signal, (project) => project !== null && roots.has(canonicalPath(project)))
+        // Source byte usage counts bytes actually read, including rejected lines.
         bytes += result.bytesRead
         for (const sample of result.samples) {
           detailSamples.push({ ...sample, source: { ...sample.source, checkedAt: this.#now() } })
         }
         if (result.limited && !gaps.includes(INSIGHT_BYTE_LIMIT_MESSAGE)) gaps.push(INSIGHT_BYTE_LIMIT_MESSAGE)
       } catch (error) {
-        if ((error as { name?: string }).name === 'AbortError') throw error
+        if ((error as { name?: string }).name === 'AbortError' || error instanceof InsightCacheUnavailableError) throw error
         if (error instanceof InsightBudgetExceededError) { gaps.push(INSIGHT_BYTE_LIMIT_MESSAGE); break }
         // Read whole and then refused because it changed: what was read still counts.
         if (error instanceof InsightSourceChangedError) bytes += error.bytesRead
@@ -367,7 +456,7 @@ export class Ledger {
         gaps.push('A recorded usage source could not be read.')
       }
     }
-    return { samples: detailSamples, sources: detailSources, gaps, byProject: null }
+    return { samples: detailSamples, refs, sources: detailSources, gaps, byProject: null }
   }
 
   /** The samples a pass holds for one root, filed by folder once per pass rather than compared per root. */
