@@ -25,9 +25,9 @@ export interface MentionTriageState {
   readonly reviewStop: (stop: string) => Promise<void>
 }
 
-export const useMentionTriage = (root: string, id: string, enabled: boolean, revision: number | undefined): MentionTriageState => {
+export const useMentionTriage = (root: string, id: string, enabled: boolean, revision: number | undefined, initialPage?: TriggerDecisionsPage): MentionTriageState => {
   const store = useStore()
-  const [page, setPage] = useState<TriggerDecisionsPage | null>(null)
+  const [page, setPage] = useState<TriggerDecisionsPage | null>(initialPage ?? null)
   const [problem, setProblem] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const generation = useRef(0)

@@ -1,7 +1,7 @@
 import { useDestinationActive } from '../panels/destination-page'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
-import type { FlowEntry, TriggerFiring, TriggerHistoryPage, TriggerView } from '@harnessdesk/protocol'
+import type { FlowEntry, TriggerFiring, TriggerHistoryPage, TriggerProjectView, TriggerView } from '@harnessdesk/protocol'
 
 import { Button, Chip, Dialog, EmptyState, Field, ListRow, ListRows, NativeSelect, Note, Row, Rows, Section, Switch, ToolBodyControls } from '../design'
 import { triggerProblemPlace, triggerRowWords, triggerSkipWords } from '../lib/intake'
@@ -156,6 +156,7 @@ export const ProjectTriggers = ({ root, flow, embedded = false }: ProjectTrigger
   if (!view.exists) {
     return (
       <TriggerSection embedded={embedded} action={<Button size="sm" variant="outline" onClick={openChooser}>New trigger…</Button>}>
+        {!flow && <RetainedStops root={root} view={view} />}
         <Rows>
           <EmptyState
             variant="row"
@@ -199,6 +200,7 @@ export const ProjectTriggers = ({ root, flow, embedded = false }: ProjectTrigger
           Your working copy of this file is not what is committed. Only the committed file can be armed.
         </Note>
       )}
+      {!flow && <RetainedStops root={root} view={view} />}
       <ListRows>
         {view.problems.map((problem) => (
           <ListRow
@@ -317,6 +319,26 @@ const FlowChooser = ({
       </Field>
     </Dialog>
   )
+}
+
+/** Stop records remain reviewable when their source definition no longer exists. */
+const RetainedStops = ({ root, view }: { readonly root: string; readonly view: TriggerProjectView }) => {
+  if (!view.stopHistoryFull && !view.retainedStopTriggers?.length) return null
+  return <ListRows>
+    {view.stopHistoryFull && <ListRow density="compact" title="Stop history cannot safely hold this request. Stop the work directly before taking further action." wrapTitle />}
+    {view.retainedStopTriggers?.map(item => <RetainedStopGroup key={item.id} root={root} item={item} projectFull={view.stopHistoryFull === true} />)}
+  </ListRows>
+}
+
+const RetainedStopGroup = ({ root, item, projectFull }: { readonly root: string; readonly item: NonNullable<TriggerProjectView['retainedStopTriggers']>[number]; readonly projectFull: boolean }) => {
+  const [expanded, setExpanded] = useState(false)
+  const revision = useSnapshot().triggerRevisions[root]
+  const triage = useMentionTriage(root, item.id, true, revision, { mode: 'observe', decisions: [], threads: [], unconfirmedStops: item.unconfirmedStops, stopHistoryFull: !projectFull && item.stopHistoryFull })
+  return <>
+    <ListRow density="compact" title={`${item.id} · Retained stop history`} trail={<Button variant="ghost" size="icon-sm" onClick={() => setExpanded(value => !value)} aria-label="History" title="History" aria-expanded={expanded}><ClockIcon size={14} /></Button>} />
+    <MentionStopAttention triage={triage} expanded={expanded} />
+    {expanded && <MentionDecisionRows triage={triage} stopsOnly />}
+  </>
 }
 
 const TriggerRowGroup = ({
