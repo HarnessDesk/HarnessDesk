@@ -312,3 +312,16 @@ test('phone row IDs do not reveal private source turn or approval IDs when decod
     }
   }
 })
+
+test('a standalone plan keeps its row identity when a message is appended', () => {
+  const read = (items: AgentItem[]) => buildThread({ id, running: false, project: null, pending: [], decided: [], session: {
+    id: sessionId('chat'), runtime: runtimeId('agent'), cwd, status: { type: 'idle' }, createdAt: 1, updatedAt: 1, itemsLoaded: true,
+    turns: [{ id: turnId('turn'), status: 'completed', items, plan: [{ step: 'Check the result', status: 'pending' }] }],
+  } }, { home: null, seat: 'Agent' })
+  const reply = (name: string): AgentItem => ({ id: itemId(name), type: 'assistantMessage', text: name })
+  const before = read([reply('first')]), after = read([reply('first'), reply('second')])
+  const plan = (value: ReturnType<typeof read>) => value.turns.find(one => one.type === 'work')!
+  assert.equal(plan(before).id, plan(after).id)
+  const merged = read([reply('first'), run('ok')])
+  assert.notEqual(plan(before).id, plan(merged).id, 'a real work fold takes over the plan')
+})

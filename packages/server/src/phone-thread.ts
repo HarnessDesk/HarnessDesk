@@ -395,7 +395,8 @@ const turnsOf = (turn: Turn, cwd: string, noteTruncated: () => void, sent: Reado
     turns.push({ type: 'work', id: rowId('work', fold.position), seconds: wall || fold.spent, summary: summaryOf(fold.steps), steps: shown })
     fold = null
   }
-  const into = (item: Timed, one: PhoneWorkStep, silent = false, position = turn.items.length): void => {
+  // -1 names a standalone plan; real item positions are always nonnegative.
+  const into = (item: Timed, one: PhoneWorkStep, silent = false, position = -1): void => {
     fold ??= { id: item.id, position, steps: [], from: Infinity, to: 0, spent: 0, silent: false }
     if (!(silent && fold.silent)) fold.steps.push(one)
     fold.silent = silent
