@@ -14,6 +14,7 @@ import { captureFailure } from './profile-failure.mjs'
 import { captureMetricDeltas, recordLateFailure } from './late-observation.mjs'
 import { captureLateHeap, installHeldTracker, writeSnapshotChunk } from './heap-capture.mjs'
 import { classifyClosures } from './closure-classification.mjs'
+import { provenanceOf, readAssetIndex } from './closure-provenance.mjs'
 import { createNotificationObserver, installNotificationObserver, sanitizeWaitObservation } from './profile-notification-observer.mjs'
 
 const taskSource = resolve('.')
@@ -284,8 +285,11 @@ try {
      const observation=JSON.parse(child.stdout)
      const file=lstatSync(closurePath)
      if(observation.status!=='ok'||!file.isFile()||file.nlink!==1||file.size>512||(file.mode&0o777)!==0o600)return {status:'unavailable'}
-     const closureRoles=await classifyClosures(cdp,JSON.parse(readFileSync(closurePath,'utf8')))
-     return {...observation,closureRoles}
+     const ids=JSON.parse(readFileSync(closurePath,'utf8'))
+     const closureRoles=await classifyClosures(cdp,ids)
+     let closureProvenance={status:'unavailable'}
+     try {closureProvenance=await provenanceOf(cdp,ids,readAssetIndex(join(taskSource,'packages/ui/dist/assets')))}catch{}
+     return {...observation,closureRoles,closureProvenance}
     }catch{return {status:'unavailable'}}
    },
   })
