@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFile, rm, writeFile } from 'node:fs/promises'
+import { readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
@@ -8,13 +8,15 @@ import type { PhoneTriageList, TriggerArmPreview, TriggerDecision, TriggerDecisi
 
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { commitTriggers, intakeDesk, REVIEW_FLOW, until, type IntakeDesk } from './fixtures/intake-host.js'
-import { Clocks, sha } from './fixtures/intake-forge.js'
+import { Clocks, Gate, sha } from './fixtures/intake-forge.js'
 import { tempDir } from './scratch.js'
 import { writeTriggers } from '../src/authoring/model.js'
 import { Logger } from '../src/log.js'
 import { parseTriggers } from '../src/intake/definition.js'
-import { addressesHandle, asksToStop, parseAssessment, type MentionAssessInput, type MentionAssessor, type WorkItemsPort } from '../src/intake/mentions.js'
+import { addressesHandle, asksToStop, parseAssessment, MentionTriage, type MentionAssessInput, type MentionAssessor, type WorkItemsPort } from '../src/intake/mentions.js'
 import { PHONE_POLICY } from '../src/phone-link.js'
+import { LeadAutomaticGoals } from '../src/lead/automatic-goals.js'
+import { Admission } from '../src/intake/admission.js'
 
 /*
  * A comment that addresses the desk's handle asks it for work (owner
@@ -57,29 +59,31 @@ class FakeAssessor {
 interface MentionDesk extends IntakeDesk {
   readonly model: FakeAssessor
   readonly links: Map<string, number[]>
+  readonly firingLinks: Map<string, number[]>
 }
 
 /** Noon UTC today: a day's assessment count never rolls over mid-test. */
 const NOON = (() => { const now = new Date(); return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12) })()
 const LEDGER = 'triggers-mentions.json'
 
-const desk = async (t: { after(fn: () => Promise<void>): void }, triggers = ASK(), options: { readonly stateDir?: string; readonly repo?: IntakeDesk['repo']; readonly clocks?: Clocks; readonly arm?: boolean; readonly lead?: boolean; readonly workItems?: WorkItemsPort } = {}): Promise<MentionDesk> => {
+const desk = async (t: { after(fn: () => Promise<void>): void }, triggers = ASK(), options: { readonly stateDir?: string; readonly repo?: IntakeDesk['repo']; readonly clocks?: Clocks; readonly arm?: boolean; readonly lead?: boolean; readonly workItems?: WorkItemsPort; readonly forge?: IntakeDesk['forge'] } = {}): Promise<MentionDesk> => {
   const repo = options.repo ?? await makeRepo('hd-intake-mentions-')
   if (!options.repo) await commitTriggers(repo, triggers)
   const model = new FakeAssessor()
   const links = new Map<string, number[]>()
+  const firingLinks = new Map<string, number[]>()
   const d = await intakeDesk({
-    repo, ...(options.stateDir ? { stateDir: options.stateDir } : {}), ...(options.clocks ? { clocks: options.clocks } : {}), ...(options.lead ? { lead: true } : {}),
-    mentions: { assess: model.assess, pullRequests: async (_repository, goals) => goals.flatMap((goal) => links.get(goal) ?? []), ...(options.workItems ? { workItems: options.workItems } : {}) },
+    repo, ...(options.stateDir ? { stateDir: options.stateDir } : {}), ...(options.clocks ? { clocks: options.clocks } : {}), ...(options.lead ? { lead: true } : {}), ...(options.forge ? { forge: options.forge } : {}),
+    mentions: { assess: model.assess, pullRequests: async (_repository, goals, firings) => [...goals.flatMap(goal => links.get(goal) ?? []), ...firings.flatMap(firing => firingLinks.get(firing) ?? [])], ...(options.workItems ? { workItems: options.workItems } : {}) },
   })
   t.after(() => d.stop())
   d.forge.users.set(NAMED.login, { id: NAMED.id })
   d.forge.users.set(BOT.login, { id: BOT.id, type: 'Bot' })
-  if (options.arm === false) return Object.assign(d, { model, links })
+  if (options.arm === false) return Object.assign(d, { model, links, firingLinks })
   const preview = await d.host.call('trigger/preview', { root: repo.dir, id: 'ask' }) as TriggerArmPreview
   assert.deepEqual(preview.problems, [])
   await d.host.call('trigger/arm', { root: repo.dir, id: 'ask', token: preview.token! })
-  return Object.assign(d, { model, links })
+  return Object.assign(d, { model, links, firingLinks })
 }
 
 let nextComment = 9000
@@ -626,6 +630,537 @@ const leadThread = async (t: TestContext) => {
   return { d, journal, records, run, team }
 }
 
+test('#2070: stopping a mention drops its busy queued Lead firing without dropping another thread', E2E, async t => {
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  await leadOn(t, d)
+  let busy = true
+  const delivered: string[] = []
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async (input: Parameters<LeadAutomaticGoals['offerTrigger']>[0]) => {
+    if (busy) return { delivered: false as const, reason: 'Lead is busy; this firing waits for the active goal.' }
+    delivered.push(input.key)
+    return { delivered: true as const }
+  })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  await say(d, 2, '@dex please update the documentation')
+  const first = await firingOf(d, 1), other = await firingOf(d, 2)
+  const pending = () => d.host.intakePlane.journal.read().operations.map(one => one.key)
+  assert.ok(pending().includes(first)); assert.ok(pending().includes(other))
+  await say(d, 1, '@dex stop')
+  const page = await decisions(d)
+  assert.equal(page.threads.find(one => one.origin.number === 1)?.state, 'closed')
+  await say(d, 1, '@dex please start fresh on this issue')
+  const ledger = JSON.parse(await readFile(join(d.stateDir, LEDGER), 'utf8')) as { threads: { origin: { number: number }; state: string; firings: string[] }[] }
+  const fresh = ledger.threads.find(one => one.origin.number === 1 && one.state === 'open')?.firings[0]
+  assert.ok(fresh && fresh !== first, 'a new mention has a new firing identity')
+  busy = false
+  await d.host.intakePlane.tick()
+  assert.ok(!pending().includes(first), 'the stopped thread has no queued firing')
+  assert.ok(!delivered.includes(`trigger-${first}`), 'no goal opens for the stopped thread')
+  assert.ok(delivered.includes(`trigger-${other}`), 'another thread may still open its goal')
+  assert.ok(delivered.includes(`trigger-${fresh}`), 'the new lifecycle on the same issue may open its goal')
+  assert.ok(page.decisions.some(one => one.decision === 'stop' && /queued|firing/i.test(one.reason)), 'the stop decision records the dropped firing')
+  const saved = d.host.intakePlane.journal.read().firings[first]!
+  assert.equal(saved.setAside, true, 'the original firing identity is retained as a tombstone')
+  assert.match(saved.attention ?? '', /queued firing was dropped/)
+  await d.host.intakePlane.tick()
+  assert.equal(delivered.filter(key => key === `trigger-${first}`).length, 0, 'recovery does not revive the stopped firing')
+})
+
+test('#2070: a stop waits for an in-flight delivery before stopping the thread', E2E, async t => {
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  await leadOn(t, d)
+  const entered = new Gate(), finish = new Gate(), stopping = new Gate()
+  t.after(() => finish.open())
+  let busy = true, deliveries = 0
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async () => {
+    if (busy) return { delivered: false as const, reason: 'Lead is busy; this firing waits.' }
+    entered.open()
+    await finish.opened
+    deliveries++
+    return { delivered: true as const }
+  })
+  const cancel = Admission.prototype.cancelMentionFirings
+  t.mock.method(Admission.prototype, 'cancelMentionFirings', function (this: Admission, ...args: Parameters<Admission['cancelMentionFirings']>) {
+    stopping.open()
+    return cancel.apply(this, args)
+  })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  busy = false
+  const releasing = d.host.intakePlane.tick()
+  await entered.opened
+  const stop = say(d, 1, '@dex stop')
+  await stopping.opened
+  assert.equal(deliveries, 0, 'stop reached the admission barrier before delivery completed')
+  finish.open()
+  await Promise.all([releasing, stop])
+  assert.equal((await decisions(d)).threads[0]?.state, 'closed')
+  await d.host.intakePlane.tick()
+  assert.equal(deliveries, 1, 'no firing is redelivered after the stop')
+})
+
+test('#2070: a queued firing of a thread closed by its issue is refused and logged', E2E, async t => {
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  await leadOn(t, d)
+  let busy = true
+  const delivered: string[] = []
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async (input: Parameters<LeadAutomaticGoals['offerTrigger']>[0]) => {
+    if (busy) return { delivered: false as const, reason: 'Lead is busy; this firing waits for the active goal.' }
+    delivered.push(input.key)
+    return { delivered: true as const }
+  })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const firing = await firingOf(d, 1)
+  d.forge.issues.find(one => one.number === 1)!.state = 'closed'
+  d.clocks.advance(6 * 60_000)
+  await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).threads[0]?.state, 'closed')
+  busy = false
+  await d.host.intakePlane.tick()
+  assert.ok(!delivered.includes(`trigger-${firing}`), 'the closed thread does not open a goal')
+  await until(async () => (await decisions(d)).decisions.some(one => /closed.*firing|firing.*closed/i.test(one.reason)) ? true : null, 'the refusal in the thread decision log')
+  const refusal = (await decisions(d)).decisions.find(one => /firing was refused because its mention thread is closed/i.test(one.reason))!
+  await assert.rejects(d.host.call('trigger/decision/reevaluate', { root: d.repo.dir, id: 'ask', decision: refusal.id }), /not a comment to re-evaluate/)
+
+  await until(() => !d.host.intakePlane.journal.read().operations.some(one => one.key === firing) ? true : null, 'the refused firing is cleared')
+  await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).decisions.filter(one => /firing was refused because its mention thread is closed/i.test(one.reason)).length, 1, 'recovery records the refusal once')
+})
+
+test('#2070: a closed queued firing remains refused across a Host restart', E2E, async t => {
+  let blockLog = true
+  const record = MentionTriage.prototype.recordClosedFiring
+  t.mock.method(MentionTriage.prototype, 'recordClosedFiring', function (this: MentionTriage, ...args: Parameters<MentionTriage['recordClosedFiring']>) {
+    if (blockLog) return Promise.reject(new Error('controlled refusal-log failure'))
+    return record.apply(this, args)
+  })
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  await leadOn(t, d)
+  const delivered: string[] = []
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async (input: Parameters<LeadAutomaticGoals['offerTrigger']>[0]) => {
+    delivered.push(input.key)
+    return { delivered: false as const, reason: 'Lead is busy; this firing waits.' }
+  })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const firing = await firingOf(d, 1)
+  d.forge.issues.find(one => one.number === 1)!.state = 'closed'
+  d.clocks.advance(6 * 60_000)
+  await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).threads[0]?.state, 'closed')
+  assert.ok(d.host.intakePlane.journal.read().operations.some(one => one.key === firing), 'the closed firing is still pending on disk')
+  await d.stop()
+  blockLog = false
+  delivered.length = 0
+  const restarted = await desk(t, LEAD_ASK, { lead: true, arm: false, repo: d.repo, stateDir: d.stateDir, clocks: d.clocks })
+  await until(async () => (await decisions(restarted)).decisions.some(one => /firing was refused because its mention thread is closed/i.test(one.reason)) ? true : null, 'the refusal after restart')
+  await until(() => !restarted.host.intakePlane.journal.read().operations.some(one => one.key === firing) ? true : null, 'the restarted firing is cleared')
+  assert.deepEqual(delivered, [], 'the closed firing never reaches the Lead')
+})
+
+for (const closedBy of ['issue', 'linked pull request'] as const) test(`#2070 R1: evicted pending work follows its ${closedBy} across restart`, E2E, async t => {
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  await leadOn(t, d)
+  let busy = true
+  const delivered: string[] = []
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async (input: Parameters<LeadAutomaticGoals['offerTrigger']>[0]) => {
+    if (busy) return { delivered: false as const, reason: 'Lead is busy; this firing waits.' }
+    delivered.push(input.key)
+    return { delivered: true as const }
+  })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const firing = await firingOf(d, 1)
+  if (closedBy === 'linked pull request') {
+    const goal = (await decisions(d)).threads[0]!.links.goals[0]!
+    d.links.set(goal, [5])
+    d.forge.pulls.push({ number: 5, head: sha('c'), state: 'open', created: d.clocks.wall, updated: d.clocks.wall })
+    d.forge.issues.push({ number: 5, state: 'open', created: d.clocks.wall, updated: d.clocks.wall, events: [], comments: [], pullRequest: true })
+    d.clocks.advance(6 * 60_000)
+    await d.host.intakePlane.tick()
+    assert.deepEqual((await decisions(d)).threads[0]!.links.pulls, [5], 'the pending thread discovered its linked pull request')
+  }
+  await d.stop()
+  // Preserve the actual queued operation, then populate a full bounded history
+  // of other open threads as it could exist on a long-running desk.
+  const file = join(d.stateDir, LEDGER)
+  const ledger = JSON.parse(await readFile(file, 'utf8')) as { threads: any[]; pendingThreads?: unknown }
+  const first = ledger.threads[0]!
+  if (closedBy === 'issue') delete ledger.pendingThreads // legacy file, with the association still visible
+  for (let number = 2; number <= 256; number++) {
+    ledger.threads.push({ ...structuredClone(first), id: `w-${number.toString(16).padStart(20, '0')}`,
+      origin: { kind: 'issue', number }, links: { issues: [number], pulls: [], goals: [] },
+      firings: [number.toString(16).padStart(64, '0')], seen: [String(50000 + number)] })
+    if (!d.forge.issues.some(issue => issue.number === number)) d.forge.issues.push({ number, state: 'open', created: d.clocks.wall, updated: d.clocks.wall, events: [], comments: [] })
+  }
+  assert.equal(ledger.threads.length, 256)
+  await writeFile(file, JSON.stringify(ledger))
+  const restarted = await desk(t, LEAD_ASK, { lead: true, arm: false, repo: d.repo, stateDir: d.stateDir, clocks: d.clocks, forge: d.forge })
+  await leadOn(t, restarted)
+  assert.ok(restarted.host.intakePlane.journal.read().operations.some(one => one.key === firing), 'the real firing is still queued after restart')
+  await say(restarted, 257, '@dex please look at this other issue')
+  const after = JSON.parse(await readFile(file, 'utf8')) as { threads: { firings: string[] }[]; pendingThreads: { firings: string[] }[] }
+  assert.equal(after.threads.length, 256, 'the history remains bounded')
+  assert.ok(!after.threads.some(one => one.firings.includes(firing)), 'normal history trimming evicted the old open thread')
+  assert.ok(after.pendingThreads.some(one => one.firings.includes(firing)), 'only pending authority retains the evicted firing')
+  if (closedBy === 'issue') {
+    // Drop the original decision as if 500 newer ones had filled its public
+    // history. The retained thread's own seen IDs still dedupe redelivery.
+    const snapshot = JSON.parse(await readFile(file, 'utf8')) as any
+    const operation = restarted.host.intakePlane.journal.read().operations.find(one => one.key === firing)!
+    const fact = operation.payload!.fact
+    const prior = snapshot.decisions.find((one: any) => one.work === first.id)!
+    snapshot.decisions = Array.from({ length: 500 }, (_, n) => ({ ...prior, id: `d-churn-${n}`, comment: { ...prior.comment, id: String(80000 + n) } }))
+    const isolated = tempDir('hd-intake-pending-seen-')
+    await writeFile(join(isolated, LEDGER), JSON.stringify(snapshot))
+    const mode = Object.values(snapshot.modes)[0] as { armedAt: number }
+    let admissions = 0
+    const triage = new MentionTriage({ home: isolated, forge: {}, assess: null, leadName: () => 'dex',
+      pendingFirings: () => [firing], knowsFirings: () => true, observationWindowMs: 300_000,
+      now: () => restarted.clocks.wall, signal: new AbortController().signal, changed() {}, log() {},
+    } as any)
+    await triage.judge({ project: operation.project, id: operation.trigger, definition: operation.payload!.definition,
+      binding: operation.payload!.binding, baseline: 0, armedAt: mode.armedAt }, fact, async () => {
+      admissions++
+      throw new Error('duplicate must not be admitted')
+    })
+    assert.equal(admissions, 0, 'thread seen IDs still reject a replay after decision history churn')
+  }
+  if (closedBy === 'issue') restarted.forge.issues.find(one => one.number === 1)!.state = 'closed'
+  else restarted.forge.pulls[0] = { ...restarted.forge.pulls[0]!, state: 'closed', merged: true, updated: restarted.clocks.wall }
+  if (closedBy !== 'issue') assert.equal(restarted.forge.issues.find(one => one.number === 1)!.state, 'open', 'the linked pull closes while its origin issue stays open')
+  restarted.clocks.advance(6 * 60_000)
+  await restarted.host.intakePlane.tick()
+  busy = false
+  await restarted.host.intakePlane.tick()
+  assert.ok(!delivered.includes(`trigger-${firing}`), 'the evicted closed thread must not open a goal')
+  await until(async () => (await decisions(restarted)).decisions.some(one => /firing was refused.*closed/i.test(one.reason)) ? true : null, 'the refusal is recorded')
+  await until(async () => {
+    const saved = JSON.parse(await readFile(file, 'utf8')) as { pendingThreads: { firings: string[] }[] }
+    return saved.pendingThreads.some(one => one.firings.includes(firing)) ? null : true
+  }, 'the terminal firing anchor is removed')
+})
+
+test('#2070 R1: an evicted pending thread discovers a late pull from its earlier delivered firing', E2E, async t => {
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  await leadOn(t, d)
+  let busy = false
+  const delivered: string[] = []
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async (input: Parameters<LeadAutomaticGoals['offerTrigger']>[0]) => {
+    if (busy) return { delivered: false as const, reason: 'Lead is busy; this firing waits.' }
+    delivered.push(input.key)
+    return { delivered: true as const }
+  })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const first = await firingOf(d, 1)
+  await until(() => delivered.includes(`trigger-${first}`) ? true : null, 'first firing delivered')
+  busy = true
+  await say(d, 1, '@dex please also add a test')
+  const file = join(d.stateDir, LEDGER)
+  const before = JSON.parse(await readFile(file, 'utf8')) as { threads: { firings: string[] }[] }
+  const second = before.threads[0]!.firings.at(-1)!
+  assert.notEqual(second, first)
+  assert.ok(d.host.intakePlane.journal.read().operations.some(one => one.key === second), 'the later firing waits')
+  await d.stop()
+  const ledger = JSON.parse(await readFile(file, 'utf8')) as { threads: any[] }
+  const original = ledger.threads[0]!
+  for (let number = 2; number <= 256; number++) {
+    ledger.threads.push({ ...structuredClone(original), id: `w-${number.toString(16).padStart(20, '0')}`,
+      origin: { kind: 'issue', number }, links: { issues: [number], pulls: [], goals: [] },
+      firings: [number.toString(16).padStart(64, '0')], seen: [String(50000 + number)] })
+    d.forge.issues.push({ number, state: 'open', created: d.clocks.wall, updated: d.clocks.wall, events: [], comments: [] })
+  }
+  await writeFile(file, JSON.stringify(ledger))
+  const restarted = await desk(t, LEAD_ASK, { lead: true, arm: false, repo: d.repo, stateDir: d.stateDir, clocks: d.clocks, forge: d.forge })
+  await leadOn(t, restarted)
+  await say(restarted, 257, '@dex please look at this other issue')
+  const evicted = JSON.parse(await readFile(file, 'utf8')) as { threads: { firings: string[] }[] }
+  assert.ok(!evicted.threads.some(one => one.firings.includes(second)), 'the visible thread was evicted')
+  restarted.firingLinks.set(first, [258])
+  restarted.forge.pulls.push({ number: 258, head: sha('c'), state: 'open', created: restarted.clocks.wall, updated: restarted.clocks.wall })
+  restarted.clocks.advance(6 * 60_000)
+  await restarted.host.intakePlane.tick()
+  const withPull = JSON.parse(await readFile(file, 'utf8')) as { pendingThreads: { firings: string[]; links: { pulls: number[] } }[] }
+  assert.ok(withPull.pendingThreads.some(one => one.firings.includes(second) && one.links.pulls.includes(258)), 'the earlier delivered firing discovers the late linked pull')
+  restarted.forge.pulls[0] = { ...restarted.forge.pulls[0]!, state: 'closed', merged: true, updated: restarted.clocks.wall }
+  assert.equal(restarted.forge.issues.find(one => one.number === 1)!.state, 'open')
+  restarted.clocks.advance(6 * 60_000)
+  await restarted.host.intakePlane.tick()
+  busy = false
+  await restarted.host.intakePlane.tick()
+  assert.ok(!delivered.includes(`trigger-${second}`), 'the later firing never opens after its linked pull closes')
+  await until(async () => (await decisions(restarted)).decisions.some(one => /firing was refused.*closed/i.test(one.reason)) ? true : null, 'the refusal is recorded')
+})
+
+test('#2070 R1: an evicted legacy firing stays unknown without blocking a new request', E2E, async t => {
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  await leadOn(t, d)
+  let busy = true
+  const delivered: string[] = []
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async (input: Parameters<LeadAutomaticGoals['offerTrigger']>[0]) => {
+    if (busy) return { delivered: false as const, reason: 'Lead is busy; this firing waits.' }
+    delivered.push(input.key)
+    return { delivered: true as const }
+  })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const old = await firingOf(d, 1)
+  await d.stop()
+  const file = join(d.stateDir, LEDGER)
+  const legacy = JSON.parse(await readFile(file, 'utf8')) as { threads: { firings: string[] }[]; pendingThreads?: unknown }
+  legacy.threads = legacy.threads.filter(one => !one.firings.includes(old))
+  delete legacy.pendingThreads
+  await writeFile(file, JSON.stringify(legacy))
+  const restarted = await desk(t, LEAD_ASK, { lead: true, arm: false, repo: d.repo, stateDir: d.stateDir, clocks: d.clocks, forge: d.forge })
+  await leadOn(t, restarted)
+  busy = false
+  await say(restarted, 2, '@dex please update the documentation')
+  const fresh = await firingOf(restarted, 2)
+  await until(() => delivered.includes(`trigger-${fresh}`) ? true : null, 'the new request opens')
+  assert.ok(!delivered.includes(`trigger-${old}`), 'an unknown legacy association is never treated as open')
+  assert.ok(restarted.host.intakePlane.journal.read().operations.some(one => one.key === old), 'the unknown firing is held, not silently discarded')
+})
+
+test('#2070 R1: malformed pending authority is kept unreadable and cannot authorize delivery', E2E, async t => {
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  await leadOn(t, d)
+  let delivered = false
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async () => {
+    delivered = true
+    return { delivered: false as const, reason: 'Lead is busy; this firing waits.' }
+  })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const firing = await firingOf(d, 1)
+  await d.stop()
+  const file = join(d.stateDir, LEDGER)
+  const ledger = JSON.parse(await readFile(file, 'utf8')) as { pendingThreads: { links: unknown }[] }
+  assert.ok(ledger.pendingThreads.length)
+  ledger.pendingThreads[0]!.links = {}
+  const corrupt = JSON.stringify(ledger)
+  await writeFile(file, corrupt)
+  delivered = false
+  const restarted = await desk(t, LEAD_ASK, { lead: true, arm: false, repo: d.repo, stateDir: d.stateDir, clocks: d.clocks, forge: d.forge })
+  await leadOn(t, restarted)
+  await restarted.host.intakePlane.tick()
+  await assert.rejects(decisions(restarted), /could not be read/)
+  assert.ok(restarted.host.intakePlane.journal.read().operations.some(one => one.key === firing))
+  assert.equal(delivered, false)
+  assert.equal(await readFile(file, 'utf8'), corrupt, 'the unreadable authority is never rewritten')
+})
+
+test('#2070 R1: a shared pending anchor drops only the firing that completed', E2E, async t => {
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  await leadOn(t, d)
+  let allowed = ''
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async (input: Parameters<LeadAutomaticGoals['offerTrigger']>[0]) =>
+    input.key === `trigger-${allowed}` ? { delivered: true as const } : { delivered: false as const, reason: 'Lead is busy; this firing waits.' })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const first = await firingOf(d, 1)
+  await say(d, 1, '@dex please also add a test')
+  const file = join(d.stateDir, LEDGER)
+  const state = async () => JSON.parse(await readFile(file, 'utf8')) as { pendingThreads: { firings: string[]; pendingFirings: string[] }[] }
+  const both = (await state()).pendingThreads.find(one => one.pendingFirings.includes(first))!
+  const second = both.pendingFirings.find(key => key !== first)!
+  assert.ok(second, 'both firings were associated with the same lifetime')
+  allowed = first
+  await d.host.intakePlane.tick()
+  const retained = await until(async () => {
+    const anchor = (await state()).pendingThreads.find(one => one.pendingFirings.includes(second))
+    return anchor && !anchor.pendingFirings.includes(first) ? anchor : null
+  }, 'the completed key to be pruned from the shared anchor')
+  assert.ok(retained.firings.includes(first), 'the earlier firing remains available for later publication discovery')
+  assert.ok(d.host.intakePlane.journal.read().operations.some(one => one.key === second), 'the other firing remains queued')
+})
+
+test('#2070 R1: an expired or failed thread read holds the firing until the next successful sweep', E2E, async t => {
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  await leadOn(t, d)
+  let busy = true
+  const delivered: string[] = []
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async (input: Parameters<LeadAutomaticGoals['offerTrigger']>[0]) => {
+    if (busy) return { delivered: false as const, reason: 'Lead is busy; this firing waits.' }
+    delivered.push(input.key)
+    return { delivered: true as const }
+  })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const firing = await firingOf(d, 1)
+  d.forge.fail = path => path === 'repos/acme/widgets/issues/1' ? 'malformed' : null
+  d.clocks.advance(6 * 60_000)
+  busy = false
+  await d.host.intakePlane.tick()
+  assert.ok(!delivered.includes(`trigger-${firing}`), 'an expired or failed observation is never authority')
+  assert.ok(d.host.intakePlane.journal.read().operations.some(one => one.key === firing))
+  d.forge.fail = null
+  d.clocks.advance(6 * 60_000)
+  await d.host.intakePlane.tick()
+  await until(() => delivered.includes(`trigger-${firing}`) ? true : null, 'a fresh successful read permits the waiting firing')
+})
+
+test('#2070: resumed work on an evicted pending thread attaches its new goal and stays deduplicated after restart', async () => {
+  const home = tempDir('hd-intake-pending-resume-')
+  const first = 'a'.repeat(64), resumed = 'b'.repeat(64)
+  const thread = { id: 'w-pending', trigger: 'ask', project: '/fixture', repository: 'acme/widgets',
+    origin: { kind: 'issue' as const, number: 1 }, links: { issues: [1], pulls: [], goals: ['goal-first'] }, state: 'open', closed: null,
+    resumes: 0, observations: 0, openedAt: 0, firings: [first], pendingFirings: [first], seen: [], workItem: 'work-fixture' }
+  await writeFile(join(home, LEDGER), JSON.stringify({ version: 1, decisions: [], threads: [], pendingThreads: [thread], modes: {}, assessed: { day: '', count: 0 } }))
+  const pending = new Set([first]), attachments: string[][] = []
+  const port = { home, forge: {}, assess: null, leadName: () => 'dex', pendingFirings: () => [...pending], knowsFirings: () => true,
+    observationWindowMs: 300_000, now: () => 1000, signal: new AbortController().signal, changed() {}, log() {},
+    workItems: { attach: async (_origin: unknown, links: { goals: readonly string[] }) => { attachments.push([...links.goals]); return 'work-fixture' } },
+  } as any
+  const arm = { project: '/fixture', id: 'ask', definition: parseTriggers(ASK()).definitions[0]!, baseline: 0, armedAt: 0,
+    binding: { project: '/fixture', incarnation: 'fixture', source: 'fixture', closure: 'fixture', account: '7', repository: 'acme/widgets' } }
+  const fact = { source: 'mention' as const, project: '/fixture', repository: 'acme/widgets', subject: '1', event: 'commented', action: 'commented' as const,
+    head: null, fork: false, title: 'Fixture', trigger: null,
+    at: 1000, author: '7', login: 'jane-doe', body: '@dex please fix the docs too', url: 'https://github.com/acme/widgets/issues/1#issuecomment-9001' }
+  const triage = new MentionTriage(port)
+  await triage.setMode(arm, 'act')
+  await triage.judge(arm, fact, async () => { pending.add(resumed); return { outcome: 'fired', firing: resumed, goal: 'goal-resumed', reason: null } })
+  const saved = JSON.parse(await readFile(join(home, LEDGER), 'utf8'))
+  assert.deepEqual(saved.threads, [], 'resuming does not restore evicted display history')
+  assert.deepEqual(saved.pendingThreads[0].links.goals, ['goal-first', 'goal-resumed'], 'the new goal is durable')
+  assert.deepEqual(attachments, [['goal-first', 'goal-resumed']], 'the existing work item receives the resumed goal immediately')
+  const restarted = new MentionTriage(port)
+  await restarted.judge(arm, fact, async () => { throw new Error('a seen comment must not be readmitted') })
+  assert.equal(attachments.length, 1, 'replay neither admits nor attaches duplicate work')
+})
+
+test('#2070 R1: the bounded sweep rotates pending authority and expires deferred observations', async t => {
+  const home = tempDir('hd-intake-pending-rotation-')
+  const keys = Array.from({ length: 257 }, (_, i) => (i + 1).toString(16).padStart(64, '0'))
+  const pendingThreads = keys.map((key, i) => ({ id: `w-${i}`, trigger: 'ask', project: '/fixture', repository: 'acme/widgets',
+    origin: { kind: 'issue', number: i + 1 }, links: { issues: [i + 1], pulls: [], goals: [] }, state: 'open', closed: null,
+    resumes: 0, observations: 0, openedAt: 0, firings: [key], pendingFirings: [key], seen: [], workItem: 'work-fixture' }))
+  await writeFile(join(home, LEDGER), JSON.stringify({ version: 1, decisions: [], threads: [], pendingThreads, modes: {}, assessed: { day: '', count: 0 } }))
+  let now = 1000
+  const observed: number[] = []
+  const triage = new MentionTriage({ home, forge: { thread: async (_project: string, _repo: string, number: number) => {
+    observed.push(number); return { number, pull: false, state: 'open', labels: [], title: 'Fixture' }
+  } }, assess: null, leadName: () => 'dex', pendingFirings: () => keys, knowsFirings: () => true,
+    observationWindowMs: 300_000, pullRequests: async () => [], now: () => now, signal: new AbortController().signal, changed() {}, log() {},
+  } as any)
+  await triage.sweep()
+  assert.equal(observed.length, 256, 'the original sweep bound is retained')
+  assert.equal(await triage.closedFiring(keys[0]!), 'open')
+  assert.equal(await triage.closedFiring(keys[256]!), 'unverified', 'the deferred anchor is not silently open')
+  now += 300_000
+  assert.equal(await triage.closedFiring(keys[0]!), 'unverified', 'a prior observation expires at the existing sweep interval')
+  observed.length = 0
+  await triage.sweep()
+  assert.equal(observed.length, 256)
+  assert.ok(observed.includes(257), 'rotation checks the deferred pending anchor')
+  assert.equal(await triage.closedFiring(keys[256]!), 'open')
+})
+
+test('#2070 R1: missing lifetime firing proof cannot authorize a pending retry', E2E, async t => {
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  await leadOn(t, d)
+  let busy = true
+  const delivered: string[] = []
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async (input: Parameters<LeadAutomaticGoals['offerTrigger']>[0]) => {
+    if (busy) return { delivered: false as const, reason: 'Lead is busy; this firing waits.' }
+    delivered.push(input.key)
+    return { delivered: true as const }
+  })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const firing = await firingOf(d, 1)
+  await d.stop()
+  const file = join(d.stateDir, LEDGER)
+  const ledger = JSON.parse(await readFile(file, 'utf8')) as { threads: { firings: string[] }[]; pendingThreads: { firings: string[] }[] }
+  const unknown = 'f'.repeat(64)
+  assert.equal(d.host.intakePlane.journal.read().firings[unknown], undefined)
+  ledger.threads[0]!.firings.push(unknown)
+  ledger.pendingThreads[0]!.firings.push(unknown)
+  await writeFile(file, JSON.stringify(ledger))
+  const restarted = await desk(t, LEAD_ASK, { lead: true, arm: false, repo: d.repo, stateDir: d.stateDir, clocks: d.clocks, forge: d.forge })
+  await leadOn(t, restarted)
+  busy = false
+  restarted.clocks.advance(6 * 60_000)
+  await restarted.host.intakePlane.tick()
+  assert.ok(!delivered.includes(`trigger-${firing}`), 'a missing prior firing is unknown, not open')
+  assert.ok(restarted.host.intakePlane.journal.read().operations.some(one => one.key === firing), 'the pending firing stays held')
+})
+
+test('#2070 R1: a historical thread with no pending firing keeps its existing follow behavior', async () => {
+  const home = tempDir('hd-intake-historical-follow-')
+  const key = 'a'.repeat(64)
+  const thread = { id: 'w-historical', trigger: 'ask', project: '/fixture', repository: 'acme/widgets',
+    origin: { kind: 'issue', number: 1 }, links: { issues: [1], pulls: [], goals: [] }, state: 'open', closed: null,
+    resumes: 0, observations: 0, openedAt: 0, firings: [key], seen: [], workItem: 'work-fixture' }
+  await writeFile(join(home, LEDGER), JSON.stringify({ version: 1, decisions: [], threads: [thread], modes: {}, assessed: { day: '', count: 0 } }))
+  const triage = new MentionTriage({ home, forge: { thread: async () => ({ number: 1, pull: false, state: 'closed', labels: [], title: 'Fixture' }) },
+    assess: null, leadName: () => 'dex', pendingFirings: () => [], knowsFirings: () => false,
+    observationWindowMs: 300_000, pullRequests: async () => [], closeThread: (close: () => Promise<void>) => close(),
+    now: () => 1000, signal: new AbortController().signal, changed() {}, log() {},
+  } as any)
+  await triage.sweep()
+  assert.equal((await triage.page('/fixture', 'ask', null)).threads[0]?.state, 'closed', 'an unrelated historical thread is still followed')
+})
+
+test('#2070: disarming finalizes an unverified pending firing and releases its reservation', E2E, async t => {
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  await leadOn(t, d)
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async () => ({ delivered: false as const, reason: 'Lead is busy; this firing waits.' }))
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const key = await firingOf(d, 1)
+  const operation = await until(() => {
+    const one = d.host.intakePlane.journal.read().operations.find(item => item.key === key)
+    return one && /busy/i.test(one.attention ?? '') ? one : null
+  }, 'the firing waits on the busy Lead')
+  assert.equal(d.host.intakePlane.journal.read().groups[operation.group]?.open, true, 'the pending firing holds its group')
+  d.forge.fail = path => path === 'repos/acme/widgets/issues/1' ? 'malformed' : null
+  d.clocks.advance(6 * 60_000)
+  await d.host.intakePlane.tick()
+  assert.ok(d.host.intakePlane.journal.read().operations.some(one => one.key === key), 'the still-armed firing waits when its observation cannot be checked')
+  await d.host.call('trigger/disarm', { root: d.repo.dir, id: 'ask' })
+  await d.host.intakePlane.tick()
+  const snapshot = d.host.intakePlane.journal.read()
+  assert.ok(!snapshot.operations.some(one => one.key === key), 'disarm finalizes the pending operation')
+  assert.equal(snapshot.firings[key]?.setAside, true, 'the refusal is recorded against the original firing')
+  assert.match(snapshot.firings[key]?.attention ?? '', /trigger changed since it was armed/i)
+  assert.equal(snapshot.groups[operation.group]?.open, false, 'the reserved group is released')
+})
+
+test('#2070: disarm during the mention check is rechecked before Lead delivery', E2E, async t => {
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  await leadOn(t, d)
+  let busy = true, hold = false, delivered = false
+  const entered = new Gate(), release = new Gate()
+  t.after(() => release.open())
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async () => {
+    if (busy) return { delivered: false as const, reason: 'Lead is busy; this firing waits.' }
+    delivered = true
+    return { delivered: true as const }
+  })
+  const check = MentionTriage.prototype.closedFiring
+  t.mock.method(MentionTriage.prototype, 'closedFiring', async function (this: MentionTriage, key: string) {
+    if (hold) { entered.open(); await release.opened }
+    return check.call(this, key)
+  })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const key = await firingOf(d, 1)
+  await until(() => d.host.intakePlane.journal.read().operations.find(one => one.key === key && /busy/i.test(one.attention ?? '')), 'the firing waits on the busy Lead')
+  busy = false; hold = true
+  const retry = d.host.intakePlane.tick()
+  await entered.opened
+  await d.host.call('trigger/disarm', { root: d.repo.dir, id: 'ask' })
+  release.open()
+  await retry
+  const snapshot = d.host.intakePlane.journal.read()
+  assert.equal(delivered, false, 'a disarmed firing never reaches the Lead')
+  assert.ok(!snapshot.operations.some(one => one.key === key), 'the invalidated operation is finalized')
+  assert.equal(snapshot.firings[key]?.setAside, true)
+})
+
 test('an accepted mention is one work item: the thread it came from, and the work it opened', E2E, async (t) => {
   const d = await desk(t, ASK(), { lead: true })
   await leadOn(t, d)
@@ -653,7 +1188,7 @@ test('"@dex stop" stops the Lead’s goal the thread opened as the person’s St
   await say(d, 1, '@dex stop')
   const page = await decisions(d)
   const stop = page.decisions.find((one) => one.decision === 'stop')!
-  assert.match(stop.reason, /1 run the Lead started for it and the Lead’s plan for it were stopped, and the thread is closed\.$/)
+  assert.match(stop.reason, /1 run the Lead started for it and the Lead’s plan for it were stopped, and the thread is closed\./)
   assert.equal(d.host.flowsPlane.executionOf(run)?.state, 'stopped', 'the Lead’s run is stopped through the host')
   assert.equal(journal.state.phase, 'stopped', 'the plan is stopped, so the Lead starts nothing more for it')
   const stops = records.filter((one) => one.type === 'stop')
@@ -673,7 +1208,7 @@ test('"@dex stop" before the Lead’s plan is approved stops the plan, so it nev
   await say(d, 1, '@dex stop')
   const page = await decisions(d)
   const stop = page.decisions.find((one) => one.decision === 'stop')!
-  assert.match(stop.reason, /the Lead’s plan for it was stopped, and the thread is closed\.$/)
+  assert.match(stop.reason, /the Lead’s plan for it was stopped, and the thread is closed\./)
   assert.equal(journal.state.phase, 'stopped')
   assert.deepEqual([page.threads[0]!.state, page.threads[0]!.closed?.reason], ['closed', 'stopped'])
 })
@@ -683,14 +1218,15 @@ test('"@dex stop" never stops a run a person started, even on a Team the Lead st
   // A person stopped the Lead's run, which ends the Lead's goal too, and then ran the Team again by hand.
   await d.host.call('flow/execution/stop', { run, reason: 'Looked enough' })
   assert.equal(journal.state.phase, 'stopped')
-  const again = await d.host.call('flow/preview', { root: d.repo.dir, source: REVIEW_FLOW, continues: run })
+  const canonicalRoot = await realpath(d.repo.dir)
+  const again = await d.host.call('flow/preview', { root: canonicalRoot, source: REVIEW_FLOW, continues: run })
   assert.ok(again.token, JSON.stringify(again.problems))
-  const person = await d.host.call('flow/start-goal', { root: d.repo.dir, source: REVIEW_FLOW, sentence: 'Fix the flaky test', token: again.token!, continues: run })
+  const person = await d.host.call('flow/start-goal', { root: canonicalRoot, source: REVIEW_FLOW, sentence: 'Fix the flaky test', token: again.token!, continues: run })
   assert.equal(person.goal, team, 'the person’s run is on the Lead’s Team')
 
   await say(d, 1, '@dex stop')
   const stop = (await decisions(d)).decisions.find((one) => one.decision === 'stop')!
-  assert.match(stop.reason, /nothing of its work was running, so nothing was stopped; the thread is closed\.$/, 'nothing of the Lead’s was going, and the person’s run is not its')
+  assert.match(stop.reason, /nothing of its work was running, so nothing was stopped; the thread is closed\./, 'nothing of the Lead’s was going, and the person’s run is not its')
   assert.notEqual(d.host.flowsPlane.executionOf(person.id)?.state, 'stopped', 'the person’s run goes on')
 })
 

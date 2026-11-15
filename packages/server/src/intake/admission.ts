@@ -160,7 +160,7 @@ export interface AdmissionEffects {
   releaseHeld?(): Promise<void>
 }
 
-export type AdmissionStep = 'prepared' | 'applied' | 'dispatched'
+export type AdmissionStep = 'prepared' | 'applied' | 'dispatched' | 'set-aside'
 
 export interface AdmissionOptions {
   /** Told after each journaled step is durable: for the host's log, and for crash tests to stop the process there. */
@@ -323,6 +323,31 @@ export class Admission {
     })
   }
 
+  /** Set aside only this thread's pending Lead firings, behind any release already in flight. */
+  cancelMentionFirings(firings: readonly string[], reason: string): Promise<number> {
+    return this.#serial.run(async () => {
+      const keys = new Set(firings)
+      let cancelled = 0
+      for (const operation of this.#store.read().operations) {
+        if (keys.has(operation.key) && !operation.dispatched && operation.payload && 'lead' in operation.payload.definition.opens) {
+          await this.#setAside(operation, reason, true)
+          cancelled++
+        }
+      }
+      // A replay of the same stop after a crash still reports what it
+      // already removed, without granting a new firing the old identity.
+      return Math.max(cancelled, firings.filter(key => {
+        const firing = this.#store.read().firings[key]
+        return firing?.setAside === true && firing.attention === reason
+      }).length)
+    })
+  }
+
+  /** A thread closes between complete deliveries, never through one. */
+  closeMentionThread(close: () => Promise<void>): Promise<void> {
+    return this.#serial.run(close)
+  }
+
   /**
    * One fact, offered to one arm. Resolves only with a durable answer; throws
    * — so the monitor keeps its cursor and offers it again — when nothing can
@@ -445,6 +470,15 @@ export class Admission {
     return this.#serial.run(() => this.#recover())
   }
 
+  /** Retry only applied mention releases after their thread authority changes, without retrying project faults. */
+  releaseMentionFirings(firings: readonly string[]): Promise<void> {
+    return this.#serial.run(async () => {
+      if (this.#store.problem) throw new Error(this.#store.problem)
+      const keys = new Set(firings)
+      await this.#finish(false, keys)
+    })
+  }
+
   async #recover(): Promise<void> {
     if (this.#store.problem) throw new Error(this.#store.problem)
     // Recovery is what tries a failed firing again; an offer never does.
@@ -460,10 +494,12 @@ export class Admission {
    * tries a failed one again, and sets it aside for the person once it has
    * failed `FAULT_ATTEMPTS` times.
    */
-  async #finish(retry = false): Promise<void> {
+  async #finish(retry = false, mentions?: ReadonlySet<string>): Promise<void> {
     const held = new Set<string>()
     for (const pending of this.#store.read().operations) {
       if (pending.dispatched || held.has(pending.project)) continue
+      if (mentions && (!mentions.has(pending.key) || pending.state !== 'applied' || !pending.payload ||
+        pending.payload.fact.source !== 'mention' || !('lead' in pending.payload.definition.opens))) continue
       if (!retry && this.#faults.has(pending.project)) {
         held.add(pending.project)
         continue
@@ -567,6 +603,7 @@ export class Admission {
       if (group && group.goal === operation.goal && group.open) next = { ...next, groups: { ...next.groups, [operation.group]: { ...group, open: false } } }
     }
     await this.#store.commit(next)
+    this.#options.onStep?.('set-aside', operation)
     snapshot = next
     // Given back its slot and reservation: its run is stopped, so nothing can spend under them. Otherwise it waits on the person.
     if (!noGoal) await this.#effects.setAside?.(operation, reason, release).catch(() => {})

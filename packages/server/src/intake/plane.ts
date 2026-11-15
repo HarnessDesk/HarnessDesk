@@ -211,6 +211,7 @@ export class IntakePlane {
   readonly #closures: TriggerClosures
   readonly #mentions: MentionTriage
   readonly #mentionsAbort = new AbortController()
+  readonly #closedFiringLogs = new Set<string>()
   #mentionSwept: number | null = null
   readonly #prefsSerial = new Serial()
   #prefs: Preferences = DEFAULT_PREFERENCES
@@ -332,10 +333,44 @@ export class IntakePlane {
       gate: async (operation) => {
         if (operation.payload && 'lead' in operation.payload.definition.opens) {
           if (this.#closed || this.#prefs.paused || !this.#dispatchReady) return 'Triggers are paused; this firing waits.'
+          let closed: Awaited<ReturnType<MentionTriage['closedFiring']>> | 'read-failed' | undefined
+          if (operation.payload.fact.source === 'mention') {
+            try { closed = await this.#mentions.closedFiring(operation.key) }
+            catch { closed = 'read-failed' }
+          }
           try {
             const binding = await this.#consent.binding(operation.project, operation.trigger)
             if (!binding || !consentMatches(operation.payload.binding, binding)) return { reason: 'This trigger changed since it was armed; arm it again.', final: true }
           } catch { return 'The trigger arm could not be read; this firing waits.' }
+          if (operation.payload.fact.source === 'mention') {
+            if (closed === 'read-failed') return 'The mention decisions could not be read; this firing waits.'
+            if (closed === 'recorded') return { reason: 'The firing was refused because its mention thread is closed.', final: true }
+            if (closed === 'unknown') {
+              // A new admission reaches here before its thread is written.
+              // Associate outside admission's queue; an evicted legacy key
+              // with no proof stays held, never assumed open.
+              if (!this.#closedFiringLogs.has(operation.key)) {
+                this.#closedFiringLogs.add(operation.key)
+                void this.#track(this.#mentions.associateFiring(operation.key).then(() => this.#retryMentionFirings([operation.key]))
+                  .catch(error => this.#port.log('a pending mention could not be associated', { error: String(error) }))
+                  .finally(() => this.#closedFiringLogs.delete(operation.key)))
+              }
+              return 'This firing waits for its mention thread to be identified.'
+            }
+            if (closed === 'unverified') return 'This firing waits for its mention thread to be checked.'
+            if (closed === 'unrecorded') {
+              // Admission cannot wait for the mention queue: a mention may
+              // already be waiting for admission. Keep the firing durable
+              // until its decision is saved, then try its gate again.
+              if (!this.#closedFiringLogs.has(operation.key)) {
+                this.#closedFiringLogs.add(operation.key)
+                void this.#track(this.#mentions.recordClosedFiring(operation.key, operation.payload.fact).then(() => this.#retryMentionFirings([operation.key]))
+                  .catch(error => this.#port.log('a closed mention firing could not be recorded', { error: String(error) }))
+                  .finally(() => this.#closedFiringLogs.delete(operation.key)))
+              }
+              return 'The mention thread is closed; its refusal waits to be recorded.'
+            }
+          }
           return null
         }
         const run = port.flows.execution(operation.run)
@@ -358,7 +393,10 @@ export class IntakePlane {
         this.#schedule()
       },
     }), {
-      onStep: () => this.#schedule(),
+      onStep: step => {
+        this.#schedule()
+        if (step === 'dispatched' || step === 'set-aside') void this.#track(this.#mentions.prunePending()).catch(() => {})
+      },
       onFault: (fault) => { void this.#track(this.#faulted(fault)).catch(() => {}) },
     })
     this.#mentions = new MentionTriage({
@@ -367,6 +405,9 @@ export class IntakePlane {
       assess: port.mentions?.assess ?? null,
       leadName: () => port.mentions?.leadName?.() ?? 'dex',
       stop: async ({ goals, firings, comment }, why) => {
+        // Serialize with delivery: a firing that already crossed the gate may
+        // have opened the Lead's goal, which stopLead checks afterwards.
+        const queued = await this.#admission.cancelMentionFirings(firings, 'The mention thread was stopped; its queued firing was dropped.')
         // The trigger's own runs, by the host's stop: checks first, then each intake run still going, then any live turn on
         // the Goal's Seats. Never a run a person started on the Goal, and never another trigger's.
         let own = 0
@@ -381,8 +422,16 @@ export class IntakePlane {
         // The Lead's goal, only when a firing of this thread opened it: stopped as the person's Stop stops it.
         const lead = await port.mentions?.stopLead?.({ firings, comment }) ?? { plan: false, runs: 0 }
         this.#schedule()
-        return { own, lead: lead.runs, plan: lead.plan }
+        return { own, lead: lead.runs, plan: lead.plan, queued }
       },
+      observationWindowMs: MENTION_SWEEP_MS,
+      knowsFirings: (project, trigger, keys) => {
+        const firings = this.#store.read().firings
+        return keys.every(key => firings[key]?.project === project && firings[key]?.trigger === trigger)
+      },
+      pendingFirings: () => this.#store.read().operations.flatMap(one =>
+        !one.dispatched && one.payload && 'lead' in one.payload.definition.opens && one.payload.fact.source === 'mention' ? [one.key] : []),
+      closeThread: close => this.#admission.closeMentionThread(close),
       pullRequests: (repository, goals, firings) => port.mentions?.pullRequests?.(repository, goals, firings) ?? Promise.resolve([]),
       workItems: port.mentions?.workItems ?? NO_WORK_ITEMS,
       ask: (arm, decision) => this.#attention.notice(`triage:${arm.project}:${arm.id}`, {
@@ -780,6 +829,22 @@ export class IntakePlane {
     if (!waiting) return
     await this.#admission.recover().catch((error: unknown) => {
       this.#port.log('a held trigger firing could not be released', { error: error instanceof Error ? error.message : String(error) })
+    })
+  }
+
+  /** A mention observation only releases its own applied firings; it does not spend another fault retry. */
+  async #retryMentionFirings(keys?: readonly string[]): Promise<void> {
+    if (this.#closed || this.#prefs.paused || !this.#dispatchReady || this.#problem !== null) return
+    let selected = keys
+    if (!selected) {
+      try {
+        selected = this.#store.read().operations.flatMap(one =>
+          !one.dispatched && one.payload && 'lead' in one.payload.definition.opens && one.payload.fact.source === 'mention' ? [one.key] : [])
+      } catch { return }
+    }
+    if (selected.length === 0) return
+    await this.#admission.releaseMentionFirings(selected).catch((error: unknown) => {
+      this.#port.log('a held mention firing could not be released', { error: error instanceof Error ? error.message : String(error) })
     })
   }
 
@@ -1366,6 +1431,10 @@ export class IntakePlane {
     if (this.#mentionSwept !== null && now - this.#mentionSwept < MENTION_SWEEP_MS) return
     this.#mentionSwept = now
     await this.#mentions.sweep()
+    if (this.#mentions.problem) return
+    // The sweep refreshes pending threads before admission retries them.
+    await this.#retryMentionFirings()
+    await this.#mentions.prunePending()
   }
 
   // ------------------------------------------------------------ attention

@@ -31,6 +31,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Ask before another attempt.** The Lead no longer uses an existing work item to bypass a retry question. A matching positive answer is used for one attempt; an unrelated message or a negative answer cannot start another chat.
 
+- **Stopped GitHub work stays stopped.** A mention thread’s queued Lead requests are dropped when you stop it. Requests still waiting after its issue closes are refused and recorded, while other threads and new requests keep their own place.
+
 ## 0.7.1 — 2026-11-13
 
 Your phone now hears when something needs you, sealed so the account service cannot read it. Sub-agents show as one flow, and Stop reaches them and what they left running. A conversation or a Team seat can carry on past a usage limit by a rule you set, an MCP server can be tested from the Library, the desk can be used from any MCP client, and a GitHub comment can ask the Lead. The Lead keeps a memory, rules and reminders you can read and correct, and tells you what changed while you were away. Codex 0.167 works.

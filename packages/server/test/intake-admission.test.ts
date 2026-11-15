@@ -269,6 +269,8 @@ test('a firing whose effects keep failing holds only its own project, then goes 
   assert.equal(d.store.read().operations.find((one) => one.key === failing.firing)?.attempts, 1)
   assert.match(d.admission.fault(OTHER) ?? '', /could not be finished \(The project folder moved\)\. It is tried again on its own/)
   assert.equal(d.admission.problem, null, 'intake as a whole is not stopped')
+  await d.admission.releaseMentionFirings([failing.firing!])
+  assert.equal(d.store.read().operations.find((one) => one.key === failing.firing)?.attempts, 1, 'a mention observation cannot spend a non-mention fault retry')
 
   // Every other project keeps running.
   const fine = await d.admission.offer(d.arm, prFact(2, sha('b'), 'opened'))
