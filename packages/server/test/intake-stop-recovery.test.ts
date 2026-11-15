@@ -114,6 +114,85 @@ test('a full protected history refuses before any stop effect and keeps its atte
   assert.equal(JSON.parse(await readFile(path, 'utf8')).threads[0].state, 'open', 'no effects or stop fence was committed')
 })
 
+test('an unresolved stop retains its thread through ordinary eviction and a distinct retry after restart', async () => {
+  const home = tempDir('hd-stop-thread-retention-'), path = join(home, 'triggers-mentions.json')
+  const thread = (n: number) => ({ id: `thread-${n}`, project, trigger, repository, origin: { kind: 'issue', number: n },
+    links: { issues: [n], pulls: [], goals: [`goal-${n}`] }, state: 'closed', closed: { reason: 'closed', at: 10 }, resumes: 0, observations: 0,
+    openedAt: 0, firings: [n === 1 ? firing : createHash('sha256').update(String(n)).digest('hex')], seen: [] })
+  await writeFile(path, JSON.stringify({ ...file([intent('1', 'unconfirmed')]), threads: Array.from({ length: 257 }, (_, i) => thread(i + 1)) }))
+  let attempts = 0, admitted = 0
+  const port = { home, pendingFirings: () => [], leadName: () => 'dex', changed() {}, now: () => 20, signal: new AbortController().signal,
+    forge: { thread: async () => ({ labels: [], state: 'open', title: 'Synthetic' }) },
+    closeThread: async (close: () => Promise<void>) => close(),
+    planStop: async () => { attempts++; return { queuedTargets: [], runTargets: [], interruptTargets: [], leadRunTargets: [], leadPlanTarget: null } },
+    stopOnce: async () => ({ complete: false }) } as never
+  const arm = { project, id: trigger, armedAt: 1, definition: { handle: 'dex' }, binding: { account: '7', repository } } as never
+  const fact = { source: 'mention', project, repository, subject: '1', thread: 'issue', author: '7', login: 'preview-user',
+    body: '@dex stop', url: 'https://example.invalid/issue#issuecomment-1', at: 15 }
+  const admit = async () => { admitted++; throw new Error('a stop must not admit work') }
+  const instance = new MentionTriage(port)
+  await instance.setMode(arm, 'act')
+  const saved = JSON.parse(await readFile(path, 'utf8'))
+  assert.equal(saved.threads.length, 257, '256 ordinary threads plus the protected thread remain')
+  assert.ok(saved.threads.some((one: { id: string }) => one.id === 'thread-1'))
+  const restarted = new MentionTriage(port)
+  await restarted.judge(arm, fact as never, admit)
+  assert.equal(attempts, 0, 'the original comment remains deduplicated')
+  const otherTrigger = { project, id: 'other', armedAt: 1, definition: { handle: 'dex' }, binding: { account: '7', repository } } as never
+  await restarted.judge(otherTrigger, { ...fact, url: 'https://example.invalid/issue#issuecomment-3' } as never, admit)
+  const otherProject = '/synthetic/other'
+  const otherArm = { project: otherProject, id: trigger, armedAt: 1, definition: { handle: 'dex' }, binding: { account: '7', repository } } as never
+  await restarted.judge(otherArm, { ...fact, project: otherProject, url: 'https://example.invalid/issue#issuecomment-4' } as never, admit)
+  assert.equal(attempts, 0, 'another project or trigger cannot retry the retained scope')
+  await restarted.judge(arm, { ...fact, repository: 'DEMO/PROJECT', url: 'https://example.invalid/issue#issuecomment-2' } as never, admit)
+  assert.equal(attempts, 1, 'a distinct comment retries the retained scope with case-insensitive repository identity')
+  assert.equal(admitted, 0)
+  const page = await restarted.page(project, trigger, arm)
+  assert.equal(page.unconfirmedStops?.length, 2)
+  assert.equal(page.decisions.some(one => one.comment.id === '2'), false)
+})
+
+test('protected thread retention remains bounded by 500 identities plus 256 ordinary threads', async () => {
+  const home = tempDir('hd-stop-thread-bound-'), path = join(home, 'triggers-mentions.json')
+  const firingFor = (n: number) => createHash('sha256').update(String(n)).digest('hex')
+  const thread = (n: number) => ({ id: `thread-${n}`, project, trigger, repository, origin: { kind: 'issue', number: n },
+    links: { issues: [n], pulls: [], goals: [`goal-${n}`] }, state: 'closed', closed: { reason: 'closed', at: 10 }, resumes: 0, observations: 0,
+    openedAt: 0, firings: [firingFor(n)], seen: [] })
+  const stops = Array.from({ length: 500 }, (_, i) => ({ ...intent(String(i + 1), 'reviewed'), threadId: `thread-${i + 1}`,
+    thread: { kind: 'issue', number: i + 1 }, goals: [`goal-${i + 1}`], firings: [firingFor(i + 1)] }))
+  await writeFile(path, JSON.stringify({ ...file(stops), threads: Array.from({ length: 757 }, (_, i) => thread(i + 1)) }))
+  const port = { home, pendingFirings: () => [], leadName: () => 'dex', changed() {}, now: () => 20 } as never
+  const arm = { project, id: trigger, armedAt: 1, definition: { handle: 'dex' }, binding: { account: '7', repository } } as never
+  await new MentionTriage(port).setMode(arm, 'act')
+  const saved = JSON.parse(await readFile(path, 'utf8'))
+  assert.equal(saved.stopIntents.length, 500)
+  assert.equal(saved.threads.length, 756)
+  assert.ok(saved.threads.some((one: { id: string }) => one.id === 'thread-1'))
+  assert.equal(saved.threads.some((one: { id: string }) => one.id === 'thread-501'), false)
+  assert.equal(saved.threads.some((one: { id: string }) => one.id === 'thread-502'), true)
+})
+
+test('a stop never borrows a retained thread from a different repository', async () => {
+  const home = tempDir('hd-stop-repository-'), path = join(home, 'triggers-mentions.json')
+  const thread = { id: 'thread-1', project, trigger, repository, origin: { kind: 'issue', number: 1 },
+    links: { issues: [1], pulls: [], goals: ['goal-1'] }, state: 'closed', closed: { reason: 'closed', at: 10 }, resumes: 0, observations: 0,
+    openedAt: 0, firings: [firing], seen: [] }
+  await writeFile(path, JSON.stringify({ ...file([intent('1', 'unconfirmed')]), threads: [thread], modes: { [`${project}\u0000${trigger}`]: { mode: 'act', armedAt: 1 } } }))
+  let attempts = 0, admitted = 0
+  const port = { home, pendingFirings: () => [], leadName: () => 'dex', changed() {}, now: () => 20, signal: new AbortController().signal,
+    forge: { thread: async () => ({ labels: [], state: 'open', title: 'Synthetic' }) }, closeThread: async (close: () => Promise<void>) => close(),
+    planStop: async () => { attempts++; return { queuedTargets: [], runTargets: [], interruptTargets: [], leadRunTargets: [], leadPlanTarget: null } },
+    stopOnce: async () => ({ complete: false }) } as never
+  const arm = { project, id: trigger, armedAt: 1, definition: { handle: 'dex' }, binding: { account: '7', repository: 'other/project' } } as never
+  const fact = { source: 'mention', project, repository: 'other/project', subject: '1', thread: 'issue', author: '7', login: 'preview-user',
+    body: '@dex stop', url: 'https://example.invalid/other#issuecomment-2', at: 15 }
+  const instance = new MentionTriage(port)
+  await instance.judge(arm, fact as never, async () => { admitted++; throw new Error('a stop must not admit work') })
+  assert.equal(attempts, 0, 'an old repository is never targeted')
+  assert.equal(admitted, 0)
+  assert.match((await instance.page(project, trigger, arm)).decisions[0]!.reason, /no work follows this thread/)
+})
+
 test('a proven complete stop retains its ordinary decision and deduplicates the comment', async () => {
   const home = tempDir('hd-stop-complete-'), path = join(home, 'triggers-mentions.json')
   const thread = { id: 'thread-1', trigger, project, repository, origin: { kind: 'issue', number: 1 },

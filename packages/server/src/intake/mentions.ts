@@ -590,15 +590,24 @@ export class MentionTriage {
       if (index < 0) throw new Error('Stop history is full. Stop work directly before taking further action.')
       decisions.splice(index, 1)
     }
+    // A distinct authorized stop must still find the original thread after
+    // ordinary history rotates. Protected identities are bounded separately.
+    const protectedThreads = new Set(next.stopIntents.filter(one => one.state !== 'consumed').map(one =>
+      JSON.stringify([one.key.project, one.key.trigger, one.key.repository, one.threadId])))
+    const protectedThread = (one: StoredThread): boolean => typeof one.repository === 'string' && protectedThreads.has(
+      JSON.stringify([one.project, one.trigger, one.repository.toLowerCase(), one.id]))
+    const protectedRows = next.threads.filter(protectedThread)
+    const ordinaryRows = next.threads.filter(one => !protectedThread(one))
+    const retainedOrdinary = ordinaryRows.length > TRIGGER_THREADS_KEPT
+      ? [...ordinaryRows.filter(one => one.state === 'closed'), ...ordinaryRows.filter(one => one.state === 'open')].slice(-TRIGGER_THREADS_KEPT)
+      : ordinaryRows
+    const retainedThreads = new Set([...protectedRows, ...retainedOrdinary])
     const trimmed: LedgerFile = {
       ...next,
       version: next.version === 2 || next.stopIntents.length > 0 ? 2 : 1,
       pendingThreads: [...anchors.values()],
       decisions,
-      threads: next.threads.length > TRIGGER_THREADS_KEPT
-        // Closed ones go first, then the oldest open.
-        ? [...next.threads.filter((one) => one.state === 'closed'), ...next.threads.filter((one) => one.state === 'open')].slice(-TRIGGER_THREADS_KEPT)
-        : next.threads,
+      threads: next.threads.filter(one => retainedThreads.has(one)),
     }
     if (!ledgerOf(trimmed)) throw new Error('The mention decisions could not be saved safely.')
     try { await atomicJson(this.#file, trimmed) } catch (error) {
@@ -904,7 +913,10 @@ export class MentionTriage {
       const addressed = addressesHandle(fact.body ?? '', handle)
 
       const retryingUnconfirmed = addressed && asksToStop(fact.body ?? '', handle)
+      const repository = (fact.repository ?? '').toLowerCase()
+      const boundRepository = (arm.binding.repository ?? '').toLowerCase()
       const linked = [...ledger.threads, ...ledger.pendingThreads].find((one) => one.project === arm.project && one.trigger === arm.id &&
+        !!repository && typeof one.repository === 'string' && one.repository.toLowerCase() === repository && repository === boundRepository &&
         (one.state === 'open' || retryingUnconfirmed && ledger.stopIntents.some(stop => stop.threadId === one.id && stop.state !== 'consumed')) &&
         (one.links.issues.includes(number) || one.links.pulls.includes(number)))
       if (linked) {
