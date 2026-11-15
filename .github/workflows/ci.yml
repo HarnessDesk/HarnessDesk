@@ -2,6 +2,15 @@ name: Native retention pilot
 
 on:
   workflow_dispatch:
+    inputs:
+      profile:
+        description: Diagnostic mode
+        required: true
+        type: choice
+        default: one-chat
+        options:
+          - one-chat
+          - automatic-profile
 
 permissions:
   contents: read
@@ -28,6 +37,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
       - name: One synthetic conversation and receipt
+        if: inputs.profile == 'one-chat'
         run: |
           node diagnostic/retention-pilot/ambient-shape.mjs
           node diagnostic/retention-pilot/controller.mjs
+      - name: Automatic policy measurement
+        if: inputs.profile == 'automatic-profile'
+        run: |
+          node diagnostic/retention-pilot/ambient-shape.mjs
+          node diagnostic/retention-pilot/automatic-profile.mjs
