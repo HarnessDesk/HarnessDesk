@@ -17,13 +17,16 @@ for (const [name, account] of [
     const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, CLAUDE_CONFIG_DIR: scratch('fake-auth-config-'), FAKE_CLAUDE_LOG: log }
     if (account) env.FAKE_CLAUDE_ACCOUNT = JSON.stringify(account)
     else delete env.FAKE_CLAUDE_ACCOUNT
-    const { stdout, pid } = await new Promise<{ stdout: string; pid: number }>((resolve, reject) => {
+    const { stdout, pid, killed, exitCode, signalCode } = await new Promise<{ stdout: string; pid: number; killed: boolean; exitCode: number | null; signalCode: NodeJS.Signals | null }>((resolve, reject) => {
       const child = execFile(fake, ['auth', 'status', '--json'], { cwd: home, env, timeout: 5_000 }, (error, stdout) => {
         if (error) reject(error)
         else if (child.pid === undefined) reject(new Error('The fake auth process did not start.'))
-        else resolve({ stdout, pid: child.pid })
+        else resolve({ stdout, pid: child.pid, killed: child.killed, exitCode: child.exitCode, signalCode: child.signalCode })
       })
     })
+    assert.equal(killed, false, 'the auth process must exit without a timeout signal')
+    assert.equal(exitCode, 0)
+    assert.equal(signalCode, null)
     const status = JSON.parse(stdout) as { loggedIn: boolean; email: string; subscriptionType: string; apiProvider?: string }
     assert.equal(status.loggedIn, true)
     assert.equal(status.email, account?.email ?? 'fake@example.com')
