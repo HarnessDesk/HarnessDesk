@@ -593,3 +593,22 @@ test('resumed migration immediately pins rows discovered by a partial seed', () 
     assert.deepEqual(index.pins(), ['fake:existing', 'fake:later'])
   } finally { index.close() }
 })
+
+test('cold stopped counts use only the latest retained status of own touched chats', () => {
+  const file = join(tempDir('hd-index-cold-stop-'), 'sessions.sqlite')
+  const index = new SessionIndex(file), db = new DatabaseSync(file)
+  try {
+    for (const name of ['stopped', 'resumed', 'live', 'old', 'unknown', 'broken', 'archived', 'team', 'removed'])
+      index.upsert(row(name, name === 'old' ? 49 : 100), { archived: name === 'archived', ...(name === 'team' ? { teamId: 'team' } : {}) })
+    index.remove(runtime, idOf('removed'))
+    const put = db.prepare("INSERT INTO turns(runtime,id,turn_id,seq,payload,fingerprint) VALUES(?,?,?,?,?,'synthetic')")
+    const turn = (id: string, seq: number, payload: string) => put.run(runtime, id, `t${seq}`, seq, payload)
+    for (const id of ['stopped', 'resumed', 'live', 'old', 'archived', 'team', 'removed'])
+      turn(id, 1, JSON.stringify({ turn: { status: 'interrupted' } }))
+    turn('resumed', 2, JSON.stringify({ turn: { status: 'completed' } }))
+    turn('broken', 1, '{invalid')
+    assert.equal(index.coldStoppedSince(50, [{ runtime, id: idOf('live') }]), 1)
+    assert.equal(index.coldStoppedSince(101, []), 0)
+    assert.equal(index.coldStoppedSince(0, []), 3, 'an older stop is included only in a wider window')
+  } finally { db.close(); index.close() }
+})
