@@ -21,7 +21,7 @@ import { closeHistoryDialog } from './flow-visibility.mjs'
 const taskSource = resolve('.')
 const taskSha = 'ecb7b41da2129009440fd3f00030ab7496e58ab7' // integrated source commit; repin if source changes.
 const expectedFixtureSha = '12e1e552085c154e507ac1100dbcd9bcaeaf8184696ad02e9a696c3929c529ac'
-const preparedOnly = false // Parent reviewed the exact Team context-menu path and unchanged hit guards.
+const preparedOnly = true // Restart-phase observation awaits parent review.
 const sha = path => createHash('sha256').update(readFileSync(path)).digest('hex')
 const git = (...args) => execFileSync('git', ['-C',taskSource,...args], {encoding:'utf8'}).trim()
 const result={source:taskSha,phase:'preflight',checks:{},readiness:{}}
@@ -66,6 +66,8 @@ const fingerprints = {
   'diagnostic/stop-history/click-target.mjs':'ac5f983734174484e3c8129720cdf276e09e788c4bf2da3bc4fceb1c6268a70a',
   'diagnostic/stop-history/run-guarded.mjs':'29815be8925f7643eb7297f9eacfd355c1cbf5b945388dbc80332c8fc4819aac',
   'diagnostic/stop-history/source-guard.mjs':'56ae7de03897f455068b85c827dd159eb990e2d478e4cbda72f8ce26361be036',
+  'diagnostic/stop-history/report.mjs':'98ccfa5145808dc15385686f4633427cedc973cc53fa9ecaa1f440ab58a5d615',
+  'diagnostic/stop-history/report.test.mjs':'027e806070001668fcdcd7c150d825862a1f37c2bac1ca6e18939c9007cd0a20',
 }
 assertSource({git,sha:fileName=>sha(join(taskSource,fileName)),base:taskSha,expected:fingerprints})
 const osHome=homedir()
@@ -174,10 +176,12 @@ const verifyLedger = (expected101) => {
   return true
 }
 const observeRequests=()=>cdp.eval(`(()=>{const t=window.__hdStore.transport;if(!t||typeof t.request!=='function')throw Error('transport unavailable');const original=t.request,counts={stop:0,interrupt:0,reevaluate:0,review:0};t.request=function(method,...args){if(method==='lead/stop')counts.stop++;if(method==='turn/interrupt'||method==='session/interrupt')counts.interrupt++;if(method==='trigger/decision/reevaluate')counts.reevaluate++;if(method==='trigger/stop-unconfirmed/review')counts.review++;return Reflect.apply(original,this,[method,...args])};window.__hd2065counts=counts;return true})()`)
-const goToHistory=async()=>{
+const goToHistory=async(restarting=false)=>{
+  if(restarting)result.phase='restart_history_open'
   await cdp.eval("window.__hdStore.openDestination({kind:'flows',root:null,id:null,origin:null})")
   await click('[data-topbar="more"] button','')
   await click('[role="menuitem"]','Manage triggers')
+  if(restarting)result.phase='restart_history_wait'
   await waitFor('retained history',()=>cdp.eval("document.body.innerText.includes('fixture-trigger · Retained stop history') && document.body.innerText.includes('Stop unconfirmed')"),30000)
 }
 const expectedOutput=resolve(process.env.RUNNER_TEMP??'', 'hd2065-private-frames')
@@ -210,12 +214,16 @@ verifyLedger('reviewed')
 secondFrame=await safeFrame()
 await observedListeners('listenersAfterReview')
 await closeDesk(desk);desk=undefined
-result.phase='restart';desk=await launchDesk({app:taskSource,home:taskDeskHome,userDataDir:taskElectron,env});await observedListeners('listenersAtRestart');cdp=desk.cdp
-await waitFor('store reconnected',()=>cdp.eval("window.__hdStore?.getSnapshot().status === 'open'"),30000)
-await openWorkspace(cdp,project);await goToHistory();verifyLedger('reviewed');await click('button','History')
-await waitFor('review persists visually',()=>cdp.eval("[...document.querySelectorAll('[data-slot=\"list-row\"]')].some(e=>e.innerText.includes('#101') && e.innerText.includes('Reviewed · Stop unconfirmed'))"),10000)
-if(interruptCount(counter)!==0||readFileSync(forgeCounter).length!==0)throw new Error('unexpected restart effect')
-await observedListeners('listenersAtEnd');result.checks.persisted=true;result.checks.noObservedEffects=true
+result.phase='restart_launch';desk=await launchDesk({app:taskSource,home:taskDeskHome,userDataDir:taskElectron,env})
+result.phase='restart_listeners';await observedListeners('listenersAtRestart');cdp=desk.cdp
+result.phase='restart_store';await waitFor('store reconnected',()=>cdp.eval("window.__hdStore?.getSnapshot().status === 'open'"),30000)
+result.phase='restart_workspace';await openWorkspace(cdp,project)
+await goToHistory(true)
+result.phase='restart_ledger';verifyLedger('reviewed')
+result.phase='restart_history_show';await click('button','History')
+result.phase='restart_verify';await waitFor('review persists visually',()=>cdp.eval("[...document.querySelectorAll('[data-slot=\"list-row\"]')].some(e=>e.innerText.includes('#101') && e.innerText.includes('Reviewed · Stop unconfirmed'))"),10000)
+result.phase='restart_effects';if(interruptCount(counter)!==0||readFileSync(forgeCounter).length!==0)throw new Error('unexpected restart effect')
+result.phase='restart_final_listeners';await observedListeners('listenersAtEnd');result.checks.persisted=true;result.checks.noObservedEffects=true
 await closeHistoryDialog({cdp,click,waitFor,result})
 const flowFrames=await exerciseProtectedFlow({cdp,click,waitFor,result,flow,frame:safeFrame})
 if(interruptCount(counter)!==0 || readFileSync(forgeCounter).length!==0)throw new Error('unexpected Flow effect')

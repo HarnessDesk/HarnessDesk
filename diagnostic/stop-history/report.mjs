@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-const phases=new Set(['preflight','setup','launch','recovery','review','review_target','review_durable','restart','flow_close_history','flow_team_menu','flow_run_view','flow_durable','frames','passed','failed'])
+const phases=new Set(['preflight','setup','launch','recovery','review','review_target','review_durable','restart','restart_launch','restart_listeners','restart_store','restart_workspace','restart_history_open','restart_history_wait','restart_ledger','restart_history_show','restart_verify','restart_effects','restart_final_listeners','flow_close_history','flow_team_menu','flow_run_view','flow_durable','frames','passed','failed'])
 const reasons=new Set(['not_authorized','pin_invalid','environment_refused','source_mismatch','ambient_refused','privacy_refused','frame_invalid','ledger_invalid','effect_observed','transport_unavailable','readiness_timeout','frame_unavailable','other'])
 export function sanitizeReport(text, exit) {
   let record

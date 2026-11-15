@@ -32,3 +32,20 @@ test('visibility reporting permits only bounded numeric counts and fixed checkpo
  const bad=sanitizeReport(JSON.stringify({phase:'failed',visibility:{beforeClose:{...fields,dialogs:101}}}),1)
  assert.equal('visibility' in bad,false)
 })
+test('restart phases are reported without exposing untrusted details',()=>{
+ const phases=['restart_launch','restart_listeners','restart_store','restart_workspace','restart_history_open','restart_history_wait','restart_ledger','restart_history_show','restart_verify','restart_effects','restart_final_listeners']
+ for(const phase of phases) {
+  const out=sanitizeReport(JSON.stringify({phase:'failed',failurePhase:phase,reason:'other',error:'private-sentinel'}),1)
+  assert.deepEqual(out,{outcome:'failed',phase:'failed',failurePhase:phase,reason:'other'})
+ }
+ assert.deepEqual(sanitizeReport(JSON.stringify({phase:'failed',failurePhase:'restart_private-sentinel'}),1),{outcome:'failed',phase:'failed'})
+})
+test('guarded restart failures retain the current phase through cleanup and sanitization', async()=>{
+ const {runGuarded}=await import('./run-guarded.mjs')
+ for(const phase of ['restart_launch','restart_listeners','restart_store','restart_workspace','restart_history_open','restart_history_wait','restart_ledger','restart_history_show','restart_verify','restart_effects','restart_final_listeners']) {
+  const result={phase};let cleaned=false
+  await runGuarded(result,async()=>{throw new Error('private-sentinel')},async()=>{cleaned=true})
+  assert.equal(cleaned,true)
+  assert.deepEqual(sanitizeReport(JSON.stringify(result),1),{outcome:'failed',phase:'failed',failurePhase:phase,reason:'other'})
+ }
+})
