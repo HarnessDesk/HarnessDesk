@@ -15,11 +15,12 @@ import { locateTarget } from './click-target.mjs'
 import { runGuarded } from './run-guarded.mjs'
 import { assertSource } from './source-guard.mjs'
 import { seedProtectedFlow, exerciseProtectedFlow, captureSafely } from './flow-proof.mjs'
+import { closeHistoryDialog } from './flow-visibility.mjs'
 
 const taskSource = resolve('.')
 const taskSha = 'ecb7b41da2129009440fd3f00030ab7496e58ab7' // integrated source commit; repin if source changes.
 const expectedFixtureSha = '12e1e552085c154e507ac1100dbcd9bcaeaf8184696ad02e9a696c3929c529ac'
-const preparedOnly = false // Parent reviewed source, seed order, selectors and guarded frame failure boundary.
+const preparedOnly = true // Parent reviewed source, seed order, selectors and guarded frame failure boundary.
 const sha = path => createHash('sha256').update(readFileSync(path)).digest('hex')
 const git = (...args) => execFileSync('git', ['-C',taskSource,...args], {encoding:'utf8'}).trim()
 const result={source:taskSha,phase:'preflight',checks:{},readiness:{}}
@@ -46,6 +47,8 @@ const fingerprints = {
   'diagnostic/stop-history/click-target.test.mjs':'4448d0281f45a7c278f967f3c20c7c1b9eeec2e8a0c43d9df56a5c90c1a1fd2a',
   'diagnostic/stop-history/history-after-seed.mjs':'fb4a344efc2e308cf8a986c74cbb6400773cc7512b0ea2b17b83b30813a77f90',
   'diagnostic/stop-history/history-after-seed.test.mjs':'9da78265e7cee0f18846084f51fe0c780daf5aec2b73e0f8d4624e6fa0e77f39',
+  'diagnostic/stop-history/flow-visibility.mjs':'06e032c4badc373a88dcc2a8ebd1c1e093f612034c7410fa5199c36a4b9ed4c1',
+  'diagnostic/stop-history/flow-visibility.test.mjs':'7c874c33c24938f352ec4a1cbe1fe336bcfbbc9fdd35a41ebad3be0a873ea121',
   'diagnostic/stop-history/flow-proof.test.mjs':'2f8e3425f9fc646f00122a49c659c1aeda671935953cc3d39f63270e8b15e3de',
   'diagnostic/stop-history/seed-flow.mjs':'969a6e78995e7412de1f6e3ed37273203fbabf446da551d4833ff33750a062ee',
   'diagnostic/stop-history/seed-child.mjs':'6425af2400e65477acdf0dfba5739efc0a612af0d05eb38561c6e7b6f68d68e2',
@@ -212,6 +215,7 @@ await openWorkspace(cdp,project);await goToHistory();verifyLedger('reviewed');aw
 await waitFor('review persists visually',()=>cdp.eval("[...document.querySelectorAll('[data-slot=\"list-row\"]')].some(e=>e.innerText.includes('#101') && e.innerText.includes('Reviewed · Stop unconfirmed'))"),10000)
 if(interruptCount(counter)!==0||readFileSync(forgeCounter).length!==0)throw new Error('unexpected restart effect')
 await observedListeners('listenersAtEnd');result.checks.persisted=true;result.checks.noObservedEffects=true
+await closeHistoryDialog({cdp,click,waitFor,result})
 const flowFrames=await exerciseProtectedFlow({cdp,click,waitFor,result,flow,frame:safeFrame})
 if(interruptCount(counter)!==0 || readFileSync(forgeCounter).length!==0)throw new Error('unexpected Flow effect')
 await observedListeners('listenersAfterFlow');await closeDesk(desk);desk=undefined

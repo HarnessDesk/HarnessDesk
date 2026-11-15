@@ -22,3 +22,13 @@ test('frame reports expose only bounded fixed failure categories',()=>{
  assert.deepEqual(result.checks,{flowCancel:true,flowManualCleanup:true})
  assert.equal(JSON.stringify(result).includes('secret-sentinel'),false)
 })
+test('visibility reporting permits only bounded numeric counts and fixed checkpoints',()=>{
+ const fields={dialogs:1,teamRows:1,actionButtons:1,zeroRect:1,hiddenStyle:0,inert:0,ariaHidden:1,secret:'never-output'}
+ const out=sanitizeReport(JSON.stringify({phase:'failed',failurePhase:'flow_close_history',checks:{flowHistoryClosed:true},visibility:{beforeClose:fields,afterClose:{...fields,dialogs:0},unapproved:fields}}),1)
+ assert.deepEqual(out.visibility.beforeClose,{dialogs:1,teamRows:1,actionButtons:1,zeroRect:1,hiddenStyle:0,inert:0,ariaHidden:1})
+ assert.equal(out.visibility.afterClose.dialogs,0)
+ assert.equal(out.checks.flowHistoryClosed,true)
+ assert.equal(JSON.stringify(out).includes('never-output'),false)
+ const bad=sanitizeReport(JSON.stringify({phase:'failed',visibility:{beforeClose:{...fields,dialogs:101}}}),1)
+ assert.equal('visibility' in bad,false)
+})
