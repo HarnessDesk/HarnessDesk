@@ -157,7 +157,8 @@ const jsonEnd = (text: string, start: number, multiline: boolean): number => {
     else if (char === '{' || char === '[') containers.push(char)
     else if (char === '}' || char === ']') {
       if (containers.at(-1) !== (char === '}' ? '{' : '[')) return index
-      containers.pop(); if (containers.length === 0) return index + 1
+      containers.pop(); keyAwaitColon = false
+      if (containers.length === 0) return index + 1
       // Once a nested value ends, only a separator or the parent's matching
       // closer can continue it on this line. Keep any following prose whole.
       const rest = text.slice(index + 1).replace(/^[ \t]*/, '')

@@ -963,6 +963,38 @@ test('#2081 R10: mismatched closers and non-JSON explanations remain visible', (
   }
 })
 
+test('#2081 R11: a recovered nested closer clears its pending key state', () => {
+  assert.deepEqual(lead.stripLeadOutput('Before.\n{"type":"lead-output","refs":[{"missing"\n}\n,\n1\n]\nAfter.'),
+    { text: 'Before.\nAfter.', dropped: true })
+})
+
+test('#2081 R11: nested close recovery resets state for parent siblings and closers', () => {
+  const inner = ['{"missing"', '{"missing":', '{"done":1,', '{"done":1']
+  for (const newline of ['\n', '\r\n']) for (const one of inner) {
+    for (const [opening, suffix] of [
+      ['{"type":"lead-output","refs":[', `${newline},${newline}1${newline}]`],
+      ['{"type":"lead-output","refs":[', `${newline},${newline}"sibling"${newline}]`],
+      ['{"type":"lead-output","refs":[', `${newline},${newline}{"id":1}${newline}]`],
+      ['{"type":"lead-output","ask":{"child":', `${newline},${newline}"next":1${newline}}`],
+      ['{"type":"lead-output","ask":{"child":', `${newline},${newline}"next":"text"${newline}}`],
+      ['{"type":"lead-output","refs":[[', `${newline}]${newline},${newline}1${newline}]`],
+      ['{"type":"lead-output","refs":[', `${newline}]`],
+      ['{"type":"lead-output","ask":{"child":', `${newline}}`],
+    ] as const) {
+      const fragment = `${opening}${one}${newline}}${suffix}`
+      assert.deepEqual(lead.stripLeadOutput(`Before.\n${fragment}\nAfter.`),
+        { text: 'Before.\nAfter.', dropped: true }, fragment)
+    }
+  }
+})
+
+test('#2081 R11: recovered nested closers still leave following prose and mismatches alone', () => {
+  for (const prose of ['true story', 'null result', '1,000 users saw this', '"Quoted prose" said the worker.', '[1]: see the docs', '} wrong closer']) {
+    assert.deepEqual(lead.stripLeadOutput(`Before.\n{"type":"lead-output","refs":[{"missing"\n} ${prose}`),
+      { text: `Before.\n ${prose}`, dropped: true }, prose)
+  }
+})
+
 test('#2081: wrapped JSON continuations stay with a clipped envelope', () => {
   for (const fragment of [
     '{"version":1,"type":"lead-output",\n  "text": "hidden",',
