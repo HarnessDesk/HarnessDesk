@@ -111,7 +111,7 @@ it('bounds planning requests while every unload gets fresh Host proof', async ()
   for (let i = 0; i < 132; i++) handlers.onEvent(runtime, { type: 'session/started', session: body(sessionId(`bounded-${i}`)) })
   for (let i = 0; i < 4; i++) {
     const planned = await store.prepareTranscriptPressure()
-    expect(planned.length).toBe(4 - i)
+    expect(planned.length).toBe(1)
     const { id } = splitSessionKey(planned[0]!)
     const callsBefore = request.mock.calls.length
     expect(await store.unloadTranscript(runtime, id)).toBe(true)

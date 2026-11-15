@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
 test('native commit credit docs name the adapter and retain provenance', () => {
-  const root = process.cwd()
+  const testDir = dirname(fileURLToPath(import.meta.url))
+  const root = resolve(testDir, basename(dirname(testDir)) === 'dist' ? '../../../..' : '../../..')
   const runtime = readFileSync(join(root, 'packages/protocol/src/runtime.ts'), 'utf8')
   const extending = readFileSync(join(root, 'docs/extending.md'), 'utf8')
   const decisions = readFileSync(join(root, 'docs/decisions.md'), 'utf8')

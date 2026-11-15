@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { GitGateway } from '../src/git-gateway/index.js'
 import { leadPublicationPorts as publicationPorts } from '../src/lead/pr-publication.js'
 import { createLeadJournal, leadCheckpoint, parseLeadCheckpoint } from '@harnessdesk/lead'
@@ -207,7 +208,7 @@ test('host gateway creates a signed PR through fake gh outside the worker checko
     forge: { async publicationAllowed() { return { ok: true } }, async identity() { return { via: 'gh', login: 'demo', available: true, reason: null } },
       async seat() { return { agent: 'Fixture', version: '1', model: 'Demo', effort: null, thinking: false, label: 'Fixture Demo', role: 'implement', round: null, team: 'Fixture' } },
       async publish(reference: any) { references.push(reference) } },
-    gh: async (cwd: string, args: readonly string[]) => ({ stdout: execFileSync(process.execPath, [new URL('./fixtures/fake-gh.mjs', import.meta.url).pathname, ...args],
+    gh: async (cwd: string, args: readonly string[]) => ({ stdout: execFileSync(process.execPath, [fileURLToPath(new URL(import.meta.url.includes('/dist/test/') ? '../../test/fixtures/fake-gh.mjs' : './fixtures/fake-gh.mjs', import.meta.url)), ...args],
       { cwd, encoding: 'utf8', env: { ...process.env, FAKE_GH_STATE: statePath } }), stderr: '', exitCode: 0 }),
   })
   const owner = new LeadPrFollow({ ...ports, journal: s.journal, now: () => 100, source: async () => source, validate: async () => {} })

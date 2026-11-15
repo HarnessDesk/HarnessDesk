@@ -11,7 +11,7 @@ import { canonicalBytes, summarize, pendingAfterNavigation } from './profile-sca
 import { stageRecord } from './profile-stage.mjs'
 
 const taskSource = resolve('.')
-const taskSha = '76708d7f2b4536b3e0bdb24a49e09450fabd3a3c'
+const taskSha = 'b5dad1cac3b5c26a563413d0e586b44508374b5c'
 const sha = path => createHash('sha256').update(readFileSync(path)).digest('hex')
 const git = (...args) => execFileSync('git', ['-C',taskSource,...args], {encoding:'utf8'}).trim()
 if (process.platform !== 'darwin' || process.env.GITHUB_ACTIONS !== 'true' || process.env.RUNNER_ENVIRONMENT !== 'github-hosted') throw new Error('hosted macOS runner required')
