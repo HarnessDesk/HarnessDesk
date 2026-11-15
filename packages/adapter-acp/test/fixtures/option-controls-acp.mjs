@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, renameSync, writeFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 
 // A controlled peer: effort reveals thinking, and a file can hold fresh
@@ -20,7 +20,14 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     agentCapabilities: { loadSession: true }, authMethods: [],
   })
   else if (method === 'session/new') {
-    if (counter > 0 && process.env.OPTION_READ_BLOCK && existsSync(process.env.OPTION_READ_BLOCK)) return
+    if (process.env.OPTION_READ_BLOCK && existsSync(process.env.OPTION_READ_BLOCK)) {
+      if (process.env.OPTION_READ_ENTERED) {
+        const temporary = `${process.env.OPTION_READ_ENTERED}.${process.pid}`
+        writeFileSync(temporary, JSON.stringify({ pid: process.pid, counter }))
+        renameSync(temporary, process.env.OPTION_READ_ENTERED)
+      }
+      return
+    }
     const sessionId = `controls-${process.pid}-${++counter}`
     const state = { effort: 'low', thinking: false }
     sessions.set(sessionId, state)
