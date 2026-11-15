@@ -1,6 +1,6 @@
 {
-  "productionCommit": "e500b86d23d5a03255a3b00ebea999d97c78d323",
-  "productionTree": "edf3dc7fcb8d868920c32cb70a21e855b18eed2b",
+  "productionCommit": "6d9ef174c0c9ccb41a50112d1fa9b5c4e4dc917e",
+  "productionTree": "9e03cb026ff2ce0d50070ae3a569b7e2edde9dbf",
   "priorFixtureBase": "bdff0b1169289b67cdbb9ea138f45d6dd7b46fe4",
   "productionFixtureSha256": {
     "fake-codex.mjs": "f4d8fcb27e24a3e871dd5660030e4c0fbd718bc429952e98970de81f43e7b1d1",

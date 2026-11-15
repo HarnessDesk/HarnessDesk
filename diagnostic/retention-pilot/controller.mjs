@@ -9,7 +9,7 @@ import { compareReceipt, compareSnapshot } from './receipt-diagnostics.mjs'
 import { listenerCounts } from './listener-diagnostics.mjs'
 
 const taskSource = resolve('.')
-const taskSha = 'e500b86d23d5a03255a3b00ebea999d97c78d323'
+const taskSha = '6d9ef174c0c9ccb41a50112d1fa9b5c4e4dc917e'
 const sha = path => createHash('sha256').update(readFileSync(path)).digest('hex')
 const git = (...args) => execFileSync('git', ['-C',taskSource,...args], {encoding:'utf8'}).trim()
 if (process.platform !== 'darwin' || process.env.GITHUB_ACTIONS !== 'true' || process.env.RUNNER_ENVIRONMENT !== 'github-hosted') throw new Error('hosted macOS runner required')
