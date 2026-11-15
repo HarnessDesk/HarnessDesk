@@ -8,6 +8,7 @@ import { initialLeadState, reduceLeadBudget, summarizeLeadArguments, type LeadSt
 import { leadMessageEnvelope, leadMessageKey, parseLeadAcceptanceContract, type UserContent, runtimeId, sessionId, type SessionSummary } from '@harnessdesk/protocol'
 import { LEAD_CHAT_HELD, type LeadChatsPorts } from '../src/lead/chats.js'
 import { SessionIndex } from '../src/session-index.js'
+import { LeadPresenceStore } from '../src/lead/presence.js'
 
 const modulePath = '../src/lead/chats.js'
 const rig = async (t: TestContext, recovery = false) => {
@@ -115,6 +116,31 @@ test('while the question is open the Lead sends nothing into a chat either, and 
   open = null
   r.authorize('lead/chat/send', params)
   assert.deepEqual(await r.service.send(params), { queued: true })
+})
+
+test('#2080: the presence hold reaches both chat gates and a new request releases them', async t => {
+  const r = await rig(t); r.row('own')
+  const request = { id: 'request', role: 'user', text: 'Fix the game' }
+  const question = { id: 'question', role: 'assistant', text: 'Which?', ask: { question: 'Which?', options: [{ id: 'a', label: 'The game' }, { id: 'b', label: 'Wait' }], recommended: 'a' } }
+  let messages = [request, question]
+  const presence = new LeadPresenceStore({ file: join(r.root, 'presence.json'), now: () => 100, spent: () => 0, revision: () => 0,
+    board: async () => ({ version: 1, items: [], more: 0 }), waiting: () => [], messages: () => messages,
+    quiet: async () => false, name: () => 'Dex' })
+  await presence.observe()
+  ;(r.ports as { askHoldingChatStart?: () => ReturnType<typeof presence.askHoldingChatStart> }).askHoldingChatStart = () => presence.askHoldingChatStart()
+  messages = [request, question, { id: 'repeat', role: 'user', text: 'Fix the game!!! come on' }]
+  const start = { text: 'Fix the game' }, send = { id: 'fixture:own', text: 'Fix the game' }
+  r.authorize('lead/chat/start', start)
+  assert.match((await r.service.start(start)).problem!, /still open/)
+  r.authorize('lead/chat/send', send)
+  await assert.rejects(r.service.send(send), (error: Error & { wireCode?: string }) => error.wireCode === 'leadAskOpen')
+  assert.equal(r.calls.filter(call => call.method === 'start' || call.method === 'send').length, 0)
+  messages = [request, question, { id: 'new', role: 'user', text: 'Fix the game tomorrow' }]
+  assert.equal(presence.openAsk()?.id, 'question', 'the question remains open on the person’s surfaces')
+  r.authorize('lead/chat/start', start)
+  assert.equal((await r.service.start(start)).id, 'fixture:created')
+  r.authorize('lead/chat/send', send)
+  assert.deepEqual(await r.service.send(send), { queued: true })
 })
 
 test('Lead lists only canonical project ordinary sessions and reads no foreign, Team or removed session', async t => {
