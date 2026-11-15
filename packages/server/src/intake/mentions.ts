@@ -4,12 +4,12 @@ import { basename, join } from 'node:path'
 
 import {
   TRIGGER_DECISIONS_KEPT, TRIGGER_THREADS_KEPT,
-  type PhoneTriageRow, type TriggerDecision, type TriggerDecisionsPage, type TriggerDefinition, type TriggerFact, type TriggerMode,
-  type TriggerRuleCheck, type TriggerTriage, type TriggerWorkThread,
+  type PhoneTriageRow, type PhoneUnconfirmedStop, type TriggerDecision, type TriggerDecisionsPage, type TriggerDefinition, type TriggerFact, type TriggerMode,
+  type TriggerRuleCheck, type TriggerStopProgress, type TriggerTriage, type TriggerUnconfirmedStop, type TriggerWorkThread,
 } from '@harnessdesk/protocol'
 
 import { Serial } from '../goals/assignments.js'
-import { atomicJson } from '../goals/store.js'
+import { atomicJson, GOAL_DOCUMENT_LIMIT } from '../goals/store.js'
 import { leadContainsSecret } from '../lead/secrets.js'
 import type { OfferAnswer } from './admission.js'
 import type { ArmedTrigger } from './consent.js'
@@ -189,26 +189,144 @@ interface StoredDecision extends TriggerDecision {
   readonly closedFiring?: string
 }
 
-interface LedgerFile {
+/** Private durable authority for one comment, including the original scope and exact receipts. */
+interface StopIntent {
   readonly version: 1
+  readonly id: string
+  readonly key: { readonly project: string; readonly trigger: string; readonly repository: string; readonly comment: string }
+  readonly bodyDigest: string
+  readonly threadId: string
+  readonly thread: TriggerDecision['thread']
+  readonly author: string | null
+  readonly excerpt: string
+  readonly url: string
+  readonly createdAt: number
+  readonly state: 'inFlight' | 'unconfirmed' | 'reviewed' | 'consumed'
+  readonly decisionId: string | null
+  readonly goals: readonly string[]
+  readonly firings: readonly string[]
+  readonly queuedTargets: readonly string[]
+  readonly runTargets: readonly string[]
+  readonly interruptTargets: readonly string[]
+  readonly leadRunTargets: readonly string[]
+  readonly leadPlanTarget: string | null
+  readonly receipts: { readonly queued: readonly string[]; readonly runs: readonly string[]; readonly interrupts: readonly string[];
+    readonly leadRuns: readonly string[]; readonly leadPlan: boolean }
+}
+
+interface LedgerFile {
+  readonly version: 1 | 2
   readonly decisions: readonly StoredDecision[]
   readonly threads: readonly StoredThread[]
   /** Authority retained only while one of these exact firings is pending. */
   readonly pendingThreads: readonly PendingThread[]
+  readonly stopIntents: readonly StopIntent[]
   readonly modes: Readonly<Record<string, { readonly mode: TriggerMode; readonly armedAt: number }>>
   readonly assessed: { readonly day: string; readonly count: number }
 }
 
-const EMPTY: LedgerFile = { version: 1, decisions: [], threads: [], pendingThreads: [], modes: {}, assessed: { day: '', count: 0 } }
+const EMPTY: LedgerFile = { version: 1, decisions: [], threads: [], pendingThreads: [], stopIntents: [], modes: {}, assessed: { day: '', count: 0 } }
 
 const isMap = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 
+const stopKey = (key: StopIntent['key']): string => JSON.stringify([key.project, key.trigger, key.repository, key.comment])
+const stopId = (key: StopIntent['key']): string => `u-${createHash('sha256').update(stopKey(key)).digest('hex')}`
+const exactKeys = (value: Record<string, unknown>, keys: readonly string[]): boolean =>
+  Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key))
+const boundedText = (value: unknown, max: number): value is string => typeof value === 'string' && value.length > 0 && value.length <= max && !/[\u0000-\u001f\u007f]/.test(value)
+const boundedIds = (value: unknown): value is string[] => Array.isArray(value) && value.length <= FIRING_LIMIT &&
+  value.every(one => boundedText(one, 4096)) && new Set(value).size === value.length
+const queuedTargetKey = (value: string, project: string, trigger: string): string | null => {
+  try {
+    const target: unknown = JSON.parse(value)
+    if (!Array.isArray(target) || target.length !== 8 || !/^[0-9a-f]{64}$/.test(String(target[0])) ||
+      !Number.isSafeInteger(target[1]) || target[1] < 0 || target[2] !== project || target[3] !== trigger ||
+      !boundedText(target[4], 4096) || !boundedText(target[5], 4096) || !['start', 'again', 'record'].includes(target[6]) ||
+      !Number.isSafeInteger(target[7]) || target[7] < 0 || JSON.stringify(target) !== value) return null
+    return target[0]
+  } catch { return null }
+}
+const safeStopUrl = (value: unknown): value is string => {
+  if (!boundedText(value, 2048)) return false
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' && !!url.hostname && !url.username && !url.password && !leadContainsSecret(value)
+  } catch { return false }
+}
+
+const isStopIntent = (value: unknown): value is StopIntent => {
+  if (!isMap(value) || !exactKeys(value, ['version', 'id', 'key', 'bodyDigest', 'threadId', 'thread', 'author', 'excerpt', 'url', 'createdAt', 'state', 'decisionId', 'goals', 'firings', 'queuedTargets', 'runTargets', 'interruptTargets', 'leadRunTargets', 'leadPlanTarget', 'receipts']) ||
+    value.version !== 1 || !isMap(value.key) || !exactKeys(value.key, ['project', 'trigger', 'repository', 'comment']) ||
+    !boundedText(value.key.project, 4096) || !boundedText(value.key.trigger, 256) || !boundedText(value.key.repository, 512) ||
+    typeof value.key.comment !== 'string' || !/^[1-9][0-9]{0,18}$/.test(value.key.comment) ||
+    value.key.repository !== value.key.repository.toLowerCase() || value.id !== stopId(value.key as unknown as StopIntent['key']) || typeof value.bodyDigest !== 'string' || !/^[0-9a-f]{64}$/.test(value.bodyDigest) ||
+    !boundedText(value.threadId, 256) || !isMap(value.thread) || !exactKeys(value.thread, ['kind', 'number']) ||
+    !['issue', 'pull-request'].includes(String(value.thread.kind)) || !Number.isSafeInteger(value.thread.number) || (value.thread.number as number) < 1 ||
+    !(value.author === null || boundedText(value.author, 256) && !leadContainsSecret(value.author)) || typeof value.excerpt !== 'string' || value.excerpt.length > EXCERPT ||
+    leadContainsSecret(value.excerpt) || !safeStopUrl(value.url) || commentId(value.url) !== value.key.comment ||
+    !Number.isSafeInteger(value.createdAt) || (value.createdAt as number) < 0 ||
+    !['inFlight', 'unconfirmed', 'reviewed', 'consumed'].includes(String(value.state)) ||
+    !(value.decisionId === null || boundedText(value.decisionId, 256)) || (value.state === 'consumed') !== (value.decisionId !== null) ||
+    !boundedIds(value.goals) || !boundedIds(value.firings) || !boundedIds(value.queuedTargets) || !boundedIds(value.runTargets) || !boundedIds(value.interruptTargets) || !boundedIds(value.leadRunTargets) ||
+    !(value.leadPlanTarget === null || boundedText(value.leadPlanTarget, 4096)) ||
+    !isMap(value.receipts) || !exactKeys(value.receipts, ['queued', 'runs', 'interrupts', 'leadRuns', 'leadPlan']) ||
+    !boundedIds(value.receipts.queued) || !boundedIds(value.receipts.runs) || !boundedIds(value.receipts.interrupts) ||
+    !boundedIds(value.receipts.leadRuns) || typeof value.receipts.leadPlan !== 'boolean') return false
+  const identity = value.key as { project: string; trigger: string }
+  return (!value.receipts.leadPlan || value.leadPlanTarget !== null) && (value.queuedTargets as string[]).every(one => {
+    const key = queuedTargetKey(one, identity.project, identity.trigger)
+    return key !== null && (value.firings as string[]).includes(key)
+  }) &&
+    value.receipts.queued.every(one => (value.queuedTargets as string[]).includes(one)) &&
+    value.receipts.runs.every(one => (value.runTargets as string[]).includes(one)) &&
+    value.receipts.interrupts.every(one => (value.interruptTargets as string[]).includes(one)) &&
+    value.receipts.leadRuns.every(one => (value.leadRunTargets as string[]).includes(one))
+}
+
+/** One protected stop and its ordinary success row occupy one history slot. */
+const historySlots = (decisions: readonly StoredDecision[], stops: readonly StopIntent[]): number => {
+  const linked = new Set(stops.flatMap(one => one.decisionId ? [one.decisionId] : []))
+  return stops.length + decisions.filter(one => !linked.has(one.id)).length
+}
+
+const stopProgress = (stop: StopIntent): TriggerStopProgress => ({
+  queuedCancelled: stop.receipts.queued.length, runsMarkedStopped: stop.receipts.runs.length,
+  interruptRequestsIssued: stop.receipts.interrupts.length, leadRunsMarkedStopped: stop.receipts.leadRuns.length,
+  leadPlanStopped: stop.receipts.leadPlan,
+})
+
+const publicStop = (stop: StopIntent): TriggerUnconfirmedStop => {
+  if (stop.state === 'consumed') throw new Error('A consumed stop is not an uncertainty row.')
+  const progress = stopProgress(stop)
+  const summary = `${progress.queuedCancelled} queued cancelled; ${progress.runsMarkedStopped} runs marked stopped; ` +
+    `${progress.interruptRequestsIssued} interrupt requests issued; ${progress.leadRunsMarkedStopped} Lead runs marked stopped; ` +
+    `Lead plan ${progress.leadPlanStopped ? 'marked stopped' : 'not confirmed stopped'}. Check the work before taking further action.`
+  return { id: stop.id, trigger: stop.key.trigger, project: stop.key.project, repository: stop.key.repository,
+    thread: stop.thread, author: stop.author, excerpt: stop.excerpt, url: stop.url, createdAt: stop.createdAt,
+    state: stop.state, progress, summary }
+}
+
 /** The file as the host wrote it, or null: what is not exactly that is never trusted, and never overwritten. */
 const ledgerOf = (value: unknown): LedgerFile | null => {
-  if (!isMap(value) || value['version'] !== 1 || !Array.isArray(value['decisions']) || !Array.isArray(value['threads']) || !isMap(value['modes']) || !isMap(value['assessed'])) return null
+  if (!isMap(value) || (value['version'] !== 1 && value['version'] !== 2) || !Array.isArray(value['decisions']) || !Array.isArray(value['threads']) || !isMap(value['modes']) || !isMap(value['assessed'])) return null
   const decisions = value['decisions'].filter((one): one is StoredDecision =>
     isMap(one) && typeof one['id'] === 'string' && typeof one['trigger'] === 'string' && typeof one['project'] === 'string' && TRIAGES.has(String(one['decision'])) &&
     isMap(one['comment']) && isMap(one['thread']) && Array.isArray(one['rules']))
+  const storedStops = value['stopIntents'] ?? []
+  if (!Array.isArray(storedStops) || storedStops.length > TRIGGER_DECISIONS_KEPT ||
+    Buffer.byteLength(JSON.stringify(storedStops)) > GOAL_DOCUMENT_LIMIT || !storedStops.every(isStopIntent) ||
+    storedStops.some(one => Buffer.byteLength(JSON.stringify(one)) > 1024 * 1024)) return null
+  const stopIntents = storedStops as StopIntent[]
+  if (value['version'] === 1 && stopIntents.length > 0) return null
+  if (new Set(stopIntents.map(one => stopKey(one.key))).size !== stopIntents.length ||
+    new Set(stopIntents.map(one => one.id)).size !== stopIntents.length ||
+    new Set(stopIntents.flatMap(one => one.decisionId ? [one.decisionId] : [])).size !== stopIntents.filter(one => one.decisionId).length ||
+    historySlots(decisions, stopIntents) > TRIGGER_DECISIONS_KEPT) return null
+  for (const stop of stopIntents) {
+    const decision = decisions.find(one => one.id === stop.decisionId)
+    if (decision && (decision.decision !== 'stop' || decision.project !== stop.key.project || decision.trigger !== stop.key.trigger ||
+      decision.repository.toLowerCase() !== stop.key.repository || decision.comment.id !== stop.key.comment)) return null
+  }
   const isThread = (one: unknown): one is StoredThread =>
     isMap(one) && typeof one['id'] === 'string' && isMap(one['links']) && Array.isArray(one['firings']) && Array.isArray(one['seen']) && isMap(one['origin'])
   if (value['threads'].some(one => isMap(one) && one['issueClosed'] !== undefined && typeof one['issueClosed'] !== 'boolean')) return null
@@ -240,7 +358,7 @@ const ledgerOf = (value: unknown): LedgerFile | null => {
   }
   const assessed = value['assessed']
   return {
-    version: 1, decisions, threads, pendingThreads, modes,
+    version: value['version'] as 1 | 2, decisions, threads, pendingThreads, stopIntents, modes,
     assessed: typeof assessed['day'] === 'string' && Number.isSafeInteger(assessed['count']) ? { day: assessed['day'], count: assessed['count'] as number } : EMPTY.assessed,
   }
 }
@@ -248,6 +366,17 @@ const ledgerOf = (value: unknown): LedgerFile | null => {
 const modeKey = (project: string, trigger: string): string => `${project}\u0000${trigger}`
 
 // -------------------------------------------------------------------- port
+
+/** Opaque exact operation targets captured before the first effect. */
+export interface MentionStopPlan {
+  readonly queuedTargets: readonly string[]
+  readonly runTargets: readonly string[]
+  readonly interruptTargets: readonly string[]
+  readonly leadRunTargets: readonly string[]
+  readonly leadPlanTarget: string | null
+}
+export type MentionStopReceipt = { readonly kind: 'queued' | 'run' | 'interrupt' | 'leadRun'; readonly target: string } |
+  { readonly kind: 'leadPlan'; readonly target: string }
 
 export interface MentionPort {
   /** The desk's state folder. */
@@ -269,6 +398,11 @@ export interface MentionPort {
    * How many runs of each it stopped, and whether the Lead's plan was stopped.
    */
   stop(work: { readonly goals: readonly string[]; readonly firings: readonly string[]; readonly comment: string }, why: string): Promise<{ readonly own: number; readonly lead: number; readonly plan: boolean; readonly queued: number }>
+  /** Planning is read-only; every exact target is durably frozen before stopOnce runs. */
+  planStop?(work: { readonly goals: readonly string[]; readonly firings: readonly string[]; readonly comment: string }): Promise<MentionStopPlan>
+  /** The one-shot path must await each receipt before beginning the next effect. */
+  stopOnce?(work: { readonly goals: readonly string[]; readonly firings: readonly string[]; readonly comment: string }, why: string,
+    plan: MentionStopPlan, receipt: (value: MentionStopReceipt) => Promise<void>, stop: string): Promise<{ readonly complete: boolean }>
   /** Exact Lead firing keys still pending in the bounded admission journal. */
   pendingFirings(): readonly string[]
   /** Every lifetime firing must still have its durable admission tombstone. */
@@ -305,9 +439,12 @@ interface Verdict {
 export class MentionTriage {
   readonly #port: MentionPort
   readonly #file: string
+  readonly #capacityFile: string
   readonly #serial = new Serial()
   #ledger: LedgerFile | null = null
+  #loading: Promise<LedgerFile> | null = null
   #problem: string | null = null
+  #capacityAlerts: { readonly all: boolean; readonly triggers: readonly { readonly project: string; readonly trigger: string }[] } = { all: false, triggers: [] }
   /** Who-may-ask answers from the forge, by question, with when they were read. */
   readonly #accounts = new Map<string, { readonly answer: boolean; readonly at: number }>()
   /** Observed-open firings expire at the existing mention sweep interval. */
@@ -320,6 +457,7 @@ export class MentionTriage {
   constructor(port: MentionPort) {
     this.#port = port
     this.#file = join(port.home, FILE)
+    this.#capacityFile = join(port.home, 'triggers-stop-capacity.json')
   }
 
   /** Why mentions are judged nowhere on this desk now — a decisions file that is not the desk's own — or null. */
@@ -327,6 +465,29 @@ export class MentionTriage {
 
   async #read(): Promise<LedgerFile> {
     if (this.#ledger) return this.#ledger
+    if (this.#loading) return this.#loading
+    const loading = this.#load()
+    this.#loading = loading
+    try { return await loading } finally { if (this.#loading === loading) this.#loading = null }
+  }
+
+  async #load(): Promise<LedgerFile> {
+    try {
+      const text = await readFile(this.#capacityFile, 'utf8')
+      if (Buffer.byteLength(text) > 1024 * 1024) throw new Error('capacity-limit')
+      const value: unknown = JSON.parse(text)
+      if (!isMap(value) || !exactKeys(value, ['version', 'all', 'triggers']) || value.version !== 1 || typeof value.all !== 'boolean' ||
+        !Array.isArray(value.triggers) || value.triggers.length > TRIGGER_DECISIONS_KEPT || !value.triggers.every(one =>
+          isMap(one) && exactKeys(one, ['project', 'trigger']) && boundedText(one.project, 4096) && boundedText(one.trigger, 256))) throw new Error('capacity-invalid')
+      const triggers = value.triggers as { project: string; trigger: string }[]
+      if (new Set(triggers.map(one => modeKey(one.project, one.trigger))).size !== triggers.length) throw new Error('capacity-duplicate')
+      this.#capacityAlerts = { all: value.all, triggers }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        this.#problem = 'Stop history could not be read safely, so mentions wait until a person looks at it.'
+        throw error
+      }
+    }
     let text: string
     try {
       text = await readFile(this.#file, 'utf8')
@@ -337,6 +498,10 @@ export class MentionTriage {
       }
       throw error
     }
+    if (Buffer.byteLength(text) > GOAL_DOCUMENT_LIMIT) {
+      this.#problem = 'The mention decisions on this desk could not be read, so mentions wait until a person looks at it.'
+      throw new Error(this.#problem)
+    }
     let parsed: unknown = null
     try {
       parsed = JSON.parse(text)
@@ -346,8 +511,23 @@ export class MentionTriage {
       this.#problem = 'The mention decisions on this desk could not be read, so mentions wait until a person looks at it.'
       throw new Error(this.#problem)
     }
+    const recovering = ledger.stopIntents.some(one => one.state === 'inFlight')
+    const recovered: LedgerFile = recovering ? { ...ledger, stopIntents: ledger.stopIntents.map(one =>
+      one.state === 'inFlight' ? { ...one, state: 'unconfirmed' } : one) } : ledger
+    if (recovering) {
+      try { await atomicJson(this.#file, recovered) } catch (error) {
+        this.#problem = 'A stop could not be recovered safely, so mentions wait until a person looks at it.'
+        throw error
+      }
+    }
     this.#problem = null
-    return (this.#ledger = ledger)
+    this.#ledger = recovered
+    if (recovering) {
+      for (const project of new Set(ledger.stopIntents.filter(one => one.state === 'inFlight').map(one => one.key.project))) {
+        this.#port.changed(project)
+      }
+    }
+    return recovered
   }
 
   async #write(next: LedgerFile): Promise<void> {
@@ -359,16 +539,31 @@ export class MentionTriage {
       const pendingFirings = thread.firings.filter(key => pending.has(key))
       if (pendingFirings.length) anchors.set(thread.id, { ...thread, pendingFirings })
     }
+    const decisions = [...next.decisions]
+    const linked = new Set(next.stopIntents.flatMap(one => one.decisionId ? [one.decisionId] : []))
+    while (historySlots(decisions, next.stopIntents) > TRIGGER_DECISIONS_KEPT) {
+      const index = decisions.findIndex(one => !linked.has(one.id))
+      if (index < 0) throw new Error('Stop history is full. Stop work directly before taking further action.')
+      decisions.splice(index, 1)
+    }
     const trimmed: LedgerFile = {
       ...next,
+      version: next.version === 2 || next.stopIntents.length > 0 ? 2 : 1,
       pendingThreads: [...anchors.values()],
-      decisions: next.decisions.slice(-TRIGGER_DECISIONS_KEPT),
+      decisions,
       threads: next.threads.length > TRIGGER_THREADS_KEPT
         // Closed ones go first, then the oldest open.
         ? [...next.threads.filter((one) => one.state === 'closed'), ...next.threads.filter((one) => one.state === 'open')].slice(-TRIGGER_THREADS_KEPT)
         : next.threads,
     }
-    await atomicJson(this.#file, trimmed)
+    if (!ledgerOf(trimmed)) throw new Error('The mention decisions could not be saved safely.')
+    try { await atomicJson(this.#file, trimmed) } catch (error) {
+      // A failed write can be ambiguous at the rename boundary. Re-read and
+      // recover from disk before any later effect, never from stale memory.
+      this.#ledger = null
+      this.#problem = 'The mention decisions could not be saved safely, so mentions wait until a person looks at it.'
+      throw error
+    }
     this.#ledger = trimmed
   }
 
@@ -412,7 +607,163 @@ export class MentionTriage {
       mode: arm ? this.#modeOf(ledger, arm) : 'observe',
       decisions: ledger.decisions.filter((one) => one.project === project && one.trigger === trigger).reverse().map(publicDecision),
       threads: ledger.threads.filter((one) => one.project === project && one.trigger === trigger).reverse().map(publicThread),
+      unconfirmedStops: ledger.stopIntents.filter(one => one.key.project === project && one.key.trigger === trigger && one.state !== 'consumed')
+        .sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id)).map(publicStop),
+      stopHistoryFull: this.#capacityAlerts.all || this.#capacityAlerts.triggers.some(one => one.project === project && one.trigger === trigger) || ledger.stopIntents.length >= TRIGGER_DECISIONS_KEPT,
     }
+  }
+
+  /** Discover protected history even after its declaration disappears or changes kind. */
+  async retainedStops(project: string, currentMentionIds: readonly string[]) {
+    const ledger = await this.#read()
+    const current = new Set(currentMentionIds)
+    // Keep every protected record reachable first; a surplus of marker-only
+    // rows collapses into the project-level capacity attention.
+    const ids = new Set(ledger.stopIntents.filter(one => one.key.project === project && one.state !== 'consumed' && !current.has(one.key.trigger)).map(one => one.key.trigger))
+    let markersOmitted = false
+    for (const marker of this.#capacityAlerts.triggers) {
+      if (marker.project !== project || current.has(marker.trigger) || ids.has(marker.trigger)) continue
+      if (ids.size >= TRIGGER_DECISIONS_KEPT) markersOmitted = true
+      else ids.add(marker.trigger)
+    }
+    const stopHistoryFull = this.#capacityAlerts.all || markersOmitted || ledger.stopIntents.length >= TRIGGER_DECISIONS_KEPT
+    return {
+      stopHistoryFull,
+      retainedStopTriggers: [...ids].sort().map(id => ({
+        id,
+        unconfirmedStops: ledger.stopIntents.filter(one => one.key.project === project && one.key.trigger === id && one.state !== 'consumed')
+          .sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id)).map(publicStop),
+        stopHistoryFull: stopHistoryFull || this.#capacityAlerts.triggers.some(one => one.project === project && one.trigger === id),
+      })),
+    }
+  }
+
+  async phoneStops(limit: number): Promise<{ readonly unconfirmedStops: readonly PhoneUnconfirmedStop[]; readonly unconfirmedStopsMore: number }> {
+    const ledger = await this.#read()
+    const stops = ledger.stopIntents.filter(one => one.state !== 'consumed')
+      .sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id))
+    return { unconfirmedStops: stops.slice(0, limit).map(one => ({ ...publicStop(one), project: basename(one.key.project) })),
+      unconfirmedStopsMore: Math.max(0, stops.length - limit) }
+  }
+
+  async #stopReceipt(id: string, receipt: MentionStopReceipt): Promise<void> {
+    const ledger = await this.#read()
+    const stop = ledger.stopIntents.find(one => one.id === id)
+    if (!stop || stop.state !== 'inFlight') throw new Error('The stop attempt is no longer current.')
+    const receipts = stop.receipts
+    let next: StopIntent['receipts']
+    if (receipt.kind === 'leadPlan') {
+      if (stop.leadPlanTarget !== receipt.target) throw new Error('The Lead stop target changed.')
+      next = { ...receipts, leadPlan: true }
+    } else {
+      const field = receipt.kind === 'queued' ? 'queued' : receipt.kind === 'run' ? 'runs' : receipt.kind === 'interrupt' ? 'interrupts' : 'leadRuns'
+      const targets = receipt.kind === 'queued' ? stop.queuedTargets : receipt.kind === 'run' ? stop.runTargets : receipt.kind === 'interrupt' ? stop.interruptTargets : stop.leadRunTargets
+      if (!targets.includes(receipt.target)) throw new Error('The stop operation was not in its frozen scope.')
+      next = { ...receipts, [field]: receipts[field].includes(receipt.target) ? receipts[field] : [...receipts[field], receipt.target] }
+    }
+    await this.#write({ ...ledger, stopIntents: ledger.stopIntents.map(one => one.id === id ? { ...one, receipts: next } : one) })
+  }
+
+  async #raiseCapacity(stop: StopIntent): Promise<never> {
+    const alert = { project: stop.key.project, trigger: stop.key.trigger }
+    const alerts = this.#capacityAlerts
+    if (!alerts.all && !alerts.triggers.some(one => one.project === alert.project && one.trigger === alert.trigger)) {
+      const candidate = { all: false, triggers: [...alerts.triggers, alert] }
+      const next = alerts.triggers.length >= TRIGGER_DECISIONS_KEPT || Buffer.byteLength(JSON.stringify({ version: 1, ...candidate })) > 1024 * 1024
+        ? { all: true, triggers: [] } : candidate
+      try { await atomicJson(this.#capacityFile, { version: 1, ...next }) } catch (error) {
+        this.#ledger = null
+        this.#problem = 'Stop history could not be saved safely, so mentions wait until a person looks at it.'
+        throw error
+      }
+      this.#capacityAlerts = next
+    }
+    this.#port.changed(stop.key.project)
+    throw new Error('Stop history cannot safely hold this request. Stop the work directly before taking further action.')
+  }
+
+  async #reserveStop(ledger: LedgerFile, stop: StopIntent): Promise<void> {
+    if (ledger.stopIntents.length >= TRIGGER_DECISIONS_KEPT) {
+      return this.#raiseCapacity(stop)
+    }
+    const worst: StopIntent = { ...stop, state: 'unconfirmed', receipts: { queued: stop.queuedTargets, runs: stop.runTargets,
+      interrupts: stop.interruptTargets, leadRuns: stop.leadRunTargets, leadPlan: stop.leadPlanTarget !== null } }
+    const stops = [...ledger.stopIntents, worst]
+    // Reserve space for a later ordinary success row as well as every receipt.
+    if (!isStopIntent(worst) || Buffer.byteLength(JSON.stringify(worst)) > 1024 * 1024 ||
+      Buffer.byteLength(JSON.stringify({ ...ledger, stopIntents: stops })) + 16 * 1024 > GOAL_DOCUMENT_LIMIT) {
+      return this.#raiseCapacity(stop)
+    }
+  }
+
+  async #attemptStop(arm: ArmedTrigger, fact: TriggerFact, thread: StoredThread, comment: string,
+    allowed: TriggerRuleCheck, handle: string): Promise<void> {
+    const url = fact.url ?? ''
+    const key = { project: arm.project, trigger: arm.id, repository: (fact.repository ?? '').toLowerCase(), comment }
+    const work = { goals: [...new Set(thread.links.goals)], firings: [...new Set(thread.firings)], comment: url }
+    let plan: MentionStopPlan | null = null
+    const author = fact.login && boundedText(fact.login, 256) && !leadContainsSecret(fact.login) ? fact.login : null
+    let stop!: StopIntent
+    await this.#port.closeThread(async () => {
+      try { plan = await this.#port.planStop?.(work) ?? null } catch { /* No effect was started; retain the uncertainty. */ }
+      stop = { version: 1, id: stopId(key), key, bodyDigest: bodyDigest(fact.body ?? ''), threadId: thread.id,
+        thread: { kind: fact.thread ?? 'issue', number: Number(fact.subject) }, author, excerpt: excerptOf(fact.body ?? ''), url,
+        createdAt: this.#port.now(), state: 'inFlight', decisionId: null, goals: work.goals, firings: work.firings,
+        queuedTargets: plan?.queuedTargets ?? [], runTargets: plan?.runTargets ?? [], interruptTargets: plan?.interruptTargets ?? [], leadRunTargets: plan?.leadRunTargets ?? [],
+        leadPlanTarget: plan?.leadPlanTarget ?? null, receipts: { queued: [], runs: [], interrupts: [], leadRuns: [], leadPlan: false } }
+      const before = await this.#read()
+      await this.#reserveStop(before, stop)
+      const fence = (one: StoredThread): StoredThread => one.id !== thread.id ? one : { ...one, state: 'closed',
+        closed: { reason: 'closed', at: this.#port.now() }, seen: remember(one.seen, comment) }
+      await this.#write({ ...before, stopIntents: [...before.stopIntents, stop], threads: before.threads.map(fence),
+        pendingThreads: before.pendingThreads.map(one => ({ ...fence(one), pendingFirings: one.pendingFirings })) })
+    })
+    this.#port.changed(arm.project)
+
+    let complete = false
+    if (plan && this.#port.stopOnce) {
+      try { complete = (await this.#port.stopOnce(work, STOPPED, plan, receipt => this.#stopReceipt(stop.id, receipt), stop.id)).complete } catch { /* The saved receipts are the only claims we can make. */ }
+    }
+    const ledger = await this.#read()
+    const current = ledger.stopIntents.find(one => one.id === stop.id)
+    if (!current || current.state !== 'inFlight') throw new Error('The stop attempt is no longer current.')
+    const counts = stopProgress(current)
+    const acted = counts.queuedCancelled > 0 || counts.runsMarkedStopped > 0 || counts.interruptRequestsIssued > 0 ||
+      counts.leadRunsMarkedStopped > 0 || counts.leadPlanStopped
+    const closed = (one: StoredThread): StoredThread => one.id !== thread.id ? one : { ...one, state: 'closed',
+      closed: { reason: acted ? 'stopped' : 'closed', at: this.#port.now() }, seen: remember(one.seen, comment) }
+    if (!complete) {
+      await this.#write({ ...ledger, stopIntents: ledger.stopIntents.map(one => one.id === stop.id ? { ...one, state: 'unconfirmed' } : one),
+        threads: ledger.threads.map(closed), pendingThreads: ledger.pendingThreads.map(one => ({ ...closed(one), pendingFirings: one.pendingFirings })) })
+      this.#port.changed(arm.project)
+      return
+    }
+    const parts = stoppedParts({ own: counts.runsMarkedStopped, lead: counts.leadRunsMarkedStopped, plan: counts.leadPlanStopped })
+    const asked = `Asked by ${author ?? 'someone allowed'} to stop the work on ${threadWords(thread.origin.kind, thread.origin.number)}.`
+    const reason = parts.length ? `${asked} ${listWords(parts)} ${parts.length === 1 && counts.runsMarkedStopped + counts.leadRunsMarkedStopped <= 1 ? 'was' : 'were'} stopped, and the thread is closed.`
+      : `${asked} nothing of its work was running, so nothing was stopped; the thread is closed.`
+    const decision: StoredDecision = { id: `d-${digest([arm.project, arm.id, comment])}`, trigger: arm.id, project: arm.project,
+      repository: fact.repository ?? '', thread: stop.thread, comment: { id: comment, url, at: fact.at, author, excerpt: stop.excerpt },
+      commentDigest: stop.bodyDigest, decision: 'stop', reason, by: 'rules', rules: [
+        { id: 'addressed', passed: true, detail: `Addresses @${handle}.` }, allowed, { id: 'stop-word', passed: true, detail: 'Asks the work on this thread to stop.' },
+      ], mode: 'act', acted, work: thread.id, decidedAt: this.#port.now(), evaluations: 0 }
+    await this.#write({ ...ledger, decisions: [...ledger.decisions.filter(one => one.id !== decision.id), decision],
+      stopIntents: ledger.stopIntents.map(one => one.id === stop.id ? { ...one, state: 'consumed', decisionId: decision.id } : one),
+      threads: ledger.threads.map(closed), pendingThreads: ledger.pendingThreads.map(one => ({ ...closed(one), pendingFirings: one.pendingFirings })) })
+    this.#port.changed(arm.project)
+  }
+
+  reviewStop(project: string, trigger: string, id: string): Promise<TriggerUnconfirmedStop> {
+    return this.#serial.run(async () => {
+      const ledger = await this.#read()
+      const stop = ledger.stopIntents.find(one => one.id === id && one.key.project === project && one.key.trigger === trigger)
+      if (!stop || stop.state === 'consumed' || stop.state === 'inFlight') throw Object.assign(new Error('That stop cannot be reviewed.'), { code: 'HD_TRIGGER_REFUSED' })
+      if (stop.state === 'reviewed') return publicStop(stop)
+      const reviewed: StopIntent = { ...stop, state: 'reviewed' }
+      await this.#write({ ...ledger, stopIntents: ledger.stopIntents.map(one => one.id === id ? reviewed : one) })
+      this.#port.changed(project)
+      return publicStop(reviewed)
+    })
   }
 
   /** Every decision on this desk, newest first, as the phone shows it: a project by its folder name, never a path. */
@@ -431,8 +782,9 @@ export class MentionTriage {
   }
 
   /** Check without taking the mention queue: admission is to its right. */
-  async closedFiring(key: string): Promise<'open' | 'unverified' | 'unknown' | 'unrecorded' | 'recorded'> {
+  async closedFiring(key: string): Promise<'open' | 'unverified' | 'unknown' | 'unrecorded' | 'recorded' | 'protected'> {
     const ledger = await this.#read()
+    if (ledger.stopIntents.some(one => one.state !== 'consumed' && one.firings.includes(key))) return 'protected'
     if (ledger.decisions.some(one => one.closedFiring === key)) return 'recorded'
     const thread = [...ledger.pendingThreads, ...ledger.threads].find(one => one.firings.includes(key))
     if (!thread) return 'unknown'
@@ -494,13 +846,17 @@ export class MentionTriage {
       const id = commentId(fact.url ?? '')
       if (!id) return
       let ledger = await this.#read()
+      const identity = { project: arm.project, trigger: arm.id, repository: (fact.repository ?? '').toLowerCase(), comment: id }
+      if (ledger.stopIntents.some(one => stopKey(one.key) === stopKey(identity))) return
       if (ledger.decisions.some((one) => one.project === arm.project && one.trigger === arm.id && one.comment.id === id)) return
       const handle = this.#handle(arm.definition)
       const number = Number(fact.subject)
       const mode = this.#modeOf(ledger, arm)
       const addressed = addressesHandle(fact.body ?? '', handle)
 
-      const linked = [...ledger.threads, ...ledger.pendingThreads].find((one) => one.project === arm.project && one.trigger === arm.id && one.state === 'open' &&
+      const retryingUnconfirmed = addressed && asksToStop(fact.body ?? '', handle)
+      const linked = [...ledger.threads, ...ledger.pendingThreads].find((one) => one.project === arm.project && one.trigger === arm.id &&
+        (one.state === 'open' || retryingUnconfirmed && ledger.stopIntents.some(stop => stop.threadId === one.id && stop.state !== 'consumed')) &&
         (one.links.issues.includes(number) || one.links.pulls.includes(number)))
       if (linked) {
         if (linked.seen.includes(id)) return
@@ -510,22 +866,18 @@ export class MentionTriage {
           return
         }
         if (addressed && asksToStop(fact.body ?? '', handle)) {
+          if (mode === 'act') {
+            await this.#attemptStop(arm, fact, linked, id, allowed, handle)
+            return
+          }
           const asked = `Asked by ${fact.login ?? 'someone allowed'} to stop the work on ${threadWords(linked.origin.kind, linked.origin.number)}.`
-          // Observing, nothing is stopped; acting, what was running is stopped through the host, and the thread says which:
-          // the trigger's own runs, and the Lead's goal when a firing of this thread opened it, with the runs it owned.
-          const counts = mode === 'act' ? await this.#port.stop({ goals: linked.links.goals, firings: linked.firings, comment: fact.url! }, STOPPED) : { own: 0, lead: 0, plan: false, queued: 0 }
-          const parts = stoppedParts(counts)
           const verdict: Verdict = {
             decision: 'stop', by: 'rules',
-            reason: mode !== 'act' ? asked
-              : parts.length > 0 ? `${asked} ${listWords(parts)} ${parts.length === 1 && counts.own + counts.lead <= 1 ? 'was' : 'were'} stopped, and the thread is closed.`
-              : `${asked} nothing of its work was running, so nothing was stopped; the thread is closed.`,
+            reason: asked,
             rules: [{ id: 'addressed', passed: true, detail: `Addresses @${handle}.` }, allowed, { id: 'stop-word', passed: true, detail: 'Asks the work on this thread to stop.' }],
           }
-          await this.#thread(linked.id, (one) => mode === 'act'
-            ? { ...one, state: 'closed', closed: { reason: parts.length > 0 ? 'stopped' : 'closed', at: this.#port.now() }, seen: remember(one.seen, id) }
-            : { ...one, seen: remember(one.seen, id) })
-          await this.#record(arm, fact, counts.queued ? { ...verdict, reason: `${verdict.reason} ${counts.queued} queued ${counts.queued === 1 ? 'firing was' : 'firings were'} dropped.` } : verdict, mode, mode === 'act', mode === 'act' ? linked.id : null)
+          await this.#thread(linked.id, (one) => ({ ...one, seen: remember(one.seen, id) }))
+          await this.#record(arm, fact, verdict, mode, false, null)
           return
         }
         // Discussion on the thread asks the desk for nothing: only a comment that addresses the handle resumes the work.
@@ -585,7 +937,12 @@ export class MentionTriage {
    */
   reevaluate(arm: ArmedTrigger, decisionId: string, admit: Admit): Promise<TriggerDecision> {
     return this.#serial.run(async () => {
-      const before = (await this.#read()).decisions.find((one) => one.id === decisionId && one.project === arm.project && one.trigger === arm.id)
+      const snapshot = await this.#read()
+      if (snapshot.stopIntents.some(one => one.key.project === arm.project && one.key.trigger === arm.id &&
+        (one.decisionId === decisionId || `d-${digest([one.key.project, one.key.trigger, one.key.comment])}` === decisionId))) {
+        throw Object.assign(new Error('A consumed stop cannot be evaluated again. Issue a new stop request if needed.'), { code: 'HD_TRIGGER_REFUSED' })
+      }
+      const before = snapshot.decisions.find((one) => one.id === decisionId && one.project === arm.project && one.trigger === arm.id)
       if (!before) throw Object.assign(new Error('There is no such decision on this trigger.'), { code: 'HD_TRIGGER_REFUSED' })
       if (before.closedFiring) throw Object.assign(new Error('This records a refused firing; it is not a comment to re-evaluate.'), { code: 'HD_TRIGGER_REFUSED' })
       const fact = { ...await this.#port.forge.comment(arm.project, before.repository, Number(before.comment.id), this.#port.signal), project: arm.project }

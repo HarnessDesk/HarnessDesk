@@ -126,6 +126,7 @@ test('mention triage controls take a trigger, a decision id and a mode, and noth
     'trigger/decisions': { root: ROOT, id: 'ask' },
     'trigger/decision/reevaluate': { root: ROOT, id: 'ask', decision: `d-${'a'.repeat(20)}` },
     'trigger/stop-unconfirmed/review': { root: ROOT, id: 'ask', stop: `u-${'a'.repeat(64)}` },
+    'trigger/stop-unconfirmed/list': { root: ROOT },
     'trigger/mode': { root: ROOT, id: 'ask', mode: 'act' },
     'phone/triage/list': { limit: 50 },
   }

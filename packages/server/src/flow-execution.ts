@@ -2,7 +2,7 @@ import { leadRoundId, leadRepairInput, leadRepairDetail, LEAD_REPAIR_INSTRUCTION
 export { leadRoundId } from '@harnessdesk/lead'
 /** Durable host decision to wait for checks before revisiting this review. */
 export const leadCheckWaitKey = (round: number): string => `lead-check-wait:${round}`
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, open, readdir, readFile, realpath, rename, unlink } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { observedReviewTarget, reviewTargetDiagnostic } from './review-target-diagnostic.js'
@@ -81,6 +81,8 @@ import { canonicalDestination } from './git-worktree.js'
  */
 
 export type StoredFlowExecution = FlowExecution & {
+  /** Durable one-shot ownership fence; stored as version 3, never projected to clients. */
+  mentionStopOnce?: string
   compiled: CompiledFlow
   source: string
   sourcePath: string | null
@@ -503,7 +505,7 @@ export class ExecutionFiles {
     const temporary = `${target}.${process.pid}.${Date.now()}.writing`
     const handle = await open(temporary, 'wx', 0o600)
     try {
-      await handle.writeFile(JSON.stringify(run), 'utf8')
+      await handle.writeFile(JSON.stringify(run.mentionStopOnce ? { ...run, version: 3 } : run), 'utf8')
       await handle.sync()
     } finally {
       await handle.close()
@@ -931,6 +933,9 @@ export class FlowExecutions {
   readonly #releaseStallMs: number
   readonly #queue = new SerialRun()
   #runs = new Map<string, StoredFlowExecution>()
+  /** Host-incarnation and mutation fence for one-shot mention stops. */
+  readonly #mentionStopEpoch = randomUUID()
+  readonly #mentionRunVersions = new Map<string, number>()
   /** Seats whose release is waiting on their own turn-ended signal (#1027); keyed by Seat id. */
   readonly #pendingReleases = new Map<string, PendingRelease>()
   readonly #leadRepairResumed = new Set<string>()
@@ -2533,7 +2538,7 @@ export class FlowExecutions {
   // -------------------------------------------------------------- writing
 
   /** Persist first, then hold it in memory, then say so: a failed write changes nothing the desk believes. */
-  async #put(run: StoredFlowExecution): Promise<StoredFlowExecution> {
+  async #put(run: StoredFlowExecution, afterSave?: () => Promise<void>, clearMentionStop = false): Promise<StoredFlowExecution> {
     /* A kept answer belongs to the stop it was kept at (#998). A run that
        leaves that stop any other way — an extra round authorized, a check run
        again, a person's Stop — drops it here, in the one place every run is
@@ -2552,13 +2557,17 @@ export class FlowExecutions {
       end: run.end && run.end !== previous?.end ? run.end :
         run.state === 'stopped' ? { kind: 'stopped' as const, by: 'desk' as const } : { kind: 'stalled' as const },
     } : run.state === 'running' && previous && previous.state !== 'running' ? { end: null, currentEndedAt: null } : {}
-    const next = { ...(run.state === 'stalled' && keptAnswer ? run : unkept), ...ending, updatedAt: at }
+    const { mentionStopOnce: _mentionStopOnce, ...base } = run.state === 'stalled' && keptAnswer ? run : unkept
+    const marker = !clearMentionStop && run.state === 'stopped' ? run.mentionStopOnce ?? previous?.mentionStopOnce : undefined
+    const next = { ...base, ...(marker ? { mentionStopOnce: marker } : {}), ...ending, updatedAt: at }
     try {
       await this.#files.save(next)
     } catch (error) {
       throw new JournalWriteError(error)
     }
     this.#runs.set(next.id, next)
+    this.#mentionRunVersions.set(next.id, (this.#mentionRunVersions.get(next.id) ?? 0) + 1)
+    if (afterSave) await afterSave()
     this.#port.changed(next.goal, this.runs(next.goal))
     if (next.publication !== previous?.publication) this.#port.publicationChanged?.(next.goal)
     return next
@@ -4543,6 +4552,11 @@ export class FlowExecutions {
         const tasks = [...this.#checking].filter(([, run]) => run === id).map(([task]) => task)
         await this.#finish(id, 'stopped', why, { kind: 'stopped', by })
         await this.#abandonStoppedPeople(id)
+        const current = this.#get(id)
+        if (by === 'person' && current.mentionStopOnce) {
+          const { mentionStopOnce: _oldStop, ...ordinary } = current
+          await this.#put(ordinary, undefined, true)
+        }
         return tasks
       })
       // Completion uses this same queue: drain outside it, before Stop or wrap returns.
@@ -4565,6 +4579,41 @@ export class FlowExecutions {
       }
     }
   }
+
+  /** Capture an exact trigger-owned run generation without changing it. */
+  freezeMentionRun(id: string): string | null {
+    const run = this.#runs.get(id)
+    if (!run?.intake || (run.state !== 'running' && run.state !== 'stalled')) return null
+    return JSON.stringify({ epoch: this.#mentionStopEpoch, version: this.#mentionRunVersions.get(id) ?? 0,
+      id: run.id, goal: run.goal, intake: run.intake.key })
+  }
+
+  /**
+   * One-shot mention boundary: mark only the captured run, then await its durable
+   * receipt before any later operation. It does not enter the normal release or
+   * busy-retry path; those require separately frozen targets and receipts.
+   */
+  async markMentionRun(target: string, why: string, stop: string, afterMark: () => Promise<void>): Promise<void> {
+    if (!/^u-[0-9a-f]{64}$/.test(stop)) throw new Error('Invalid one-shot stop identity.')
+    let frozen: { epoch?: unknown; version?: unknown; id?: unknown; goal?: unknown; intake?: unknown }
+    try { frozen = JSON.parse(target) } catch { throw new Error('Invalid frozen mention run.') }
+    if (!frozen || typeof frozen.id !== 'string' || frozen.epoch !== this.#mentionStopEpoch || !Number.isSafeInteger(frozen.version)) {
+      throw new Error('Invalid frozen mention run.')
+    }
+    const id = frozen.id
+    if ((this.#checks.get(id)?.size ?? 0) > 0) throw new Error('The run has checks whose stop cannot yet be confirmed.')
+    await this.#queue.within(id, async () => {
+      const run = this.#get(id)
+      if (this.#disposed || frozen.version !== (this.#mentionRunVersions.get(id) ?? 0) || run.goal !== frozen.goal ||
+        run.intake?.key !== frozen.intake || (run.state !== 'running' && run.state !== 'stalled') || (this.#checks.get(id)?.size ?? 0) > 0) {
+        throw new Error('The frozen mention run changed.')
+      }
+      await this.#put({ ...run, state: 'stopped', mentionStopOnce: stop, reason: why, end: { kind: 'stopped', by: 'desk' },
+        rounds: run.rounds.map(round => round.state === 'closed' ? round : { ...round, state: 'closed' as const }) }, afterMark)
+    })
+  }
+
+  protectedMentionStop(id: string): boolean { return this.#runs.get(id)?.mentionStopOnce !== undefined }
 
   /** Stops every live run on a Goal, inside each run's own queue: the wrap barrier. */
   async stopGoal(goal: string, why: string): Promise<void> {
@@ -5140,7 +5189,7 @@ export class FlowExecutions {
       })
     }
     for (const run of [...this.#runs.values()]) {
-      if (run.state !== 'stopped') continue
+      if (run.state !== 'stopped' || run.mentionStopOnce) continue
       await this.#queue.within(run.id, () => this.#abandonStoppedPeople(run.id)).catch((error: unknown) => {
         this.#port.log('a stopped flow run could not abandon its person cards at restart', { run: run.id, error: error instanceof Error ? error.message : String(error) })
       })

@@ -156,6 +156,8 @@ export interface AdmissionEffects {
   setAside?(operation: IntakeOperation, reason: string, stop: boolean): Promise<void>
   /** Whether the run an applied firing waits to release has ended (stopped by a person or a budget): nothing will let it go now. */
   ended?(operation: IntakeOperation): boolean
+  /** A one-shot stop owns this firing; generic recovery must not replay it. */
+  oneShotHeld?(operation: IntakeOperation): Promise<boolean>
   /** Lets go of runs a pause or the cap held, once their gate allows it again (`IntakeTargets.releaseHeld`). */
   releaseHeld?(): Promise<void>
 }
@@ -318,6 +320,7 @@ export class Admission {
     return this.#serial.run(async () => {
       if (this.#store.problem) return
       for (const pending of this.#store.read().operations) {
+        if (await this.#effects.oneShotHeld?.(pending)) continue
         if (pending.state === 'applied' && !pending.dispatched && this.#effects.ended?.(pending)) await this.#setAside(pending, RUN_ENDED, false)
       }
     })
@@ -340,6 +343,40 @@ export class Admission {
         const firing = this.#store.read().firings[key]
         return firing?.setAside === true && firing.attention === reason
       }).length)
+    })
+  }
+
+  /** Capture only this thread's currently parked Lead firings while admission is held. */
+  freezeMentionFirings(firings: readonly string[]): readonly string[] {
+    const keys = new Set(firings)
+    return this.#store.read().operations.filter(one => keys.has(one.key) && !one.dispatched && one.payload &&
+      'lead' in one.payload.definition.opens).map(one => this.#mentionFiringTarget(one))
+  }
+
+  #mentionFiringTarget(one: IntakeOperation): string {
+    return JSON.stringify([one.key, one.generation, one.project, one.trigger, one.goal, one.run, one.mode, one.preparedAt])
+  }
+
+  /** Remove one frozen queued firing, then persist its receipt before any later stop effect. */
+  cancelMentionFiringOnce(target: string, reason: string, receipt: () => Promise<void>): Promise<void> {
+    return this.#serial.run(async () => {
+      const snapshot = this.#store.read()
+      const operation = snapshot.operations.find(one => !one.dispatched && one.payload &&
+        'lead' in one.payload.definition.opens && this.#mentionFiringTarget(one) === target)
+      if (!operation) throw new Error('The frozen queued firing changed.')
+      const firing = snapshot.firings[operation.key]
+      if (!firing) throw new Error('The frozen queued firing has no authority.')
+      let next: IntakeSnapshot = { ...snapshot, operations: snapshot.operations.filter(one => one.key !== operation.key),
+        firings: { ...snapshot.firings, [operation.key]: { ...firing, attention: reason, setAside: true } } }
+      // Only an absent Goal proves there is no work spending the reservation.
+      if (operation.mode === 'start' && this.#port.lifecycle(operation.goal) === 'missing') {
+        next = settleDaily(next, operation.goal, 0, this.#port.now()) ?? next
+        const group = next.groups[operation.group]
+        if (group && group.goal === operation.goal && group.open) next = { ...next, groups: { ...next.groups, [operation.group]: { ...group, open: false } } }
+      }
+      await this.#store.commit(next)
+      await receipt()
+      this.#options.onStep?.('set-aside', operation)
     })
   }
 
@@ -498,6 +535,7 @@ export class Admission {
     const held = new Set<string>()
     for (const pending of this.#store.read().operations) {
       if (pending.dispatched || held.has(pending.project)) continue
+      if (await this.#effects.oneShotHeld?.(pending)) continue
       if (mentions && (!mentions.has(pending.key) || pending.state !== 'applied' || !pending.payload ||
         pending.payload.fact.source !== 'mention' || !('lead' in pending.payload.definition.opens))) continue
       if (!retry && this.#faults.has(pending.project)) {

@@ -8,11 +8,13 @@ import { initialLeadChatHandles, parseLeadChatHandles } from './chat-handles.js'
 
 export interface LeadJournalCheckpoint {
   readonly type: 'checkpoint'; readonly version: 1; readonly seq: number; readonly head: string
-  readonly state: Omit<LeadState, 'attempts'> & { readonly attempts: readonly (readonly [string, LeadAttemptState])[] }
+  readonly state: Omit<LeadState, 'attempts' | 'mentionStopOneShot'> & { readonly mentionStopOneShot?: boolean; readonly attempts: readonly (readonly [string, LeadAttemptState])[] }
 }
-export const leadCheckpoint = (state: LeadState, head: string): LeadJournalCheckpoint => ({
-  type: 'checkpoint', version: 1, seq: state.seq, head, state: { ...state, attempts: [...state.attempts] },
-})
+export const leadCheckpoint = (state: LeadState, head: string): LeadJournalCheckpoint => {
+  const { mentionStopOneShot, ...rest } = state
+  return { type: 'checkpoint', version: 1, seq: state.seq, head,
+    state: { ...rest, ...(mentionStopOneShot ? { mentionStopOneShot: true } : {}), attempts: [...state.attempts] } }
+}
 const assert = (condition: unknown): void => { if (!condition) throw new Error('lead-journal-checkpoint') }
 /** Checkpoints are host-owned, hash-anchored snapshots, never model-supplied records. */
 export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCheckpoint; state: LeadState } => {
@@ -43,7 +45,8 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   // Checkpoints before epoch snapshots carry none: the next build records one.
   const epoched = remembered && { ...remembered, memoryEpoch: Object.hasOwn(remembered, 'memoryEpoch') ? remembered.memoryEpoch : null }
   // Checkpoints before chat handles carry none: the next chat the Lead sees is the first named.
-  const source = epoched && { ...epoched, chatHandles: Object.hasOwn(epoched, 'chatHandles') ? epoched.chatHandles : initialLeadChatHandles() }
+  const source = epoched && { ...epoched, chatHandles: Object.hasOwn(epoched, 'chatHandles') ? epoched.chatHandles : initialLeadChatHandles(),
+    mentionStopOneShot: Object.hasOwn(epoched, 'mentionStopOneShot') ? epoched.mentionStopOneShot : false }
   assert(source && Object.keys(source).sort().join() === Object.keys(initialLeadState()).sort().join())
   const context = source.context
   assert(context && typeof context === 'object' && Object.keys(context).sort().join() === 'epoch,failures,last,pending' &&
@@ -150,6 +153,8 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   }
   if (source.autonomy !== null) assert(JSON.stringify(parseLeadAutonomyRecord(source.autonomy)) === JSON.stringify(source.autonomy))
   assert(!budget?.stop || ['stopped', 'accepted', 'declined'].includes(source.phase))
+  assert(typeof source.mentionStopOneShot === 'boolean')
+  assert(!source.mentionStopOneShot || source.phase === 'stopped' && source.stopEffectsPending === null)
   assert(typeof source.chatEffectsAcknowledged === 'boolean')
   assert(source.stopEffectsPending === null || Number.isSafeInteger(source.stopEffectsPending) && source.stopEffectsPending > 0 && source.stopEffectsPending <= source.seq && (budget?.stop || source.phase === 'stopped'))
   assert(typeof source.recoveryBlocked === 'boolean' && Array.isArray(source.cards) && source.cards.length <= 64)
@@ -223,7 +228,7 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
     if (consent.renewalCardRevision !== undefined) assert(Number.isSafeInteger(consent.renewalCardRevision) && cards.some(card => card.type === 'plan' && card.contractDigest === consent.contractDigest && card.revision === consent.renewalCardRevision))
     assert(Number.isSafeInteger(consent.expiresAt) && consent.expiresAt > 0)
   }
-  let state: LeadState = structuredClone({ ...source, workerApprovals, completedBudgets, policy, contract, budget, cards, runs, steps, attempts, messages })
+  let state: LeadState = structuredClone({ ...source, mentionStopOneShot: source.mentionStopOneShot === true, workerApprovals, completedBudgets, policy, contract, budget, cards, runs, steps, attempts, messages })
   if (state.phase === 'following') state = retireLeadWorkerApprovals(state)
   state = fenceLeadWorkerDispatch(state)
   return { checkpoint: structuredClone(checkpoint), state }

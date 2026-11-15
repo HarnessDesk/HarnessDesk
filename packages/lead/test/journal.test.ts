@@ -47,6 +47,25 @@ const prepare = async (storage: ReturnType<typeof memory>) => {
   return journal
 }
 
+test('a mention stop journals only the captured goal and never arms retry on replay', async () => {
+  const storage = memory(), journal = await open(storage)
+  await journal.setOrigin({ source: 'issue', event: 'mentioned', subject: 'acme/widgets#7', url: 'https://example.invalid/issue/7' }, 'trigger-firing-1')
+  await initializeBudget(journal)
+  const originKey = journal.state.originKey, goalStartedSeq = journal.state.goalStartedSeq
+  const from = { kind: 'mention', comment: 'https://example.invalid/issue#issuecomment-1' }
+  assert.equal(await journal.stopMentionOnce(from, { originKey, goalStartedSeq: goalStartedSeq + 1 }), false)
+  assert.equal(journal.state.phase, 'draft')
+  assert.equal(await journal.stopMentionOnce(from, { originKey, goalStartedSeq }), true)
+  assert.equal(journal.state.mentionStopOneShot, true)
+  assert.equal(journal.state.stopEffectsPending, null)
+  const recovered = await open(storage)
+  assert.equal(recovered.state.mentionStopOneShot, true)
+  assert.equal(recovered.state.stopEffectsPending, null)
+  let retries = 0
+  await recovered.runStopEffects(async () => { retries++ })
+  assert.equal(retries, 0)
+})
+
 test('refreshes with no outstanding result do not keep journaling invalidations', async () => {
   const journal = await prepare(memory()), seq = journal.state.seq
   await journal.invalidateResults(); await journal.invalidateResults()

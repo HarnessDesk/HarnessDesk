@@ -186,7 +186,7 @@ export interface LeadSupervisorOptions {
   /** Test seam for the host-owned, already-connected desk socket. */
   readonly connectDesk?: (descriptor: DeskPointer, signal: AbortSignal) => Promise<Socket | null>
   readonly onStarted?: () => Promise<void> | void
-  readonly onExit?: (reason: string) => Promise<void> | void
+  readonly onExit?: (reason: string, policy?: 'ordinary' | 'one-shot') => Promise<void> | void
   readonly onWaitEnded?: (runId: string, reason: 'ownership-withdrawn') => void
   /** The child's checks between model turns, for the person's window; a malformed one is a broken protocol. */
   /** Admitted desk dispatch only; disposer ends this exact call, even on failure. */
@@ -210,6 +210,7 @@ interface Running {
   readonly providerAbort: AbortController
   readonly pending: Map<number, Deferred>
   readonly journalWork: Set<Promise<unknown>>
+  exitHold: { readonly decided: Promise<'ordinary' | 'one-shot'>; resolve(policy: 'ordinary' | 'one-shot'): void } | null
   readonly replies: Map<number, Deferred & { type: 'dispatch' | 'read'; correlationId?: string }>
   ready: boolean
   initialized: boolean
@@ -317,7 +318,7 @@ export class LeadSupervisor {
       const done = new Promise<void>(resolve => { finish = resolve })
       const ready = new Promise<void>((resolve, reject) => { markReady = resolve; failReady = reject })
       void ready.catch(() => {})
-      const running: Running = { child, providerAbort: new AbortController(), pending: new Map(), replies: new Map(), journalWork: new Set(), failures: new Set(), suppressed: false, ready: false, initialized: false, rpcId: 0, id: 0, exited: false, poisoned: false,
+      const running: Running = { child, providerAbort: new AbortController(), pending: new Map(), replies: new Map(), journalWork: new Set(), exitHold: null, failures: new Set(), suppressed: false, ready: false, initialized: false, rpcId: 0, id: 0, exited: false, poisoned: false,
         reason: 'exited', done, finish, markReady, failReady }
       this.#running = running
       const decoder = new LeadFrameDecoder()
@@ -622,8 +623,9 @@ export class LeadSupervisor {
     // A rejected reverse dispatch must finish writing its uncertain result before
     // the host's recovery hook observes the journal.
     await Promise.allSettled([...running.journalWork])
+    const policy = running.exitHold ? await running.exitHold.decided : 'ordinary'
     this.options.journal.setChildLive(false)
-    try { await this.options.onExit?.(running.reason) }
+    try { await this.options.onExit?.(running.reason, policy) }
     finally { if (this.#running === running) this.#running = null; running.finish() }
   }
   async send(input: LeadMessagesRequest): Promise<LeadMessagesResult> {
@@ -655,6 +657,22 @@ export class LeadSupervisor {
   evidenceChanged(): void {
     const running = this.#running
     if (running && !running.exited && running.ready) { try { write(running, { type: 'evidence-changed' }) } catch (failure) { this.#protocolFailure(running, 'evidence-changed', failure) } }
+  }
+  /** Hold this exact child's exit cleanup while a one-shot ownership write is decided. */
+  holdMentionExit(): { readonly done: Promise<void>; resolve(policy: 'ordinary' | 'one-shot'): void } | null {
+    const running = this.#running
+    if (!running || running.exited || running.exitHold || this.#stopping) return null
+    let decide!: (policy: 'ordinary' | 'one-shot') => void
+    const decided = new Promise<'ordinary' | 'one-shot'>(resolve => { decide = resolve })
+    let resolved = false
+    const hold = { decided, resolve: (policy: 'ordinary' | 'one-shot') => {
+      if (resolved) return
+      resolved = true
+      if (policy === 'ordinary' && !running.exited && running.exitHold === hold) running.exitHold = null
+      decide(policy)
+    } }
+    running.exitHold = hold
+    return { done: running.done, resolve: hold.resolve }
   }
   stop(reason = 'stopped'): Promise<void> {
     if (this.#stopping) return this.#stopping

@@ -46,6 +46,30 @@ const turn = (id: string, status: Turn['status'], items: number): Turn => ({
   })),
 })
 
+test('a frozen interrupt refuses an old turn even when the same turn ID reappears', async () => {
+  const registry = new SessionRegistry()
+  let requests = 0
+  registry.upsert(session([]), { interrupt: async () => { requests++ } } as never)
+  registry.apply(RUNTIME, { type: 'turn/started', sessionId: ID, turn: turn('same', 'inProgress', 0) })
+  const capture = registry as unknown as { freezeInterrupt(runtime: typeof RUNTIME, id: typeof ID): { request(): Promise<void> } | null }
+  const old = capture.freezeInterrupt(RUNTIME, ID)!
+  registry.apply(RUNTIME, { type: 'turn/completed', sessionId: ID, turn: turn('same', 'completed', 0) })
+  registry.apply(RUNTIME, { type: 'turn/started', sessionId: ID, turn: turn('same', 'inProgress', 0) })
+  await assert.rejects(async () => old.request())
+  assert.equal(requests, 0, 'the old captured operation cannot interrupt the replacement')
+  await capture.freezeInterrupt(RUNTIME, ID)!.request()
+  assert.equal(requests, 1, 'the currently captured operation can issue its request')
+  const oldHandle = capture.freezeInterrupt(RUNTIME, ID)!
+  registry.get(RUNTIME, ID)!.live = { interrupt: async () => { requests++ } } as never
+  await assert.rejects(async () => oldHandle.request())
+  assert.equal(requests, 1, 'a replacement handle is outside the captured operation')
+  const oldAuthority = capture.freezeInterrupt(RUNTIME, ID)!
+  registry.holdRemoved(RUNTIME, ID, Date.now() + 60_000)
+  registry.restoreRemoved(RUNTIME, ID)
+  await assert.rejects(async () => oldAuthority.request())
+  assert.equal(requests, 1, 'remove and undo cannot resurrect a captured operation')
+})
+
 test('removed records retain all host state for Undo and leave every active projection', () => {
   const registry = new SessionRegistry()
   const record = registry.upsert(session([turn('kept', 'completed', 1)]), null)

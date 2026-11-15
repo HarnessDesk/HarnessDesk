@@ -314,7 +314,7 @@ export class LeadService {
       ...(options.compactContext ? { compactContext: async trigger => { this.#assertOpen(); return options.compactContext!(trigger) } } : {}),
       ...(options.readMemoryStatus ? { readMemoryStatus: async () => { this.#assertOpen(); return options.readMemoryStatus!() } } : {}),
       onStarted: () => { this.#endLive = options.childStarted() },
-      onExit: reason => this.#exited(reason),
+      onExit: (reason, policy) => this.#exited(reason, policy ?? 'ordinary'),
       onFailure: failure => {
         // A failure the child caught and carried on from is only logged; one that stopped the child also keys its exit.
         if (failure.stopped) this.#stoppedBy = { stage: failure.stage, code: failure.code }
@@ -361,7 +361,7 @@ export class LeadService {
     try { await door?.close() }
     finally { this.#registration?.close(); this.#registration = null }
   }
-  #exited(reason: string): Promise<void> {
+  #exited(reason: string, policy: 'ordinary' | 'one-shot'): Promise<void> {
     this.#activity(false)
     // Taken on every exit, before the guard below, so a failure never attaches to a later exit it did not cause.
     const stoppedBy = this.#stoppedBy; this.#stoppedBy = null
@@ -370,6 +370,9 @@ export class LeadService {
     // have rejected. Recovery never races a live dispatch from that child.
     const task = (async () => {
       try {
+        // This child belongs to a saved one-shot mention attempt. Dynamic
+        // cleanup and recovery read the current goal and could stop newer work.
+        if (policy === 'one-shot') return
         try { await this.#latch(['lead-disabled', 'lead-key-changed', 'lead-host-shutdown', 'lead-send-deadline'].includes(reason) ? this.#expectedExit(reason) : this.#unexpectedExit(reason, stoppedBy)) }
         finally { await this.options.stopOwned(reason) }
         this.#endLive?.(); this.#endLive = null

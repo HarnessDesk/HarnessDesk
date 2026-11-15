@@ -68,6 +68,8 @@ export interface LeadState {
   readonly autonomy: LeadAutonomyRecord | null
   /** Journal sequence of the latched stop whose idempotent cancellation effects need acknowledgement. */
   readonly stopEffectsPending: number | null
+  /** This mention-origin stop generation never repeats automatic stop effects. */
+  readonly mentionStopOneShot: boolean
   /** Only the host-owned person Stop event acknowledges possible ordinary-chat effects. */
   readonly chatEffectsAcknowledged: boolean
   readonly messages: readonly LeadMessage[]
@@ -119,7 +121,7 @@ export interface LeadContextState {
 }
 export const initialLeadContext = (): LeadContextState => ({ epoch: 0, failures: 0, pending: null, last: null })
 export const LEAD_CHECKPOINT_NOTICE = 'Earlier conversation summarised'
-export const initialLeadState = (): LeadState => ({ workerApprovals: [], workerAuditWait: false, orphanedWorkerDispatch: null, decisionRevision: 0, wakes: [], secondLooks: [], origin: null, originKey: null, goalStartedSeq: 0, chatEffectsSinceReply: { started: 0, sent: 0, stopped: 0 }, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', nameChosen: false, decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, raisedFrom: null, spendLimit: null, autonomy: null, stopEffectsPending: null, chatEffectsAcknowledged: false,
+export const initialLeadState = (): LeadState => ({ workerApprovals: [], workerAuditWait: false, orphanedWorkerDispatch: null, decisionRevision: 0, wakes: [], secondLooks: [], origin: null, originKey: null, goalStartedSeq: 0, chatEffectsSinceReply: { started: 0, sent: 0, stopped: 0 }, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', nameChosen: false, decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, raisedFrom: null, spendLimit: null, autonomy: null, stopEffectsPending: null, mentionStopOneShot: false, chatEffectsAcknowledged: false,
   cards: [], retryResult: null, decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardPositions: {}, cardRevisions: {}, runs: [], teams: [], acceptedTeams: [], context: initialLeadContext(), memory: initialLeadMemoryCore(), memoryEpoch: null, chatHandles: initialLeadChatHandles() })
 /** A figure the Lead drafted, before the person sees it: Off drafts at the portable ceiling (which still trips the
  * overflow stop) so the card never shows a cap the person turned off; a set limit caps it. Rounds are untouched. */
@@ -761,8 +763,11 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     case 'team-approved':
       ensure(state.contract?.digest === event.contractDigest && !state.teams.includes(event.teamId) && state.teams.length < 4096)
       state = { ...state, teams: [...state.teams, event.teamId] }; break
-    case 'stop': state = { ...state, phase: 'stopped', chatEffectsAcknowledged: true, budget: state.budget ? reduceLeadBudget(state.budget,
-      { version: 1, type: 'stop', now: state.budget.now, reason: 'cancelled' }) : null }; break
+    case 'stop':
+    case 'mention-stop-once':
+      if (event.type === 'mention-stop-once') ensure(state.stopEffectsPending === null && !state.budget?.stop && !['stopped', 'accepted', 'declined'].includes(state.phase))
+      state = { ...state, phase: 'stopped', mentionStopOneShot: event.type === 'mention-stop-once', chatEffectsAcknowledged: true, budget: state.budget ? reduceLeadBudget(state.budget,
+        { version: 1, type: 'stop', now: state.budget.now, reason: 'cancelled' }) : null }; break
     case 'stop-effects-done':
       ensure(state.stopEffectsPending === event.stopSeq); state = { ...state, stopEffectsPending: null }; break
     case 'recovery-block': state = { ...state, recoveryBlocked: true }; break
@@ -924,8 +929,8 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
   const discovered = state.runs.some(run => !previous.runs.some(old => old.runId === run.runId)) ||
     (state.budget?.executionIds.some(id => !previous.budget?.executionIds.includes(id)) ?? false)
   const stopped = state.budget?.stop || previous.phase === 'stopped'
-  if (state.budget?.stop && !previous.budget?.stop || discovered && stopped ||
-    event.type === 'stop' && previous.phase !== 'stopped' && !previous.budget?.stop)
+  if (!state.mentionStopOneShot && (state.budget?.stop && !previous.budget?.stop || discovered && stopped ||
+    event.type === 'stop' && previous.phase !== 'stopped' && !previous.budget?.stop))
     state = { ...state, stopEffectsPending: event.seq }
   if (previous.phase === 'waiting-for-user' && state.phase !== 'waiting-for-user') state = { ...state, managementReason: null }
   if (['stopped', 'accepted', 'declined'].includes(state.phase) && state.consent?.renewalCardRevision !== undefined) {

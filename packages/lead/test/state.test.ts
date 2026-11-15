@@ -380,3 +380,25 @@ test('a new goal keeps an accepted goal\'s Teams, named by their step, through a
     const malformed = structuredClone(checkpoint); change(malformed); assert.throws(() => lead.parseLeadCheckpoint(malformed))
   }
 })
+
+test('a mention one-shot stop survives replay without arming retryable stop effects', () => {
+  const ordinary = parseLeadJournalRecord({ version: 1, seq: 1, type: 'stop' })
+  assert.equal(replayLeadJournal([ordinary]).stopEffectsPending, 1, 'ordinary stops retain retry')
+  const once = parseLeadJournalRecord({ version: 1, seq: 1, type: 'mention-stop-once', from: { kind: 'mention', comment: 'https://example.invalid/issue#issuecomment-1' } })
+  const stopped = replayLeadJournal([once])
+  assert.equal(stopped.phase, 'stopped')
+  assert.equal(stopped.stopEffectsPending, null, 'a mention attempt must not arm automatic retry')
+  const late = records([...started(), { type: 'result', id: 'attempt-1', outcome: 'uncertain', identity: null },
+    { type: 'mention-stop-once', from: { kind: 'mention', comment: 'https://example.invalid/issue#issuecomment-1' } },
+    { type: 'reconciliation', id: 'attempt-1', count: 1, evidence: JSON.stringify([{ correlationId: 'attempt-1', runId: 'run-1', teamId: 'team-1', firstRoundId: '1', terminal: false }]), identity: { correlationId: 'attempt-1', runId: 'run-1', teamId: 'team-1' } }])
+  const discovered = replayLeadJournal(late)
+  assert.equal(discovered.stopEffectsPending, null, 'later discovery must not re-arm the mention attempt')
+  const checkpoint = lead.leadCheckpoint(discovered, 'a'.repeat(64))
+  assert.equal(lead.parseLeadCheckpoint(JSON.parse(JSON.stringify(checkpoint))).state.mentionStopOneShot, true)
+  const legacy = JSON.parse(JSON.stringify(lead.leadCheckpoint(replayLeadJournal([ordinary]), 'b'.repeat(64))))
+  delete legacy.state.mentionStopOneShot
+  assert.equal(lead.parseLeadCheckpoint(legacy).state.mentionStopOneShot, false, 'old checkpoints retain ordinary retry')
+  assert.throws(() => parseLeadJournalRecord({ version: 1, seq: 1, type: 'mention-stop-once' }))
+  assert.equal(Object.hasOwn(lead.leadCheckpoint(replayLeadJournal([ordinary]), 'b'.repeat(64)).state, 'mentionStopOneShot'), false,
+    'ordinary checkpoints remain readable by old hosts')
+})

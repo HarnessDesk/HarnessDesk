@@ -546,6 +546,16 @@ export class Flows implements TeamFlows {
     return stopped
   }
 
+  freezeMentionRun(id: string): string | null {
+    return this.#executions?.freezeMentionRun(id) ?? null
+  }
+
+  async markMentionRun(target: string, why: string, stop: string, afterMark: () => Promise<void>): Promise<void> {
+    if (!this.#executions) throw new Error('Runs on Goals are not available on this desk.')
+    await this.#executions.markMentionRun(target, why, stop, afterMark)
+  }
+  protectedMentionStop(id: string): boolean { return this.#executions?.protectedMentionStop(id) ?? false }
+
   /**
    * One person decision on a run inside its queue (`FlowExecutions.withDecision`).
    * A Drop inside it stops the run there; the stop's listeners are told once

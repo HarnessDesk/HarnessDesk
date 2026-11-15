@@ -114,6 +114,9 @@ export interface IntakeHostPort {
     execution(run: string): FlowExecution | null
     /** Stops a run with the reason; its cards, answers and findings are kept, and every Seat it lets go is interrupted. */
     stopRun(run: string, why: string): Promise<void>
+    protectedMentionStop?(run: string): boolean
+    freezeMentionRun?(run: string): string | null
+    markMentionRun?(target: string, why: string, stop: string, afterMark: () => Promise<void>): Promise<void>
     /** Holds a run for a pause or the cap: nothing recorded as a stop; `resumeTriggered` lets it go. */
     holdTriggered(run: string, why: string): Promise<void>
     /** Stops every check running on the Goal now, without waiting for the run's queue; each is left for a person. */
@@ -345,6 +348,7 @@ export class IntakePlane {
           } catch { return 'The trigger arm could not be read; this firing waits.' }
           if (operation.payload.fact.source === 'mention') {
             if (closed === 'read-failed') return 'The mention decisions could not be read; this firing waits.'
+            if (closed === 'protected') return 'This firing waits because a previous stop is unconfirmed.'
             if (closed === 'recorded') return { reason: 'The firing was refused because its mention thread is closed.', final: true }
             if (closed === 'unknown') {
               // A new admission reaches here before its thread is written.
@@ -382,7 +386,11 @@ export class IntakePlane {
       },
       supersede: (operation) => this.#supersede(operation),
       releaseHeld: () => this.#releaseHeld(),
-      ended: (operation) => port.flows.execution(operation.run)?.state === 'stopped',
+      ended: (operation) => port.flows.execution(operation.run)?.state === 'stopped' && port.flows.protectedMentionStop?.(operation.run) !== true,
+      oneShotHeld: async operation => {
+        if (!operation.payload || operation.payload.fact.source !== 'mention' || !('lead' in operation.payload.definition.opens)) return false
+        try { return await this.#mentions.closedFiring(operation.key) === 'protected' } catch { return true }
+      },
       setAside: async (operation, reason, stop) => {
         // Nothing of it can ever run: its run is stopped, so its released slot and reservation can never be spent under.
         if (port.flows.execution(operation.run)) {
@@ -405,6 +413,27 @@ export class IntakePlane {
       forge: this.#forge,
       assess: port.mentions?.assess ?? null,
       leadName: () => port.mentions?.leadName?.() ?? 'dex',
+      planStop: async ({ goals, firings }) => {
+        const keys = new Set(firings), targets = new Set<string>()
+        for (const goal of goals) for (const run of port.flows.runs(goal)) {
+          if (!run.intake || !keys.has(run.intake.key) || (run.state !== 'running' && run.state !== 'stalled')) continue
+          const target = port.flows.freezeMentionRun?.(run.id)
+          if (target) targets.add(target)
+        }
+        return { queuedTargets: this.#admission.freezeMentionFirings(firings), runTargets: [...targets], interruptTargets: [], leadRunTargets: [], leadPlanTarget: null }
+      },
+      stopOnce: async (_work, why, plan, receipt, stop) => {
+        for (const target of plan.queuedTargets) {
+          await this.#admission.cancelMentionFiringOnce(target, 'The mention thread was stopped; its queued firing was dropped.',
+            () => receipt({ kind: 'queued', target }))
+        }
+        for (const target of plan.runTargets) {
+          if (!port.flows.markMentionRun) throw new Error('The frozen run cannot be stopped safely.')
+          await port.flows.markMentionRun(target, why, stop, () => receipt({ kind: 'run', target }))
+        }
+        // Turn ownership and Lead/queued effects are not proven by a run mark.
+        return { complete: false }
+      },
       stop: async ({ goals, firings, comment }, why) => {
         // Serialize with delivery: a firing that already crossed the gate may
         // have opened the Lead's goal, which stopLead checks afterwards.
@@ -898,7 +927,9 @@ export class IntakePlane {
     const view = await this.#consent.list(root)
     const triggers = view.triggers.map((one) => this.#decorate(view.project, one))
     for (const trigger of triggers) await this.#armWait(view.project, trigger)
-    return { ...view, triggers }
+    const project = await this.#project(root)
+    const currentMentionIds = triggers.filter(one => one.definition?.on.kind === 'mention').map(one => one.id)
+    return { ...view, triggers, ...await this.#mentions.retainedStops(project, currentMentionIds) }
   }
 
   preview(root: string, id: string): Promise<TriggerArmPreview> {
@@ -1156,6 +1187,11 @@ export class IntakePlane {
     return this.#mentions.page(project, id, arm?.definition.on.kind === 'mention' ? arm : null)
   }
 
+  /** Read stored stop attention without reading trigger declarations or the forge. */
+  async unconfirmedStops(root: string) {
+    return this.#mentions.retainedStops(await this.#project(root), [])
+  }
+
   /** Switches an armed mention trigger between observing and acting, on this machine, for this arm only. */
   async setMode(root: string, id: string, mode: TriggerMode): Promise<TriggerDecisionsPage> {
     this.#refuseWhenOff()
@@ -1173,9 +1209,20 @@ export class IntakePlane {
     return this.#mentions.reevaluate(arm, decision, (one, fact) => this.#offer(one, fact))
   }
 
+  /** Acknowledges uncertainty for this project and trigger; it never repeats the stop. */
+  async reviewUnconfirmedStop(root: string, id: string, stop: string) {
+    if (this.#closed) throw coded('The desk is closing, so triggers are not changed now.', 'HD_TRIGGER_REFUSED')
+    const project = await this.#project(root)
+    return this.#mentions.reviewStop(project, id, stop)
+  }
+
   /** Every mention decision on this desk, newest first, for the phone: read only. */
   triage(limit: number): Promise<readonly PhoneTriageRow[]> {
     return this.#mentions.phone(limit)
+  }
+
+  triageStops(limit: number) {
+    return this.#mentions.phoneStops(limit)
   }
 
   /** The armed mention triggers, for the phone's Mentions page: where each watches, its mode here, and who may ask. */

@@ -21,5 +21,7 @@ export const intakeMethods = {
   'trigger/goal': (ctx, params) => ctx.intake.goal(params.goal),
   'trigger/decisions': (ctx, params) => ctx.intake.decisions(params.root, params.id),
   'trigger/decision/reevaluate': (ctx, params) => ctx.intake.reevaluate(params.root, params.id, params.decision),
+  'trigger/stop-unconfirmed/review': (ctx, params) => ctx.intake.reviewUnconfirmedStop(params.root, params.id, params.stop),
+  'trigger/stop-unconfirmed/list': (ctx, params) => ctx.intake.unconfirmedStops(params.root),
   'trigger/mode': (ctx, params) => ctx.intake.setMode(params.root, params.id, params.mode),
 } satisfies MethodsUnder<'trigger/'>

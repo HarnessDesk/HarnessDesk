@@ -113,6 +113,7 @@ export type LeadJournalEvent =
   | { readonly type: 'start-resolution'; readonly evidenceSeq: number; readonly id: string; readonly identity: LeadRunIdentity | null; readonly goalId: string | null }
   | { readonly type: 'stop-effects-done'; readonly stopSeq: number }
   | { readonly type: 'stop'; readonly from?: LeadStopFrom }
+  | { readonly type: 'mention-stop-once'; readonly from: LeadStopFrom }
   | { readonly type: 'recovery-block' | 'recovery-resolved' }
   | { readonly type: 'recovery-report' | 'reconciliation-conflict'; readonly id: string }
   | { readonly type: 'team-approved'; readonly teamId: string; readonly contractDigest: string }
@@ -237,7 +238,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     'worker-rule-dispatch-cancelled': ['id'], 'worker-rule-dispatch': ['id', 'diff'], 'worker-rule-obsolete': Object.hasOwn(source, 'rule') ? ['rule'] : [], 'worker-rule-saved': ['rule'], 'worker-rule-used': ['id', ...(Object.hasOwn(source, 'diff') ? ['diff'] : [])], 'worker-rule-revoked': ['id', ...(Object.hasOwn(source, 'auditFailed') ? ['auditFailed'] : [])], wake: ['wake'], 'handback': ['operation'], 'handback-limit': [], 'ci-passed': ['head'], origin: ['origin', ...(Object.hasOwn(source, 'key') ? ['key'] : [])], 'new-goal': ['id', 'now'],
     'renew-plan': ['now', ...(Object.hasOwn(source, 'cardId') ? ['cardId'] : [])], management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'settings-changed': ['name', 'follow', 'what'].filter(key => Object.hasOwn(source, key)), publication: ['operation', 'pr'], 'pr-observed': ['pr'], 'owned-push': ['operation'], message: ['idempotencyKey', 'message'], 'restore-result': ['id', 'revision'], 'retry-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
     'second-look-attempt': ['runId', 'stopKey', 'now'], 'second-look-restart': ['runId', 'stopKey', 'roundId', 'now'],
-    'person-caps': ['logicalGoalId', 'caps', 'now'], autonomy: ['autonomy', ...(Object.hasOwn(source, 'change') ? ['change'] : [])], 'spend-limit': ['usdMicros', 'now', ...(Object.hasOwn(source, 'logicalGoalId') ? ['logicalGoalId'] : [])], policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: Object.hasOwn(source, 'from') ? ['from'] : [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
+    'person-caps': ['logicalGoalId', 'caps', 'now'], autonomy: ['autonomy', ...(Object.hasOwn(source, 'change') ? ['change'] : [])], 'spend-limit': ['usdMicros', 'now', ...(Object.hasOwn(source, 'logicalGoalId') ? ['logicalGoalId'] : [])], policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [...(Object.hasOwn(source, 'from') ? ['from'] : [])], 'mention-stop-once': ['from'], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
     decision: ['id', 'effect', 'reason', 'rule'], 'dispatch-start': ['id', 'dispatched'], result: ['id', 'outcome', 'identity'], reconciliation: ['id', 'identity', 'count', 'evidence'],
     'context-compaction-started': ['id', 'at', 'trigger'], 'context-compaction-failed': ['id', 'reason'],
@@ -298,6 +299,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     case 'card': event = { type, card: parseLeadCard(source.card) }; break
     case 'card-decision': event = { type, decision: parseLeadCardDecision(source.decision), expiresAt: nullable(source.expiresAt, integer) }; break
     case 'stop': event = { type, ...(Object.hasOwn(source, 'from') ? { from: parseLeadStopFrom(source.from) } : {}) }; break
+    case 'mention-stop-once': event = { type, from: parseLeadStopFrom(source.from) }; break
     case 'recovery-block': case 'recovery-resolved': event = { type }; break
     case 'recovery-report': case 'reconciliation-conflict': event = { type, id: identifier(source.id) }; break
     case 'team-approved':
@@ -906,6 +908,16 @@ export class LeadJournal {
   beginGoal(id: string, now: number): Promise<void> { return this.#queue(() => this.#append({ type: 'new-goal', id, now })) }
   /** `from` names a stop asked for elsewhere than the person's own Stop, so the journal says where it came from. */
   stop(stopEffects?: () => Promise<void>, from?: LeadStopFrom): Promise<void> { return this.#budgetWrite(() => this.#append({ type: 'stop', ...(from ? { from: parseLeadStopFrom(from) } : {}) }), stopEffects) }
+  /** Record a mention's exact goal before any effect; it must never arm the ordinary retry queue. */
+  stopMentionOnce(from: LeadStopFrom, target: { readonly originKey: string; readonly goalStartedSeq: number }): Promise<boolean> {
+    return this.#queue(async () => {
+      const state = this.#state
+      if (!target.originKey || state.originKey !== target.originKey || state.goalStartedSeq !== target.goalStartedSeq ||
+        state.stopEffectsPending !== null || state.budget?.stop || ['stopped', 'accepted', 'declined'].includes(state.phase)) return false
+      await this.#append({ type: 'mention-stop-once', from: parseLeadStopFrom(from) })
+      return true
+    })
+  }
   /** The supervisor retries pending idempotent cancellation after a crash. */
   async runStopEffects(effects: () => Promise<void>): Promise<void> {
     const stopSeq = await this.#queue(async () => this.#state.stopEffectsPending)

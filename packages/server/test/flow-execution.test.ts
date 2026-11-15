@@ -1,11 +1,13 @@
 import { seatRefused } from '../src/flow-execution.js'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { join } from 'node:path'
 
 import type { TeamEntry, TeamSignal } from '@harnessdesk/protocol'
 
-import { agreedSplit, BRIEF_CHANGED, INDEPENDENT, sourceDigest, type StoredFlowExecution } from '../src/flow-execution.js'
+import { agreedSplit, BRIEF_CHANGED, ExecutionFiles, INDEPENDENT, sourceDigest, type StoredFlowExecution } from '../src/flow-execution.js'
 import { overlaps } from '../src/team.js'
+import { executionOf } from '../src/flow-recovery.js'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
 
 const addedSignal = (channel: readonly TeamEntry[]): TeamSignal | undefined =>
@@ -2416,4 +2418,72 @@ test('a Seat whose card has a fixed title is handed the Goal sentence it serves'
   const order = rig.orderTexts.get('seat-1')!.at(-1)!
   assert.match(order, /^Card #1 on this Goal is yours: /)
   assert.match(order, /\n\nThe Goal it serves: Finish the change\n\n/)
+})
+
+test('a one-shot mention run stop checkpoints the durable mark before any Seat effect', async t => {
+  const rig = await goalRig(t)
+  const source = `version: 2\nname: Inspect\nroles:\n  reviewer: { kind: agent, uses: reviewer }\nseed: { role: reviewer, title: Inspect }\nrules: []\n`
+  const run = await rig.startTriggered(source, [agent('reviewer', ['approve'])])
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  const once = rig.flows as unknown as {
+    freezeMentionRun(id: string): string | null
+    markMentionRun(target: string, reason: string, stop: string, afterMark: () => Promise<void>): Promise<void>
+  }
+  const target = once.freezeMentionRun(run.id)
+  assert.ok(target)
+  const previous = rig.events.length
+  await assert.rejects(once.markMentionRun(target, 'synthetic stop', `u-${'a'.repeat(64)}`, async () => {
+    assert.equal(rig.flows.executionOf(run.id)?.state, 'stopped', 'the run mark is durable before the receipt')
+    throw new Error('synthetic receipt save failure')
+  }), /synthetic receipt save failure/)
+  assert.equal(rig.flows.executionOf(run.id)?.state, 'stopped')
+  const stored = (await rig.files.list()).find(entry => (entry.raw as { id?: string } | null)?.id === run.id)?.raw as { version: number; mentionStopOnce?: unknown }
+  assert.equal(stored.version, 3, 'old Hosts must refuse the protected run before restart cleanup')
+  assert.ok(stored.mentionStopOnce, 'the durable run identifies its one-shot stop')
+  assert.equal(executionOf(stored).version, 2, 'client projections retain the established version')
+  assert.throws(() => executionOf({ ...stored, version: 2 }), /one-shot/)
+  assert.throws(() => executionOf({ ...stored, mentionStopOnce: 'invalid' }), /one-shot/)
+  assert.throws(() => executionOf({ ...stored, mentionStopOnce: undefined }), /one-shot/)
+  const legacy = executionOf({ ...stored, legacyRun: { version: 1, id: 'old-run', room: run.goal, state: 'stopped',
+    flow: { name: 'legacy', roles: [], rules: [], inputs: [] }, rounds: [], seats: [], record: [] } })
+  assert.equal(legacy.version, 2, 'legacy-backed protected runs also normalize for internal use')
+  const { mentionStopOnce: _oldStop, ...resumed } = legacy
+  const files = new ExecutionFiles(join(rig.dir, 'legacy-roundtrip'))
+  await files.save({ ...resumed, state: 'running' })
+  assert.equal(((await files.list())[0]!.raw as { version: number }).version, 2, 'a later unprotected save uses the normal format')
+  assert.deepEqual(rig.events.slice(previous).filter(event => event.startsWith('interrupt:') || event.startsWith('release:')), [],
+    'a failed receipt must not continue to Seat effects or enqueue their retry')
+})
+
+test('protected one-shot runs do not replay person-card cleanup on restart, but a person can still stop', async t => {
+  const rig = await goalRig(t)
+  const run = await rig.startTriggered(LAND_END, [])
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.equal(rig.board(run.goal).intents[0]?.state, 'open')
+  const target = rig.flows.freezeMentionRun(run.id)!
+  await rig.flows.markMentionRun(target, 'synthetic stop', `u-${'b'.repeat(64)}`, async () => {})
+  await rig.restart()
+  assert.equal(rig.flows.protectedMentionStop(run.id), true)
+  assert.equal(rig.board(run.goal).intents[0]?.state, 'open', 'restart does not repeat one-shot cleanup')
+  await rig.flows.stopRun(run.id, 'Person explicitly stopped the work')
+  assert.equal(rig.board(run.goal).intents[0]?.state, 'abandoned', 'an explicit person stop retains ordinary cleanup')
+  assert.equal(rig.flows.protectedMentionStop(run.id), false, 'the explicit stop releases automatic reconciliation')
+  const stored = (await rig.files.list()).find(entry => (entry.raw as { id?: string } | null)?.id === run.id)?.raw as { version: number }
+  assert.equal(stored.version, 2)
+})
+
+test('a run changed while the one-shot intent is being saved cannot be marked by the old plan', async t => {
+  const rig = await goalRig(t)
+  const run = await rig.startTriggered(LAND_END, [])
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  const target = rig.flows.freezeMentionRun(run.id)!
+  await rig.flows.holdTriggered(run.id, 'Synthetic concurrent hold')
+  let receipts = 0
+  await assert.rejects(rig.flows.markMentionRun(target, 'synthetic stop', `u-${'c'.repeat(64)}`, async () => { receipts++ }), /changed/)
+  assert.equal(receipts, 0)
+  assert.equal(rig.flows.executionOf(run.id)?.state, 'running')
+  assert.equal(rig.flows.protectedMentionStop(run.id), false)
 })

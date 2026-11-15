@@ -94,6 +94,39 @@ test('stop waits for the old pid to exit and rejects startup during teardown', a
   await stopped; assert.equal(f.supervisor.live, false); assert.equal(f.counts().exits, 1)
 })
 
+test('a captured child exit waits for the durable stop decision and keeps its own policy', async () => {
+  const exits: unknown[] = []
+  const f = await fixture({ onExit: (_reason: string, policy: unknown) => { exits.push(policy) },
+    runtimes: [{ binary: '/synthetic/node', version: '26.0.0', electron: false, label: 'fake' }],
+    probeRuntime: async () => ({ supported: true }) })
+  await f.supervisor.ensure()
+  const hold = f.supervisor.holdMentionExit()
+  assert.ok(hold)
+  try {
+    f.child.kill()
+    await new Promise(resolve => setImmediate(resolve))
+    assert.deepEqual(exits, [], 'an exit cannot run cleanup while the stop write is undecided')
+    hold.resolve('one-shot')
+    await hold.done
+    assert.deepEqual(exits, ['one-shot'], 'the old child carries the captured policy to its own exit')
+  } finally {
+    hold.resolve('ordinary')
+    await f.supervisor.stop().catch(() => {})
+  }
+})
+
+test('a proven uncommitted child hold can be taken again for a later attempt', async () => {
+  const f = await fixture({ runtimes: [{ binary: '/synthetic/node', version: '26.0.0', electron: false, label: 'fake' }],
+    probeRuntime: async () => ({ supported: true }) })
+  await f.supervisor.ensure()
+  const first = f.supervisor.holdMentionExit()
+  assert.ok(first)
+  first.resolve('ordinary')
+  const later = f.supervisor.holdMentionExit()
+  try { assert.ok(later, 'a confirmed no-commit does not hold the child forever') }
+  finally { later?.resolve('ordinary'); await f.supervisor.stop().catch(() => {}) }
+})
+
 test('malformed or out-of-order framed child messages terminate its pid', async () => {
   const f = await fixture(); await f.supervisor.ensure()
   f.child.stdout.write(frame({ version: 1, type: 'rpc', id: 2, operation: 'recover', args: [] }))

@@ -86,6 +86,7 @@ export interface IntakeTargets {
   setAside?(operation: IntakeOperation, reason: string, stop: boolean): Promise<void>
   /** Whether a firing's run has ended, so its release can never come (`AdmissionEffects.ended`). */
   ended?(operation: IntakeOperation): boolean
+  oneShotHeld?(operation: IntakeOperation): Promise<boolean>
 }
 
 /** Whether a firing brought an open Goal a head its running work was not started for. */
@@ -154,6 +155,10 @@ export class IntakeEffects implements AdmissionEffects {
 
   ended(operation: IntakeOperation): boolean {
     return this.#targets.ended?.(operation) ?? false
+  }
+
+  async oneShotHeld(operation: IntakeOperation): Promise<boolean> {
+    return await this.#targets.oneShotHeld?.(operation) ?? false
   }
 
   async setAside(operation: IntakeOperation, reason: string, stop: boolean): Promise<void> {
