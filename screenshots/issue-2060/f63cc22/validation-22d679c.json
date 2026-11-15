@@ -1,0 +1,21 @@
+{
+  "featureHead": "22d679cc2436daa49ce61a4f3527d61419e90bfa",
+  "tree": "35bc260ba3aa3ffca16aed6d2094234ba2b840da",
+  "validationBase": "f6fc882fc793843412f5b8780e0a9fdb03f62884",
+  "originalFrameSource": "f63cc22f9c9d41e0365ffde46929cdee1f006e4c",
+  "scope": "Existing split disk-recovery and synthetic Electron view frames are unchanged; no new app launch, live Host transport, or power-loss proof is claimed.",
+  "checkpointComponentSha256": "484804a29c049051bcddfaa97f43d5f8ec1e0ba0cbf497e6608562bdbf7b28ef",
+  "componentByteIdenticalToFrameSource": true,
+  "recoveredNoticeAndVisibleCheckpointIdentical": true,
+  "originalFullFixtureSha256": "2c0fc8694b433b475a0da25810b5a67bb0225d8a67958839ff3b79b0f5091bc8",
+  "repairedFullFixtureSha256": "a15f9cb1c1bf6e07a255810266e2859b7770b0d8734f4b3773debe7f4f27861e",
+  "fixtureDifference": "Full fixtures differ because the repaired test exercises later conversation operations; equality is limited to the selected notice and visible checkpoint.",
+  "recoveryControls": ["person-only refusal followed by failed stage redaction and replay", "unsupported canonical marker preserves canonical and stage", "temporary protection outage preserves saved view and permits retry", "screen change during checkpoint commit masks the new view"],
+  "validation": {
+    "nodeVersion": "22.23.4",
+    "contextFile": {"passed":77,"failed":0,"skipped":0},
+    "leadMethodsFile": {"passed":190,"failed":0,"skipped":0},
+    "linuxNormal": {"passed":true,"seconds":466.024,"serverTestsPassed":7260,"serverTestsSkipped":4,"retentionPassed":67,"retentionSkipped":0},
+    "localPlannerSkipped": ["CLI", "Node end-to-end", "browser", "native smoke", "unrelated script checks"]
+  }
+}
