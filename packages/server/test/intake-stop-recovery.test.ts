@@ -114,6 +114,36 @@ test('a full protected history refuses before any stop effect and keeps its atte
   assert.equal(JSON.parse(await readFile(path, 'utf8')).threads[0].state, 'open', 'no effects or stop fence was committed')
 })
 
+test('a proven complete stop retains its ordinary decision and deduplicates the comment', async () => {
+  const home = tempDir('hd-stop-complete-'), path = join(home, 'triggers-mentions.json')
+  const thread = { id: 'thread-1', trigger, project, repository, origin: { kind: 'issue', number: 1 },
+    links: { issues: [1], pulls: [], goals: ['goal-1'] }, state: 'open', closed: null, resumes: 0, observations: 0,
+    openedAt: 0, firings: [firing], seen: [] }
+  await writeFile(path, JSON.stringify({ ...file([]), threads: [thread], modes: { [`${project}\u0000${trigger}`]: { mode: 'act', armedAt: 1 } } }))
+  let attempts = 0
+  const port = { home, pendingFirings: () => [], leadName: () => 'dex', changed() {}, now: () => 20,
+    closeThread: async (close: () => Promise<void>) => close(),
+    planStop: async () => ({ queuedTargets: [], runTargets: [runTarget], interruptTargets: [], leadRunTargets: [], leadPlanTarget: null }),
+    stopOnce: async (_work: unknown, _reason: string, _plan: unknown, receipt: (effect: unknown) => Promise<void>) => {
+      attempts++; await receipt({ kind: 'run', target: runTarget }); return { complete: true }
+    }, signal: new AbortController().signal } as never
+  const arm = { project, id: trigger, armedAt: 1, definition: { handle: 'dex' }, binding: { account: '7', repository } } as never
+  const request = { source: 'mention', project, repository, subject: '1', thread: 'issue', author: '7', login: 'preview-user',
+    body: '@dex stop', url: 'https://example.invalid/issue#issuecomment-9999', at: 15 } as never
+  const instance = new MentionTriage(port)
+  await instance.judge(arm, request, async () => { throw new Error('must not admit') })
+  const page = await instance.page(project, trigger, null)
+  assert.equal(page.unconfirmedStops?.length ?? 0, 0)
+  assert.deepEqual(page.decisions.map(one => [one.decision, one.by, one.acted]), [['stop', 'rules', true]])
+  assert.match(page.decisions[0]!.reason, /1 run of its work was stopped/)
+  assert.equal(page.threads[0]?.closed?.reason, 'stopped')
+  await instance.judge(arm, request, async () => { throw new Error('must not admit') })
+  assert.equal(attempts, 1)
+  const saved = JSON.parse(await readFile(path, 'utf8'))
+  assert.equal(saved.stopIntents[0].state, 'consumed')
+  assert.equal(saved.stopIntents[0].decisionId, page.decisions[0]!.id)
+})
+
 test('a partial stop persists its exact receipt, stays separate, and never repeats that comment', async () => {
   const home = tempDir('hd-stop-once-'), path = join(home, 'triggers-mentions.json')
   const thread = { id: 'thread-1', trigger, project, repository, origin: { kind: 'issue', number: 1 },

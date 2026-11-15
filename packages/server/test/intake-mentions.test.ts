@@ -346,8 +346,10 @@ test('"@dex stop" from someone allowed stops the thread’s work and closes it, 
   await say(d, 1, '@dex please fix the flaky test')
   await say(d, 1, '@dex stop')
   const page = await decisions(d)
-  const stop = page.decisions.find((one) => one.decision === 'stop')
-  assert.deepEqual([stop?.by, stop?.acted], ['rules', true])
+  const stop = page.unconfirmedStops?.[0]
+  assert.equal(stop?.state, 'unconfirmed')
+  assert.equal(stop?.progress.runsMarkedStopped, 1)
+  assert.equal(page.decisions.some(one => one.decision === 'stop'), false)
   assert.deepEqual([page.threads[0]!.state, page.threads[0]!.closed?.reason], ['closed', 'stopped'])
   assert.equal(d.model.inputs.length, 1, 'stopping needs no assessment')
 })
@@ -427,8 +429,9 @@ test('"@dex stop" stops the running work through the host, and says so; with not
   assert.ok(flowRuns(d, first!.goal!).some((run) => run.state !== 'stopped'), 'the work is running')
   await say(d, 1, '@dex stop')
   let page = await decisions(d)
-  const stop = page.decisions.find((one) => one.decision === 'stop')!
-  assert.match(stop.reason, /1 run of its work was stopped/)
+  const stop = page.unconfirmedStops?.[0]
+  assert.equal(stop?.state, 'unconfirmed')
+  assert.equal(stop?.progress.runsMarkedStopped, 1)
   assert.ok(flowRuns(d, first!.goal!).every((run) => run.state === 'stopped'))
   assert.deepEqual([page.threads[0]!.state, page.threads[0]!.closed?.reason], ['closed', 'stopped'])
 
@@ -437,8 +440,9 @@ test('"@dex stop" stops the running work through the host, and says so; with not
   for (const run of flowRuns(d, second.goal!)) await d.host.call('flow/execution/stop', { run: run.id, reason: 'Done by hand.' })
   await say(d, 2, '@dex stop')
   page = await decisions(d)
-  const idle = page.decisions.find((one) => one.decision === 'stop' && one.thread.number === 2)!
-  assert.match(idle.reason, /nothing of its work was running, so nothing was stopped/)
+  const idle = page.unconfirmedStops?.find(one => one.thread.number === 2)
+  assert.equal(idle?.state, 'unconfirmed')
+  assert.equal(idle?.progress.runsMarkedStopped, 0)
   const thread = page.threads.find((one) => one.origin.number === 2)!
   assert.deepEqual([thread.state, thread.closed?.reason], ['closed', 'closed'], 'never recorded as stopped when nothing stopped')
 })
@@ -620,7 +624,7 @@ const LEAD_ASK = `- id: ask
 /** The Lead's goal for issue 1, from a comment through a person's approval to a running Team. */
 const leadThread = async (t: TestContext) => {
   const d = await desk(t, LEAD_ASK, { lead: true })
-  const { journal, records } = await leadOn(t, d)
+  const { journal, records } = await leadOn(t, d, { resolve() {}, authorizeStop() {}, requestStop() {} })
   await act(d)
   await say(d, 1, '@dex please fix the flaky test')
   const [thread] = (await decisions(d)).threads
@@ -664,7 +668,7 @@ test('#2070: stopping a mention drops its busy queued Lead firing without droppi
   assert.ok(!delivered.includes(`trigger-${first}`), 'no goal opens for the stopped thread')
   assert.ok(delivered.includes(`trigger-${other}`), 'another thread may still open its goal')
   assert.ok(delivered.includes(`trigger-${fresh}`), 'the new lifecycle on the same issue may open its goal')
-  assert.ok(page.decisions.some(one => one.decision === 'stop' && /queued|firing/i.test(one.reason)), 'the stop decision records the dropped firing')
+  assert.equal(page.unconfirmedStops?.[0]?.progress.queuedCancelled, 1, 'the saved receipt records the dropped firing')
   const saved = d.host.intakePlane.journal.read().firings[first]!
   assert.equal(saved.setAside, true, 'the original firing identity is retained as a tombstone')
   assert.match(saved.attention ?? '', /queued firing was dropped/)
@@ -685,10 +689,10 @@ test('#2070: a stop waits for an in-flight delivery before stopping the thread',
     deliveries++
     return { delivered: true as const }
   })
-  const cancel = Admission.prototype.cancelMentionFirings
-  t.mock.method(Admission.prototype, 'cancelMentionFirings', function (this: Admission, ...args: Parameters<Admission['cancelMentionFirings']>) {
+  const close = Admission.prototype.closeMentionThread
+  t.mock.method(Admission.prototype, 'closeMentionThread', function (this: Admission, ...args: Parameters<Admission['closeMentionThread']>) {
     stopping.open()
-    return cancel.apply(this, args)
+    return close.apply(this, args)
   })
   await act(d)
   await say(d, 1, '@dex please fix the flaky test')
@@ -1187,24 +1191,26 @@ test('an accepted mention is one work item: the thread it came from, and the wor
   assert.deepEqual(after.items.map((one) => one.id), [item!.id])
 })
 
-test('"@dex stop" stops the Lead’s goal the thread opened as the person’s Stop does, and says what it stopped', E2E, async (t) => {
+test('"@dex stop" records the Lead plan and leaves an unproven run untouched', E2E, async (t) => {
   const { d, journal, records, run } = await leadThread(t)
 
   await say(d, 1, '@dex stop')
   const page = await decisions(d)
-  const stop = page.decisions.find((one) => one.decision === 'stop')!
-  assert.match(stop.reason, /1 run the Lead started for it and the Lead’s plan for it were stopped, and the thread is closed\./)
-  assert.equal(d.host.flowsPlane.executionOf(run)?.state, 'stopped', 'the Lead’s run is stopped through the host')
+  const stop = page.unconfirmedStops?.[0]
+  assert.equal(stop?.state, 'unconfirmed')
+  assert.equal(stop?.progress.leadPlanStopped, true)
+  assert.equal(stop?.progress.leadRunsMarkedStopped, 0, 'the fake Lead view is not stored ownership')
+  assert.notEqual(d.host.flowsPlane.executionOf(run)?.state, 'stopped', 'a person-started run is not stopped from a fake ownership view')
   assert.equal(journal.state.phase, 'stopped', 'the plan is stopped, so the Lead starts nothing more for it')
-  const stops = records.filter((one) => one.type === 'stop')
+  const stops = records.filter((one) => one.type === 'mention-stop-once')
   assert.equal(stops.length, 1, 'one stop, journaled')
-  assert.deepEqual((stops[0] as { from?: unknown }).from, { kind: 'mention', comment: stop.comment.url }, 'as a stop from the comment that asked')
+  assert.deepEqual((stops[0] as { from?: unknown }).from, { kind: 'mention', comment: stop?.url }, 'as a stop from the comment that asked')
   assert.deepEqual([page.threads[0]!.state, page.threads[0]!.closed?.reason], ['closed', 'stopped'])
 })
 
 test('"@dex stop" before the Lead’s plan is approved stops the plan, so it never starts', E2E, async (t) => {
   const d = await desk(t, LEAD_ASK, { lead: true })
-  const { journal } = await leadOn(t, d)
+  const { journal } = await leadOn(t, d, { resolve() {}, authorizeStop() {}, requestStop() {} })
   await act(d)
   await say(d, 1, '@dex please fix the flaky test')
   // The Lead is drafting the plan this thread's firing asked for; nothing of it runs yet.
@@ -1212,8 +1218,9 @@ test('"@dex stop" before the Lead’s plan is approved stops the plan, so it nev
 
   await say(d, 1, '@dex stop')
   const page = await decisions(d)
-  const stop = page.decisions.find((one) => one.decision === 'stop')!
-  assert.match(stop.reason, /the Lead’s plan for it was stopped, and the thread is closed\./)
+  const stop = page.unconfirmedStops?.[0]
+  assert.equal(stop?.state, 'unconfirmed')
+  assert.equal(stop?.progress.leadPlanStopped, true)
   assert.equal(journal.state.phase, 'stopped')
   assert.deepEqual([page.threads[0]!.state, page.threads[0]!.closed?.reason], ['closed', 'stopped'])
 })
@@ -1230,8 +1237,9 @@ test('"@dex stop" never stops a run a person started, even on a Team the Lead st
   assert.equal(person.goal, team, 'the person’s run is on the Lead’s Team')
 
   await say(d, 1, '@dex stop')
-  const stop = (await decisions(d)).decisions.find((one) => one.decision === 'stop')!
-  assert.match(stop.reason, /nothing of its work was running, so nothing was stopped; the thread is closed\./, 'nothing of the Lead’s was going, and the person’s run is not its')
+  const stop = (await decisions(d)).unconfirmedStops?.[0]
+  assert.equal(stop?.state, 'unconfirmed')
+  assert.equal(stop?.progress.leadRunsMarkedStopped, 0, 'the person’s run is not the Lead’s')
   assert.notEqual(d.host.flowsPlane.executionOf(person.id)?.state, 'stopped', 'the person’s run goes on')
 })
 
@@ -1265,8 +1273,9 @@ test('a stop on one trigger’s thread leaves another trigger’s work on the sa
 
   await say(d, 1, '@triager stop')
   const page = await d.host.call('trigger/decisions', { root: d.repo.dir, id: 'triage' }) as TriggerDecisionsPage
-  const stop = page.decisions.find((one) => one.decision === 'stop')!
-  assert.match(stop.reason, /1 run of its work was stopped, and the thread is closed\.$/)
+  const stop = page.unconfirmedStops?.[0]
+  assert.equal(stop?.state, 'unconfirmed')
+  assert.equal(stop?.progress.runsMarkedStopped, 1)
   assert.ok(flowRuns(d, triage).every((one) => one.state === 'stopped'), 'its own work is stopped')
   assert.ok(flowRuns(d, fix).some((one) => one.state !== 'stopped'), 'the other trigger’s work goes on')
 })
@@ -1301,7 +1310,7 @@ test('#2065: a closed issue keeps its thread open while its own run is active', 
   assert.equal((await decisions(d)).threads[0]!.state, 'open', 'active own work keeps the issue thread available')
   await say(d, 1, '@dex stop')
   assert.ok(flowRuns(d, goal).every(run => run.state === 'stopped'))
-  assert.ok((await decisions(d)).decisions.some(one => one.decision === 'stop'))
+  assert.equal((await decisions(d)).unconfirmedStops?.[0]?.state, 'unconfirmed')
 })
 
 test('#2065: reevaluation refreshes an earlier denied collaborator permission', E2E, async t => {
@@ -1320,17 +1329,13 @@ test('#2065: an uncertain stop is visible separately and the comment is never at
   const d = await desk(t)
   await act(d)
   await say(d, 1, '@dex please fix the flaky test')
-  const record = await until(() => d.host.registry.all().find(one => one.live && one.running.size > 0) ?? null, 'the firing has a live turn')
-  const live = record.live!
-  const original = live.interrupt.bind(live)
   let attempts = 0
-  live.interrupt = async () => { attempts++; throw new Error('synthetic interruption failure') }
-  t.after(() => { live.interrupt = original; return Promise.resolve() })
+  t.mock.method(d.host.flowsPlane, 'markMentionRun', async () => { attempts++; throw new Error('synthetic run mark failure') })
   await say(d, 1, '@dex stop')
   const page = await decisions(d) as TriggerDecisionsPage & { unconfirmedStops?: readonly { state: string }[] }
   assert.equal(page.decisions.some(one => one.decision === 'stop'), false, 'uncertainty is never an ordinary stop decision')
   assert.equal(page.unconfirmedStops?.[0]?.state, 'unconfirmed')
-  assert.ok(attempts > 0)
+  assert.equal(attempts, 1, 'the failed effect was attempted exactly once')
   const first = attempts
   for (let n = 0; n < 3; n++) { d.clocks.advance(60_000); await d.host.intakePlane.tick() }
   assert.equal(attempts, first, 'polling must not repeat the stop')
