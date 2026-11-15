@@ -498,8 +498,10 @@ export const buildThread = (input: ThreadInput, context: ThreadContext): PhoneWo
     const occurrence = occurrences.get(sourceId) ?? 0
     occurrences.set(sourceId, occurrence + 1)
     if (index < omittedSourceTurns) continue
+    // The source ID can be long; hash it once per selected turn, not once per projected row.
+    const turnIdentity = phoneRowId(['turn', sourceId, occurrence])
     turns.push(...turnsOf(turn, session.cwd, () => { truncated = true }, sent, input.id,
-      (kind, position) => phoneRowId(['source', sourceId, occurrence, kind, position])))
+      (kind, position) => phoneRowId(['source', turnIdentity, kind, position])))
   }
   // The sessions list's own project, so a row and its conversation never name two.
   const { project } = input
