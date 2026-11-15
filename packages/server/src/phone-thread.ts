@@ -1,5 +1,6 @@
 import { carryOnMarkerLine, firstAsk, sessionLabel, isLeadMessageSource, LEAD_MESSAGE_PREFIX, leadMessageKey, leadMessageWords, splitContextContent, wrapContext, type LeadChatControl } from '@harnessdesk/protocol'
 import { basename, isAbsolute, relative } from 'node:path'
+import { createHash } from 'node:crypto'
 import type {
   AgentItem, Approval, ApprovalOption, CommandItem, FileChange, PhoneApprovalState, PhoneDiffLine, PhoneDiffHunk, PhoneWorkFileChange, PhoneWorkStep, PhoneWorkThread, PhoneWorkTurn,
   PlanStep, Session, Turn, UserContent,
@@ -22,9 +23,10 @@ export const threadProjection = (thread: PhoneWorkThread): ThreadProjection | un
 
 export type PhoneApprovalTurn = Extract<PhoneWorkTurn, { type: 'approval' }>
 
-/** ASCII, injective over JavaScript strings (including unpaired UTF-16 surrogates). Tags separate row kinds. */
+/** Domain-tagged UTF-16 preserves distinct code units; uniqueness relies on full SHA-256 collision resistance.
+ * Hashing keeps provider IDs out of the phone projection; it is not encryption against guessing an input. */
 const phoneRowId = (parts: readonly (string | number)[]): string =>
-  `hd1:${Buffer.from(JSON.stringify(parts), 'utf16le').toString('base64url')}`
+  `hd1:${createHash('sha256').update(Buffer.from(JSON.stringify(parts), 'utf16le')).digest('base64url')}`
 
 /** Phone IDs are aliases only: the host matches them against its own pending approvals. */
 export const phoneApprovalId = (raw: string, occurrence = 0): string => phoneRowId(['approval', raw, occurrence])

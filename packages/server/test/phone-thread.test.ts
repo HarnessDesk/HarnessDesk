@@ -270,14 +270,15 @@ test('projected identities survive appended turns and the forty-turn window with
   assert.equal(threadProjection(after)?.omittedSourceTurns, 1)
 })
 
-test('long source identities obey the byte budget without emitting a shortened ID', () => {
+test('long source identities stay opaque and bounded without dropping the row', () => {
   const result = buildThread({ id, running: false, project: null, pending: [], decided: [], session: {
     id: sessionId('chat'), runtime: runtimeId('agent'), cwd, status: { type: 'idle' }, createdAt: 1, updatedAt: 1, itemsLoaded: true,
     turns: [{ id: turnId('a'.repeat(300_000)), status: 'completed', items: [{ id: itemId('x'), type: 'assistantMessage', text: 'hello' }] }],
   } }, { home: null, seat: 'Agent' })
   assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 512 * 1024)
-  assert.equal(result.turns.length, 0)
-  assert.equal(threadProjection(result)?.truncated, true)
+  assert.equal(result.turns.length, 1)
+  assert.equal(result.turns[0]!.id.length, 47)
+  assert.equal(threadProjection(result)?.truncated, false)
 })
 
 test('identity encoding distinguishes Unicode code units and work folds keep identity as they grow', () => {
@@ -291,4 +292,23 @@ test('identity encoding distinguishes Unicode code units and work folds keep ide
   const before = mk('same#2', [run('first')])
   const after = mk('same#2', [run('first'), run('second')])
   assert.equal(before.turns[0]!.id, after.turns[0]!.id)
+})
+
+test('phone row IDs do not reveal private source turn or approval IDs when decoded', () => {
+  const privateTurn = '/private/example/project/sk-fixture123456789'
+  const privateApproval = '/private/example/approval/sk-fixture987654321'
+  const result = buildThread({ id, running: false, project: null, decided: [], pending: [{
+    id: approvalId(privateApproval), sessionId: sessionId('chat'), requestedAt: 1, type: 'command', command: 'ls', cwd,
+    actions: [], options: [],
+  }], session: { id: sessionId('chat'), runtime: runtimeId('agent'), cwd, status: { type: 'idle' }, createdAt: 1, updatedAt: 1, itemsLoaded: true,
+    turns: [{ id: turnId(privateTurn), status: 'completed', items: [{ id: itemId('visible'), type: 'assistantMessage', text: 'Done' }] }],
+  } }, { home: null, seat: 'Agent' })
+  assert.equal(result.turns.length, 2)
+  for (const row of result.turns) {
+    const decoded = Buffer.from(row.id.split(':').at(-1)!, 'base64url').toString('utf16le')
+    for (const secret of [privateTurn, privateApproval]) {
+      assert.equal(row.id.includes(secret), false)
+      assert.equal(decoded.includes(secret), false, 'the identifier must not expose its source when decoded')
+    }
+  }
 })
