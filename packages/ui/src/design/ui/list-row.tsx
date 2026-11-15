@@ -51,7 +51,11 @@ type ListRowProps = Omit<React.ComponentProps<'div'>, 'title'> & {
   subtitle?: React.ReactNode
   /** An earned sentence wraps whole; names, paths and compact facts truncate. */
   wrapSubtitle?: boolean
-  /** Below the heading and controls, using the row's whole reading width. */
+  /** Below the heading and controls, using the row's whole reading width.
+   * In below layout the trail precedes the description and metadata in DOM,
+   * reading and keyboard order. Use a div row for focusable slot controls;
+   * a button row must not contain another interactive control.
+   */
   subtitleLayout?: 'column' | 'below'
   /** The reading: a figure, a chip, a `Delta`, a menu. */
   trail?: React.ReactNode
