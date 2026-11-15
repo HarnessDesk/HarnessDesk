@@ -248,16 +248,19 @@ test('the host lets a phone answer an approval through the window’s own path, 
   const waiting = await host.call('workspace/thread/read', { id })
   assert.equal(waiting.status, 'asksYou')
   const turn = waiting.turns.at(-1)!
-  assert.deepEqual(turn.type === 'approval' ? [turn.id, turn.state, turn.highRisk, turn.command, 'sessionGrant' in turn] : null, ['ap-deny', 'pending', true, 'rm -rf build', false])
+  assert.equal(turn.type, 'approval')
+  assert.notEqual(turn.id, 'ap-deny')
+  assert.match(turn.id, /^hd1:[A-Za-z0-9_-]{43}$/)
+  assert.deepEqual(turn.type === 'approval' ? [turn.state, turn.highRisk, turn.command, 'sessionGrant' in turn] : null, ['pending', true, 'rm -rf build', false])
   assert.equal((await host.call('workspace/read', {})).items.find(one => one.id === id)?.phase, 'needsYou')
 
-  await assert.rejects(host.call('workspace/approval/decide', { id: 'ap-deny', session: id, allow: true, scope: 'session' }), /cannot be allowed for the whole session/)
+  await assert.rejects(host.call('workspace/approval/decide', { id: turn.id, session: id, allow: true, scope: 'session' }), /cannot be allowed for the whole session/)
   await assert.rejects(host.call('workspace/approval/decide', { id: 'unknown', session: id, allow: false }), /not waiting any more/)
-  assert.deepEqual(await host.call('workspace/approval/decide', { id: 'ap-deny', session: id, allow: false, scope: 'once' }), {})
+  assert.deepEqual(await host.call('workspace/approval/decide', { id: turn.id, session: id, allow: false, scope: 'once' }), {})
   assert.deepEqual(await asked, { type: 'option', optionId: 'opt-1' })
   const after = await host.call('workspace/thread/read', { id })
   assert.equal(after.status, 'done')
-  assert.deepEqual(after.turns.map(one => one.type === 'approval' ? [one.id, one.state] : one.type), [['ap-deny', 'denied']])
+  assert.deepEqual(after.turns.map(one => one.type === 'approval' ? [one.id, one.state] : one.type), [[turn.id, 'denied']])
 
   const allowed = live.askApproval(approvalId('ap-once'))
   await host.call('workspace/approval/decide', { id: 'ap-once', session: id, allow: true })
