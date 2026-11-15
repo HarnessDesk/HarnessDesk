@@ -1,0 +1,14 @@
+{
+  "packages/server/src/host.ts": "fcb9807fd0545c3dabb7341250ea36fe7f5cd1426a3b6dbad5360ffb0d034925",
+  "packages/server/src/phone-thread.ts": "554e6fc1b9f0e02a8b6cdb371cb8ae3c849daa6401c9bcab554f0d5e6efa41b0",
+  "packages/server/src/phone-work.ts": "ae89de3ce70d3b2d9c649c0ec30a0ae8f790a85f566ec3caa23d3a7e0b355093",
+  "packages/phone-link/src/sim.ts": "fed5521b7e010de367f1f07740340c92a0812877334347d8faae6b42e97c250a",
+  "packages/adapter-codex/test/fixtures/fake-codex.mjs": "f4d8fcb27e24a3e871dd5660030e4c0fbd718bc429952e98970de81f43e7b1d1",
+  "packages/adapter-codex/test/fixtures/scripted-flow.mjs": "1b6f58123021ce772025a525aaedabd99784655772631299d27a6dbe4c8099d7",
+  "packages/adapter-codex/test/fixtures/plugin-icon.svg": "611ca48d4da7767c7cc051442c2e389a2d5a288a2fbb09c5edd3f3b1e7499d79",
+  "diagnostic/phone2038/fake-codex-2038.mjs": "257e9f039fc1b2ea4eda6821c2906da48f4a063a9f4ed6a955fb2a8208dcdb63",
+  "diagnostic/phone2038/scripted-flow.mjs": "1b6f58123021ce772025a525aaedabd99784655772631299d27a6dbe4c8099d7",
+  "diagnostic/phone2038/plugin-icon.svg": "611ca48d4da7767c7cc051442c2e389a2d5a288a2fbb09c5edd3f3b1e7499d79",
+  "diagnostic/phone2038/ambient-shape.mjs": "d73b2956892802e0203bf1a6c6fc3a1c1161ad7a15f4ff7403c6630d19eb2343",
+  "diagnostic/phone2038/listener-guard.mjs": "456fb42371a6f9196f1b779560e788e8ed0c3a52ed38232fe6b8ef5fcc719220"
+}
