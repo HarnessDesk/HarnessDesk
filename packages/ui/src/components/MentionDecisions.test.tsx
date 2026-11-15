@@ -33,3 +33,11 @@ it('sends the acknowledgement to the dedicated review method with its exact iden
   await store.reviewTriggerStop('/example', 't', stop)
   expect(request).toHaveBeenCalledWith('trigger/stop-unconfirmed/review', { root: '/example', id: 't', stop })
 })
+
+it('reads project stop history using the independent local-history method', async () => {
+  const { AppStore } = await import('../state/store')
+  const store = new AppStore('ws://localhost:0/')
+  const request = vi.spyOn(store.transport, 'request').mockResolvedValue({ retainedStopTriggers: [], stopHistoryFull: false } as never)
+  await store.triggerStopHistory('/example')
+  expect(request).toHaveBeenCalledWith('trigger/stop-unconfirmed/list', { root: '/example' })
+})

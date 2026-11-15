@@ -255,6 +255,7 @@ const rig = (
     loadTeamRuns: vi.fn().mockResolvedValue(undefined),
     loadFindingRun: vi.fn().mockResolvedValue(undefined),
     projectTriggers: vi.fn().mockResolvedValue({ triggers: [] }),
+    triggerStopHistory: vi.fn().mockResolvedValue({}),
     triggerPreferences: vi.fn().mockResolvedValue(null),
     continueFlowAnswer: vi.fn().mockResolvedValue(undefined),
     loadBoardEvidence: vi.fn().mockResolvedValue(undefined),

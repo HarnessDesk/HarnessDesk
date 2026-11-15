@@ -15,7 +15,7 @@ it('activation invalidates old plan and trigger reads across hide and return',as
   const oldPlan=deferred<PlanRead>(),oldTriggers=deferred<ReturnType<typeof triggerProjectView>>()
   const readPlan=vi.fn().mockReturnValueOnce(oldPlan.promise).mockResolvedValue({entry:null,suggestion:null,refusal:'Current plan reading'})
   const projectTriggers=vi.fn().mockReturnValueOnce(oldTriggers.promise).mockResolvedValue(triggerProjectView({exists:false,triggers:[]}))
-  const store={getSnapshot:()=>snapshot,subscribe:()=>()=>{},readPlan,projectTriggers} as unknown as AppStore
+  const store={getSnapshot:()=>snapshot,subscribe:()=>()=>{},readPlan,projectTriggers,triggerStopHistory:vi.fn(async()=>({}))} as unknown as AppStore
   const render=(active:boolean)=>act(async()=>root.render(<StoreProvider store={store}><DestinationPageScope owner="destination:settings" active={active}><PlanSection runtime={runtimeId('alpha')} account="synthetic" report={undefined} isKey={false}/><ProjectTriggers root="/synthetic/project"/></DestinationPageScope></StoreProvider>))
   try{await render(true);await render(false);expect(readPlan).toHaveBeenCalledTimes(1);expect(projectTriggers).toHaveBeenCalledTimes(1);await render(true)
     await act(async()=>{oldPlan.resolve({entry:null,suggestion:null,refusal:'Stale plan reading'});oldTriggers.resolve(triggerProjectView())})

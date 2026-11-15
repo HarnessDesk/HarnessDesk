@@ -25,7 +25,7 @@ export interface MentionTriageState {
   readonly reviewStop: (stop: string) => Promise<void>
 }
 
-export const useMentionTriage = (root: string, id: string, enabled: boolean, revision: number | undefined, initialPage?: TriggerDecisionsPage): MentionTriageState => {
+export const useMentionTriage = (root: string, id: string, enabled: boolean, revision: number | undefined, initialPage?: TriggerDecisionsPage, onReviewed?: () => void): MentionTriageState => {
   const store = useStore()
   const [page, setPage] = useState<TriggerDecisionsPage | null>(initialPage ?? null)
   const [problem, setProblem] = useState<string | null>(null)
@@ -81,6 +81,7 @@ export const useMentionTriage = (root: string, id: string, enabled: boolean, rev
         if (generation.current !== epoch) return
         if (reviewed.id !== stop || reviewed.state !== 'reviewed') throw new Error('The review could not be confirmed.')
         setPage(current => current ? { ...current, unconfirmedStops: current.unconfirmedStops?.map(item => item.id === stop ? reviewed : item) } : current)
+        onReviewed?.()
       } catch (error) {
         if (generation.current === epoch) setProblem(error instanceof Error ? error.message : String(error))
       } finally {

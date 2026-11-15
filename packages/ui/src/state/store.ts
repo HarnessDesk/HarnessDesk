@@ -583,6 +583,11 @@ export class AppStore {
     return this.transport.request('trigger/decision/reevaluate', { root, id, decision })
   }
 
+  /** Read locally retained stop history independently of trigger configuration. */
+  triggerStopHistory(root: string): Promise<Pick<TriggerProjectView, 'retainedStopTriggers' | 'stopHistoryFull'>> {
+    return this.transport.request('trigger/stop-unconfirmed/list', { root })
+  }
+
   /** Acknowledge uncertainty without retrying or claiming a stop succeeded. */
   reviewTriggerStop(root: string, id: string, stop: string): Promise<TriggerUnconfirmedStop> {
     return this.transport.request('trigger/stop-unconfirmed/review', { root, id, stop })

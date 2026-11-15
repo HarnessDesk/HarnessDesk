@@ -133,6 +133,7 @@ const mount = (node: React.ReactNode, over: Partial<AppSnapshot> = {}) => {
     projectChecks: vi.fn(async (path: string) => CHECKS(path)),
     flowCatalog: vi.fn(async (path: string) => FLOWS[path] ?? []),
     projectTriggers: vi.fn(async (path: string) => TRIGGERS(path)),
+    triggerStopHistory: vi.fn(async () => ({})),
     previewTrigger: vi.fn(async () => { throw new Error('not used in this test') }),
     armTrigger: vi.fn(async () => { throw new Error('not used in this test') }),
     disarmTrigger: vi.fn(async () => { throw new Error('not used in this test') }),
