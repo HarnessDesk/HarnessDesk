@@ -2695,6 +2695,12 @@ export class Host {
             { issues: links.issues.map(at), prs: links.pulls.map(at), teams: [...links.goals] })
           },
         },
+        activeLead: firings => {
+          const state = this.#leadJournal?.state
+          if (!state?.originKey) return null
+          if (!firings.some(key => state.originKey === `trigger-${key}`)) return null
+          return !['accepted', 'declined', 'stopped'].includes(state.phase)
+        },
         // A stop on the thread reaches the Lead's goal by the firing that opened it, never by a shared link.
         stopLead: (asked) => this.stopLeadForThread(asked),
       },

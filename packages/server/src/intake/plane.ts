@@ -164,6 +164,7 @@ export interface IntakeHostPort {
     leadName?(): string
     pullRequests?(repository: string, goals: readonly string[], firings: readonly string[]): Promise<readonly number[]>
     readonly workItems?: WorkItemsPort
+    activeLead?(firings: readonly string[]): boolean | null
     /** Stops the Lead's goal when a firing of the thread opened it, as the person's Stop does; what it stopped. */
     stopLead?(asked: { readonly firings: readonly string[]; readonly comment: string }): Promise<{ readonly plan: boolean; readonly runs: number }>
   }
@@ -423,6 +424,20 @@ export class IntakePlane {
         const lead = await port.mentions?.stopLead?.({ firings, comment }) ?? { plan: false, runs: 0 }
         this.#schedule()
         return { own, lead: lead.runs, plan: lead.plan, queued }
+      },
+      activeWork: (goals, firings) => {
+        if (goals.some(goal => port.flows.runs(goal).some(run => run.intake && (run.state === 'running' || run.state === 'stalled')))) return true
+        const lead = port.mentions?.activeLead?.(firings)
+        if (lead !== null && lead !== undefined) return lead
+        // A delivered Lead firing without a readable Lead journal is unknown;
+        // a still-queued firing has not opened Lead work and may be refused.
+        const snapshot = this.#store.read()
+        const pending = new Set(snapshot.operations.filter(one => !one.dispatched).map(one => one.key))
+        return firings.some(key => {
+          if (pending.has(key)) return false
+          const run = snapshot.firings[key]?.run
+          return !run || !port.flows.execution(run)
+        })
       },
       observationWindowMs: MENTION_SWEEP_MS,
       knowsFirings: (project, trigger, keys) => {

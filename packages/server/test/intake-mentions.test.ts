@@ -461,6 +461,8 @@ test('a thread with no pull request closes when its issue closes', E2E, async (t
   d.clocks.advance(10 * 60_000)
   await d.host.intakePlane.tick()
   assert.equal((await decisions(d)).threads[0]!.state, 'open', 'an open issue keeps it open')
+  const goal = (await history(d)).items[0]!.goal!
+  for (const run of flowRuns(d, goal)) await d.host.call('flow/execution/stop', { run: run.id, reason: 'Work finished.' })
   d.forge.issues.find((one) => one.number === 1)!.state = 'closed'
   d.clocks.advance(10 * 60_000)
   await d.host.intakePlane.tick()
@@ -1096,7 +1098,7 @@ test('#2070 R1: a historical thread with no pending firing keeps its existing fo
     resumes: 0, observations: 0, openedAt: 0, firings: [key], seen: [], workItem: 'work-fixture' }
   await writeFile(join(home, LEDGER), JSON.stringify({ version: 1, decisions: [], threads: [thread], modes: {}, assessed: { day: '', count: 0 } }))
   const triage = new MentionTriage({ home, forge: { thread: async () => ({ number: 1, pull: false, state: 'closed', labels: [], title: 'Fixture' }) },
-    assess: null, leadName: () => 'dex', pendingFirings: () => [], knowsFirings: () => false,
+    assess: null, leadName: () => 'dex', pendingFirings: () => [], knowsFirings: () => false, activeWork: () => false,
     observationWindowMs: 300_000, pullRequests: async () => [], closeThread: (close: () => Promise<void>) => close(),
     now: () => 1000, signal: new AbortController().signal, changed() {}, log() {},
   } as any)
@@ -1282,4 +1284,121 @@ test('a thread the work ledger cannot take is said once, and tried again after a
   await d.host.intakePlane.tick()
   assert.equal(tries, 2, 'tried again once an hour has passed')
   assert.equal(warned.mock.calls.filter((call) => call.arguments[0] === 'a mention thread could not be attached to the work ledger').length, 1, 'and said once')
+})
+
+test('#2065: a closed issue keeps its thread open while its own run is active', E2E, async t => {
+  const d = await desk(t)
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const goal = (await history(d)).items[0]!.goal!
+  assert.ok(flowRuns(d, goal).some(run => run.intake && (run.state === 'running' || run.state === 'stalled')))
+  d.forge.issues.find(one => one.number === 1)!.state = 'closed'
+  d.clocks.advance(10 * 60_000)
+  await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).threads[0]!.state, 'open', 'active own work keeps the issue thread available')
+  await say(d, 1, '@dex stop')
+  assert.ok(flowRuns(d, goal).every(run => run.state === 'stopped'))
+  assert.ok((await decisions(d)).decisions.some(one => one.decision === 'stop'))
+})
+
+test('#2065: reevaluation refreshes an earlier denied collaborator permission', E2E, async t => {
+  const triggers = ASK().replace('  people: [a-teammate]\n', '  from: collaborators\n')
+  const d = await desk(t, triggers)
+  await act(d)
+  await say(d, 1, '@dex please fix the build', STRANGER)
+  const [denied] = (await decisions(d)).decisions
+  assert.equal(denied!.decision, 'ignore')
+  d.forge.permissions.set(STRANGER.login, { id: STRANGER.id, permission: 'write' })
+  const checked = await d.host.call('trigger/decision/reevaluate', { root: d.repo.dir, id: 'ask', decision: denied!.id }) as TriggerDecision
+  assert.deepEqual([checked.decision, checked.acted, checked.evaluations], ['accept', true, 1])
+})
+
+test('#2065: a closed issue fences queued work while its active Lead run remains followable', E2E, async t => {
+  const { d, run } = await leadThread(t)
+  let busy = true
+  const delivered: string[] = []
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async (input: Parameters<LeadAutomaticGoals['offerTrigger']>[0]) => {
+    if (busy) return { delivered: false as const, reason: 'Lead busy' }
+    delivered.push(input.key)
+    return { delivered: true as const }
+  })
+  await say(d, 1, '@dex also check the docs')
+  const pending = d.host.intakePlane.journal.read().operations.map(one => one.key)
+  assert.ok(pending.length > 0, 'the follow-up is queued')
+  d.forge.issues.find(one => one.number === 1)!.state = 'closed'
+  d.clocks.advance(6 * 60_000)
+  await d.host.intakePlane.tick()
+  assert.equal(d.host.flowsPlane.executionOf(run)?.state, 'running')
+  assert.equal((await decisions(d)).threads[0]?.state, 'open', 'the running work remains followable')
+  busy = false
+  await d.host.intakePlane.tick()
+  for (const key of pending) assert.ok(!delivered.includes(`trigger-${key}`), 'closed issue refuses queued firing')
+})
+
+test('#2065: a late open pull request restores admission on its still-active closed-issue thread', E2E, async t => {
+  const d = await desk(t)
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const goal = (await history(d)).items[0]!.goal!
+  d.forge.issues.find(one => one.number === 1)!.state = 'closed'
+  d.clocks.advance(6 * 60_000)
+  await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).threads[0]!.state, 'open')
+  d.links.set(goal, [5])
+  d.forge.pulls.push({ number: 5, head: sha('c'), state: 'open', merged: false, created: d.clocks.wall, updated: d.clocks.wall })
+  d.clocks.advance(6 * 60_000)
+  await d.host.intakePlane.tick()
+  const [thread] = (await decisions(d)).threads
+  assert.deepEqual([thread!.state, thread!.links.pulls], ['open', [5]])
+  const saved = JSON.parse(await readFile(join(d.stateDir, LEDGER), 'utf8')) as { threads: { issueClosed?: boolean }[] }
+  assert.equal(saved.threads[0]!.issueClosed, false, 'an open linked pull clears the issue-only fence')
+})
+
+
+test('#2065: an unavailable Lead journal keeps delivered work unknown on issue closure', E2E, async t => {
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async () => ({ delivered: true as const }))
+  await act(d)
+  await say(d, 1, '@dex please fix the build')
+  const firing = await firingOf(d, 1)
+  assert.ok(!d.host.intakePlane.journal.read().operations.some(one => one.key === firing), 'the firing is delivered')
+  d.forge.issues.find(one => one.number === 1)!.state = 'closed'
+  d.clocks.advance(6 * 60_000)
+  await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).threads[0]!.state, 'open', 'unknown Lead activity does not close the thread')
+})
+
+test('#2065: reevaluation still reuses a positive collaborator permission within its TTL', E2E, async t => {
+  const triggers = ASK().replace('  people: [a-teammate]\n', '  from: collaborators\n')
+  const d = await desk(t, triggers)
+  d.forge.permissions.set(STRANGER.login, { id: STRANGER.id, permission: 'write' })
+  await say(d, 1, '@dex please fix the build', STRANGER)
+  const [allowed] = (await decisions(d)).decisions
+  assert.equal(allowed!.decision, 'accept')
+  d.forge.permissions.delete(STRANGER.login)
+  const checked = await d.host.call('trigger/decision/reevaluate', { root: d.repo.dir, id: 'ask', decision: allowed!.id }) as TriggerDecision
+  assert.equal(checked.decision, 'accept')
+})
+
+test('#2065: a closed issue does not admit a new flow firing while active work remains followable', E2E, async t => {
+  const d = await desk(t)
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  assert.equal((await history(d)).items.length, 1)
+  d.forge.issues.find(one => one.number === 1)!.state = 'closed'
+  d.clocks.advance(6 * 60_000)
+  await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).threads[0]!.state, 'open')
+  await say(d, 1, '@dex also update the docs')
+  assert.equal((await history(d)).items.length, 1, 'closed issue cannot start another firing')
+})
+
+test('#2065: unknown work activity never closes the issue thread', async () => {
+  const home = tempDir('hd-mention-unknown-activity-')
+  const thread = { id: 'w-unknown', trigger: 'ask', project: '/fixture', repository: 'acme/widgets', origin: { kind: 'issue', number: 1 }, links: { issues: [1], pulls: [], goals: [] }, state: 'open', closed: null, resumes: 0, observations: 0, openedAt: 0, firings: ['a'.repeat(64)], seen: [] }
+  await writeFile(join(home, LEDGER), JSON.stringify({ version: 1, decisions: [], threads: [thread], modes: {}, assessed: { day: '', count: 0 } }))
+  const triage = new MentionTriage({ home, forge: { thread: async () => ({ number: 1, pull: false, state: 'closed', labels: [], title: 'Fixture' }) }, pendingFirings: () => [], knowsFirings: () => true,
+    pullRequests: async () => [], closeThread: (close: () => Promise<void>) => close(), now: () => 1000, signal: new AbortController().signal, changed() {}, log() {} } as never)
+  await triage.sweep()
+  assert.equal((await triage.page('/fixture', 'ask', null)).threads[0]!.state, 'open')
 })

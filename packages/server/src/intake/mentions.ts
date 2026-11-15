@@ -167,6 +167,8 @@ const bodyDigest = (body: string): string => createHash('sha256').update(body).d
 // ------------------------------------------------------------------ ledger
 
 interface StoredThread extends TriggerWorkThread {
+  /** The issue is closed even when active work keeps the thread followable. */
+  readonly issueClosed?: boolean
   /** Admission keys of every firing it took: what the Lead's own pull request is found by. */
   readonly firings: readonly string[]
   /** Comment ids it already took or counted. */
@@ -209,8 +211,10 @@ const ledgerOf = (value: unknown): LedgerFile | null => {
     isMap(one['comment']) && isMap(one['thread']) && Array.isArray(one['rules']))
   const isThread = (one: unknown): one is StoredThread =>
     isMap(one) && typeof one['id'] === 'string' && isMap(one['links']) && Array.isArray(one['firings']) && Array.isArray(one['seen']) && isMap(one['origin'])
+  if (value['threads'].some(one => isMap(one) && one['issueClosed'] !== undefined && typeof one['issueClosed'] !== 'boolean')) return null
   const threads = value['threads'].filter(isThread)
   const pending = value['pendingThreads']
+  if (Array.isArray(pending) && pending.some(one => isMap(one) && one['issueClosed'] !== undefined && typeof one['issueClosed'] !== 'boolean')) return null
   const isPendingThread = (one: unknown): one is PendingThread => {
     if (!isThread(one) || typeof one.project !== 'string' || typeof one.trigger !== 'string' || typeof one.repository !== 'string' ||
       !['open', 'closed'].includes(one.state) || !['issue', 'pull-request'].includes(one.origin.kind) ||
@@ -269,6 +273,8 @@ export interface MentionPort {
   pendingFirings(): readonly string[]
   /** Every lifetime firing must still have its durable admission tombstone. */
   knowsFirings(project: string, trigger: string, keys: readonly string[]): boolean
+  /** Whether work owned by this thread is still active. */
+  activeWork?(goals: readonly string[], firings: readonly string[]): boolean
   /** Existing mention sweep interval: the longest a live observation can authorize retries. */
   readonly observationWindowMs: number
   /** Commit a natural thread closure between admission deliveries. */
@@ -430,7 +436,7 @@ export class MentionTriage {
     if (ledger.decisions.some(one => one.closedFiring === key)) return 'recorded'
     const thread = [...ledger.pendingThreads, ...ledger.threads].find(one => one.firings.includes(key))
     if (!thread) return 'unknown'
-    if (thread.state === 'closed') return 'unrecorded'
+    if (thread.state === 'closed' || thread.issueClosed) return 'unrecorded'
     const observed = this.#verified.get(key)
     const age = observed === undefined ? -1 : this.#port.now() - observed
     if (age < 0 || age >= this.#port.observationWindowMs) return 'unverified'
@@ -459,7 +465,7 @@ export class MentionTriage {
   recordClosedFiring(key: string, fact: TriggerFact): Promise<void> {
     return this.#serial.run(async () => {
       const ledger = await this.#read()
-      const thread = [...ledger.pendingThreads, ...ledger.threads].find(one => one.state === 'closed' && one.firings.includes(key))
+      const thread = [...ledger.pendingThreads, ...ledger.threads].find(one => (one.state === 'closed' || one.issueClosed) && one.firings.includes(key))
       if (!thread) return
       const id = `d-${digest([thread.id, 'closed-firing', key])}`
       if (ledger.decisions.some(one => one.id === id)) return
@@ -527,6 +533,12 @@ export class MentionTriage {
           await this.#thread(linked.id, (one) => ({ ...one, observations: one.observations + 1, seen: remember(one.seen, id) }))
           return
         }
+        if (linked.issueClosed) {
+          await this.#thread(linked.id, one => ({ ...one, seen: remember(one.seen, id) }))
+          await this.#record(arm, fact, { decision: 'ignore', by: 'rules', reason: `${threadWords(linked.origin.kind, linked.origin.number)} is already closed.`,
+            rules: [{ id: 'addressed', passed: true, detail: `Addresses @${handle}.` }, allowed, { id: 'handled', passed: false, detail: 'The issue is already closed.' }] }, mode, false, null)
+          return
+        }
         if (mode !== 'act') return
         const answer = await admit(arm, { ...fact, subject: String(linked.origin.number), thread: linked.origin.kind })
         await this.#thread(linked.id, (one) => ({
@@ -580,7 +592,7 @@ export class MentionTriage {
       if (before.commentDigest !== undefined && bodyDigest(fact.body ?? '') !== before.commentDigest) throw Object.assign(new Error(EDITED), { code: 'HD_TRIGGER_REFUSED' })
       const handle = this.#handle(arm.definition)
       const verdict: Verdict = addressesHandle(fact.body ?? '', handle)
-        ? await this.#gate(arm, fact, handle)
+        ? await this.#gate(arm, fact, handle, true)
         : { decision: 'ignore', by: 'rules', reason: `This comment no longer addresses @${handle}.`, rules: [{ id: 'addressed', passed: false, detail: `This comment no longer addresses @${handle}.` }] }
       const ledger = await this.#read()
       const mode = this.#modeOf(ledger, arm)
@@ -637,6 +649,7 @@ export class MentionTriage {
           const pulls = [...new Set([...thread.links.pulls, ...found.filter((one) => Number.isSafeInteger(one) && one > 0)])]
           let next: StoredThread = pulls.length === thread.links.pulls.length ? thread : { ...thread, links: { ...thread.links, pulls } }
           if (pulls.length > 0) {
+            if (next.issueClosed) next = { ...next, issueClosed: false }
             const states = await Promise.all(pulls.map((one) => this.#port.forge.pullState(thread.project, thread.repository, one, this.#port.signal)))
             if (states.every((state) => state !== 'open')) {
               next = { ...next, state: 'closed', closed: { reason: states.includes('merged') ? 'merged' : 'closed', at: this.#port.now() } }
@@ -644,15 +657,20 @@ export class MentionTriage {
           } else if (thread.links.issues.length > 0) {
             // No pull request yet: the thread ends when every issue it follows is closed.
             const issues = await Promise.all(thread.links.issues.map((one) => this.#port.forge.thread(thread.project, thread.repository, one, this.#port.signal)))
-            if (issues.every((issue) => issue.state === 'closed')) next = { ...next, state: 'closed', closed: { reason: 'closed', at: this.#port.now() } }
+            const issueClosed = issues.every((issue) => issue.state === 'closed')
+            if (issueClosed && (this.#port.activeWork?.(thread.links.goals, thread.firings) ?? true)) {
+              if (!next.issueClosed) next = { ...next, issueClosed: true }
+            } else if (issueClosed) {
+              next = { ...next, issueClosed: true, state: 'closed', closed: { reason: 'closed', at: this.#port.now() } }
+            } else if (next.issueClosed) next = { ...next, issueClosed: false }
           }
-          if (next.state === 'open' && (pulls.length > 0 || next.links.issues.length > 0)) {
+          if (next.state === 'open' && !next.issueClosed && (pulls.length > 0 || next.links.issues.length > 0)) {
             for (const key of next.firings) if (pending.has(key)) this.#verified.set(key, this.#port.now())
-          } else if (next.state === 'closed') {
+          } else if (next.state === 'closed' || next.issueClosed) {
             for (const key of next.firings) this.#verified.delete(key)
           }
           if (next !== thread) {
-            if (next.state === 'closed') await this.#port.closeThread(() => this.#thread(thread.id, () => next).then(() => {}))
+            if (next.state === 'closed' || next.issueClosed !== thread.issueClosed) await this.#port.closeThread(() => this.#thread(thread.id, () => next).then(() => {}))
             else await this.#thread(thread.id, () => next)
             if (next.links !== thread.links) await this.#attach(next)
             this.#port.changed(thread.project)
@@ -675,7 +693,7 @@ export class MentionTriage {
   }
 
   /** Whether the comment's author may ask this trigger for work: the arming account, a named person or bot by id, or a collaborator. */
-  async #allowed(arm: ArmedTrigger, fact: TriggerFact): Promise<TriggerRuleCheck> {
+  async #allowed(arm: ArmedTrigger, fact: TriggerFact, refreshNegative = false): Promise<TriggerRuleCheck> {
     const definition = arm.definition
     const fail = (who: string): TriggerRuleCheck => ({ id: 'allowed', passed: false, detail: `${who} is not on this trigger’s list: ${allowedWords(definition)}.` })
     if (typeof fact.author !== 'string') return { id: 'allowed', passed: false, detail: 'Who wrote this comment could not be read.' }
@@ -684,27 +702,27 @@ export class MentionTriage {
     if (!login) return fail('Its author')
     const signal = this.#port.signal
     if (fact.bot === true) {
-      if ((definition.bots ?? []).includes(login) && await this.#cached(['account', arm.project, login, 'bot', fact.author], () => this.#port.forge.isAccount(arm.project, login, true, fact.author!, signal))) {
+      if ((definition.bots ?? []).includes(login) && await this.#cached(['account', arm.project, login, 'bot', fact.author], () => this.#port.forge.isAccount(arm.project, login, true, fact.author!, signal), refreshNegative)) {
         return { id: 'allowed', passed: true, detail: `The bot ${login}, named on this trigger.` }
       }
       return fail(`The bot ${login}`)
     }
-    if ((definition.people ?? []).includes(login) && await this.#cached(['account', arm.project, login, 'person', fact.author], () => this.#port.forge.isAccount(arm.project, login, false, fact.author!, signal))) {
+    if ((definition.people ?? []).includes(login) && await this.#cached(['account', arm.project, login, 'person', fact.author], () => this.#port.forge.isAccount(arm.project, login, false, fact.author!, signal), refreshNegative)) {
       return { id: 'allowed', passed: true, detail: `${login}, named on this trigger.` }
     }
     const repository = fact.repository
-    if (definition.from === 'collaborators' && repository && await this.#cached(['writes', arm.project, repository, login, fact.author], () => this.#port.forge.writes(arm.project, repository, login, fact.author!, signal))) {
+    if (definition.from === 'collaborators' && repository && await this.#cached(['writes', arm.project, repository, login, fact.author], () => this.#port.forge.writes(arm.project, repository, login, fact.author!, signal), refreshNegative)) {
       return { id: 'allowed', passed: true, detail: `${login} can write to the repository.` }
     }
     return fail(login)
   }
 
   /** A who-may-ask answer read within the last few minutes, or read now; a read that fails is never kept. */
-  async #cached(question: readonly string[], read: () => Promise<boolean>): Promise<boolean> {
+  async #cached(question: readonly string[], read: () => Promise<boolean>, refreshNegative = false): Promise<boolean> {
     const key = JSON.stringify(question)
     const now = this.#port.now()
     const kept = this.#accounts.get(key)
-    if (kept && now - kept.at >= 0 && now - kept.at < ACCOUNT_TTL_MS) return kept.answer
+    if (kept && (kept.answer || !refreshNegative) && now - kept.at >= 0 && now - kept.at < ACCOUNT_TTL_MS) return kept.answer
     const answer = await read()
     if (this.#accounts.size >= 512) this.#accounts.clear()
     this.#accounts.set(key, { answer, at: now })
@@ -712,7 +730,7 @@ export class MentionTriage {
   }
 
   /** The rules in order, stopping at the first that fails; then, when every rule passed, one assessment. */
-  async #gate(arm: ArmedTrigger, fact: TriggerFact, handle: string): Promise<Verdict> {
+  async #gate(arm: ArmedTrigger, fact: TriggerFact, handle: string, refreshNegative = false): Promise<Verdict> {
     const definition = arm.definition
     const number = Number(fact.subject)
     const kind = fact.thread ?? 'issue'
@@ -721,7 +739,7 @@ export class MentionTriage {
       rules.push(rule)
       return { decision: 'ignore', by: 'rules', reason: rule.detail ?? 'A rule did not pass.', rules }
     }
-    const allowed = await this.#allowed(arm, fact)
+    const allowed = await this.#allowed(arm, fact, refreshNegative)
     if (!allowed.passed) return ignore(allowed)
     rules.push(allowed)
     if (fact.project !== arm.project || fact.repository !== arm.binding.repository) {
@@ -845,6 +863,6 @@ const publicDecision = (decision: StoredDecision): TriggerDecision => {
 }
 
 const publicThread = (thread: StoredThread): TriggerWorkThread => {
-  const { firings: _firings, seen: _seen, comment: _comment, workItem: _workItem, ...rest } = thread
+  const { firings: _firings, seen: _seen, comment: _comment, workItem: _workItem, issueClosed: _issueClosed, ...rest } = thread
   return rest
 }
