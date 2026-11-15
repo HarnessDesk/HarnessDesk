@@ -141,6 +141,47 @@ test('failed cache admissions retain the host-lifetime source-count ceiling', as
   assert.equal(count.streams.length, 4, 'the oldest failed-admission entry was evicted')
 })
 
+test('cache use is refreshed once after the lease and retains recently used sources', async (t) => {
+  const { InsightCache } = await import('../src/ledger/insight-cache.js')
+  const dir = tempDir('hd-insight-lru-batch-'); const corpus = join(dir, 'corpus'); await mkdir(corpus)
+  const targets: Parameters<InstanceType<typeof InsightCache>['read']>[0][] = []
+  for (let i = 0; i < 3; i++) {
+    const path = join(corpus, `${i}.jsonl`); await writeFile(path, meta + event(i)); const file = await stat(path)
+    targets.push({ path, kind: 'codex', runtime: 'alpha', size: file.size, mtime: file.mtimeMs, changedAt: file.ctimeMs, identity: path })
+  }
+  const seed = new InsightCache(dir)
+  await seed.withLease(async () => { await seed.read(targets[0]!, 10_000) }); seed.close()
+  const db = new DatabaseSync(join(dir, 'insight-cache-v1.sqlite'))
+  const bytes = (db.prepare('SELECT bytes FROM generations').get() as { bytes: number }).bytes
+  const cache = new InsightCache(dir, bytes * 2 + 100); t.after(() => { cache.close(); db.close() })
+  await cache.withLease(async () => { await cache.read(targets[1]!, 10_000) })
+  const key = (target: typeof targets[number]) => createHash('sha256').update(JSON.stringify([target.runtime, target.kind, target.path])).digest('hex')
+  db.prepare('UPDATE generations SET used = 1 WHERE source = ?').run(key(targets[0]!))
+  db.prepare('UPDATE generations SET used = 2 WHERE source = ?').run(key(targets[1]!))
+  await cache.withLease(async () => {
+    await cache.read(targets[0]!, 10_000)
+    assert.equal((db.prepare('SELECT used FROM generations WHERE source = ?').get(key(targets[0]!)) as { used: number }).used, 1,
+      'the lease does not write last-used metadata per read')
+  })
+  assert.ok((db.prepare('SELECT used FROM generations WHERE source = ?').get(key(targets[0]!)) as { used: number }).used > 2)
+  await cache.withLease(async () => { await cache.read(targets[2]!, 10_000) })
+  const published = (db.prepare('SELECT source FROM published').all() as { source: string }[]).map((one) => one.source).sort()
+  assert.deepEqual(published, [key(targets[0]!), key(targets[2]!)].sort(), 'the untouched source is evicted first')
+})
+
+test('a failed deferred cache-use refresh does not lose the completed usage read', async (t) => {
+  const { ledger, corpus, dir } = await fixture(); t.after(() => ledger.close())
+  const count = reads(t, corpus)
+  const before = await ledger.readInsight(query)
+  const cache = new DatabaseSync(join(dir, 'insight-cache-v1.sqlite'))
+  cache.exec("CREATE TRIGGER fail_usage_refresh BEFORE UPDATE OF used ON generations BEGIN SELECT RAISE(ROLLBACK, 'synthetic LRU failure'); END")
+  cache.close()
+  const bytes = count.bytes()
+  const after = await ledger.readInsight(query)
+  assert.deepEqual(after.samples.map((one) => one.key), before.samples.map((one) => one.key))
+  assert.equal(count.bytes(), bytes, 'a failed best-effort refresh does not cause a source reread')
+})
+
 test('a rejected cache write after an append keeps the source reading without rereading bytes', async (t) => {
   const { ledger, path, corpus, dir } = await fixture(); t.after(() => ledger.close())
   const count = reads(t, corpus)

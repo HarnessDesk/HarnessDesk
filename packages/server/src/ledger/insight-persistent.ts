@@ -87,6 +87,7 @@ export class PersistentInsight {
   #db: DatabaseSync | null = null
   #leased = false
   readonly #pinned = new Set<string>()
+  readonly #touched = new Map<string, number>()
   readonly #limit: number
   constructor(readonly stateDir: string, limit = TOTAL_BYTES) { this.#limit = limit }
 
@@ -112,9 +113,20 @@ export class PersistentInsight {
   }
 
   release(): void {
+    // Every touched generation stays pinned through this lease, so one best-effort
+    // transaction can refresh LRU order without a synchronous write on every get.
+    if (this.#leased && this.#db && this.#touched.size) {
+      try {
+        this.#db.exec('BEGIN IMMEDIATE')
+        const update = this.#db.prepare('UPDATE generations SET used = ? WHERE id = ?')
+        for (const [id, at] of this.#touched) update.run(at, id)
+        this.#db.exec('COMMIT')
+      } catch { try { this.#db.exec('ROLLBACK') } catch {} }
+    }
     if (this.#leased) { try { this.#lock?.exec('ROLLBACK') } catch {} }
     this.#leased = false
     this.#pinned.clear()
+    this.#touched.clear()
   }
 
   close(): void {
@@ -143,7 +155,7 @@ export class PersistentInsight {
       }
       if (hash.digest('hex') !== row.digest) return null
       this.#pinned.add(row.id)
-      this.#db.prepare('UPDATE generations SET used = ? WHERE id = ?').run(Date.now(), row.id)
+      this.#touched.set(row.id, Date.now())
       return { entry: { ...entry, samples }, generation: row.id }
     } catch { return null }
   }
