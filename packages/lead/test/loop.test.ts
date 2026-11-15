@@ -848,9 +848,19 @@ test('a successful tool result beyond the continuation budget does not park the 
   const call = s.options.desk.call
   s.options.desk.call = async (method: string, params: unknown) => method === 'library/usage' ? 'x'.repeat(15_000) : call(method, params)
   const loop = exported('createLeadLoop')(s.options)
-  // Room for the standing instructions and the tool list below the request bound, but not for the 15,000-byte result.
-  const result = await loop.request({ ...input, messages: [{ role: 'user', content: Array.from({ length: 64 }, () => ({ type: 'text', text: 'x'.repeat(15_800) })) }] })
+  // Measure the real wrapper so the request leaves room for the continuation, but not the 15,000-byte result.
+  const limit = 1_048_576, margin = 8_192, blocks = 64
+  const filled = (size: number) => [{ role: 'user', content: Array.from({ length: blocks }, () => ({ type: 'text', text: 'x'.repeat(size) })) }]
+  const probe = await fixture([message([{ type: 'text', text: 'measured' }])])
+  const measure = exported('createLeadLoop')(probe.options)
+  await measure.request({ ...input, messages: filled(1) }); await measure.close()
+  const base = Buffer.byteLength(probe.fake.requests[0].body) - blocks
+  const size = Math.floor((limit - margin - base) / blocks)
+  assert.ok(size > 0 && size <= 16_384, `filler ${size} fits a text block`)
+  const result = await loop.request({ ...input, messages: filled(size) })
   assert.equal(result.status, 'completed')
+  const room = limit - Buffer.byteLength(s.fake.requests[0].body)
+  assert.ok(room >= margin && room < margin + blocks + 1024, `the first request leaves ${room} bytes`)
   assert.equal(s.fake.requests[0].body.includes('Desk clock: '), false, 'a full person turn goes without the clock, rather than carrying it inside its own words or being refused')
   assert.match(result.toolResults[0].content, /^Tool failed:.*result.*conversation limit/)
   assert.equal([...s.journal.state.attempts.values()].find(attempt => attempt.method === 'library/usage')!.outcome, 'succeeded')
