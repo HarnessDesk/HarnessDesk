@@ -9,6 +9,7 @@ const rig=(over={})=>{
  let listener, releases=0, disables=0, properties=0
  const cdp={on:(event,fn)=>{assert.equal(event,'Debugger.scriptParsed');listener=fn;return ()=>{listener=null}},send:async(method,params,timeout)=>{
   assert.equal(timeout,2000)
+  if(method==='Target.getTargetInfo')return {targetInfo:{targetId:'target-private'}}
   if(method==='Debugger.enable'){listener({scriptId:'7',hash,length:source.length,startLine:0,startColumn:0,url:'SECRET'});return {}}
   if(method==='Debugger.disable'){disables++;if(over.disableFails)throw Error('SECRET');return {}}
   if(method==='HeapProfiler.getObjectByHeapObjectId')return {result:{type:'function',objectId:'PRIVATE',...(over.proxy?{subtype:'proxy'}:{})}}
@@ -71,6 +72,7 @@ test('only bounded regular public JS assets are indexed without exposing their p
 test('script offsets must describe the same complete standalone asset',async()=>{
  let listener,disabled=0,released=0
  const cdp={on:(_name,fn)=>{listener=fn;return()=>{}},send:async(method)=>{
+  if(method==='Target.getTargetInfo')return {targetInfo:{targetId:'target-private'}}
   if(method==='Debugger.enable'){listener({scriptId:'7',hash,length:source.length,startLine:1,startColumn:0});return {}}
   if(method==='Debugger.disable'){disabled++;return {}}
   if(method==='Runtime.releaseObjectGroup'){released++;return {}}
@@ -89,9 +91,9 @@ test('object-group cleanup is awaited before provenance is returned',async()=>{
 
 test('debugger enable failure still awaits both cleanup operations',async()=>{
  const calls=[]
- const cdp={on:()=>()=>{},send:async method=>{calls.push(method);if(method==='Debugger.enable')throw Error('private');return {}}}
+ const cdp={on:()=>()=>{},send:async method=>{calls.push(method);if(method==='Target.getTargetInfo')return {targetInfo:{targetId:'target-private'}};if(method==='Debugger.enable')throw Error('private');return {}}}
  assert.deepEqual(await provenanceOf(cdp,['19'],assets),{status:'unavailable'})
- assert.deepEqual(calls,['Debugger.enable','Runtime.releaseObjectGroup','Debugger.disable'])
+ assert.deepEqual(calls,['Target.getTargetInfo','Debugger.enable','Runtime.releaseObjectGroup','Debugger.disable'])
 })
 
 test('irrelevant scopes and private descriptors are never traversed or returned',async()=>{
@@ -104,4 +106,30 @@ test('irrelevant scopes and private descriptors are never traversed or returned'
 test('asset offsets use zero-based UTF-16 code-unit bounds',()=>{
  const [asset]=assetIndex(['🙂x\nlast'])
  assert.deepEqual(asset.lines,[3,4])
+})
+
+
+test('a changed, missing or timed-out target suppresses coordinates after cleanup',async()=>{
+ for(const outcome of ['changed','missing','timeout']) {
+  const r=rig(),send=r.cdp.send;let reads=0
+  r.cdp.send=async(method,params,timeout)=>{
+   if(method==='Target.getTargetInfo'){
+    if(++reads===1)return {targetInfo:{targetId:'original-private'}}
+    if(outcome==='timeout')throw Error('PRIVATE-CANARY')
+    return outcome==='changed'?{targetInfo:{targetId:'changed-private'}}:{}
+   }
+   return send(method,params,timeout)
+  }
+  const result=await provenanceOf(r.cdp,['19'],assets)
+  assert.deepEqual(result,{status:'unavailable'})
+  assert.deepEqual(r.counts(),{releases:1,disables:1,properties:1})
+  assert.doesNotMatch(JSON.stringify(result),/private|PRIVATE-CANARY/)
+ }
+})
+
+test('missing initial target fails closed before inspection while still cleaning up',async()=>{
+ const r=rig(),send=r.cdp.send
+ r.cdp.send=(method,params,timeout)=>method==='Target.getTargetInfo'?Promise.resolve({}):send(method,params,timeout)
+ assert.deepEqual(await provenanceOf(r.cdp,['19'],assets),{status:'unavailable'})
+ assert.deepEqual(r.counts(),{releases:1,disables:1,properties:0})
 })

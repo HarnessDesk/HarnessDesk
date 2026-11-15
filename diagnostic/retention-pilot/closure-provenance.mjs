@@ -35,8 +35,10 @@ export function readAssetIndex(directory) {
 export async function provenanceOf(cdp,ids,assets) {
  if(!validIds(ids)||!Array.isArray(assets)||!assets.length||assets.length>maxAssets)return {status:'unavailable'}
  const scripts=new Map();let events=0,bytes=0,overflow=false,unsubscribe=()=>{},failure=false
- const results=[];const group='hd1545-provenance'
+ const results=[];const group='hd1545-provenance';let targetId
  try {
+  targetId=(await cdp.send('Target.getTargetInfo',{},2000))?.targetInfo?.targetId
+  if(typeof targetId!=='string'||!targetId||targetId.length>256)throw Error()
   unsubscribe=cdp.on('Debugger.scriptParsed',event=>{
    if(overflow)return
    if(++events>maxEvents){overflow=true;scripts.clear();return}
@@ -78,5 +80,9 @@ export async function provenanceOf(cdp,ids,assets) {
   try{await cdp.send('Debugger.disable',{},2000)}catch{failure=true}
   try{unsubscribe()}catch{failure=true}
  }
+ if(!failure)try {
+  const after=(await cdp.send('Target.getTargetInfo',{},2000))?.targetInfo?.targetId
+  if(typeof after!=='string'||after!==targetId)failure=true
+ }catch{failure=true}
  return failure||overflow?{status:'unavailable'}:{status:'ok',locations:results}
 }
