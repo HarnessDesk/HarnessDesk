@@ -53,12 +53,14 @@ test('Team Work navigation and dialog footer Close never select the Tools Run se
 })
 
 test('Team opening targets its exact Room button, never the disclosure or action buttons',()=>{
- const dom=new JSDOM('<div data-region="team-row"><button aria-label="Room Review the synthetic change">Review the synthetic change</button><button aria-label="Actions for Review the synthetic change">Actions</button><button aria-label="Expand Review the synthetic change">Expand</button></div>')
+ const dom=new JSDOM('<div data-region="team-row"><button aria-label="Room Review the synthetic change">Review the synthetic change</button><button style="visibility:hidden" aria-label="Actions for Review the synthetic change">Actions</button><button aria-label="Expand Review the synthetic change">Expand</button></div>')
  try {
   const d=dom.window.document,target=d.querySelector('[aria-label="Room Review the synthetic change"]')
   for(const button of d.querySelectorAll('button')){button.getBoundingClientRect=()=>({left:10,top:20,width:100,height:40});button.scrollIntoView=()=>{}}
   d.elementFromPoint=()=>target
   const result=locateTarget(d,'[data-region="team-row"] button[aria-label="Room Review the synthetic change"]','Review the synthetic change')
   assert.equal(result.matches,1);assert.equal(result.eligible,1);assert.equal(result.hits,1)
+  const hidden=locateTarget(d,'[data-region="team-row"] button[aria-label^="Actions for"]','Review the synthetic change')
+  assert.equal(hidden.matches,1);assert.equal(hidden.eligible,0);assert.equal(hidden.point,null)
  } finally {dom.window.close()}
 })

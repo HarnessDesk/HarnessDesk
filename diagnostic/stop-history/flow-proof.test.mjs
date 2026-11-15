@@ -4,25 +4,26 @@ import { captureSafely, exerciseProtectedFlow } from './flow-proof.mjs'
 
 const fixture = ({ cancelEffect = false, retainMarker = false } = {}) => {
   let count=0, marked=true, frames=0
-  const calls=[]
+  const calls=[], interactions=[]
   const cdp={
     json: async () => ({ stopped:true, canStop:marked, absent:!marked }),
     eval: async expression => expression === 'window.__hdFlowStopCount' ? count : true,
   }
-  const click=async (selector,label) => {
-    calls.push(label)
+  const click=async (selector,label,row,checkpoint,button) => {
+    interactions.push({selector,label,row,checkpoint,button});calls.push(label)
     if(label==='Close' && cancelEffect) count++
     if(label==='Stop run') { count++; if(!retainMarker)marked=false }
   }
   const flow={ run:'synthetic', read:()=>({id:'synthetic',state:'stopped',version:2,...(marked?{mentionStopOnce:'u-'+ '1'.repeat(64)}:{})}) }
   const waitFor=async (_label,fn)=>{if(!(await fn()))throw Error('control readiness failure')}
   const result={phase:'',checks:{}}
-  return { args:{cdp,click,waitFor,result,flow,frame:async()=>{frames++;return {}}}, calls, result, frames:()=>frames }
+  return { args:{cdp,click,waitFor,result,flow,frame:async()=>{frames++;return {}}}, calls, interactions, result, frames:()=>frames }
 }
 
 test('manual cleanup is reached only after cancel is effect-free', async()=>{
   const f=fixture();await exerciseProtectedFlow(f.args)
   assert.deepEqual(f.result.checks,{flowCancel:true,flowManualCleanup:true})
+  assert.deepEqual(f.interactions[0],{selector:'[data-region="team-row"] button[aria-label="Room Review the synthetic change"]',label:'Review the synthetic change',row:null,checkpoint:'flow_team_menu',button:'right'})
   assert.equal(f.frames(),3)
   assert.ok(f.calls.indexOf('Close')<f.calls.indexOf('Stop run'))
 })

@@ -12,6 +12,7 @@ import { seedThenInstallHistory } from './history-after-seed.mjs'
 import { interruptCount, recordInterrupt } from './counter.mjs'
 import { inspectFrame } from './frame-policy.mjs'
 import { locateTarget } from './click-target.mjs'
+import { dispatchPointer } from './pointer.mjs'
 import { runGuarded } from './run-guarded.mjs'
 import { assertSource } from './source-guard.mjs'
 import { seedProtectedFlow, exerciseProtectedFlow, captureSafely } from './flow-proof.mjs'
@@ -20,7 +21,7 @@ import { closeHistoryDialog } from './flow-visibility.mjs'
 const taskSource = resolve('.')
 const taskSha = 'ecb7b41da2129009440fd3f00030ab7496e58ab7' // integrated source commit; repin if source changes.
 const expectedFixtureSha = '12e1e552085c154e507ac1100dbcd9bcaeaf8184696ad02e9a696c3929c529ac'
-const preparedOnly = false // Parent reviewed mandatory dialog close and bounded visibility observations.
+const preparedOnly = true // Parent review required for the trusted Team context click.
 const sha = path => createHash('sha256').update(readFileSync(path)).digest('hex')
 const git = (...args) => execFileSync('git', ['-C',taskSource,...args], {encoding:'utf8'}).trim()
 const result={source:taskSha,phase:'preflight',checks:{},readiness:{}}
@@ -44,15 +45,17 @@ const fingerprints = {
   'packages/server/src/flow-execution.ts':'2ac49e3c35201bf226825740eb1eaf36683fddfccaa93fba882f1bde64c538fa',
   'packages/ui/src/components/TeamActions.tsx':'9cead0bd685d9108ad91291f968055338269c16368f1ddc73c5119ed0fae1c39',
   'packages/ui/src/components/RunWorkspace.tsx':'cab9ae84575a8337a8fb2f067d6f730f7eaf0f5dc1fe60841961a4cea673575c',
-  'diagnostic/stop-history/click-target.test.mjs':'4448d0281f45a7c278f967f3c20c7c1b9eeec2e8a0c43d9df56a5c90c1a1fd2a',
+  'diagnostic/stop-history/click-target.test.mjs':'92e8ccee2a7472c7aaac462bba91b7a13bbd9c771f7b0ef15f145ba1957e6230',
   'diagnostic/stop-history/history-after-seed.mjs':'fb4a344efc2e308cf8a986c74cbb6400773cc7512b0ea2b17b83b30813a77f90',
   'diagnostic/stop-history/history-after-seed.test.mjs':'9da78265e7cee0f18846084f51fe0c780daf5aec2b73e0f8d4624e6fa0e77f39',
   'diagnostic/stop-history/flow-visibility.mjs':'06e032c4badc373a88dcc2a8ebd1c1e093f612034c7410fa5199c36a4b9ed4c1',
   'diagnostic/stop-history/flow-visibility.test.mjs':'7c874c33c24938f352ec4a1cbe1fe336bcfbbc9fdd35a41ebad3be0a873ea121',
-  'diagnostic/stop-history/flow-proof.test.mjs':'2f8e3425f9fc646f00122a49c659c1aeda671935953cc3d39f63270e8b15e3de',
+  'diagnostic/stop-history/pointer.mjs':'d081db67eb06f7f95bab5ac370dcc4da0f0276ea577594257fc7cb17a4003386',
+  'diagnostic/stop-history/pointer.test.mjs':'db0e9c255cf1b36d3484733e8477d30f9de64f5691e273ad24d9e51eb7625770',
+  'diagnostic/stop-history/flow-proof.test.mjs':'924a0d0e3293e3b336c45505bb653ff5d9a9ec973d8eb4eb6e71f5901c448e8f',
   'diagnostic/stop-history/seed-flow.mjs':'969a6e78995e7412de1f6e3ed37273203fbabf446da551d4833ff33750a062ee',
   'diagnostic/stop-history/seed-child.mjs':'6425af2400e65477acdf0dfba5739efc0a612af0d05eb38561c6e7b6f68d68e2',
-  'diagnostic/stop-history/flow-proof.mjs':'5e08b0310fee910e92ca97f3253b307408861f2d211bae54dae498dea5552f26',
+  'diagnostic/stop-history/flow-proof.mjs':'0380be9bdba6950b7d2d0b74f51260cced57b580726c11afd4bb355b0b4e98e7',
   'diagnostic/stop-history/scripted-flow.mjs':'1b6f58123021ce772025a525aaedabd99784655772631299d27a6dbe4c8099d7',
   'diagnostic/stop-history/plugin-icon.svg':'611ca48d4da7767c7cc051442c2e389a2d5a288a2fbb09c5edd3f3b1e7499d79',
   'diagnostic/stop-history/ambient-shape.mjs':'d73b2956892802e0203bf1a6c6fc3a1c1161ad7a15f4ff7403c6630d19eb2343',
@@ -131,7 +134,7 @@ const observedListeners=async (name) => {
  }
 }
 const point = async (selector,label,rowText=null) => cdp.json(`(${locateTarget.toString()})(document,${JSON.stringify(selector)},${JSON.stringify(label)},${JSON.stringify(rowText)})`)
-const click = async (selector,label,row=null,checkpoint=null) => {
+const click = async (selector,label,row=null,checkpoint=null,button='left') => {
   const readiness={attempts:0,matches:0,eligible:0,inViewport:0,hits:0,scrolls:0}
   if(checkpoint)result.readiness[checkpoint]=readiness
   const hit=await waitFor('click target',async()=>{
@@ -145,9 +148,7 @@ const click = async (selector,label,row=null,checkpoint=null) => {
     if(observation.scrolled===true)readiness.scrolls=Math.min(1000,readiness.scrolls+1)
     return observation.point
   },15000)
-  await cdp.send('Input.dispatchMouseEvent',{type:'mouseMoved',...hit})
-  await cdp.send('Input.dispatchMouseEvent',{type:'mousePressed',...hit,button:'left',clickCount:1})
-  await cdp.send('Input.dispatchMouseEvent',{type:'mouseReleased',...hit,button:'left',clickCount:1})
+  await dispatchPointer(cdp,hit,button)
 }
 const frame = async () => {
   // Presentation only: shorten the exact resolved, exclusively owned synthetic root.

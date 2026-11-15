@@ -35,7 +35,7 @@ export async function exerciseProtectedFlow({ cdp, click, waitFor, result, flow,
   const projection = `(()=>{const r=window.__hdStore?.getSnapshot().flowExecutions.get(${runId});return r ? {stopped:r.state==='stopped',canStop:r.canStop===true,absent:!Object.hasOwn(r,'canStop')} : null})()`
   await cdp.eval(`(()=>{const t=window.__hdStore.transport,original=t.request;window.__hdFlowStopCount=0;t.request=function(method,...args){if(method==='flow/execution/stop')window.__hdFlowStopCount++;return Reflect.apply(original,this,[method,...args])}})()`)
   result.phase='flow_team_menu'
-  await click('[data-region="team-row"] button[aria-label^="Actions for"]','Review the synthetic change',null,'flow_team_menu')
+  await click('[data-region="team-row"] button[aria-label="Room Review the synthetic change"]','Review the synthetic change',null,'flow_team_menu','right')
   await waitFor('protected projection', async () => { const v=await cdp.json(projection); return v?.stopped && v.canStop }, 30000)
   const menuFrame=await frame()
   await click('[role="menuitem"]','Stop run…',null,'flow_team_stop')
