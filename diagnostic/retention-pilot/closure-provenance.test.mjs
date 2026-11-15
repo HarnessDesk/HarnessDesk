@@ -51,14 +51,19 @@ test('unmatched hash, malformed location, ambiguous asset and out-of-range coord
  assert.deepEqual((await provenanceOf(base.cdp,['19'],assetIndex(['different']))).locations,[{kind:'unknown'}])
 })
 test('metadata overflow fails closed and does not expose raw event fields',async()=>{
- let listener
+ let listener,events=0,enables=0,releases=0,disables=0
  const cdp={on:(_event,fn)=>{listener=fn;return()=>{}},send:async(method)=>{
-  if(method==='Debugger.enable'){for(let i=0;i<4100;i++)listener({scriptId:String(i),hash,length:source.length,startLine:0,startColumn:0,url:'SECRET'});return {}}
-  if(method==='Runtime.releaseObjectGroup'||method==='Debugger.disable')return {}
+  if(method==='Target.getTargetInfo')return {targetInfo:{targetId:'target-private'}}
+  if(method==='Debugger.enable'){enables++;for(let i=0;i<4100;i++){events++;listener({scriptId:String(i),hash,length:source.length,startLine:0,startColumn:0,url:'SECRET'})}return {}}
+  if(method==='HeapProfiler.getObjectByHeapObjectId')return {result:{type:'function',objectId:'private'}}
+  if(method==='Runtime.getProperties')return {internalProperties:[{name:'[[FunctionLocation]]',value:{value:{scriptId:'7',lineNumber:0,columnNumber:1}}}]}
+  if(method==='Runtime.releaseObjectGroup'){releases++;return {}}
+  if(method==='Debugger.disable'){disables++;return {}}
   throw Error('SECRET')
  }}
  const result=await provenanceOf(cdp,['19'],assets)
  assert.deepEqual(result,{status:'unavailable'});assert.doesNotMatch(JSON.stringify(result),/SECRET/)
+ assert.deepEqual({enables,events,releases,disables},{enables:1,events:4100,releases:1,disables:1})
 })
 
 test('only bounded regular public JS assets are indexed without exposing their paths',async()=>{
