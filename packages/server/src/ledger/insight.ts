@@ -28,6 +28,11 @@ export interface UsageDetail {
   readonly complete: boolean
 }
 
+/** A previously read source could not be recovered from the cache without starting a new request. */
+export class InsightCacheUnavailableError extends Error {
+  constructor() { super('Recorded usage cache is temporarily unavailable. Try again.'); this.name = 'InsightCacheUnavailableError' }
+}
+
 /** Optional source detail emitted by scanners; never changes aggregate rows. */
 export interface InsightScanOptions {
   readonly emit: (sample: UsageSample) => void
