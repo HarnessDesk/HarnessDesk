@@ -96,3 +96,33 @@ test('weak-only path produces a fixed unavailable path',()=>{
  const out=analyzeHeap(snapshot,[{needle:'aaaa',loaded:true},{needle:'bbbb',loaded:false}])
  assert.deepEqual(out.strongPaths,[{status:'unavailable'}])
 })
+
+test('minified object shapes and known listener names are fixed hints without private names',()=>{
+ const snapshot=graph(['aaaa-body','bbbb-body'])
+ const extra=['sessions','runtimes','layout','workbench','approvals','runtime','id','turns','itemsLoaded','EventListener','onShortcut','private-shape-sentinel']
+ snapshot.strings.push(...extra)
+ const name=x=>snapshot.strings.indexOf(x)
+ // Existing object is anonymous/minified and has the fixed own-property shape;
+ // synthetic self-edges are sufficient to model object own properties.
+ snapshot.strings[1]='private-shape-sentinel'
+ const properties=['sessions','runtimes','layout','workbench','approvals']
+ snapshot.nodes[9]+=properties.length
+ const insertAt=3+2*3
+ snapshot.edges.splice(insertAt,0,...properties.flatMap(x=>[1,name(x),5]))
+ const result=analyzeHeap(snapshot,[{needle:'aaaa',loaded:true},{needle:'bbbb',loaded:false}])
+ assert.equal(result.strongPaths[0].steps.some(step=>step.shapeHint==='AppSnapshotShape'),true)
+ assert.equal(result.strongPaths[0].shapeHits.appSnapshot,1)
+ assert.doesNotMatch(JSON.stringify(result),/private-shape-sentinel|aaaa|bbbb/)
+})
+
+test('session shape and listener names remain hints for minified paths',()=>{
+ const snapshot=graph(['aaaa-body','bbbb-body'])
+ snapshot.strings.push('runtime','id','turns','itemsLoaded','onShortcut','private-shape-sentinel')
+ snapshot.strings[1]='onShortcut'
+ snapshot.nodes[9]+=4
+ snapshot.edges.splice(9,0,...['runtime','id','turns','itemsLoaded'].flatMap(x=>[1,snapshot.strings.indexOf(x),5]))
+ const out=analyzeHeap(snapshot,[{needle:'aaaa',loaded:true},{needle:'bbbb',loaded:false}])
+ assert.equal(out.strongPaths[0].steps.some(s=>s.shapeHint==='SessionShape'&&s.nodeLabel==='onShortcut'),true)
+ assert.equal(out.strongPaths[0].shapeHits.session,1)
+ assert.doesNotMatch(JSON.stringify(out),/private-shape-sentinel|aaaa|bbbb/)
+})
