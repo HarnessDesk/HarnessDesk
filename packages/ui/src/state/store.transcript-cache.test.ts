@@ -1835,3 +1835,85 @@ it('preserves seat and task error behavior after waiting for a restore', async (
   await seatRefusal
   expect(await taskRead).toBe('failed')
 })
+
+it('reuses other planning proofs after a contiguous invalidation of a known session', async () => {
+  const runtime = runtimeId('example'), ids = ['first', 'second', 'other'].map(sessionId)
+  const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
+  const body = (id: typeof ids[number]): Session => ({ id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] })
+  const identity = fixtureHash(canonicalTranscriptBody([]).canonical)
+  const store = new AppStore('ws://localhost:0/')
+  await store.disableTranscriptCache()
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId: typeof ids[number] }) => {
+    if (method === 'session/cache-snapshot') return { session: body(params.sessionId), watermark, identity }
+    if (method === 'session/prepare-eviction') return { ...watermark, identity }
+    return null
+  }) as never)
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  for (const id of ids) handlers.onEvent(runtime, { type: 'session/started', session: body(id!) })
+  expect(await store.prepareTranscriptEviction(runtime, ids[2]!)).toBe(true)
+  const limits = { count: 1, bytes: Number.MAX_SAFE_INTEGER }
+  expect((await store.prepareTranscriptPressure(limits)).length).toBeGreaterThan(0)
+  const before = request.mock.calls.length
+  handlers.onNotification({ method: 'session/cache-invalidated', params: { runtime, sessionId: ids[2]!, watermark: { ...watermark, revision: 2, sequence: 2 } } })
+  handlers.onNotification({ method: 'session/cache-invalidated', params: { runtime, sessionId: ids[2]!, watermark: { ...watermark, revision: 3, sequence: 3 } } })
+  expect((await store.prepareTranscriptPressure(limits)).length).toBeGreaterThan(0)
+  expect(request.mock.calls.length - before).toBe(0)
+})
+
+it.each(['owner', 'draft', 'layout'] as const)('does not revive stale planning proofs after a %s ABA followed by an unrelated invalidation', async cause => {
+  const runtime = runtimeId('example'), ids = ['first', 'second', 'other'].map(sessionId)
+  const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }, identity = fixtureHash(canonicalTranscriptBody([]).canonical)
+  const body = (id: typeof ids[number]): Session => ({ id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] })
+  const store = new AppStore('ws://localhost:0/'); await store.disableTranscriptCache()
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId: typeof ids[number] }) => method === 'session/cache-snapshot' ? { session: body(params.sessionId), watermark, identity } : method === 'session/prepare-eviction' ? { ...watermark, identity } : null) as never)
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  for (const id of ids) handlers.onEvent(runtime, { type: 'session/started', session: body(id!) })
+  expect(await store.prepareTranscriptEviction(runtime, ids[2]!)).toBe(true)
+  const limits = { count: 1, bytes: Number.MAX_SAFE_INTEGER }
+  expect((await store.prepareTranscriptPressure(limits)).length).toBeGreaterThan(0)
+  if (cause === 'owner') { const release = store.retainTranscript(runtime, sessionId('another')); release() }
+  else if (cause === 'draft') { const key = sessionKey(runtime, ids[0]!); store.drafts.setLive(key, { text: 'Synthetic', attachments: [] }); store.drafts.setLive(key, { text: '', attachments: [] }) }
+  else { store.toggleWorkRail(); store.toggleWorkRail() }
+  const before = request.mock.calls.length
+  handlers.onNotification({ method: 'session/cache-invalidated', params: { runtime, sessionId: ids[2]!, watermark: { ...watermark, revision: 2, sequence: 2 } } })
+  expect((await store.prepareTranscriptPressure(limits)).length).toBeGreaterThan(0)
+  expect(request.mock.calls.length - before).toBeGreaterThan(0)
+})
+
+it('refuses an actual unload when an unrelated invalidation crosses its fresh Host receipt', async () => {
+  const runtime = runtimeId('example'), id = sessionId('first'), other = sessionId('other'), key = sessionKey(runtime, id)
+  const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }, identity = fixtureHash(canonicalTranscriptBody([]).canonical)
+  const body = (sid: typeof id): Session => ({ id: sid, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] })
+  const store = new AppStore('ws://localhost:0/'); await store.disableTranscriptCache()
+  let finish!: (value: unknown) => void, hold = false
+  const blocked = new Promise(resolve => { finish = resolve })
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId: typeof id }) => method === 'session/cache-snapshot' ? { session: body(params.sessionId), watermark, identity } : method === 'session/prepare-eviction' ? hold && params.sessionId === id ? blocked : { ...watermark, identity } : null) as never)
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  for (const sid of [id, other]) handlers.onEvent(runtime, { type: 'session/started', session: body(sid) })
+  expect(await store.prepareTranscriptEviction(runtime, other)).toBe(true)
+  hold = true
+  const unloading = store.unloadTranscript(runtime, id)
+  await vi.waitFor(() => expect(store.transport.request).toHaveBeenCalledWith('session/prepare-eviction', { runtime, sessionId: id, identity }))
+  handlers.onNotification({ method: 'session/cache-invalidated', params: { runtime, sessionId: other, watermark: { ...watermark, revision: 2, sequence: 2 } } })
+  finish({ ...watermark, identity })
+  expect(await unloading).toBe(false)
+  expect(store.getSnapshot().sessions.get(key)?.itemsLoaded).toBe(true)
+})
+
+it.each(['unknown', 'gap', 'wrong-generation', 'malformed'] as const)('keeps the global planning fence for %s invalidation', async cause => {
+  const runtime = runtimeId('example'), ids = ['first', 'second', 'other'].map(sessionId)
+  const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }, identity = fixtureHash(canonicalTranscriptBody([]).canonical)
+  const body = (id: typeof ids[number]): Session => ({ id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] })
+  const store = new AppStore('ws://localhost:0/'); await store.disableTranscriptCache()
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId: typeof ids[number] }) => method === 'session/cache-snapshot' ? { session: body(params.sessionId), watermark, identity } : method === 'session/prepare-eviction' ? { ...watermark, identity } : null) as never)
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  for (const id of ids) handlers.onEvent(runtime, { type: 'session/started', session: body(id!) })
+  expect(await store.prepareTranscriptEviction(runtime, ids[2]!)).toBe(true)
+  const limits = { count: 1, bytes: Number.MAX_SAFE_INTEGER }
+  expect((await store.prepareTranscriptPressure(limits)).length).toBeGreaterThan(0)
+  const before = request.mock.calls.length
+  const fence = cause === 'gap' ? { ...watermark, sequence: 4, revision: 4 } : cause === 'wrong-generation' ? { ...watermark, generation: 'other', sequence: 2, revision: 2 } : cause === 'malformed' ? { ...watermark, sequence: -1 } : { ...watermark, sequence: 2, revision: 2 }
+  handlers.onNotification({ method: 'session/cache-invalidated', params: { runtime, sessionId: cause === 'unknown' ? sessionId('unknown') : ids[2]!, watermark: fence } })
+  expect((await store.prepareTranscriptPressure(limits)).length).toBeGreaterThan(0)
+  expect(request.mock.calls.length - before).toBeGreaterThan(0)
+})

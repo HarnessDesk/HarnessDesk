@@ -972,7 +972,7 @@ export class AppStore {
   readonly #releasedTranscripts = new Map<SessionKey, { identity: string; turnCount: number; watermark: TranscriptWatermark; connection: number; removal: number; metadata: string; hostMetadata: string; owner: object; pending: PendingTranscript; itemTypes: Map<string, Map<string, AgentItem['type']>>; awaitedItems: Map<string, Map<string, Set<AgentItem['type']>>>; changed: boolean; eligible: boolean; dirty: boolean; invalidation?: TranscriptWatermark; observed?: TranscriptWatermark; quarantinedLast?: { fence: TranscriptWatermark; fingerprint: string }; inFlight?: Promise<boolean>; flightConnection?: number }>()
   readonly #releasedOrphans: { identity: string; watermark: TranscriptWatermark; pending: PendingTranscript }[] = []
   readonly #transcriptPending = new Map<SessionKey, { owner: object; capture: PendingTranscript; base: TranscriptWatermark; connection: number; removal: number; inFlight: boolean; dirty: boolean; eligible: boolean }>()
-  readonly #transcriptReceipts = new Map<SessionKey, { authority: { watermark: TranscriptWatermark; lastFingerprint: string | null; sessionFingerprint: string }; change: number; draftRevision: number }>()
+  readonly #transcriptReceipts = new Map<SessionKey, { authority: { watermark: TranscriptWatermark; lastFingerprint: string | null; sessionFingerprint: string }; change: number; planningChange: number; draftRevision: number }>()
   readonly #transcriptTouches = new Map<SessionKey, number>()
   #transcriptClock = 0
   #transcriptPressureTail: Promise<void> = Promise.resolve()
@@ -1125,7 +1125,7 @@ export class AppStore {
   // Planning may reuse an unchanged proof; an actual unload always obtains a new one.
   #currentTranscriptPlanningReceipt(key: SessionKey, session: Session): boolean {
     const authority = this.#transcriptAuthority.get(key), receipt = this.#transcriptReceipts.get(key)
-    if (!authority || !receipt || receipt.authority !== authority || receipt.change !== this.#transcriptChange || receipt.draftRevision !== this.drafts.revision) {
+    if (!authority || !receipt || receipt.authority !== authority || receipt.planningChange !== this.#transcriptChange || receipt.draftRevision !== this.drafts.revision) {
       this.#transcriptReceipts.delete(key)
       return false
     }
@@ -1299,7 +1299,7 @@ export class AppStore {
       const current = this.#snapshot.sessions.get(key) === session && this.#transcriptAuthority.get(key) === authority &&
         this.#transcriptChange === change && this.drafts.revision === draftRevision && !this.#transcriptProtected(key, session) &&
         transcriptSessionFingerprint(session) === authority.sessionFingerprint
-      if (current) this.#transcriptReceipts.set(key, { authority, change, draftRevision })
+      if (current) this.#transcriptReceipts.set(key, { authority, change, planningChange: change, draftRevision })
       return current
     } catch { return false }
   }
@@ -1755,6 +1755,17 @@ export class AppStore {
           const floor = cursor ?? (prior?.change === this.#transcriptChange - 1 && prior.connection === this.#chatConnectionGeneration &&
             prior.removal === (this.#sessionRemovalRevisions.get(key) ?? 0) ? prior.watermark : undefined)
           const incoming = notification.params.watermark
+          // A continuous, known session invalidation only changes that session's
+          // planning evidence. Actual unload receipts still carry the original
+          // global change and must be freshly proved before a body is dropped.
+          if (floor && this.#snapshot.sessions.has(key) && !released && !this.#transcriptPending.has(key) &&
+              this.#transcriptOrphans.size === 0 && this.#releasedOrphans.length === 0 &&
+              this.#validTranscriptFence(incoming) && incoming.epoch === floor.epoch && incoming.generation === floor.generation &&
+              incoming.sequence === floor.sequence + 1 && incoming.revision >= floor.revision) {
+            for (const [other, receipt] of this.#transcriptReceipts) {
+              if (other !== key && receipt.planningChange === this.#transcriptChange - 1) receipt.planningChange = this.#transcriptChange
+            }
+          }
           if (!released && !this.#transcriptPending.has(key) && floor && this.#validTranscriptFence(incoming) &&
               incoming.epoch === floor.epoch && incoming.generation === floor.generation &&
               incoming.sequence > floor.sequence && incoming.revision >= floor.revision) {
