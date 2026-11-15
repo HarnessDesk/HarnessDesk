@@ -3,7 +3,7 @@ import { LeadProactiveCard } from '../components/LeadCards'
 import { LeadCheck } from '../components/LeadCheck'
 import { LeadWork } from '../components/LeadWork'
 import { LeadCheckpointNotice, LeadContextSection } from '../components/LeadCheckpoint'
-import { MentionDecisionRows, type MentionTriageState } from '../components/MentionDecisions'
+import { MentionDecisionRows, MentionStopAttention, type MentionTriageState } from '../components/MentionDecisions'
 import { LeadStatusPanel, useLeadControls } from '../components/LeadControls'
 import { PhoneAsk, PhoneSettingsSection } from '../components/PhoneSettings'
 import { PromptLinkMarker } from '../components/PromptLinkMarker'
@@ -75,7 +75,14 @@ const MentionTriageCoverage = () => {
     page: triggerDecisionsPage(), problem: null, busy: false,
     reload: () => {}, setMode: async () => {}, reevaluate: async () => {}, reviewStop: async () => {},
   }), [])
-  return <Section title="Mention triage" level="heading"><MentionDecisionRows triage={triage} /></Section>
+  const attention: MentionTriageState = { ...triage, page: triggerDecisionsPage({ unconfirmedStops: [{
+    id: `u-${'a'.repeat(64)}`, trigger: 'ask-dex', project: 'Storefront demo', repository: 'acme/storefront',
+    thread: { kind: 'issue', number: 42 }, author: 'jane-doe', excerpt: '@dex stop this work',
+    url: 'https://example.invalid/fixture/issues/42#issuecomment-42', createdAt: 1, state: 'unconfirmed',
+    progress: { queuedCancelled: 0, runsMarkedStopped: 0, interruptRequestsIssued: 0, leadRunsMarkedStopped: 0, leadPlanStopped: false },
+    summary: 'No stop was confirmed. Check the work before taking further action.',
+  }] }) }
+  return <Section title="Mention triage" level="heading"><MentionStopAttention triage={attention} expanded={false} /><MentionDecisionRows triage={triage} /></Section>
 }
 
 /** A new chat's draft as a prompt link left it: the composer holds the link's words, so the mark shows what else it asked for. */

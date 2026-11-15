@@ -3264,3 +3264,21 @@ it('never shows New for the adjacent conversation on screen', () => {
   view.update({ adjacentSession: null })
   expect(view.container.querySelector('[aria-label="New"]')).not.toBeNull()
 })
+
+it('allows explicit cleanup of a stopped protected Run from the Team menu only after confirmation', async () => {
+  const board = room({ id: 'protected-stop-menu', name: 'Build' })
+  const stopFlowExecution = vi.fn(async () => ({}) as never)
+  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, triggerGoalView(board)]]), { stopFlowExecution })
+  view.update({ flowExecutions: new Map([['protected-run', { id: 'protected-run', goal: board.id, state: 'stopped', canStop: true, rounds: [],
+    document: { format: 'agents', flow: { version: 2, name: 'Build', roles: [], rules: [], inputs: [], seed: { role: 'builder', title: 'Build' }, messaging: 'board-only', wait: 240 } },
+  } as unknown as FlowExecution]]) })
+  act(() => roomRow(view.container, board.name).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
+  const action = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.querySelector('[data-menu-label]')?.textContent === 'Stop run…')!
+  expect(action.getAttribute('aria-disabled')).not.toBe('true')
+  act(() => action.click())
+  expect(stopFlowExecution).not.toHaveBeenCalled()
+  const dialog = document.querySelector('[role="alertdialog"]')!
+  expect(dialog.textContent).toContain('Finish stopping this Run?')
+  await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Stop run')!.click())
+  expect(stopFlowExecution).toHaveBeenCalledExactlyOnceWith('protected-run', 'You stopped this Run. No further step starts.')
+})
