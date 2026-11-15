@@ -945,3 +945,151 @@ test('a runtime whose own limits throw, with a meter that then fails plainly, ke
     assert.equal(down?.error?.needsSignIn, true, 'neither failure was about sign-in')
   } finally { usage.dispose() }
 })
+
+test('restart keeps a failed first reading as display-only history, never live authority', async t => {
+  const dir = tempDir('hd-usage-previous-'), path = join(dir, 'history.json')
+  let failed = false
+  const agent = runtime(METERED)
+  const source = { ...meter, read: async () => {
+    if (failed) throw new MeterAuthError('synthetic failure')
+    return { ...(await meter.read())!, fetchedAt: 100_000 }
+  } }
+  const options = { runtimes: () => [agent], meters: new Map([[METERED, source]]), now: () => 110_000, onReport: () => {}, historyPath: path }
+  const first = new UsageService(options)
+  t.after(() => first.dispose())
+  assert.equal((await first.refresh())[0]?.lanes[0]?.usedPercent, 40)
+  first.dispose()
+  failed = true
+  const restarted = new UsageService(options)
+  t.after(() => restarted.dispose())
+  const report = (await restarted.refresh())[0]!
+  assert.equal(report.error?.needsSignIn, true)
+  assert.deepEqual(report.lanes, [])
+  assert.equal(report.credits, null)
+  assert.equal(report.reached, null)
+  assert.equal((report as UsageReport & { historical?: { lanes: readonly { usedPercent: number }[]; fetchedAt: number } }).historical?.lanes[0]?.usedPercent, 40)
+  assert.equal((report as UsageReport & { historical?: { fetchedAt: number } }).historical?.fetchedAt, 100_000)
+  assert.equal((restarted.cached(METERED) as (UsageReport & { historical?: unknown }) | null)?.historical, undefined)
+  assert.deepEqual(restarted.cached(METERED)?.lanes, [])
+})
+
+test('history cleanup failure warns without changing current cache and suppresses prior figures in this process', async t => {
+  const { renameSync, rmSync } = await import('node:fs')
+  const dir = tempDir('hd-usage-forget-'), folder = join(dir, 'store'), path = join(folder, 'history.json')
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  let fail = false, warnings = 0
+  const source = { ...meter, read: async () => { if (fail) throw new MeterAuthError('private provider detail'); return { ...(await meter.read())!, fetchedAt: 100_000 } } }
+  const options = { runtimes: () => [runtime(METERED)], meters: new Map([[METERED, source]]), now: () => 110_000,
+    onReport: () => {}, historyPath: path, historyWarning: () => { warnings++ } }
+  const first = new UsageService(options); await first.refresh(); first.dispose()
+  fail = true
+  const next = new UsageService(options); t.after(() => next.dispose())
+  assert.ok((await next.refresh())[0]?.historical)
+  const current = next.cached(METERED)
+  renameSync(folder, join(dir, 'saved'))
+  writeFileSync(folder, 'not a directory')
+  await next.forgetHistory(METERED)
+  assert.equal(warnings, 1)
+  assert.deepEqual(next.cached(METERED), current)
+  assert.equal((await next.refresh())[0]?.historical, undefined)
+})
+
+test('successful forget fences an in-flight prior observation and prevents replay after restart', async t => {
+  const { rmSync } = await import('node:fs')
+  const dir = tempDir('hd-usage-epoch-'), path = join(dir, 'history.json')
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  let enter!: () => void, release!: () => void
+  const entered = new Promise<void>(resolve => { enter = resolve }), gate = new Promise<void>(resolve => { release = resolve })
+  const source = { ...meter, read: async () => { enter(); await gate; return { ...(await meter.read())!, fetchedAt: 100_000 } } }
+  const options = { runtimes: () => [runtime(METERED)], meters: new Map([[METERED, source]]), now: () => 110_000, onReport: () => {}, historyPath: path }
+  const usage = new UsageService(options); t.after(() => usage.dispose())
+  const pending = usage.refresh(); await entered
+  await usage.forgetHistory(METERED); release(); await pending; usage.dispose()
+  const failed = { ...source, read: async () => { throw new MeterAuthError('offline') } }
+  const next = new UsageService({ ...options, meters: new Map([[METERED, failed]]) }); t.after(() => next.dispose())
+  assert.equal((await next.refresh())[0]?.historical, undefined)
+})
+
+test('a failed first meter read, but not a silent or disabled read, may show history without creating live cache', async t => {
+  const dir = tempDir('hd-usage-silent-'), path = join(dir, 'history.json')
+  let mode: 'good' | 'failure' | 'silent' = 'good', allowed = true, reads = 0
+  const source = { ...meter, read: async () => {
+    reads++
+    if (mode === 'failure') throw new Error('fixture failure')
+    if (mode === 'silent') return null
+    return { ...(await meter.read())!, fetchedAt: 100_000 }
+  } }
+  const options = { runtimes: () => allowed ? [runtime(METERED)] : [], meters: new Map([[METERED, source]]), now: () => 110_000,
+    onReport: () => {}, historyPath: path, historyAllowed: () => allowed }
+  const seed = new UsageService(options); await seed.refresh(); seed.dispose()
+  mode = 'silent'
+  const silent = new UsageService(options); assert.deepEqual(await silent.refresh(), []); silent.dispose()
+  mode = 'failure'
+  const failed = new UsageService(options); t.after(() => failed.dispose())
+  const result = (await failed.refresh())[0]!
+  assert.equal(result.historical?.lanes[0]?.usedPercent, 40)
+  assert.equal(failed.cached(METERED), null, 'display-only failure shell is not live cache')
+  assert.equal((await failed.reports())[0]?.historical?.fetchedAt, 100_000, 'history survives the read cooldown')
+  allowed = false
+  const before = reads
+  assert.deepEqual(await failed.refresh(), [])
+  assert.equal(reads, before, 'disabled tracking does not ask the source')
+})
+
+test('persisted history contains only quota facts, not account labels or failures', async t => {
+  const { readFileSync, readdirSync, statSync } = await import('node:fs')
+  const dir = tempDir('hd-usage-private-'), path = join(dir, 'history.json')
+  const source = { ...meter, read: async () => ({ ...(await meter.read())!, account: 'private-user@example.test', fetchedAt: 100_000 }) }
+  const usage = new UsageService({ runtimes: () => [runtime(METERED)], meters: new Map([[METERED, source]]), now: () => 110_000,
+    onReport: () => {}, historyPath: path }); t.after(() => usage.dispose())
+  await usage.refresh()
+  const file = join(`${path}.d`, readdirSync(`${path}.d`)[0]!)
+  const bytes = readFileSync(file, 'utf8')
+  assert.doesNotMatch(bytes, /private-user|example\.test|account|billing|spend|error/)
+  assert.equal(statSync(file).mode & 0o777, 0o600)
+})
+
+test('a watched credential change invalidates saved history before the next process', async t => {
+  const { readdir } = await import('node:fs/promises')
+  const dir = tempDir('hd-usage-file-change-'), path = join(dir, 'history.json')
+  const source = { ...meter, source: { kind: 'api' as const, label: 'fake' }, read: async () => ({ ...(await meter.read())!, fetchedAt: 100_000 }) }
+  const options = { runtimes: () => [runtime(METERED)], meters: new Map([[METERED, source]]), now: () => 110_000, onReport: () => {}, historyPath: path }
+  const first = new UsageService(options); t.after(() => first.dispose()); await first.refresh()
+  assert.equal((await readdir(`${path}.d`)).length, 1)
+  first.invalidate(METERED, 'file')
+  await first.flushHistory()
+  assert.deepEqual(await readdir(`${path}.d`), [])
+  const next = new UsageService({ ...options, meters: new Map([[METERED, { ...source, read: async () => { throw new MeterAuthError('offline') } }]]) })
+  t.after(() => next.dispose())
+  assert.equal((await next.refresh())[0]?.historical, undefined)
+})
+
+test('turning tracking off while a read is in flight does not open saved history', async t => {
+  const { UsageHistory } = await import('../src/usage/history.js')
+  const dir = tempDir('hd-usage-off-'), path = join(dir, 'history.json')
+  let enabled = true, release!: () => void, started!: () => void
+  const startedReading = new Promise<void>(resolve => { started = resolve })
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const source = { ...meter, read: async () => { started(); await gate; throw new MeterAuthError('offline') } }
+  const read = t.mock.method(UsageHistory.prototype, 'read')
+  const usage = new UsageService({ runtimes: () => enabled ? [runtime(METERED)] : [], meters: new Map([[METERED, source]]),
+    now: () => 110_000, onReport: () => {}, historyPath: path, historyAllowed: () => enabled }); t.after(() => usage.dispose())
+  const pending = usage.refresh(); await startedReading; enabled = false; release(); await pending
+  assert.equal(read.mock.callCount(), 0)
+  assert.deepEqual(await usage.reports(), [])
+})
+
+test('forgetting a disabled runtime preserves another runtime’s displayed history', async t => {
+  const { UsageHistory } = await import('../src/usage/history.js')
+  const path = join(tempDir('hd-usage-two-history-'), 'history')
+  const other = runtimeId('other-history'), store = new UsageHistory(path, () => 110_000)
+  const previous = { lanes: [{ id: 'week', label: 'Week', usedPercent: 40, windowMinutes: 10080, resetsAt: null }], credits: null, fetchedAt: 100_000 }
+  await store.write(other, await store.begin(other), previous)
+  const source = { ...meter, read: async () => { throw new MeterAuthError('offline') } }
+  const usage = new UsageService({ runtimes: () => [runtime(other)], meters: new Map([[other, source]]),
+    now: () => 110_000, onReport: () => {}, historyPath: path, historyAllowed: id => id === other })
+  t.after(() => usage.dispose())
+  assert.equal((await usage.refresh())[0]?.historical?.lanes[0]?.usedPercent, 40)
+  await usage.forgetHistory(METERED)
+  assert.equal((await usage.reports())[0]?.historical?.lanes[0]?.usedPercent, 40)
+})

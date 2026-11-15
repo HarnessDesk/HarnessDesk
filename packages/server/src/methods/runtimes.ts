@@ -89,9 +89,10 @@ export const runtimeMethods = {
     return runtime.listHooks ? runtime.listHooks(params.cwd) : []
   },
 
-  'runtime/login': (ctx, params) => {
+  'runtime/login': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
     if (!runtime.login) throw new Error(signInUnavailable(runtime))
+    await ctx.usage().forgetHistory(runtime.info.id)
     return runtime.login(params.method)
   },
 
@@ -116,6 +117,7 @@ export const runtimeMethods = {
     const runtime = ctx.runtimes.resolve(params)
     if (!runtime.logout) throw new Error(signInUnavailable(runtime))
     await runtime.logout()
+    await ctx.usage().forgetHistory(runtime.info.id)
     return null
   },
 } satisfies MethodsUnder<'runtime/', AccountRuntimePrefix | InstallRuntimePrefix | RuntimeExtensionPrefix>

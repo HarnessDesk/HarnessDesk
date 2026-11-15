@@ -18,6 +18,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { MeterAuthError, type MeterReading, type UsageMeter } from './meter.js'
+import { UsageHistory, type HistoricalUsage } from './history.js'
 
 const DAY_MS = 86_400_000
 const DEFAULT_BALANCE_HISTORY_DAYS = 30
@@ -72,6 +73,9 @@ export interface UsageServiceOptions {
   readonly onRemoved?: (runtime: RuntimeId, account: string | null) => void
   readonly log?: (message: string, details?: Record<string, unknown>) => void
   readonly now?: () => number
+  readonly historyPath?: string
+  readonly historyWarning?: (runtime: RuntimeId) => void
+  readonly historyAllowed?: (runtime: RuntimeId) => boolean
   /**
    * Runs over every report before it is cached, returned or pushed —
    * `reports()`, `refresh()`, `cached()` and `onReport` all see whatever this
@@ -114,6 +118,9 @@ export class UsageService {
   readonly #options: UsageServiceOptions
   readonly #cache = new Map<RuntimeId, UsageReport>()
   readonly #inFlight = new Map<RuntimeId, Promise<UsageReport | null>>()
+  readonly #history: UsageHistory | null
+  readonly #historical = new Map<RuntimeId, HistoricalUsage>()
+  readonly #historicalShell = new Map<RuntimeId, UsageReport>()
   /** The agents a read has finished for since this service started, whether or not anything answered. */
   readonly #asked = new Set<RuntimeId>()
   readonly #watchers: FSWatcher[] = []
@@ -130,6 +137,7 @@ export class UsageService {
 
   constructor(options: UsageServiceOptions) {
     this.#options = options
+    this.#history = options.historyPath ? new UsageHistory(options.historyPath, () => this.#now(), options.historyWarning) : null
     this.#watchMeterFiles()
   }
 
@@ -146,7 +154,7 @@ export class UsageService {
   async reports(): Promise<readonly UsageReport[]> {
     const runtimes = this.#options.runtimes()
     const settled = await Promise.all(runtimes.map((runtime) => this.#reportFor(runtime, false)))
-    return settled.filter((report): report is UsageReport => report !== null)
+    return settled.filter((report): report is UsageReport => report !== null).map(report => this.#display(report))
   }
 
   /** Forces one agent, or every agent, to be asked again. */
@@ -155,8 +163,24 @@ export class UsageService {
       .runtimes()
       .filter((entry) => runtime === undefined || entry.info.id === runtime)
     const settled = await Promise.all(runtimes.map((entry) => this.#reportFor(entry, true)))
-    return settled.filter((report): report is UsageReport => report !== null)
+    return settled.filter((report): report is UsageReport => report !== null).map(report => this.#display(report))
   }
+
+  #display(report: UsageReport): UsageReport {
+    const historical = this.#historical.get(report.runtime)
+    return historical && this.#options.historyAllowed?.(report.runtime) !== false && !report.lanes.length && !report.credits && !report.unverified ? { ...report, historical } : report
+  }
+
+  /** A cleanup failure cannot prevent logout; the store suppresses history and warns. */
+  async forgetHistory(id: RuntimeId): Promise<void> {
+    this.#historical.delete(id)
+    this.#historicalShell.delete(id)
+    if (this.#options.historyAllowed?.(id) === false) {
+      await this.#history?.forgetWithoutRead(id)
+    } else await this.#history?.forget(id)
+  }
+
+  async flushHistory(): Promise<void> { await this.#history?.flush() }
 
   /**
    * The narrow view, for the surfaces that already read it — the sidebar
@@ -255,7 +279,7 @@ export class UsageService {
       if (previous && (previous.account?.trim() ?? '') !== (overlaid.account?.trim() ?? '')) {
         this.#options.onRemoved?.(id, previous.account)
       }
-      this.#options.onReport(overlaid)
+      this.#options.onReport(this.#display(overlaid))
     }
     return overlaid
   }
@@ -298,6 +322,7 @@ export class UsageService {
   /** Activity invalidates one source; bursts share a trailing read within its retry budget. */
   invalidate(id: RuntimeId, source: 'activity' | 'file' = 'activity'): void {
     if (this.#disposed) return
+    if (source === 'file' && this.#asked.has(id) && this.#history) void this.forgetHistory(id)
     // Only a local file meter is an observation to ingest. A credential-file change for an HTTP/CLI meter
     // still asks its producer and must respect the network/process floor. New sign-in evidence
     // can shorten an authentication failure's backoff without allowing rewrite storms to bypass it.
@@ -339,7 +364,7 @@ export class UsageService {
     const cached = this.#cache.get(id)
     const running = this.#inFlight.get(id)
     if (running) return running
-    if (!force && !fileOnly && this.#now() < this.#permittedRead(id)) return cached ?? null
+    if (!force && !fileOnly && this.#now() < this.#permittedRead(id)) return cached ?? this.#historicalShell.get(id) ?? null
     if (!force && !invalidated && cached && !cached.error && usageIsFresh(cached, this.#now())) return cached
     this.#dirty.delete(id)
     if (!fileOnly) this.#credentialChanges.delete(id)
@@ -349,9 +374,26 @@ export class UsageService {
     // A read that throws past the runtime's own guards is that agent's failure, never every agent's: `reports()`
     // gathers with Promise.all, and one rejection there left the screen with no readings and nothing asked.
     this.#readFailed.delete(id)
-    const work = this.#build(runtime, fileOnly)
+    const epoch = this.#history?.epoch(id) ?? ''
+    const historyAllowed = () => this.#options.historyAllowed?.(id) !== false && !this.#disposed
+    let historyToken: string | null = null
+    const first = !this.#asked.has(id)
+    const building = this.#history && !fileOnly && this.#options.historyAllowed?.(id) !== false
+      ? this.#history.begin(id, historyAllowed).then(token => { historyToken = token; return this.#build(runtime, fileOnly) })
+      : this.#build(runtime, fileOnly)
+    const work = building
       .catch((cause: unknown) => this.#failed(id, cause))
-      .then((report) => {
+      .then(async (report) => {
+        if (!fileOnly && first && historyToken && this.#readFailed.has(id) && this.#options.historyAllowed?.(id) !== false && (!report || (!report.lanes.length && !report.credits && !report.unverified))) {
+          const history = await this.#history?.read(id, historyAllowed)
+          if (history && this.#history?.epoch(id) === epoch && this.#options.historyAllowed?.(id) !== false) this.#historical.set(id, history)
+        } else if (report && !report.error && (report.lanes.length > 0 || report.credits)) {
+          this.#historical.delete(id)
+          this.#historicalShell.delete(id)
+        }
+        if (!this.#disposed && !fileOnly && report && !report.error && !this.#readFailed.has(id) && this.#options.historyAllowed?.(id) !== false && (report.lanes.length > 0 || report.credits)) {
+          await this.#history?.write(id, historyToken, { lanes: report.lanes, credits: report.credits, fetchedAt: report.fetchedAt }, historyAllowed)
+        }
         if (!fileOnly) {
           this.#lastRead.set(id, this.#now())
           const failed = Boolean(report?.error) || this.#readFailed.has(id)
@@ -361,7 +403,11 @@ export class UsageService {
           this.#nextRead.set(id, this.#now() + Math.min(15 * 60_000, cooldown * (failed ? 1 + Math.random() * 0.1 : 1)))
         }
         this.#asked.add(id)
-        return report
+        const visible = report ?? (this.#historical.has(id) ? { runtime: id, account: null, plan: null, lanes: [], credits: null, spend: null,
+          reached: null, source: RUNTIME_SOURCE, fetchedAt: this.#now(), staleAfterMs: DEFAULT_STALE_AFTER_MS, error: { message: 'Usage refresh failed.' } } : null)
+        if (!report && visible) this.#historicalShell.set(id, visible)
+        if (visible && this.#historical.has(id) && !this.#disposed) this.#options.onReport(this.#display(visible))
+        return visible
       })
       .finally(() => {
         this.#inFlight.delete(id)

@@ -20,6 +20,15 @@ import { FakeRuntime } from './fake-runtime.js'
 
 export const silent = new Logger('test', { level: 'error', console: false })
 
+/** Wait for an observable fixture condition with the same bound used by the socket client. */
+export async function until(predicate: () => boolean, timeoutMs = 5_000, what = 'a condition'): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+}
+
 export interface Harness {
   readonly host: Host
   readonly runtime: FakeRuntime
@@ -153,11 +162,7 @@ export class Client {
 
   /** Waits for `predicate`, failing with what was awaited when it names it. */
   async until(predicate: () => boolean, timeoutMs = 5_000, what = 'a condition'): Promise<void> {
-    const deadline = Date.now() + timeoutMs
-    while (!predicate()) {
-      if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`)
-      await new Promise((resolve) => setTimeout(resolve, 10))
-    }
+    await until(predicate, timeoutMs, what)
   }
 
   close(): void {
