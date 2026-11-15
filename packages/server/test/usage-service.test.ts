@@ -1039,13 +1039,13 @@ test('a failed first meter read, but not a silent or disabled read, may show his
 test('persisted history contains only quota facts, not account labels or failures', async t => {
   const { readFileSync, readdirSync, statSync } = await import('node:fs')
   const dir = tempDir('hd-usage-private-'), path = join(dir, 'history.json')
-  const source = { ...meter, read: async () => ({ ...(await meter.read())!, account: 'private-user@example.test', fetchedAt: 100_000 }) }
+  const source = { ...meter, read: async () => ({ ...(await meter.read())!, account: 'dev@example.com', fetchedAt: 100_000 }) }
   const usage = new UsageService({ runtimes: () => [runtime(METERED)], meters: new Map([[METERED, source]]), now: () => 110_000,
     onReport: () => {}, historyPath: path }); t.after(() => usage.dispose())
   await usage.refresh()
   const file = join(`${path}.d`, readdirSync(`${path}.d`)[0]!)
   const bytes = readFileSync(file, 'utf8')
-  assert.doesNotMatch(bytes, /private-user|example\.test|account|billing|spend|error/)
+  assert.doesNotMatch(bytes, /dev@example\.com|account|billing|spend|error/)
   assert.equal(statSync(file).mode & 0o777, 0o600)
 })
 
