@@ -296,7 +296,20 @@ test('checkpoint persistence survives restart when the saved summary write fails
   assert.equal(first.store.epoch, 1)
   const stage = join(first.home, 'context-checkpoints.next.json')
   assert.ok((await stat(stage)).isFile(), 'a durable staged copy remains after the canonical write fails')
-  await assert.rejects(first.store.compact('manual', first.send), /lead-context-recovery-required/)
+  const { messageId } = await journal.appendMessage('post-checkpoint-person', 'A later synthetic question.', 'person')
+  const built = await first.store.request()
+  assert.ok(built.persons.includes(messageId))
+  await journal.appendModelReply('A later synthetic reply.')
+  await first.store.settle(built.persons)
+  await first.store.record({ epoch: built.epoch, base: first.store.turns.length, extend: [],
+    turns: [{ role: 'user', content: [text('A later synthetic record.')] }], usage: null })
+  const read = await first.store.read(0)
+  assert.equal(read?.epoch, first.store.epoch)
+  assert.match(JSON.stringify(read?.messages), /A later synthetic question/)
+  assert.match(JSON.stringify(read?.messages), /A later synthetic record/)
+  let sends = 0
+  await assert.rejects(first.store.compact('manual', async (...args) => { sends++; return first.send(...args) }), /lead-context-recovery-required/)
+  assert.equal(sends, 0, 'the pending view blocks another compaction before provider spend')
   await rm(destination, { recursive: true })
   await first.loop.close()
   await disk.close()
@@ -308,9 +321,94 @@ test('checkpoint persistence survives restart when the saved summary write fails
   assert.ok(reopened.journal.state.messages.some(message => message.checkpoint?.id === notice.id))
   assert.deepEqual(reopened.store.facts().checkpoints.find(checkpoint => checkpoint.id === notice.id), visible,
     'the notice can still resolve the same screened summary after restart')
+  assert.match(JSON.stringify((await reopened.store.read(0))?.messages), /A later synthetic record/)
   await assert.rejects(stat(stage), { code: 'ENOENT' })
   const reopenedAgain = await LeadContextStore.open({ directory: first.home, journal: reopenedJournal, model: MODEL, now: () => 1000, nextId: () => 'again', window: 200_000 })
   assert.deepEqual(reopenedAgain.facts().checkpoints.find(checkpoint => checkpoint.id === notice.id), visible, 'recovery is idempotent')
+})
+
+for (const unlinked of [false, true]) test(`pending checkpoint view resolves before credential withholding advances the epoch (unlinked=${unlinked}; #2060)`, async t => {
+  const stateDirectory = await directory(t), disk = await LeadFileJournal.open(stateDirectory, 'thread-1')
+  t.after(() => disk.close())
+  const journal = await lead.createLeadJournal(disk)
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'goal-1', caps: { usdMicros: LEAD_LIMITS.maxUsdMicros, rounds: 16 }, freshnessMs: 60_000 })
+  const first = await harness(t, { window: 200_000, home: join(stateDirectory, 'lead'), journal, screen: async () => {} })
+  for (let n = 1; n <= 5; n++) await first.say(`Synthetic message ${n}.${filler(n)}`)
+  const destination = join(first.home, 'context-checkpoints.json'), stage = join(first.home, 'context-checkpoints.next.json')
+  await mkdir(destination)
+  assert.equal(await first.store.compact('manual', first.send), 'applied')
+  const savedStage = await readFile(stage), notice = journal.state.context.last!
+  const secret = 'password=hunter2' // hd-secrets-ok: synthetic credential-shaped fixture
+  await first.store.record({ epoch: first.store.epoch, base: first.store.turns.length, extend: [], turns: [{ role: 'user', content: [text(secret)] }], usage: null })
+  await assert.rejects(first.store.request(), /lead-context-recovery-required/)
+  assert.equal(journal.state.context.epoch, 1, 'a failed view write does not advance the withholding epoch')
+  assert.deepEqual(await readFile(stage), savedStage, 'the recovery authority is unchanged')
+  await rm(destination, { recursive: true })
+  if (unlinked) {
+    // The reachable state after canonical replacement and unlink, before the
+    // stage removal's directory sync reports success.
+    const staged = JSON.parse(savedStage.toString())
+    await writeFile(destination, JSON.stringify({ version: 1, count: staged.count, checkpoints: staged.checkpoints }))
+    await rm(stage)
+  }
+  const request = await first.store.request()
+  assert.equal(journal.state.context.epoch, 2)
+  assert.ok(!JSON.stringify(request.messages).includes(secret))
+  await assert.rejects(stat(stage), { code: 'ENOENT' })
+  await first.loop.close(); await disk.close()
+  const reopenedDisk = await LeadFileJournal.open(stateDirectory, 'thread-1')
+  t.after(() => reopenedDisk.close())
+  const reopenedJournal = await lead.createLeadJournal(reopenedDisk)
+  const reopened = await LeadContextStore.open({ directory: first.home, journal: reopenedJournal, model: MODEL, now: () => 1000, nextId: () => 'reopened', window: 200_000 })
+  assert.equal(reopened.epoch, 2)
+  assert.ok(reopened.facts().checkpoints.find(checkpoint => checkpoint.id === notice.id)?.text)
+  assert.ok(!JSON.stringify((await reopened.request()).messages).includes(secret))
+})
+
+test('pending checkpoint is not promoted over a subsequently withheld view (#2060)', async t => {
+  const first = await harness(t, { window: 200_000, screen: async () => {} })
+  for (let n = 1; n <= 5; n++) await first.say(`Synthetic message ${n}.${filler(n)}`)
+  const destination = join(first.home, 'context-checkpoints.json'), stage = join(first.home, 'context-checkpoints.next.json')
+  await mkdir(destination)
+  assert.equal(await first.store.compact('manual', first.send), 'applied')
+  const staged = await readFile(stage)
+  let deny = true
+  await first.store.connect({ screen: async value => { if (deny && value.includes('Decisions made and why')) throw new Error('refused') } })
+  deny = false
+  assert.equal(first.store.facts().checkpoints.at(-1)?.text, null)
+  const protectedStage = JSON.parse(await readFile(stage, 'utf8'))
+  assert.equal(protectedStage.checkpoints.at(-1).text, null, 'withholding must survive a restart and a later relaxed screen')
+  assert.equal(protectedStage.checkpoints.at(-1).person, undefined)
+  assert.notDeepEqual(await readFile(stage), staged)
+  await rm(destination, { recursive: true })
+  await first.store.request()
+  await first.loop.close()
+  const reopened = await harness(t, { window: 200_000, home: first.home, records: first.records, screen: async () => {} })
+  assert.equal(reopened.store.facts().checkpoints.at(-1)?.text, null, 'recovery does not resurrect redacted prose')
+  assert.equal(reopened.store.facts().checkpoints.at(-1)?.person, undefined)
+})
+
+test('failed pending-view redaction keeps the view hidden and cannot advance the epoch (#2060)', async t => {
+  const first = await harness(t, { window: 200_000, screen: async () => {} })
+  for (let n = 1; n <= 5; n++) await first.say(`Synthetic message ${n}.${filler(n)}`)
+  const destination = join(first.home, 'context-checkpoints.json'), stage = join(first.home, 'context-checkpoints.next.json')
+  await mkdir(destination)
+  assert.equal(await first.store.compact('manual', first.send), 'applied')
+  const saved = await readFile(stage), parked = `${stage}.parked`
+  let changed = false
+  await assert.rejects(first.store.connect({ screen: async value => {
+    if (!changed && value.includes('Decisions made and why')) {
+      changed = true
+      await rename(stage, parked); await mkdir(stage)
+      throw new Error('refused')
+    }
+  } }), /lead-context-recovery-required/)
+  assert.equal(first.store.facts().checkpoints.at(-1)?.text, null)
+  assert.equal(first.journal.state.context.epoch, 1)
+  await assert.rejects(first.store.request(), /lead-context-recovery-required/)
+  assert.deepEqual(await readFile(parked), saved)
+  await rm(stage, { recursive: true }); await rename(parked, stage)
 })
 
 test('a durable journal append that reports failure is recovered without assuming rollback (#2060)', async t => {

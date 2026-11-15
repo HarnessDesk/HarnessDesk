@@ -119,6 +119,8 @@ export class LeadContextStore {
   #connections: LeadContextConnections = {}
   #fileBytes = 0
   #needsRecovery = false
+  /** The conversation committed, but its separate checkpoint view still needs a durable copy. */
+  #checkpointPending = false
   #tail: Promise<unknown> = Promise.resolve()
   private constructor(private readonly options: LeadContextStoreOptions) {}
 
@@ -134,10 +136,24 @@ export class LeadContextStore {
     if (!screen) return Promise.resolve()
     // Checkpoints kept from before the screen was wired pass it too before they are shown.
     return this.#serial(async () => {
-      this.#checkpoints = await Promise.all(this.#checkpoints.map(async checkpoint => {
-        if (checkpoint.text === null) return checkpoint
-        try { await screen(checkpoint.text); return checkpoint } catch { return { ...checkpoint, text: null } }
+      const previous = this.#checkpoints
+      const next = await Promise.all(previous.map(async checkpoint => {
+        const parts = [...(checkpoint.person?.messages.map(message => message.text) ?? []),
+          ...(checkpoint.text === null ? [] : [checkpoint.text])]
+        if (!parts.length) return checkpoint
+        try { await screen(parts.join('\n')); return checkpoint } catch {
+          const { person: _person, ...withheld } = checkpoint
+          return { ...withheld, text: null }
+        }
       }))
+      if (this.#checkpointPending && JSON.stringify(previous) !== JSON.stringify(next)) {
+        // Do not acknowledge a newly withheld view while an older staged copy
+        // could be promoted after restart. An uncertain rewrite needs replay.
+        this.#checkpoints = next
+        this.#needsRecovery = true
+        await this.#persistWithheldCheckpointView(previous, next)
+        this.#needsRecovery = false
+      } else this.#checkpoints = next
     })
   }
   get epoch(): number { return this.#epoch }
@@ -159,6 +175,83 @@ export class LeadContextStore {
     await rm(this.#path(CHECKPOINT_STAGE), { force: true })
     const directory = await open(this.options.directory, 'r')
     try { await directory.sync() } finally { await directory.close() }
+  }
+
+  async #persistWithheldCheckpointView(previous: readonly LeadContextCheckpoint[], next: readonly LeadContextCheckpoint[]): Promise<void> {
+    const read = await readBoundedJsonResult(this.#path(CHECKPOINT_STAGE), 600_000), context = this.options.journal.state.context
+    if (read.kind === 'value') {
+      const stage = checkpointStageOf(read.value)
+      if (stage.epoch !== context.epoch || stage.id !== context.last?.id || stage.count !== this.#count ||
+          JSON.stringify(stage.checkpoints) !== JSON.stringify(previous)) throw new Error('lead-context-recovery-required')
+      const withheld = checkpointStageOf({ ...stage, checkpoints: next })
+      await writeAtomicJson(this.#path(CHECKPOINT_STAGE), withheld, async () => {
+        const again = await readBoundedJsonResult(this.#path(CHECKPOINT_STAGE), 600_000)
+        const current = this.options.journal.state.context
+        if (again.kind !== 'value' || JSON.stringify(again.value) !== JSON.stringify(read.value) ||
+            current.epoch !== stage.epoch || current.last?.id !== stage.id) throw new Error('lead-context-recovery-required')
+      })
+      return
+    }
+    if (read.kind !== 'missing') throw new Error('lead-context-recovery-required')
+    const canonical = await readBoundedJsonResult(this.#path(CHECKPOINTS), 600_000)
+    if (canonical.kind !== 'value' || !canonical.value || typeof canonical.value !== 'object' ||
+        (canonical.value as { version?: unknown }).version !== 1 || (canonical.value as { count?: unknown }).count !== this.#count ||
+        JSON.stringify((canonical.value as { checkpoints?: unknown }).checkpoints) !== JSON.stringify(previous))
+      throw new Error('lead-context-recovery-required')
+    await writeAtomicJson(this.#path(CHECKPOINTS), { version: 1, count: this.#count, checkpoints: next }, async () => {
+      const stage = await readBoundedJsonResult(this.#path(CHECKPOINT_STAGE), 600_000)
+      const again = await readBoundedJsonResult(this.#path(CHECKPOINTS), 600_000)
+      const current = this.options.journal.state.context
+      if (stage.kind !== 'missing' || again.kind !== 'value' || JSON.stringify(again.value) !== JSON.stringify(canonical.value) ||
+          current.epoch !== context.epoch || current.last?.id !== context.last?.id) throw new Error('lead-context-recovery-required')
+    })
+    this.#checkpointPending = false
+  }
+
+  /** Finish only the same still-authorized view; never restore a view a later screen withheld. */
+  async #finishCheckpointView(): Promise<void> {
+    const read = await readBoundedJsonResult(this.#path(CHECKPOINT_STAGE), 600_000)
+    const context = this.options.journal.state.context
+    // If unlink succeeded but its directory sync failed, the already-durable
+    // canonical view can establish the same authority without recreating it.
+    const missing = read.kind === 'missing'
+    if (read.kind !== 'value' && !missing) throw new Error('lead-context-recovery-required')
+    const stage = checkpointStageOf(missing ? { version: 1, id: context.last?.id, epoch: context.epoch,
+      count: this.#count, checkpoints: this.#checkpoints } : read.value)
+    if (stage.epoch !== context.epoch || stage.id !== context.last?.id || stage.count !== this.#count ||
+        JSON.stringify(stage.checkpoints) !== JSON.stringify(this.#checkpoints)) throw new Error('lead-context-recovery-required')
+    if (missing) {
+      const canonical = await readBoundedJsonResult(this.#path(CHECKPOINTS), 600_000)
+      if (canonical.kind !== 'value' || !canonical.value || typeof canonical.value !== 'object' ||
+          (canonical.value as { version?: unknown }).version !== 1 || (canonical.value as { count?: unknown }).count !== stage.count ||
+          JSON.stringify((canonical.value as { checkpoints?: unknown }).checkpoints) !== JSON.stringify(stage.checkpoints))
+        throw new Error('lead-context-recovery-required')
+    }
+    const screen = this.#connections.screen
+    const prose = stage.checkpoints.flatMap(checkpoint => {
+      const parts = [...(checkpoint.person?.messages.map(message => message.text) ?? []),
+        ...(checkpoint.text === null ? [] : [checkpoint.text])]
+      return parts.length ? [parts.join('\n')] : []
+    })
+    if (prose.length && !screen) throw new Error('lead-context-recovery-required')
+    try { for (const entry of prose) await screen!(entry) } catch { throw new Error('lead-context-recovery-required') }
+    if (screen !== this.#connections.screen) throw new Error('lead-context-recovery-required')
+    if (missing) {
+      const directory = await open(this.options.directory, 'r')
+      try { await directory.sync() } finally { await directory.close() }
+      if (screen !== this.#connections.screen || JSON.stringify(stage.checkpoints) !== JSON.stringify(this.#checkpoints))
+        throw new Error('lead-context-recovery-required')
+      this.#checkpointPending = false
+      return
+    }
+    await writeAtomicJson(this.#path(CHECKPOINTS), { version: 1, count: stage.count, checkpoints: stage.checkpoints }, async () => {
+      if (screen !== this.#connections.screen || JSON.stringify(stage.checkpoints) !== JSON.stringify(this.#checkpoints))
+        throw new Error('lead-context-recovery-required')
+    })
+    if (screen !== this.#connections.screen || JSON.stringify(stage.checkpoints) !== JSON.stringify(this.#checkpoints))
+      throw new Error('lead-context-recovery-required')
+    await this.#removeCheckpointStage()
+    this.#checkpointPending = false
   }
 
   async #recoverCheckpointStage(): Promise<void> {
@@ -283,6 +376,11 @@ export class LeadContextStore {
       }
     }
     if (!screened.withheld.length) return
+    // Withholding advances the journal epoch. Resolve an earlier checkpoint view
+    // first, or keep the original conversation and stage intact for recovery.
+    if (this.#checkpointPending) {
+      try { await this.#finishCheckpointView() } catch { throw new Error('lead-context-recovery-required') }
+    }
     const epoch = this.#epoch + 1
     const turns = await this.#snapshot(NEXT, epoch, screened.messages)
     await this.options.journal.contextWithheld()
@@ -474,7 +572,12 @@ export class LeadContextStore {
     if (this.#needsRecovery) throw new Error('lead-context-recovery-required')
     if (this.#compacting || this.options.journal.state.context.pending) return 'busy'
     this.#compacting = true
-    try { return await this.#compact(trigger, send) }
+    try {
+      if (this.#checkpointPending) await this.#serial(async () => {
+        try { await this.#finishCheckpointView() } catch { throw new Error('lead-context-recovery-required') }
+      })
+      return await this.#compact(trigger, send)
+    }
     finally { this.#compacting = false }
   }
   get compacting(): boolean { return this.#compacting }
@@ -594,6 +697,7 @@ export class LeadContextStore {
   async #replace(id: string, build: (current: readonly MessagesTurn[]) => readonly MessagesTurn[], commit: () => Promise<void>, share: number,
     display?: LeadContextCheckpoint, displayScreen?: LeadContextConnections['screen'], remember?: readonly string[]): Promise<void> {
     await this.#serial(async () => {
+      if (this.#checkpointPending) throw new Error('lead-context-recovery-required')
       const turns = leadMergedTurns(build(this.#turns))
       const epoch = this.#epoch + 1
       if (display) {
@@ -636,15 +740,21 @@ export class LeadContextStore {
       this.#epoch = epoch
       this.#turns = turns
       await rename(this.#path(NEXT), this.#path(FILE))
+      const directory = await open(this.options.directory, 'r')
+      try { await directory.sync() } finally { await directory.close() }
       this.#fileBytes = Buffer.byteLength(await readFile(this.#path(FILE), 'utf8'))
       this.#measured = null
       if (stage) {
         this.#checkpoints = [...stage.checkpoints]
         this.#count = stage.count
+        // The journal and conversation file are now known committed; failure
+        // below concerns only the independently recoverable checkpoint view.
+        this.#needsRecovery = false
+        this.#checkpointPending = true
         try {
           await writeAtomicJson(this.#path(CHECKPOINTS), { version: 1, count: stage.count, checkpoints: stage.checkpoints }, async () => {})
           await this.#removeCheckpointStage()
-          this.#needsRecovery = false
+          this.#checkpointPending = false
         } catch { /* reopen resolves the durable stage or already-durable canonical file */ }
       }
     })
