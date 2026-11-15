@@ -8,6 +8,7 @@ export const leadStopReachesRun = (run: Pick<StoredFlowExecution, 'state'> | und
 
 /** Only journal-owned bindings are eligible for a fresh person-authorized cleanup. */
 export const personStopOwnedRuns = (state: LeadState, runs: readonly StoredFlowExecution[]): StoredFlowExecution[] => {
+  if (state.runs.length === 0) return []
   const logicalGoalId = state.budget?.logicalGoalId, digest = state.contract?.digest
   if (!logicalGoalId || !digest) throw new Error('lead-stop-runs-unavailable')
   return state.runs.map(owned => {
