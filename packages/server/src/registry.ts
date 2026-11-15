@@ -100,8 +100,6 @@ export interface SessionRecord {
   readonly watched: Set<TurnId>
   /** Of those, the ones still running here. Empty means nothing is working. */
   readonly running: Set<TurnId>
-  /** Changes whenever this host observes a turn start, end, or removal. */
-  turnGeneration: number
   /**
    * Messages the user wrote while a turn was running, still waiting.
    *
@@ -327,30 +325,6 @@ export class SessionRegistry {
     this.#restore = restore
   }
 
-  /** Capture a particular live turn set; request synchronously rechecks its authority. */
-  freezeInterrupt(runtime: RuntimeId, id: SessionId): {
-    readonly bodyGeneration: string
-    readonly bodyAuthorityEpoch: number
-    readonly liveAttaches: number
-    readonly turnGeneration: number
-    readonly turns: readonly TurnId[]
-    request(): Promise<void>
-  } | null {
-    const record = this.get(runtime, id)
-    const live = record?.live
-    if (!record || !live || record.running.size === 0) return null
-    const turnGeneration = record.turnGeneration, liveAttaches = record.liveAttaches, bodyAuthorityEpoch = record.bodyAuthorityEpoch
-    const turns = [...record.running].sort()
-    return { bodyGeneration: record.bodyGeneration, bodyAuthorityEpoch, liveAttaches, turnGeneration, turns,
-      request: () => {
-        if (this.get(runtime, id) !== record || record.bodyAuthorityEpoch !== bodyAuthorityEpoch || record.live !== live || record.liveAttaches !== liveAttaches ||
-          record.turnGeneration !== turnGeneration || record.running.size !== turns.length || turns.some(turn => !record.running.has(turn))) {
-          throw new Error('The frozen turn is no longer current.')
-        }
-        return live.interrupt()
-      } }
-  }
-
   /**
    * Folds a read of a session — from a runtime's store, or the summary a
    * `session/started` carries — into what is held here.
@@ -413,7 +387,6 @@ export class SessionRegistry {
       approvals: new Map(),
       watched: new Set(),
       running: new Set(),
-      turnGeneration: 0,
       get queue() { return heldQueue },
       set queue(next: SessionQueue) { if (heldQueue !== next) { heldQueue = next; bodyRevision++; registry.#bodyChanged?.(record) } },
       get tasks() { return heldTasks },
@@ -458,7 +431,7 @@ export class SessionRegistry {
     const kept = Math.max(0, record.session.turns.length - turns)
     for (const turn of record.session.turns.slice(kept)) {
       record.watched.delete(turn.id)
-      if (record.running.delete(turn.id)) record.turnGeneration++
+      record.running.delete(turn.id)
     }
     /* And the turns themselves. Only the host's claims on them went; the turns
        stayed in its copy of the session until the next read replaced it, so a
@@ -708,11 +681,10 @@ export class SessionRegistry {
     if (event.type === 'turn/started') {
       const record = this.get(runtime, event.sessionId)
       record?.watched.add(event.turn.id)
-      if (record) { record.turnGeneration++; record.running.add(event.turn.id) }
+      record?.running.add(event.turn.id)
     }
     if (event.type === 'turn/completed') {
-      const record = this.get(runtime, event.sessionId)
-      if (record) { record.turnGeneration++; record.running.delete(event.turn.id) }
+      this.get(runtime, event.sessionId)?.running.delete(event.turn.id)
     }
 
     const target = sessionOf(event)
@@ -785,7 +757,6 @@ export class SessionRegistry {
       record.approvals.clear()
       // The runtime restarted: whatever was in flight died with it, and the
       // next read must not be believed when it says otherwise.
-      record.turnGeneration++
       record.running.clear()
       const previous = record.session
       record.session = this.#settle(record, record.session)

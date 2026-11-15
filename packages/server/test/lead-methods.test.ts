@@ -6,7 +6,7 @@ import { makeRepo } from './fixtures/evidence-desk.js'
 import { readChecks } from '../src/evidence/checks-file.js'
 import { readLeadEvidence } from '../src/lead/assembly.js'
 import { createLeadLoop, createLeadJournal, leadBudgetProjection, leadCheckpoint, parseLeadCheckpoint, type LeadJournalRecord } from '@harnessdesk/lead'
-import { LEAD_LIMITS, parseLeadAcceptanceContract, type LeadCard, type WireNotification } from '@harnessdesk/protocol'
+import { LEAD_LIMITS, parseLeadAcceptanceContract, parseLeadWindowProjection, type LeadCard, type WireNotification } from '@harnessdesk/protocol'
 import { dispatch, type HostContext } from '../src/methods/index.js'
 import { leadProgress, leadRunTeam } from '../src/lead/projection.js'
 
@@ -49,6 +49,39 @@ const rig = async (over: { configured?: boolean; manage?: boolean; service?: Rec
   return { controls, journal, records, storage, notifications, sends, answers, service, call }
 }
 const code = (reason: string) => (error: any) => error.wireCode === reason
+
+test('an unconfirmed mention stop exposes a new person-authorized cleanup without replay', async () => {
+  let effects = 0, requests = 0
+  const s = await rig({ controls: { stopEffects: async () => { effects++ }, stopRequest: async () => { requests++ } } })
+  await s.journal.setOrigin({ source: 'issue', event: 'commented', subject: 'demo/project#1', url: 'https://example.invalid/issue/1' }, 'trigger-firing-1')
+  assert.equal(await s.journal.stopMentionOnce({ kind: 'mention', comment: 'https://example.invalid/issue#issuecomment-1' },
+    { originKey: 'trigger-firing-1', goalStartedSeq: s.journal.state.goalStartedSeq }), true)
+  const view = await s.call('lead/thread/read')
+  assert.equal(parseLeadWindowProjection(JSON.parse(JSON.stringify(view))).canStop, true)
+  await assert.rejects(s.call('lead/stop', { expectedRevision: view.revision - 1 }), code('lead-revision-stale'))
+  assert.equal(effects, 0)
+  const stopped = await s.call('lead/stop', { expectedRevision: view.revision })
+  assert.equal(effects, 1, 'the new person Stop authorizes ordinary cleanup')
+  assert.equal(requests, 1)
+  assert.equal(s.journal.state.mentionStopOneShot, false)
+  assert.notEqual(stopped.canStop, true)
+  await assert.rejects(s.call('lead/stop', { expectedRevision: stopped.revision }), code('lead-thread-closed'))
+  assert.equal(effects, 1, 'no old mention replay or duplicate cleanup')
+})
+
+test('a failed person child stop retains fresh retry authority without replaying the mention', async () => {
+  let attempts = 0
+  const s = await rig({ controls: { stopEffects: async () => {}, stopRequest: async () => { if (++attempts === 1) throw new Error('synthetic child stop failure') } } })
+  await s.journal.setOrigin({ source: 'issue', event: 'commented', subject: 'demo/project#1', url: 'https://example.invalid/issue/1' }, 'trigger-firing-1')
+  await s.journal.stopMentionOnce({ kind: 'mention', comment: 'https://example.invalid/issue#issuecomment-1' },
+    { originKey: 'trigger-firing-1', goalStartedSeq: s.journal.state.goalStartedSeq })
+  await assert.rejects(s.call('lead/stop', { expectedRevision: s.journal.state.seq }))
+  const pending = await s.call('lead/thread/read')
+  assert.equal(pending.canStop, true)
+  await s.call('lead/stop', { expectedRevision: pending.revision })
+  assert.equal(attempts, 2)
+  assert.notEqual((await s.call('lead/thread/read')).canStop, true)
+})
 
 test('an unsupported Lead runtime is readable and refuses sends before recording work', async () => {
   const s = await rig({ configured: true, service: { async status() { return { configured: true, protection: 'synthetic cipher', unavailable: 'runtime' } } } })

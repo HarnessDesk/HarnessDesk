@@ -2454,6 +2454,9 @@ test('a one-shot mention run stop checkpoints the durable mark before any Seat e
   assert.equal(((await files.list())[0]!.raw as { version: number }).version, 2, 'a later unprotected save uses the normal format')
   assert.deepEqual(rig.events.slice(previous).filter(event => event.startsWith('interrupt:') || event.startsWith('release:')), [],
     'a failed receipt must not continue to Seat effects or enqueue their retry')
+  await rig.flows.stopRun(run.id, 'Person explicitly stopped the work')
+  assert.ok(rig.events.slice(previous).some(event => event.startsWith('interrupt:')), 'explicit person Stop interrupts its live Seat')
+  assert.equal(rig.flows.protectedMentionStop(run.id), false)
 })
 
 test('protected one-shot runs do not replay person-card cleanup on restart, but a person can still stop', async t => {
@@ -2486,4 +2489,38 @@ test('a run changed while the one-shot intent is being saved cannot be marked by
   assert.equal(receipts, 0)
   assert.equal(rig.flows.executionOf(run.id)?.state, 'running')
   assert.equal(rig.flows.protectedMentionStop(run.id), false)
+})
+
+test('a person can retry protected-run cleanup after a Seat operation fails', async t => {
+  let fail = true
+  const rig = await goalRig(t, { settleApprovals: async () => { if (fail) throw new Error('synthetic approval cleanup failure') } })
+  const source = 'version: 2\nname: Inspect\nroles:\n  reviewer: { kind: agent, uses: reviewer }\nseed: { role: reviewer, title: Inspect }\nrules: []\n'
+  const run = await rig.startTriggered(source, [agent('reviewer', ['approve'])])
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  const target = rig.flows.freezeMentionRun(run.id)!
+  await rig.flows.markMentionRun(target, 'synthetic stop', `u-${'d'.repeat(64)}`, async () => {})
+  await assert.rejects(rig.flows.stopRun(run.id, 'Person explicitly stopped the work'), /synthetic approval cleanup failure/)
+  assert.equal(rig.flows.protectedMentionStop(run.id), true, 'failed cleanup retains the fence')
+  fail = false
+  await rig.flows.stopRun(run.id, 'Person explicitly stopped the work')
+  assert.equal(rig.flows.protectedMentionStop(run.id), false)
+})
+
+test('restart does not sweep a claimed Seat of a protected one-shot run', async t => {
+  let approvals = 0
+  const rig = await goalRig(t, { settleApprovals: async () => { approvals++ } })
+  const run = await rig.startTriggered(TWO_REVIEWERS, TWO_AGENTS)
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.ok(rig.board(run.goal).intents.some(card => card.claim), 'a Seat still holds this run’s card')
+  const target = rig.flows.freezeMentionRun(run.id)!
+  await rig.flows.markMentionRun(target, 'synthetic stop', `u-${'e'.repeat(64)}`, async () => {})
+  rig.busySeats.clear()
+  const previous = rig.events.length
+  await rig.restart()
+  assert.equal(rig.flows.protectedMentionStop(run.id), true)
+  assert.deepEqual(rig.events.slice(previous).filter(event => event.startsWith('release:') || event.startsWith('interrupt:')), [])
+  assert.equal(approvals, 0)
+  assert.equal(rig.flows.executionOf(run.id)?.pendingReleaseNote, undefined, 'restart did not enqueue release retry')
 })

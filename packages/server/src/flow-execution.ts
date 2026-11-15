@@ -2623,22 +2623,24 @@ export class FlowExecutions {
    * again — no poll, and no bound on how long the wait itself may run,
    * because a released Seat's own turn does end (#1027).
    */
-  async #release(goal: string, ids: readonly string[], interrupt: boolean, runId: string): Promise<void> {
-    if (this.#disposed) return
+  async #release(goal: string, ids: readonly string[], interrupt: boolean, runId: string, strict = false): Promise<void> {
+    if (this.#disposed) { if (strict) throw new Error('The flow is closing before Seat cleanup.'); return }
     const cards = this.#cardsOf(runId)
     for (const id of ids) {
-      if (this.#disposed) return
+      if (this.#disposed) { if (strict) throw new Error('The flow is closing before Seat cleanup.'); return }
       const record = this.#port.seatOf(id)
       const claim = record ? this.#claimOf(goal, record, cards) : null
       if (interrupt && record) {
-        await this.#port.settleApprovals?.(record, this.#get(runId).state === 'stopped' ? 'Run stopped' : 'Seat released').catch((error: unknown) => {
+        try { await this.#port.settleApprovals?.(record, this.#get(runId).state === 'stopped' ? 'Run stopped' : 'Seat released') } catch (error) {
           this.#port.log('a flow Seat’s approvals could not be settled', { goal, seat: id, error: error instanceof Error ? error.message : String(error) })
-        })
-        await this.#port.interrupt?.(record).catch((error: unknown) => {
+          if (strict) throw error
+        }
+        try { await this.#port.interrupt?.(record) } catch (error) {
           this.#port.log('a flow Seat’s turn could not be interrupted', { goal, seat: id, error: error instanceof Error ? error.message : String(error) })
-        })
+          if (strict) throw error
+        }
       }
-      await this.#attemptRelease(goal, runId, id, claim)
+      await this.#attemptRelease(goal, runId, id, claim, strict)
     }
   }
 
@@ -2680,7 +2682,7 @@ export class FlowExecutions {
    * check and the call, is exactly the case that must not become a log line
    * and nothing else.
    */
-  async #attemptRelease(goal: string, runId: string, id: string, claim: PendingSeatClaim | null): Promise<void> {
+  async #attemptRelease(goal: string, runId: string, id: string, claim: PendingSeatClaim | null, strict = false): Promise<void> {
     if (this.#disposed) return
     const record = this.#port.seatOf(id)
     if (!record || record.closed) {
@@ -2709,6 +2711,7 @@ export class FlowExecutions {
         return
       }
       this.#port.log('a flow Seat could not be released', { goal, seat: id, error: error instanceof Error ? error.message : String(error) })
+      if (strict) throw error
       await this.#settlePending(id)
     }
   }
@@ -4499,6 +4502,11 @@ export class FlowExecutions {
     await this.#put({ ...run, state, reason, end,
       ...(state === 'stopped' ? { rounds: run.rounds.map(round => round.state === 'closed' ? round : { ...round, state: 'closed' as const }) } : {}),
     })
+    await this.#finishCleanup(run, state, id)
+  }
+
+  /** The ordinary cleanup a person may explicitly request for an already protected run. */
+  async #finishCleanup(run: StoredFlowExecution, state: 'settled' | 'stopped', id: string, strict = false): Promise<void> {
     // Ended before its first round: the empty Goal it reserved is empty still, and free for another start.
     if (run.reserving && run.rounds.length === 0) await this.#letGo(id, run.reserving.goal)
     // Finished Seats remain members for follow-ups; the host releases only
@@ -4508,7 +4516,7 @@ export class FlowExecutions {
         .filter((seat) => { const record = this.#port.seatOf(seat); return record !== null && record.closed === null })
       // Stop is durable before interrupts: even a runtime that cannot interrupt
       // may finish its turn later, but that completion can dispatch no rule.
-      await this.#release(run.goal, open, true, id)
+      await this.#release(run.goal, open, true, id, strict)
     }
     this.#team.nudgeRoom(run.goal)
   }
@@ -4550,12 +4558,14 @@ export class FlowExecutions {
         // A retry ahead of Stop may only now have created its controller.
         this.#interruptRunChecks(id)
         const tasks = [...this.#checking].filter(([, run]) => run === id).map(([task]) => task)
+        const before = this.#get(id)
         await this.#finish(id, 'stopped', why, { kind: 'stopped', by })
+        if (by === 'person' && before.mentionStopOnce && before.state === 'stopped') await this.#finishCleanup(before, 'stopped', id, true)
         await this.#abandonStoppedPeople(id)
         const current = this.#get(id)
         if (by === 'person' && current.mentionStopOnce) {
           const { mentionStopOnce: _oldStop, ...ordinary } = current
-          await this.#put(ordinary, undefined, true)
+          await this.#put({ ...ordinary, reason: why, end: { kind: 'stopped', by: 'person' } }, undefined, true)
         }
         return tasks
       })
@@ -4583,7 +4593,8 @@ export class FlowExecutions {
   /** Capture an exact trigger-owned run generation without changing it. */
   freezeMentionRun(id: string): string | null {
     const run = this.#runs.get(id)
-    if (!run?.intake || (run.state !== 'running' && run.state !== 'stalled')) return null
+    if (!run?.intake || (run.state !== 'running' && run.state !== 'stalled') ||
+      run.operations.some(one => one.key === 'drop-base' && one.state === 'started')) return null
     return JSON.stringify({ epoch: this.#mentionStopEpoch, version: this.#mentionRunVersions.get(id) ?? 0,
       id: run.id, goal: run.goal, intake: run.intake.key })
   }
@@ -4614,6 +4625,33 @@ export class FlowExecutions {
   }
 
   protectedMentionStop(id: string): boolean { return this.#runs.get(id)?.mentionStopOnce !== undefined }
+
+  /** Capture only a run whose stored Lead identity matches the journal's exact ownership. */
+  freezeLeadRun(id: string, logicalGoalId: string, team: string, correlation: string): string | null {
+    const run = this.#runs.get(id), lead = run?.lead
+    if (!run || !lead || run.goal !== team || lead.logicalGoalId !== logicalGoalId || lead.startId !== correlation ||
+      (run.state !== 'running' && run.state !== 'stalled') || run.operations.some(one => one.key === 'drop-base' && one.state === 'started')) return null
+    return JSON.stringify({ epoch: this.#mentionStopEpoch, version: this.#mentionRunVersions.get(id) ?? 0, id: run.id, goal: run.goal,
+      logicalGoalId: lead.logicalGoalId, contractDigest: lead.contractDigest, startId: lead.startId, stepId: lead.stepId })
+  }
+
+  async markLeadRun(target: string, why: string, stop: string, guard: () => boolean, afterMark: () => Promise<void>): Promise<void> {
+    if (!/^u-[0-9a-f]{64}$/.test(stop)) throw new Error('Invalid one-shot stop identity.')
+    let frozen: Record<string, unknown>
+    try { frozen = JSON.parse(target) } catch { throw new Error('Invalid frozen Lead run.') }
+    if (!frozen || typeof frozen.id !== 'string' || frozen.epoch !== this.#mentionStopEpoch || !Number.isSafeInteger(frozen.version)) throw new Error('Invalid frozen Lead run.')
+    const id = frozen.id
+    if ((this.#checks.get(id)?.size ?? 0) > 0) throw new Error('The run has checks whose stop cannot yet be confirmed.')
+    await this.#queue.within(id, async () => {
+      const run = this.#get(id), lead = run.lead
+      if (this.#disposed || !guard() || frozen.version !== (this.#mentionRunVersions.get(id) ?? 0) || run.goal !== frozen.goal ||
+        !lead || lead.logicalGoalId !== frozen.logicalGoalId || lead.contractDigest !== frozen.contractDigest ||
+        lead.startId !== frozen.startId || lead.stepId !== frozen.stepId || (run.state !== 'running' && run.state !== 'stalled') ||
+        (this.#checks.get(id)?.size ?? 0) > 0) throw new Error('The frozen Lead run changed.')
+      await this.#put({ ...run, state: 'stopped', mentionStopOnce: stop, reason: why, end: { kind: 'stopped', by: 'desk' },
+        rounds: run.rounds.map(round => round.state === 'closed' ? round : { ...round, state: 'closed' as const }) }, afterMark)
+    })
+  }
 
   /** Stops every live run on a Goal, inside each run's own queue: the wrap barrier. */
   async stopGoal(goal: string, why: string): Promise<void> {
@@ -5183,7 +5221,7 @@ export class FlowExecutions {
     // A durable abort and its cleanup intent are one write. Retry even a stopped run,
     // and keep the intent pending if deletion or its completion write fails again.
     for (const run of [...this.#runs.values()]) {
-      if (!run.operations.some((op) => op.key === 'drop-base' && op.state === 'started')) continue
+      if (run.mentionStopOnce || !run.operations.some((op) => op.key === 'drop-base' && op.state === 'started')) continue
       await this.#queue.within(run.id, () => this.#dropBase(run)).catch((error: unknown) => {
         this.#port.log('an aborted Flow base ref could not be removed at restart', { run: run.id, error: error instanceof Error ? error.message : String(error) })
       })
@@ -5235,7 +5273,7 @@ export class FlowExecutions {
      * card by hand (finding 2).
      */
     for (const run of [...this.#runs.values()]) {
-      if ((run.state !== 'stopped' && run.state !== 'settled') || run.goal === '') continue
+      if (run.mentionStopOnce || (run.state !== 'stopped' && run.state !== 'settled') || run.goal === '') continue
       const cards = this.#cardsOf(run.id)
       const open = [...new Set(run.rounds.flatMap((round) => round.seats))].filter((seat) => {
         const record = this.#port.seatOf(seat)

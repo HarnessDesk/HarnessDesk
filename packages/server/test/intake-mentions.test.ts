@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
@@ -553,7 +554,7 @@ test('a mentions file the desk cannot read is kept as it is, and comments wait u
 // ------------------------------------------------------------ one thread of work
 
 /** The Lead on this desk, journaled in memory: its work ledger is the host's own. No child, model or vendor traffic. */
-const leadOn = async (t: TestContext, d: IntakeDesk): Promise<{ readonly journal: LeadJournal; readonly records: LeadJournalRecord[] }> => {
+const leadOn = async (t: TestContext, d: IntakeDesk, hold?: { resolve(policy: string): void; authorizeStop(): void; requestStop(): void }): Promise<{ readonly journal: LeadJournal; readonly records: LeadJournalRecord[] }> => {
   const records: LeadJournalRecord[] = []
   const journal = await createLeadJournal({ read: async () => [], append: async (record) => { records.push(structuredClone(record)) } })
   await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
@@ -563,7 +564,8 @@ const leadOn = async (t: TestContext, d: IntakeDesk): Promise<{ readonly journal
   const service = d.host.createLeadService({ journal, project, prices: {},
     resolveTool: async () => ({ project, runId: null, start: null, stepId: null, context: context() }),
     freezePlan: async (proposal) => proposal, readEvidence: async () => { throw new Error('unused') },
-    createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }),
+    createSupervisor: () => ({ live: !!hold, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {},
+      ...(hold ? { holdMentionExit: () => ({ ...hold, done: Promise.resolve() }) } : {}) }),
   })
   await service.setEnabled(true)
   t.after(() => service.setEnabled(false).catch(() => {}))
@@ -1427,6 +1429,90 @@ test('#2065: failed queued cancellation stays held through review and polling', 
   assert.equal(deliveries, before, 'restart does not deliver the protected firing')
 })
 
+test('#2065: a matching Lead marker is receipted before one shutdown request', E2E, async t => {
+  const events: string[] = []
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  const { journal } = await leadOn(t, d, { resolve: policy => { events.push(`resolve:${policy}`) },
+    authorizeStop: () => { events.push('authorize') }, requestStop: () => {
+      const disk = JSON.parse(readFileSync(join(d.stateDir, LEDGER), 'utf8'))
+      assert.equal(disk.stopIntents[0].receipts.leadPlan, true, 'the Lead marker receipt precedes shutdown')
+      events.push('shutdown')
+    } })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  await journal.setOrigin({ source: 'issue', event: 'commented', subject: 'acme/widgets#1', url: 'https://example.invalid/issue/1' }, `trigger-${await firingOf(d, 1)}`)
+  assert.ok(journal.state.originKey?.startsWith('trigger-'), 'the Lead goal belongs to the firing')
+  await say(d, 1, '@dex stop')
+  const stop = (await decisions(d)).unconfirmedStops?.[0]
+  assert.equal(stop?.state, 'unconfirmed')
+  assert.equal(stop?.progress.leadPlanStopped, true)
+  assert.equal(journal.state.mentionStopOneShot, true)
+  assert.deepEqual(events, ['resolve:one-shot', 'authorize', 'shutdown'])
+})
+
+test('#2065: a new Lead goal after the saved marker never receives the old child shutdown', E2E, async t => {
+  const events: string[] = []
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  const { journal } = await leadOn(t, d, { resolve: policy => { events.push(`resolve:${policy}`) },
+    authorizeStop: () => { events.push('authorize') }, requestStop: () => { events.push('shutdown') } })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  await journal.setOrigin({ source: 'issue', event: 'commented', subject: 'acme/widgets#1', url: 'https://example.invalid/issue/1' }, `trigger-${await firingOf(d, 1)}`)
+  const stop = journal.stopMentionOnce.bind(journal)
+  t.mock.method(journal, 'stopMentionOnce', async (...args: Parameters<typeof stop>) => {
+    const saved = await stop(...args)
+    if (saved) await journal.beginGoal('new-person-goal', Date.now())
+    return saved
+  })
+  await say(d, 1, '@dex stop')
+  assert.equal((await decisions(d)).unconfirmedStops?.[0]?.progress.leadPlanStopped, true)
+  assert.equal(journal.state.budget?.logicalGoalId, 'new-person-goal')
+  assert.deepEqual(events, ['resolve:one-shot'], 'the captured old child never receives a shutdown for the new goal')
+})
+
+test('#2065: a Lead goal replaced before the marker releases its hold without taking ownership', E2E, async t => {
+  const events: string[] = []
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  const { journal } = await leadOn(t, d, { resolve: policy => { events.push(`resolve:${policy}`) },
+    authorizeStop: () => { events.push('authorize') }, requestStop: () => { events.push('shutdown') } })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  await journal.setOrigin({ source: 'issue', event: 'commented', subject: 'acme/widgets#1', url: 'https://example.invalid/issue/1' }, `trigger-${await firingOf(d, 1)}`)
+  const mark = journal.stopMentionOnce.bind(journal)
+  t.mock.method(journal, 'stopMentionOnce', async (...args: Parameters<typeof mark>) => {
+    await journal.stop(async () => {})
+    await journal.beginGoal('new-person-goal', Date.now())
+    return mark(...args)
+  })
+  await say(d, 1, '@dex stop')
+  assert.equal((await decisions(d)).unconfirmedStops?.[0]?.progress.leadPlanStopped, false)
+  assert.equal(journal.state.budget?.logicalGoalId, 'new-person-goal')
+  assert.deepEqual(events, ['resolve:ordinary'], 'a definitive no-append leaves the new goal’s ordinary cleanup intact')
+})
+
+test('#2065: an ambiguous Lead marker does not signal or start later effects', E2E, async t => {
+  const events: string[] = []
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  const { journal } = await leadOn(t, d, { resolve: policy => { events.push(`resolve:${policy}`) },
+    authorizeStop: () => { events.push('authorize') }, requestStop: () => { events.push('shutdown') } })
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  await journal.setOrigin({ source: 'issue', event: 'commented', subject: 'acme/widgets#1', url: 'https://example.invalid/issue/1' }, `trigger-${await firingOf(d, 1)}`)
+  const mark = journal.stopMentionOnce.bind(journal)
+  t.mock.method(journal, 'stopMentionOnce', async (...args: Parameters<typeof mark>) => {
+    assert.equal(await mark(...args), true)
+    throw new Error('Synthetic ambiguous append')
+  })
+  await say(d, 1, '@dex stop')
+  const stop = (await decisions(d)).unconfirmedStops?.[0]
+  assert.equal(stop?.state, 'unconfirmed')
+  assert.equal(stop?.progress.leadPlanStopped, false, 'only the saved receipt can claim progress')
+  assert.equal(journal.state.mentionStopOneShot, true, 'the marker may have committed')
+  assert.deepEqual(events, ['resolve:one-shot'])
+  for (let n = 0; n < 3; n++) { d.clocks.advance(60_000); await d.host.intakePlane.tick() }
+  assert.deepEqual(events, ['resolve:one-shot'], 'polling does not repeat the ambiguous attempt')
+})
+
 test('#2065: protected run leaves a parked firing until the person explicitly stops', E2E, async t => {
   const d = await desk(t)
   await act(d)
@@ -1450,6 +1536,47 @@ test('#2065: protected run leaves a parked firing until the person explicitly st
   await until(() => !d.host.intakePlane.journal.read().operations.some(one => one.key === pending.key) ? true : null,
     'the explicit person stop to reconcile the parked firing')
   assert.equal(d.host.flowsPlane.protectedMentionStop(run.id), false)
+})
+
+test('#2065: a saved stop holds non-Lead firing recovery while its run mark waits', E2E, async t => {
+  const d = await desk(t)
+  await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const goal = (await history(d)).items[0]!.goal!, run = flowRuns(d, goal)[0]!
+  let holdSeats = true
+  const freeze = TriggerClosures.prototype.freeze
+  t.mock.method(TriggerClosures.prototype, 'freeze', async function (this: TriggerClosures, ...args: Parameters<TriggerClosures['freeze']>) {
+    const closure = await freeze.apply(this, args)
+    return holdSeats ? { ...closure, availability: [{ at: 'seats', text: 'Synthetic temporary seat hold', fix: 'Wait for the seat.' }] } : closure
+  })
+  await say(d, 1, '@dex also inspect the docs')
+  const pending = await until(() => d.host.intakePlane.journal.read().operations.find(one => one.run === run.id && !one.dispatched) ?? null,
+    'the follow-up firing to remain parked')
+  const entered = new Gate(), release = new Gate()
+  t.after(() => { release.open(); return Promise.resolve() })
+  let admission: Admission | null = null, resumes = 0
+  const close = Admission.prototype.closeMentionThread
+  t.mock.method(Admission.prototype, 'closeMentionThread', function (this: Admission, ...args: Parameters<Admission['closeMentionThread']>) {
+    admission = this
+    return close.apply(this, args)
+  })
+  const mark = d.host.flowsPlane.markMentionRun.bind(d.host.flowsPlane)
+  t.mock.method(d.host.flowsPlane, 'markMentionRun', async (...args: Parameters<typeof mark>) => {
+    entered.open()
+    await release.opened
+    return mark(...args)
+  })
+  const resume = d.host.flowsPlane.resumeTriggered.bind(d.host.flowsPlane)
+  t.mock.method(d.host.flowsPlane, 'resumeTriggered', async (...args: Parameters<typeof resume>) => { resumes++; return resume(...args) })
+  const stopping = say(d, 1, '@dex stop')
+  try {
+    await entered.opened
+    holdSeats = false
+    assert.ok(admission)
+    await (admission as Admission).recover()
+    assert.ok(d.host.intakePlane.journal.read().operations.some(one => one.key === pending.key), 'the saved intent holds the old firing')
+    assert.equal(resumes, 0, 'recovery does not resume work outside the frozen stop scope')
+  } finally { release.open(); await stopping }
 })
 
 test('#2065: retained stop history stays readable and reviewable after disarm and deletion', E2E, async t => {

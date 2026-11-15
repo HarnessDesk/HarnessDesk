@@ -555,6 +555,13 @@ export class Flows implements TeamFlows {
     await this.#executions.markMentionRun(target, why, stop, afterMark)
   }
   protectedMentionStop(id: string): boolean { return this.#executions?.protectedMentionStop(id) ?? false }
+  freezeLeadRun(id: string, logicalGoalId: string, team: string, correlation: string): string | null {
+    return this.#executions?.freezeLeadRun(id, logicalGoalId, team, correlation) ?? null
+  }
+  async markLeadRun(target: string, why: string, stop: string, guard: () => boolean, afterMark: () => Promise<void>): Promise<void> {
+    if (!this.#executions) throw new Error('Lead runs are unavailable.')
+    await this.#executions.markLeadRun(target, why, stop, guard, afterMark)
+  }
 
   /**
    * One person decision on a run inside its queue (`FlowExecutions.withDecision`).

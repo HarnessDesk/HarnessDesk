@@ -70,6 +70,8 @@ export interface LeadState {
   readonly stopEffectsPending: number | null
   /** This mention-origin stop generation never repeats automatic stop effects. */
   readonly mentionStopOneShot: boolean
+  readonly personStopAfterMention: boolean
+  readonly personStopProcessSeq: number | null
   /** Only the host-owned person Stop event acknowledges possible ordinary-chat effects. */
   readonly chatEffectsAcknowledged: boolean
   readonly messages: readonly LeadMessage[]
@@ -121,7 +123,7 @@ export interface LeadContextState {
 }
 export const initialLeadContext = (): LeadContextState => ({ epoch: 0, failures: 0, pending: null, last: null })
 export const LEAD_CHECKPOINT_NOTICE = 'Earlier conversation summarised'
-export const initialLeadState = (): LeadState => ({ workerApprovals: [], workerAuditWait: false, orphanedWorkerDispatch: null, decisionRevision: 0, wakes: [], secondLooks: [], origin: null, originKey: null, goalStartedSeq: 0, chatEffectsSinceReply: { started: 0, sent: 0, stopped: 0 }, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', nameChosen: false, decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, raisedFrom: null, spendLimit: null, autonomy: null, stopEffectsPending: null, mentionStopOneShot: false, chatEffectsAcknowledged: false,
+export const initialLeadState = (): LeadState => ({ workerApprovals: [], workerAuditWait: false, orphanedWorkerDispatch: null, decisionRevision: 0, wakes: [], secondLooks: [], origin: null, originKey: null, goalStartedSeq: 0, chatEffectsSinceReply: { started: 0, sent: 0, stopped: 0 }, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', nameChosen: false, decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, raisedFrom: null, spendLimit: null, autonomy: null, stopEffectsPending: null, mentionStopOneShot: false, personStopAfterMention: false, personStopProcessSeq: null, chatEffectsAcknowledged: false,
   cards: [], retryResult: null, decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardPositions: {}, cardRevisions: {}, runs: [], teams: [], acceptedTeams: [], context: initialLeadContext(), memory: initialLeadMemoryCore(), memoryEpoch: null, chatHandles: initialLeadChatHandles() })
 /** A figure the Lead drafted, before the person sees it: Off drafts at the portable ceiling (which still trips the
  * overflow stop) so the card never shows a cap the person turned off; a set limit caps it. Rounds are untouched. */
@@ -254,7 +256,7 @@ export const canReportLeadChatEffect = (state: LeadState, attempt: LeadAttemptSt
 export const isLeadPlanRenewal = (state: LeadState, card: Extract<LeadCard, { type: 'plan' }>): boolean =>
   state.consent?.renewalCardRevision === card.revision && JSON.stringify(state.contract) === JSON.stringify(card.contract)
 export const canBeginLeadGoal = (state: LeadState): boolean =>
-  ['stopped', 'accepted', 'declined'].includes(state.phase) && !!state.budget && state.stopEffectsPending === null &&
+  ['stopped', 'accepted', 'declined'].includes(state.phase) && !!state.budget && state.stopEffectsPending === null && state.personStopProcessSeq === null &&
   (!hasUncertainLeadChatEffect(state) || state.chatEffectsAcknowledged) &&
   !state.recoveryBlocked && !state.budget.requests.length && state.completedBudgets.length < 64 &&
   [...state.attempts.values()].every(attempt => attempt.phase === 'finished' && !attempt.resolutionPending && !attempt.contested &&
@@ -765,11 +767,19 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       state = { ...state, teams: [...state.teams, event.teamId] }; break
     case 'stop':
     case 'mention-stop-once':
+    case 'person-stop-after-mention':
       if (event.type === 'mention-stop-once') ensure(state.stopEffectsPending === null && !state.budget?.stop && !['stopped', 'accepted', 'declined'].includes(state.phase))
-      state = { ...state, phase: 'stopped', mentionStopOneShot: event.type === 'mention-stop-once', chatEffectsAcknowledged: true, budget: state.budget ? reduceLeadBudget(state.budget,
+      if (event.type === 'person-stop-after-mention') ensure(state.mentionStopOneShot && state.phase === 'stopped')
+      state = { ...state, phase: 'stopped', mentionStopOneShot: event.type === 'mention-stop-once', personStopAfterMention: event.type === 'person-stop-after-mention', personStopProcessSeq: event.type === 'person-stop-after-mention' ? event.seq : null, chatEffectsAcknowledged: true, budget: state.budget ? reduceLeadBudget(state.budget,
         { version: 1, type: 'stop', now: state.budget.now, reason: 'cancelled' }) : null }; break
+    case 'person-stop-process-retry':
+      ensure(state.phase === 'stopped' && (state.personStopAfterMention || state.personStopProcessSeq !== null))
+      state = { ...state, personStopProcessSeq: event.seq }; break
+    case 'person-stop-process-done':
+      ensure(state.phase === 'stopped' && state.personStopProcessSeq === event.stopSeq && state.goalStartedSeq === event.goalStartedSeq)
+      state = { ...state, personStopProcessSeq: null }; break
     case 'stop-effects-done':
-      ensure(state.stopEffectsPending === event.stopSeq); state = { ...state, stopEffectsPending: null }; break
+      ensure(state.stopEffectsPending === event.stopSeq); state = { ...state, stopEffectsPending: null, personStopAfterMention: false }; break
     case 'recovery-block': state = { ...state, recoveryBlocked: true }; break
     case 'recovery-resolved': state = { ...state, recoveryBlocked: false }; break
     case 'recovery-report':
@@ -930,7 +940,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     (state.budget?.executionIds.some(id => !previous.budget?.executionIds.includes(id)) ?? false)
   const stopped = state.budget?.stop || previous.phase === 'stopped'
   if (!state.mentionStopOneShot && (state.budget?.stop && !previous.budget?.stop || discovered && stopped ||
-    event.type === 'stop' && previous.phase !== 'stopped' && !previous.budget?.stop))
+    event.type === 'person-stop-after-mention' || event.type === 'stop' && previous.phase !== 'stopped' && !previous.budget?.stop))
     state = { ...state, stopEffectsPending: event.seq }
   if (previous.phase === 'waiting-for-user' && state.phase !== 'waiting-for-user') state = { ...state, managementReason: null }
   if (['stopped', 'accepted', 'declined'].includes(state.phase) && state.consent?.renewalCardRevision !== undefined) {

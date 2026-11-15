@@ -184,7 +184,7 @@ import { Agents } from './agents.js'
 import { FlowCatalog } from './flow-catalog.js'
 import { LeadAdmission, leadPredecessorReadiness } from './lead/admission.js'
 import { LeadBudgets } from './lead/budgets.js'
-import { leadStopReachesRun } from './lead/stop.js'
+import { leadStopReachesRun, personStopOwnedRuns } from './lead/stop.js'
 import { LeadService, type LeadServiceOptions } from './lead/service.js'
 import { leadContractDigest, readLeadEvidence, LeadAssembly, LEAD_PRICES, readRememberedLeadProject, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
@@ -1110,7 +1110,7 @@ export class Host {
     },
     canRerunChecks: (run, journal) => this.#leadJournal === journal ? this.#leadCanRerunChecks?.(run.id) ?? Promise.resolve(false) : Promise.resolve(false),
     interruptChecks: goal => this.#flows.interruptChecks(goal),
-    stop: (run, reason) => this.#flows.stopRun(run, reason, 'desk'),
+    stop: (run, reason, by) => this.#flows.stopRun(run, reason, by ?? 'desk'),
   })
   /** The closed-round publisher: one operation at a time, journaled in each run's own file. */
   readonly #publications: Publications
@@ -2703,6 +2703,51 @@ export class Host {
           if (!state?.originKey) return null
           if (!firings.some(key => state.originKey === `trigger-${key}`)) return null
           return !['accepted', 'declined', 'stopped'].includes(state.phase)
+        },
+        freezeLeadStop: (firings, comment) => {
+          const journal = this.#leadJournal, service = this.#leadService
+          if (!journal || !service || this.#disposed) return null
+          const state = journal.state, originKey = state.originKey, goalStartedSeq = state.goalStartedSeq, goal = state.budget?.logicalGoalId
+          if (!originKey || !goal || !firings.some(key => originKey === `trigger-${key}`) || state.stopEffectsPending !== null ||
+            state.budget?.stop || ['stopped', 'accepted', 'declined'].includes(state.phase)) return null
+          const runTargets = state.runs.flatMap(run => {
+            const frozen = this.#flows.freezeLeadRun(run.runId, goal, run.teamId, run.correlationId)
+            return frozen ? [frozen] : []
+          })
+          const hold = service.holdMentionExit()
+          if (!hold) return null
+          const target = JSON.stringify([originKey, goalStartedSeq, goal])
+          let receipted = false
+          const currentGoal = () => {
+            const current = journal.state
+            return this.#leadJournal === journal && this.#leadService === service && !this.#disposed && service.managementAvailable &&
+              current.originKey === originKey && current.goalStartedSeq === goalStartedSeq && current.budget?.logicalGoalId === goal &&
+              current.phase === 'stopped' && current.mentionStopOneShot
+          }
+          return {
+            target, runTargets,
+            releaseUncommitted: () => hold.resolve('ordinary'),
+            mark: async (receipt: () => Promise<void>) => {
+              if (this.#leadJournal !== journal || this.#leadService !== service || this.#disposed) { hold.resolve('ordinary'); return false }
+              let saved: boolean
+              try { saved = await journal.stopMentionOnce({ kind: 'mention', comment }, { originKey, goalStartedSeq }) }
+              catch (error) { hold.resolve('one-shot'); throw error }
+              if (!saved) { hold.resolve('ordinary'); return false }
+              hold.resolve('one-shot')
+              await receipt()
+              receipted = true
+              return true
+            },
+            markRun: async (runTarget: string, why: string, stop: string, receipt: () => Promise<void>) => {
+              if (!receipted || !runTargets.includes(runTarget)) throw new Error('The frozen Lead run is unavailable.')
+              await this.#flows.markLeadRun(runTarget, why, stop, currentGoal, receipt)
+            },
+            requestStop: () => {
+              if (!receipted || !currentGoal()) throw new Error('The frozen Lead goal changed.')
+              hold.authorizeStop()
+              hold.requestStop()
+            },
+          }
         },
         // A stop on the thread reaches the Lead's goal by the firing that opened it, never by a shared link.
         stopLead: (asked) => this.stopLeadForThread(asked),
@@ -4458,11 +4503,12 @@ export class Host {
       const stopReason = reason === 'lead-budget-stopped' || reason === 'lead-request-cancelled'
         ? journal.state.budget?.stop?.reason ?? reason : reason
       if (reason === 'lead-host-shutdown' && journal.state.handbacks.some(op => op.stage === 'prepared' || op.stage === 'running' || op.stage === 'awaiting-ci')) return
+      const personRuns = journal.state.personStopAfterMention ? personStopOwnedRuns(journal.state, this.#flows.leadRuns()) : null
       const results = await Promise.allSettled(journal.state.runs.map(async run => {
         const flow = this.#flows.leadRuns().find(flow => flow.id === run.runId)
-        if (!leadStopReachesRun(flow, stopReason)) return
+        if (!personRuns && !leadStopReachesRun(flow, stopReason)) return
         this.#flows.interruptChecks(run.teamId)
-        await this.#flows.stopRun(run.runId, reason, 'desk')
+        await this.#flows.stopRun(run.runId, reason, personRuns ? 'person' : 'desk')
       }))
       if (results.some(result => result.status === 'rejected')) throw new Error('lead-owned-work-stop-pending')
     }
@@ -4835,6 +4881,9 @@ export class Host {
         }) }, card, decision, contract),
       decideResult: (card, decision, contract) => answerLeadResult({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team, readEvidence: decisionEvidence }, card, decision, contract),
       stopRequest: () => this.#leadService!.stopGoal(),
+      personStopRequest: (goalStartedSeq, stopSeq) => this.#leadService!.stopGoalForPerson(() => this.#leadJournal === journal &&
+        journal.state.goalStartedSeq === goalStartedSeq && journal.state.phase === 'stopped' &&
+        (stopSeq === null || journal.state.personStopProcessSeq === stopSeq)),
       meterSpend: () => this.#leadBudgets.meter(journal),
       stopEffects: () => stopOwned('lead-budget-stopped'),
     })

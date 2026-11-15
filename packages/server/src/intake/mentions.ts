@@ -246,6 +246,34 @@ const queuedTargetKey = (value: string, project: string, trigger: string): strin
     return target[0]
   } catch { return null }
 }
+const validLeadTarget = (value: string, firings: readonly string[]): boolean => {
+  try {
+    const target: unknown = JSON.parse(value)
+    return Array.isArray(target) && target.length === 3 && typeof target[0] === 'string' &&
+      firings.some(key => target[0] === `trigger-${key}`) && Number.isSafeInteger(target[1]) && target[1] >= 0 &&
+      boundedText(target[2], 4096) && JSON.stringify(target) === value
+  } catch { return false }
+}
+const targetEpoch = (value: unknown): boolean => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)
+const validRunTarget = (value: string, goals: readonly string[], firings: readonly string[]): boolean => {
+  try {
+    const target: unknown = JSON.parse(value)
+    return isMap(target) && exactKeys(target, ['epoch', 'version', 'id', 'goal', 'intake']) && targetEpoch(target.epoch) &&
+      Number.isSafeInteger(target.version) && (target.version as number) >= 0 && boundedText(target.id, 4096) &&
+      typeof target.goal === 'string' && goals.includes(target.goal) && typeof target.intake === 'string' &&
+      firings.includes(target.intake) && JSON.stringify(target) === value
+  } catch { return false }
+}
+const validLeadRunTarget = (value: string, leadTarget: string | null): boolean => {
+  try {
+    const target: unknown = JSON.parse(value), lead: unknown = leadTarget === null ? null : JSON.parse(leadTarget)
+    return isMap(target) && exactKeys(target, ['epoch', 'version', 'id', 'goal', 'logicalGoalId', 'contractDigest', 'startId', 'stepId']) &&
+      targetEpoch(target.epoch) && Number.isSafeInteger(target.version) && (target.version as number) >= 0 &&
+      boundedText(target.id, 4096) && boundedText(target.goal, 4096) && Array.isArray(lead) && target.logicalGoalId === lead[2] &&
+      typeof target.contractDigest === 'string' && /^[0-9a-f]{64}$/.test(target.contractDigest) && boundedText(target.startId, 4096) &&
+      boundedText(target.stepId, 4096) && JSON.stringify(target) === value
+  } catch { return false }
+}
 const safeStopUrl = (value: unknown): value is string => {
   if (!boundedText(value, 2048)) return false
   try {
@@ -273,7 +301,11 @@ const isStopIntent = (value: unknown): value is StopIntent => {
     !boundedIds(value.receipts.queued) || !boundedIds(value.receipts.runs) || !boundedIds(value.receipts.interrupts) ||
     !boundedIds(value.receipts.leadRuns) || typeof value.receipts.leadPlan !== 'boolean') return false
   const identity = value.key as { project: string; trigger: string }
-  return (!value.receipts.leadPlan || value.leadPlanTarget !== null) && (value.queuedTargets as string[]).every(one => {
+  return (value.leadPlanTarget === null || validLeadTarget(value.leadPlanTarget as string, value.firings as string[])) &&
+    (value.runTargets as string[]).every(one => validRunTarget(one, value.goals as string[], value.firings as string[])) &&
+    (value.leadRunTargets as string[]).every(one => validLeadRunTarget(one, value.leadPlanTarget as string | null)) &&
+    (value.interruptTargets as string[]).length === 0 && value.receipts.interrupts.length === 0 &&
+    (!value.receipts.leadPlan || value.leadPlanTarget !== null) && (value.queuedTargets as string[]).every(one => {
     const key = queuedTargetKey(one, identity.project, identity.trigger)
     return key !== null && (value.firings as string[]).includes(key)
   }) &&
@@ -374,6 +406,18 @@ export interface MentionStopPlan {
   readonly interruptTargets: readonly string[]
   readonly leadRunTargets: readonly string[]
   readonly leadPlanTarget: string | null
+  /** Only a proven pre-write refusal may release an acquired child hold as ordinary. */
+  readonly releaseUncommitted?: () => void
+  readonly leadOnce?: FrozenLeadOnce
+}
+/** In-memory authority only; the target itself is saved in the intent. */
+export interface FrozenLeadOnce {
+  readonly target: string
+  readonly runTargets: readonly string[]
+  releaseUncommitted(): void
+  mark(receipt: () => Promise<void>): Promise<boolean>
+  markRun(target: string, why: string, stop: string, receipt: () => Promise<void>): Promise<void>
+  requestStop(): void
 }
 export type MentionStopReceipt = { readonly kind: 'queued' | 'run' | 'interrupt' | 'leadRun'; readonly target: string } |
   { readonly kind: 'leadPlan'; readonly target: string }
@@ -704,7 +748,8 @@ export class MentionTriage {
     let plan: MentionStopPlan | null = null
     const author = fact.login && boundedText(fact.login, 256) && !leadContainsSecret(fact.login) ? fact.login : null
     let stop!: StopIntent
-    await this.#port.closeThread(async () => {
+    let writeStarted = false
+    try { await this.#port.closeThread(async () => {
       try { plan = await this.#port.planStop?.(work) ?? null } catch { /* No effect was started; retain the uncertainty. */ }
       stop = { version: 1, id: stopId(key), key, bodyDigest: bodyDigest(fact.body ?? ''), threadId: thread.id,
         thread: { kind: fact.thread ?? 'issue', number: Number(fact.subject) }, author, excerpt: excerptOf(fact.body ?? ''), url,
@@ -715,9 +760,13 @@ export class MentionTriage {
       await this.#reserveStop(before, stop)
       const fence = (one: StoredThread): StoredThread => one.id !== thread.id ? one : { ...one, state: 'closed',
         closed: { reason: 'closed', at: this.#port.now() }, seen: remember(one.seen, comment) }
+      writeStarted = true
       await this.#write({ ...before, stopIntents: [...before.stopIntents, stop], threads: before.threads.map(fence),
         pendingThreads: before.pendingThreads.map(one => ({ ...fence(one), pendingFirings: one.pendingFirings })) })
-    })
+    }) } catch (error) {
+      if (!writeStarted) (plan as MentionStopPlan | null)?.releaseUncommitted?.()
+      throw error
+    }
     this.#port.changed(arm.project)
 
     let complete = false

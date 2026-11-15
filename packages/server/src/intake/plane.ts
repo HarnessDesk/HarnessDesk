@@ -27,7 +27,7 @@ import { consentMatches, TriggerClosures, TriggerConsent, type ArmBinding, type 
 import { usdMicros } from './definition.js'
 import { ForgeSource } from './forge.js'
 import { goalWaits, type HostWaits } from './waits.js'
-import { MentionTriage, NO_WORK_ITEMS, type MentionAssessor, type WorkItemsPort } from './mentions.js'
+import { MentionTriage, NO_WORK_ITEMS, type FrozenLeadOnce, type MentionAssessor, type WorkItemsPort } from './mentions.js'
 import { IntakeMonitor, intakeSources, SourceCursors } from './poll.js'
 import { readTriggerSource, type TriggerSourceFile } from './source.js'
 import { IntakeStore, type IntakeFiring, type IntakeOperation } from './store.js'
@@ -168,6 +168,7 @@ export interface IntakeHostPort {
     pullRequests?(repository: string, goals: readonly string[], firings: readonly string[]): Promise<readonly number[]>
     readonly workItems?: WorkItemsPort
     activeLead?(firings: readonly string[]): boolean | null
+    freezeLeadStop?(firings: readonly string[], comment: string): FrozenLeadOnce | null
     /** Stops the Lead's goal when a firing of the thread opened it, as the person's Stop does; what it stopped. */
     stopLead?(asked: { readonly firings: readonly string[]; readonly comment: string }): Promise<{ readonly plan: boolean; readonly runs: number }>
   }
@@ -388,8 +389,16 @@ export class IntakePlane {
       releaseHeld: () => this.#releaseHeld(),
       ended: (operation) => port.flows.execution(operation.run)?.state === 'stopped' && port.flows.protectedMentionStop?.(operation.run) !== true,
       oneShotHeld: async operation => {
-        if (!operation.payload || operation.payload.fact.source !== 'mention' || !('lead' in operation.payload.definition.opens)) return false
-        try { return await this.#mentions.closedFiring(operation.key) === 'protected' } catch { return true }
+        if (operation.payload && operation.payload.fact.source !== 'mention') return false
+        try {
+          if (await this.#mentions.closedFiring(operation.key) !== 'protected') return false
+          if (!operation.payload || 'lead' in operation.payload.definition.opens) return true
+          const run = port.flows.execution(operation.run)
+          // A person's later explicit Stop releases ordinary cleanup; a desk,
+          // budget or unknown state does not release this one-shot fence.
+          return !(run?.state === 'stopped' && run.end?.kind === 'stopped' && run.end.by === 'person' &&
+            port.flows.protectedMentionStop?.(operation.run) !== true)
+        } catch { return true }
       },
       setAside: async (operation, reason, stop) => {
         // Nothing of it can ever run: its run is stopped, so its released slot and reservation can never be spent under.
@@ -413,16 +422,20 @@ export class IntakePlane {
       forge: this.#forge,
       assess: port.mentions?.assess ?? null,
       leadName: () => port.mentions?.leadName?.() ?? 'dex',
-      planStop: async ({ goals, firings }) => {
+      planStop: async ({ goals, firings, comment }) => {
         const keys = new Set(firings), targets = new Set<string>()
         for (const goal of goals) for (const run of port.flows.runs(goal)) {
           if (!run.intake || !keys.has(run.intake.key) || (run.state !== 'running' && run.state !== 'stalled')) continue
           const target = port.flows.freezeMentionRun?.(run.id)
           if (target) targets.add(target)
         }
-        return { queuedTargets: this.#admission.freezeMentionFirings(firings), runTargets: [...targets], interruptTargets: [], leadRunTargets: [], leadPlanTarget: null }
+        const queuedTargets = this.#admission.freezeMentionFirings(firings)
+        const leadOnce = port.mentions?.freezeLeadStop?.(firings, comment) ?? null
+        return { queuedTargets, runTargets: [...targets], interruptTargets: [], leadRunTargets: leadOnce?.runTargets ?? [], leadPlanTarget: leadOnce?.target ?? null,
+          ...(leadOnce ? { leadOnce, releaseUncommitted: () => leadOnce.releaseUncommitted() } : {}) }
       },
       stopOnce: async (_work, why, plan, receipt, stop) => {
+        const leadMarked = plan.leadOnce ? await plan.leadOnce.mark(() => receipt({ kind: 'leadPlan', target: plan.leadOnce!.target })) : false
         for (const target of plan.queuedTargets) {
           await this.#admission.cancelMentionFiringOnce(target, 'The mention thread was stopped; its queued firing was dropped.',
             () => receipt({ kind: 'queued', target }))
@@ -431,6 +444,10 @@ export class IntakePlane {
           if (!port.flows.markMentionRun) throw new Error('The frozen run cannot be stopped safely.')
           await port.flows.markMentionRun(target, why, stop, () => receipt({ kind: 'run', target }))
         }
+        if (leadMarked) for (const target of plan.leadRunTargets) {
+          await plan.leadOnce!.markRun(target, why, stop, () => receipt({ kind: 'leadRun', target }))
+        }
+        if (leadMarked) plan.leadOnce!.requestStop()
         // Turn ownership and Lead/queued effects are not proven by a run mark.
         return { complete: false }
       },

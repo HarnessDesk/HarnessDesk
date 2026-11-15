@@ -8,12 +8,14 @@ import { MentionTriage } from '../src/intake/mentions.js'
 import { tempDir } from './scratch.js'
 
 const project = '/synthetic/project', trigger = 'ask', repository = 'demo/project'
+const firing = 'a'.repeat(64)
+const runTarget = JSON.stringify({ epoch: '00000000-0000-4000-8000-000000000001', version: 0, id: 'run-1', goal: 'goal-1', intake: firing })
 const intent = (comment: string, state = 'inFlight') => {
   const key = { project, trigger, repository, comment }
   return { version: 1, id: `u-${createHash('sha256').update(JSON.stringify([project, trigger, repository, comment])).digest('hex')}`,
     key, bodyDigest: 'a'.repeat(64), threadId: 'thread-1', thread: { kind: 'issue', number: 1 }, author: 'preview-user',
     excerpt: '@dex stop', url: `https://example.invalid/issue#issuecomment-${comment}`, createdAt: 10, state, decisionId: null,
-    goals: ['goal-1'], firings: ['firing-1'], queuedTargets: [], runTargets: [], interruptTargets: [], leadRunTargets: [], leadPlanTarget: null,
+    goals: ['goal-1'], firings: [firing], queuedTargets: [], runTargets: [], interruptTargets: [], leadRunTargets: [], leadPlanTarget: null,
     receipts: { queued: [], runs: [], interrupts: [], leadRuns: [], leadPlan: false } }
 }
 const file = (stopIntents: unknown[]) => ({ version: stopIntents.length ? 2 : 1, decisions: [], threads: [], pendingThreads: [], stopIntents, modes: {}, assessed: { day: '', count: 0 } })
@@ -57,6 +59,7 @@ test('retained stop discovery remains project scoped after restart and review', 
 
 test('malformed or over-cap stop history stays unreadable and is never overwritten', async () => {
   for (const stops of [[{ ...intent('1'), receipts: { queued: ['not-owned'], runs: [], interrupts: [], leadRuns: [], leadPlan: false } }],
+    [{ ...intent('1'), runTargets: [JSON.stringify({ ...JSON.parse(runTarget), goal: 'other-goal' })] }],
     Array.from({ length: 501 }, (_, n) => intent(String(n + 1), 'reviewed'))]) {
     const home = tempDir('hd-stop-invalid-'), path = join(home, 'triggers-mentions.json'), bytes = JSON.stringify(file(stops))
     await writeFile(path, bytes)
@@ -86,13 +89,14 @@ test('a full protected history refuses before any stop effect and keeps its atte
   const full = Array.from({ length: 500 }, (_, n) => intent(String(n + 1), 'reviewed'))
   const thread = { id: 'thread-1', trigger, project, repository, origin: { kind: 'issue', number: 1 },
     links: { issues: [1], pulls: [], goals: ['goal-1'] }, state: 'open', closed: null, resumes: 0, observations: 0,
-    openedAt: 0, firings: ['firing-1'], seen: [] }
+    openedAt: 0, firings: [firing], seen: [] }
   const disk = { ...file(full), threads: [thread], modes: { [`${project}\u0000${trigger}`]: { mode: 'act', armedAt: 1 } } }
   await writeFile(path, JSON.stringify(disk))
-  let effects = 0
+  let effects = 0, released = 0
   const port = { home, pendingFirings: () => [], leadName: () => 'dex', changed() {}, now: () => 20,
     closeThread: async (close: () => Promise<void>) => close(),
-    planStop: async () => ({ queuedTargets: [], runTargets: [], interruptTargets: [], leadRunTargets: [], leadPlanTarget: null }),
+    planStop: async () => ({ queuedTargets: [], runTargets: [], interruptTargets: [], leadRunTargets: [], leadPlanTarget: null,
+      releaseUncommitted: () => { released++ } }),
     stopOnce: async () => { effects++; return { complete: true } }, signal: new AbortController().signal } as never
   const arm = { project, id: trigger, armedAt: 1, definition: { handle: 'dex' }, binding: { account: '7', repository } } as never
   const fact = { source: 'mention', project, repository, subject: '1', thread: 'issue', author: '7', login: 'preview-user',
@@ -100,6 +104,7 @@ test('a full protected history refuses before any stop effect and keeps its atte
   const instance = new MentionTriage(port)
   await assert.rejects(instance.judge(arm, fact, async () => { throw new Error('must not admit') }), /cannot safely hold/)
   assert.equal(effects, 0)
+  assert.equal(released, 1, 'a definite pre-write capacity refusal releases the captured child hold')
   assert.equal((await instance.page(project, trigger, null)).stopHistoryFull, true)
   assert.equal((await triage(home, { stops: 0 }).page(project, trigger, null)).stopHistoryFull, true)
   const recovered = await triage(home, { stops: 0 }).retainedStops(project, [])
@@ -113,16 +118,16 @@ test('a partial stop persists its exact receipt, stays separate, and never repea
   const home = tempDir('hd-stop-once-'), path = join(home, 'triggers-mentions.json')
   const thread = { id: 'thread-1', trigger, project, repository, origin: { kind: 'issue', number: 1 },
     links: { issues: [1], pulls: [], goals: ['goal-1'] }, state: 'open', closed: null, resumes: 0, observations: 0,
-    openedAt: 0, firings: ['firing-1'], seen: [] }
+    openedAt: 0, firings: [firing], seen: [] }
   await writeFile(path, JSON.stringify({ ...file([]), threads: [thread], modes: { [`${project}\u0000${trigger}`]: { mode: 'act', armedAt: 1 } } }))
   let attempts = 0, rereads = 0
   const port = { home, pendingFirings: () => [], leadName: () => 'dex', changed() {}, now: () => 20,
     closeThread: async (close: () => Promise<void>) => close(),
     forge: { comment: async () => { rereads++; throw new Error('must not read a consumed comment') } },
-    planStop: async () => ({ queuedTargets: [], runTargets: ['run-1'], interruptTargets: [], leadRunTargets: [], leadPlanTarget: null }),
+    planStop: async () => ({ queuedTargets: [], runTargets: [runTarget], interruptTargets: [], leadRunTargets: [], leadPlanTarget: null }),
     stopOnce: async (_work: unknown, _reason: string, _plan: unknown, receipt: (effect: unknown) => Promise<void>) => {
       attempts++
-      await receipt({ kind: 'run', target: 'run-1' })
+      await receipt({ kind: 'run', target: runTarget })
       throw new Error('synthetic later failure')
     }, signal: new AbortController().signal } as never
   const arm = { project, id: trigger, armedAt: 1, definition: { handle: 'dex' }, binding: { account: '7', repository } } as never
@@ -137,7 +142,7 @@ test('a partial stop persists its exact receipt, stays separate, and never repea
   assert.equal('acted' in page.unconfirmedStops![0]!, false)
   const saved = JSON.parse(await readFile(path, 'utf8'))
   assert.equal(saved.version, 2, 'older hosts must refuse protected stop history')
-  assert.deepEqual(saved.stopIntents[0].receipts.runs, ['run-1'])
+  assert.deepEqual(saved.stopIntents[0].receipts.runs, [runTarget])
   await instance.judge(arm, { ...request, body: '@dex stop again, edited' } as never, async () => { throw new Error('must not admit') })
   const priorDecision = `d-${createHash('sha256').update(JSON.stringify([project, trigger, '9999'])).digest('hex').slice(0, 20)}`
   await assert.rejects(instance.reevaluate(arm, priorDecision, async () => { throw new Error('must not admit') }), /cannot be evaluated again/)
@@ -152,17 +157,17 @@ test('a failed receipt recovery notifies only after uncertainty is durable and s
   const home = tempDir('hd-stop-receipt-failure-'), path = join(home, 'triggers-mentions.json')
   const thread = { id: 'thread-1', trigger, project, repository, origin: { kind: 'issue', number: 1 },
     links: { issues: [1], pulls: [], goals: ['goal-1'] }, state: 'open', closed: null, resumes: 0, observations: 0,
-    openedAt: 0, firings: ['firing-1'], seen: [] }
+    openedAt: 0, firings: [firing], seen: [] }
   await writeFile(path, JSON.stringify({ ...file([]), threads: [thread], modes: { [`${project}\u0000${trigger}`]: { mode: 'act', armedAt: 1 } } }))
   const seen: string[] = []
   let nextEffects = 0
   const instance = new MentionTriage({ home, pendingFirings: () => [], leadName: () => 'dex', now: () => 20,
     changed() { seen.push(JSON.parse(readFileSync(path, 'utf8')).stopIntents[0]?.state) },
     closeThread: async (close: () => Promise<void>) => close(),
-    planStop: async () => ({ queuedTargets: [], runTargets: ['run-1'], interruptTargets: [], leadRunTargets: [], leadPlanTarget: null }),
+    planStop: async () => ({ queuedTargets: [], runTargets: [runTarget], interruptTargets: [], leadRunTargets: [], leadPlanTarget: null }),
     stopOnce: async (_work: unknown, _why: string, _plan: unknown, receipt: (effect: unknown) => Promise<void>) => {
       await chmod(home, 0o500)
-      try { await receipt({ kind: 'run', target: 'run-1' }) } finally { await chmod(home, 0o700) }
+      try { await receipt({ kind: 'run', target: runTarget }) } finally { await chmod(home, 0o700) }
       nextEffects++
       return { complete: false }
     }, signal: new AbortController().signal } as never)
@@ -173,4 +178,26 @@ test('a failed receipt recovery notifies only after uncertainty is durable and s
   assert.equal(nextEffects, 0)
   assert.deepEqual(seen, ['inFlight', 'unconfirmed'], 'the recovery notification observes the saved uncertainty')
   assert.equal((await instance.page(project, trigger, null)).unconfirmedStops?.[0]?.progress.runsMarkedStopped, 0)
+})
+
+test('an uncertain intent write never releases its captured child as ordinary', async t => {
+  if (process.getuid?.() === 0) return t.skip('root bypasses directory permissions')
+  const home = tempDir('hd-stop-intent-failure-'), path = join(home, 'triggers-mentions.json')
+  const thread = { id: 'thread-1', trigger, project, repository, origin: { kind: 'issue', number: 1 },
+    links: { issues: [1], pulls: [], goals: ['goal-1'] }, state: 'open', closed: null, resumes: 0, observations: 0,
+    openedAt: 0, firings: [firing], seen: [] }
+  await writeFile(path, JSON.stringify({ ...file([]), threads: [thread], modes: { [`${project}\u0000${trigger}`]: { mode: 'act', armedAt: 1 } } }))
+  let released = 0, effects = 0
+  const instance = new MentionTriage({ home, pendingFirings: () => [], leadName: () => 'dex', now: () => 20, changed() {},
+    closeThread: async (close: () => Promise<void>) => close(),
+    planStop: async () => { await chmod(home, 0o500); return { queuedTargets: [], runTargets: [], interruptTargets: [], leadRunTargets: [], leadPlanTarget: null,
+      releaseUncommitted: () => { released++ } } },
+    stopOnce: async () => { effects++; return { complete: false } }, signal: new AbortController().signal } as never)
+  const arm = { project, id: trigger, armedAt: 1, definition: { handle: 'dex' }, binding: { account: '7', repository } } as never
+  const fact = { source: 'mention', project, repository, subject: '1', thread: 'issue', author: '7', login: 'preview-user',
+    body: '@dex stop', url: 'https://example.invalid/issue#issuecomment-9999', at: 15 } as never
+  try { await assert.rejects(instance.judge(arm, fact, async () => { throw new Error('must not admit') })) }
+  finally { await chmod(home, 0o700) }
+  assert.equal(released, 0)
+  assert.equal(effects, 0)
 })

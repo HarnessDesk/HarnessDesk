@@ -187,6 +187,44 @@ test('Stop goal stops only its owned live Flow and leaves worktrees and commits 
   await rig.assertNoForbiddenEffects()
 })
 
+test('a new person Stop resolves an unresolved child hold after recording the person stop', async t => {
+  const rig = await createLeadRig({ holdWorkers: true }); t.after(() => rig.dispose())
+  await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
+  await rig.decide(rig.pending('plan')!, 'approve'); await rig.workerWaiting(); await rig.settle()
+  const hold = rig.service.holdMentionExit()
+  assert.ok(hold)
+  try {
+    await rig.host.call('lead/stop', { expectedRevision: rig.journal.state.seq })
+    assert.equal(rig.journal.state.phase, 'stopped')
+    assert.equal(rig.journal.state.stopEffectsPending, null)
+    assert.ok((await rig.records()).some(record => record.type === 'stop' && !('from' in record)))
+  } finally { hold.resolve('one-shot') }
+  await rig.assertNoForbiddenEffects()
+})
+
+test('a fresh person Stop cleans up the one-shot protected Lead Team through the real Host', async t => {
+  const rig = await createLeadRig({ holdWorkers: true }); t.after(() => rig.dispose())
+  await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
+  await rig.journal.setOrigin({ source: 'issue', event: 'commented', subject: 'demo/project#1', url: 'https://example.invalid/issue/1' }, 'trigger-firing-1')
+  await rig.decide(rig.pending('plan')!, 'approve'); await rig.workerWaiting(); await rig.settle()
+  const owned = rig.journal.state.runs[0]!, goal = rig.journal.state.budget!.logicalGoalId
+  assert.equal(await rig.journal.stopMentionOnce({ kind: 'mention', comment: 'https://example.invalid/issue#issuecomment-1' },
+    { originKey: 'trigger-firing-1', goalStartedSeq: rig.journal.state.goalStartedSeq }), true)
+  await rig.settle()
+  const target = rig.host.flowsPlane.freezeLeadRun(owned.runId, goal, owned.teamId, owned.correlationId)!
+  assert.ok(target)
+  await rig.host.flowsPlane.markLeadRun(target, 'synthetic stop', `u-${'f'.repeat(64)}`, () => true, async () => {})
+  assert.equal(rig.host.flowsPlane.protectedMentionStop(owned.runId), true)
+  const view = await rig.host.call('lead/thread/read', {})
+  assert.equal(view.canStop, true)
+  await rig.host.call('lead/stop', { expectedRevision: rig.journal.state.seq })
+  await rig.settle()
+  assert.equal(rig.host.flowsPlane.protectedMentionStop(owned.runId), false)
+  assert.deepEqual(rig.host.flowsPlane.executionOf(owned.runId)?.end, { kind: 'stopped', by: 'person' })
+  assert.equal(rig.journal.state.stopEffectsPending, null)
+  await rig.assertNoForbiddenEffects()
+})
+
 test('a comment asking to stop ends the goal its thread opened the way Stop does, and the next step never starts', async t => {
   const rig = await createLeadRig({ holdWorkers: true }); t.after(() => rig.dispose())
   await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')

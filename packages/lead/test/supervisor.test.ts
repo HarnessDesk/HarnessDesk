@@ -127,6 +127,61 @@ test('a proven uncommitted child hold can be taken again for a later attempt', a
   finally { later?.resolve('ordinary'); await f.supervisor.stop().catch(() => {}) }
 })
 
+test('a captured child receives at most one shutdown only after one-shot authorization', async () => {
+  const policies: unknown[] = []
+  const f = await fixture({ onExit: (_reason: string, policy: unknown) => { policies.push(policy) },
+    runtimes: [{ binary: '/synthetic/node', version: '26.0.0', electron: false, label: 'fake' }],
+    probeRuntime: async () => ({ supported: true }) })
+  await f.supervisor.ensure()
+  const hold = f.supervisor.holdMentionExit()!
+  try {
+    assert.throws(() => hold.requestStop())
+    hold.resolve('one-shot')
+    assert.throws(() => hold.requestStop(), 'the durable marker and receipt must be authorized first')
+    hold.authorizeStop()
+    hold.requestStop()
+    assert.throws(() => hold.requestStop(), 'the same child must not be signalled twice')
+    await hold.done
+    assert.deepEqual(policies, ['one-shot'])
+  } finally { hold.resolve('ordinary'); await f.supervisor.stop().catch(() => {}) }
+})
+
+for (const reason of ['lead-host-shutdown', 'lead-request-cancelled']) test(`an undecided child hold keeps ${reason} bounded without ordinary cleanup`, async () => {
+  const policies: unknown[] = []
+  const f = await fixture({ onExit: (_reason: string, policy: unknown) => { policies.push(policy) },
+    runtimes: [{ binary: '/synthetic/node', version: '26.0.0', electron: false, label: 'fake' }],
+    probeRuntime: async () => ({ supported: true }) })
+  await f.supervisor.ensure()
+  const hold = f.supervisor.holdMentionExit()!
+  try {
+    await assert.rejects(f.supervisor.stop(reason), /shutdown-timeout/)
+    assert.deepEqual(policies, [], 'an uncertain write never releases ordinary dynamic cleanup')
+  } finally {
+    hold.resolve('one-shot')
+    await hold.done
+  }
+  assert.deepEqual(policies, ['one-shot'])
+})
+
+test('a child that exits while its marker is being saved receives no later shutdown', async () => {
+  const policies: unknown[] = []
+  const f = await fixture({ onExit: (_reason: string, policy: unknown) => { policies.push(policy) },
+    runtimes: [{ binary: '/synthetic/node', version: '26.0.0', electron: false, label: 'fake' }],
+    probeRuntime: async () => ({ supported: true }) })
+  await f.supervisor.ensure()
+  const hold = f.supervisor.holdMentionExit()!
+  try {
+    f.child.kill()
+    await new Promise(resolve => setImmediate(resolve))
+    assert.deepEqual(policies, [])
+    hold.resolve('one-shot')
+    hold.authorizeStop()
+    assert.throws(() => hold.requestStop(), /child-changed/)
+    await hold.done
+    assert.deepEqual(policies, ['one-shot'])
+  } finally { hold.resolve('ordinary'); await f.supervisor.stop().catch(() => {}) }
+})
+
 test('malformed or out-of-order framed child messages terminate its pid', async () => {
   const f = await fixture(); await f.supervisor.ensure()
   f.child.stdout.write(frame({ version: 1, type: 'rpc', id: 2, operation: 'recover', args: [] }))

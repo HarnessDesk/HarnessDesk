@@ -26,6 +26,14 @@ export interface LeadProcess {
   stop(reason?: string): Promise<void>
   ownershipWithdrawn(runId: string): void
   evidenceChanged?(): void
+  holdMentionExit?(): LeadMentionHold | null
+  releaseMentionExitForPerson?(guard: () => boolean): void
+}
+export interface LeadMentionHold {
+  readonly done: Promise<void>
+  resolve(policy: 'ordinary' | 'one-shot'): void
+  authorizeStop(): void
+  requestStop(): void
 }
 export interface LeadServiceOptions {
   /** The host may fence admission while a feature transition needs repair. */
@@ -90,6 +98,10 @@ export class LeadService {
   get requestInFlight(): boolean { return this.#requestInFlight }
   /** Host dispatches, including accepted queued work, must observe lifecycle revocation immediately. */
   get managementAvailable(): boolean { return this.options.available?.() !== false && this.#enabled && !this.#closed && !this.#changingKeys && !this.#cleanupFailed }
+  holdMentionExit(): LeadMentionHold | null {
+    if (!this.managementAvailable || this.#exiting) return null
+    return this.#supervisor.holdMentionExit?.() ?? null
+  }
   #activity(busy: boolean): void {
     const next = busy && !this.#closed
     if (this.#requestInFlight === next) return
@@ -559,6 +571,16 @@ export class LeadService {
   /** A check or other evidence landed on a Team this goal owns; no desk event carries it to the loop. */
   evidenceChanged(): void { this.#supervisor.evidenceChanged?.() }
   /** Stop the model process too, so no old reply or dispatch can reach a new goal. */
+  /** The caller has durably recorded a new person Stop for this goal. */
+  stopGoalForPerson(guard: () => boolean): Promise<void> {
+    ++this.#generation
+    return this.#queue(async () => {
+      if (!guard()) throw new Error('lead-person-stop-goal-changed')
+      this.#supervisor.releaseMentionExitForPerson?.(guard)
+      await this.#halt('lead-request-cancelled', true)
+      await this.#recoverRequests()
+    }).then(() => this.recover())
+  }
   stopGoal(): Promise<void> {
     ++this.#generation
     return this.#queue(async () => { await this.#halt('lead-request-cancelled', true); await this.#recoverRequests() }).then(() => this.recover())

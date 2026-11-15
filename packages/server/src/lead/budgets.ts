@@ -6,7 +6,7 @@ import { seatWindowOf } from '../insight/attribution.js'
 import type { UsageSample } from '../ledger/insight.js'
 import { leadRoundId, type FlowLeadBinding, type FlowLeadGuard, type StoredFlowExecution } from '../flow-execution.js'
 import { leadStepContractDigest } from './admission.js'
-import { leadStopReachesRun } from './stop.js'
+import { leadStopReachesRun, personStopOwnedRuns } from './stop.js'
 
 export interface LeadBudgetPort {
   /** Desk lifetime admission, independent of journal authority. */
@@ -26,7 +26,7 @@ export interface LeadBudgetPort {
   /** Re-check the canonical project is still admitted, before every effect. */
   member(project: LeadProject): Promise<boolean>
   interruptChecks(goal: string): void
-  stop(run: string, reason: string): Promise<unknown>
+  stop(run: string, reason: string, by?: 'desk' | 'person'): Promise<unknown>
 }
 /** The host keeps this owner when the child disconnects. A saved Lead run with
  * no registered journal is refused, including during host recovery. */
@@ -330,11 +330,12 @@ export class LeadBudgets implements FlowLeadGuard {
       const runs = this.port.runs().filter(run => run.lead?.logicalGoalId === logicalGoalId)
       if (journal.state.runs.some(owned => !runs.some(run => run.id === owned.runId && run.goal === owned.teamId)))
         throw new Error('lead-stop-runs-unavailable')
-      const reached = runs.filter(run => leadStopReachesRun(run, journal.state.budget!.stop!.reason))
+      const person = journal.state.personStopAfterMention
+      const reached = person ? personStopOwnedRuns(journal.state, runs) : runs.filter(run => leadStopReachesRun(run, journal.state.budget!.stop!.reason))
       for (const run of reached) this.port.interruptChecks(run.goal)
       // Stop owns Seat interruption, release, approval cancellation and unsent
       // publication cleanup. Retrying an ended run finishes that same cleanup.
-      const results = await Promise.allSettled(reached.map(run => this.port.stop(run.id, 'Lead budget stopped.')))
+      const results = await Promise.allSettled(reached.map(run => this.port.stop(run.id, 'Lead budget stopped.', person ? 'person' : 'desk')))
       if (results.some(result => result.status === 'rejected')) throw new Error('lead-stop-cleanup-failed')
     })
     this.#cleaning.set(logicalGoalId, task)

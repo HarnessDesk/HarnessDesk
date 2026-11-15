@@ -604,6 +604,18 @@ for (const failure of [false, true]) test(`real Messages reservation round-trip 
   }
 })
 
+test('a stale person Stop cannot release the captured child hold', async t => {
+  const s = await providerRig(t, async () => ({ status: 200, body: '{}' }))
+  const hold = s.service.holdMentionExit()
+  assert.ok(hold)
+  try {
+    await assert.rejects(s.service.stopGoalForPerson(() => false), /lead-person-stop-goal-changed/)
+    assert.equal(s.supervisor.live, true)
+    assert.equal(s.killed(), false)
+    assert.equal(s.supervisor.holdMentionExit(), null, 'the original hold remains in place')
+  } finally { hold.resolve('one-shot') }
+})
+
 test('killing a child aborts its held provider send before exit arrives', async t => {
   let signal: AbortSignal | undefined
   const s = await providerRig(t, async request => { signal = request.signal; return new Promise(() => {}) }, { holdExit: true })

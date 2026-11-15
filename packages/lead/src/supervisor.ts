@@ -659,20 +659,38 @@ export class LeadSupervisor {
     if (running && !running.exited && running.ready) { try { write(running, { type: 'evidence-changed' }) } catch (failure) { this.#protocolFailure(running, 'evidence-changed', failure) } }
   }
   /** Hold this exact child's exit cleanup while a one-shot ownership write is decided. */
-  holdMentionExit(): { readonly done: Promise<void>; resolve(policy: 'ordinary' | 'one-shot'): void } | null {
+  holdMentionExit(): { readonly done: Promise<void>; resolve(policy: 'ordinary' | 'one-shot'): void; authorizeStop(): void; requestStop(): void } | null {
     const running = this.#running
     if (!running || running.exited || running.exitHold || this.#stopping) return null
     let decide!: (policy: 'ordinary' | 'one-shot') => void
     const decided = new Promise<'ordinary' | 'one-shot'>(resolve => { decide = resolve })
-    let resolved = false
+    let resolved: 'ordinary' | 'one-shot' | null = null, authorized = false, requested = false
     const hold = { decided, resolve: (policy: 'ordinary' | 'one-shot') => {
       if (resolved) return
-      resolved = true
+      resolved = policy
       if (policy === 'ordinary' && !running.exited && running.exitHold === hold) running.exitHold = null
       decide(policy)
     } }
     running.exitHold = hold
-    return { done: running.done, resolve: hold.resolve }
+    return { done: running.done, resolve: hold.resolve,
+      authorizeStop: () => {
+        if (resolved !== 'one-shot' || requested) throw new Error('lead-one-shot-not-authorized')
+        authorized = true
+      },
+      requestStop: () => {
+        if (!authorized || requested || this.#running !== running || running.exited || running.poisoned || this.#stopping || running.exitHold !== hold) {
+          throw new Error('lead-one-shot-child-changed')
+        }
+        requested = true
+        running.reason = 'lead-request-cancelled'
+        write(running, { type: 'shutdown' })
+      } }
+  }
+  /** A fresh person Stop may release the current child's unresolved hold only after its own durable latch. */
+  releaseMentionExitForPerson(guard: () => boolean): void {
+    const running = this.#running
+    if (!guard()) throw new Error('lead-person-stop-goal-changed')
+    if (running && this.#running === running) running.exitHold?.resolve('ordinary')
   }
   stop(reason = 'stopped'): Promise<void> {
     if (this.#stopping) return this.#stopping

@@ -31,6 +31,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Ask before another attempt.** The Lead no longer uses an existing work item to bypass a retry question. A matching positive answer is used for one attempt; an unrelated message or a negative answer cannot start another chat.
 
+- **Mention stops keep their uncertainty visible.** A stop requested from a GitHub thread is attempted once and remains in trigger history when the desk cannot confirm its effects, including after disarming or removing the trigger. Mark reviewed acknowledges the warning; it does not retry the stop. A new comment can request another attempt, and you can still stop work yourself. Trigger history keeps at most 500 identities; when protected records fill that space, new stop requests are refused until capacity is available. Older desktop and phone versions do not show the new records.
 - **Stopped GitHub work stays stopped.** A mention thread’s queued Lead requests are dropped when you stop it. Requests still waiting after its issue closes are refused and recorded, while other threads and new requests keep their own place.
 
 ## 0.7.1 — 2026-11-13

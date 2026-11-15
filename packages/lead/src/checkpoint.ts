@@ -8,12 +8,12 @@ import { initialLeadChatHandles, parseLeadChatHandles } from './chat-handles.js'
 
 export interface LeadJournalCheckpoint {
   readonly type: 'checkpoint'; readonly version: 1; readonly seq: number; readonly head: string
-  readonly state: Omit<LeadState, 'attempts' | 'mentionStopOneShot'> & { readonly mentionStopOneShot?: boolean; readonly attempts: readonly (readonly [string, LeadAttemptState])[] }
+  readonly state: Omit<LeadState, 'attempts' | 'mentionStopOneShot' | 'personStopAfterMention' | 'personStopProcessSeq'> & { readonly mentionStopOneShot?: boolean; readonly personStopAfterMention?: boolean; readonly personStopProcessSeq?: number; readonly attempts: readonly (readonly [string, LeadAttemptState])[] }
 }
 export const leadCheckpoint = (state: LeadState, head: string): LeadJournalCheckpoint => {
-  const { mentionStopOneShot, ...rest } = state
+  const { mentionStopOneShot, personStopAfterMention, personStopProcessSeq, ...rest } = state
   return { type: 'checkpoint', version: 1, seq: state.seq, head,
-    state: { ...rest, ...(mentionStopOneShot ? { mentionStopOneShot: true } : {}), attempts: [...state.attempts] } }
+    state: { ...rest, ...(mentionStopOneShot ? { mentionStopOneShot: true } : {}), ...(personStopAfterMention ? { personStopAfterMention: true } : {}), ...(personStopProcessSeq !== null ? { personStopProcessSeq } : {}), attempts: [...state.attempts] } }
 }
 const assert = (condition: unknown): void => { if (!condition) throw new Error('lead-journal-checkpoint') }
 /** Checkpoints are host-owned, hash-anchored snapshots, never model-supplied records. */
@@ -46,7 +46,9 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   const epoched = remembered && { ...remembered, memoryEpoch: Object.hasOwn(remembered, 'memoryEpoch') ? remembered.memoryEpoch : null }
   // Checkpoints before chat handles carry none: the next chat the Lead sees is the first named.
   const source = epoched && { ...epoched, chatHandles: Object.hasOwn(epoched, 'chatHandles') ? epoched.chatHandles : initialLeadChatHandles(),
-    mentionStopOneShot: Object.hasOwn(epoched, 'mentionStopOneShot') ? epoched.mentionStopOneShot : false }
+    mentionStopOneShot: Object.hasOwn(epoched, 'mentionStopOneShot') ? epoched.mentionStopOneShot : false,
+    personStopAfterMention: Object.hasOwn(epoched, 'personStopAfterMention') ? epoched.personStopAfterMention : false,
+    personStopProcessSeq: Object.hasOwn(epoched, 'personStopProcessSeq') ? epoched.personStopProcessSeq : null }
   assert(source && Object.keys(source).sort().join() === Object.keys(initialLeadState()).sort().join())
   const context = source.context
   assert(context && typeof context === 'object' && Object.keys(context).sort().join() === 'epoch,failures,last,pending' &&
@@ -153,6 +155,9 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   }
   if (source.autonomy !== null) assert(JSON.stringify(parseLeadAutonomyRecord(source.autonomy)) === JSON.stringify(source.autonomy))
   assert(!budget?.stop || ['stopped', 'accepted', 'declined'].includes(source.phase))
+  assert(source.personStopProcessSeq === null || Number.isSafeInteger(source.personStopProcessSeq) && source.personStopProcessSeq! > 0 && source.personStopProcessSeq! <= source.seq && source.phase === 'stopped' && !source.mentionStopOneShot)
+  assert(typeof source.personStopAfterMention === 'boolean')
+  assert(!source.personStopAfterMention || source.phase === 'stopped' && source.stopEffectsPending !== null && !source.mentionStopOneShot)
   assert(typeof source.mentionStopOneShot === 'boolean')
   assert(!source.mentionStopOneShot || source.phase === 'stopped' && source.stopEffectsPending === null)
   assert(typeof source.chatEffectsAcknowledged === 'boolean')
@@ -228,7 +233,7 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
     if (consent.renewalCardRevision !== undefined) assert(Number.isSafeInteger(consent.renewalCardRevision) && cards.some(card => card.type === 'plan' && card.contractDigest === consent.contractDigest && card.revision === consent.renewalCardRevision))
     assert(Number.isSafeInteger(consent.expiresAt) && consent.expiresAt > 0)
   }
-  let state: LeadState = structuredClone({ ...source, mentionStopOneShot: source.mentionStopOneShot === true, workerApprovals, completedBudgets, policy, contract, budget, cards, runs, steps, attempts, messages })
+  let state: LeadState = structuredClone({ ...source, mentionStopOneShot: source.mentionStopOneShot === true, personStopAfterMention: source.personStopAfterMention === true, personStopProcessSeq: source.personStopProcessSeq ?? null, workerApprovals, completedBudgets, policy, contract, budget, cards, runs, steps, attempts, messages })
   if (state.phase === 'following') state = retireLeadWorkerApprovals(state)
   state = fenceLeadWorkerDispatch(state)
   return { checkpoint: structuredClone(checkpoint), state }

@@ -4,6 +4,56 @@ import { canReplaceLeadPlan, createLeadJournal, leadBudgetProjection, type LeadJ
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
 import { sourceDigest } from '../src/flow-execution.js'
 import { LeadBudgets } from '../src/lead/budgets.js'
+import { personStopOwnedRuns } from '../src/lead/stop.js'
+
+test('a new person Stop cleans up the protected Lead run before acknowledging effects', async t => {
+  const s = await leadRig(t, undefined, { origin: { source: 'issue', event: 'mentioned', subject: 'demo/project#1', url: 'https://example.invalid/issue/1' }, originKey: 'trigger-firing-1' })
+  await s.start()
+  const run = s.rig.flows.leadRuns()[0]!, binding = run.lead!
+  const target = s.rig.flows.freezeLeadRun(run.id, binding.logicalGoalId, run.goal, binding.startId)!
+  assert.ok(target)
+  assert.equal(await s.journal.stopMentionOnce({ kind: 'mention', comment: 'https://example.invalid/issue#issuecomment-1' }, { originKey: 'trigger-firing-1', goalStartedSeq: s.journal.state.goalStartedSeq }), true)
+  await s.rig.flows.markLeadRun(target, 'synthetic stop', `u-${'f'.repeat(64)}`, () => true, async () => {})
+  assert.equal(s.rig.flows.protectedMentionStop(run.id), true)
+  await s.journal.stopAfterMention()
+  await s.budgets.cleanup('logical-1')
+  assert.equal(s.rig.flows.protectedMentionStop(run.id), false)
+  assert.deepEqual(s.rig.flows.executionOf(run.id)?.end, { kind: 'stopped', by: 'person' })
+  assert.equal(s.journal.state.stopEffectsPending, null)
+})
+
+test('person cleanup refuses a Lead run whose recorded ownership no longer matches', async t => {
+  const s = await leadRig(t); await s.start()
+  const run = s.rig.flows.leadRuns()[0]!
+  assert.equal(personStopOwnedRuns(s.journal.state, [run])[0]?.id, run.id)
+  for (const changed of [
+    { ...run, goal: 'other-team' },
+    { ...run, lead: { ...run.lead!, startId: 'other-start' } },
+    { ...run, lead: { ...run.lead!, contractDigest: 'b'.repeat(64) } },
+    { ...run, lead: { ...run.lead!, stepId: 'other-step' } },
+  ]) assert.throws(() => personStopOwnedRuns(s.journal.state, [changed]), /lead-stop-runs-unavailable/)
+})
+
+test('a one-shot Lead run mark requires the exact journal-owned run and a current goal guard', async t => {
+  const s = await leadRig(t)
+  await s.start()
+  const run = s.rig.flows.leadRuns()[0]!, binding = run.lead!
+  const once = s.rig.flows as unknown as {
+    freezeLeadRun(id: string, goal: string, team: string, correlation: string): string | null
+    markLeadRun(target: string, why: string, stop: string, guard: () => boolean, receipt: () => Promise<void>): Promise<void>
+  }
+  assert.equal(once.freezeLeadRun(run.id, binding.logicalGoalId, run.goal, 'other-start'), null)
+  const target = once.freezeLeadRun(run.id, binding.logicalGoalId, run.goal, binding.startId)!
+  assert.ok(target)
+  let receipts = 0
+  await assert.rejects(once.markLeadRun(target, 'synthetic stop', `u-${'f'.repeat(64)}`, () => false, async () => { receipts++ }), /changed/)
+  assert.equal(receipts, 0)
+  assert.equal(s.rig.flows.executionOf(run.id)?.state, 'running')
+  await once.markLeadRun(target, 'synthetic stop', `u-${'f'.repeat(64)}`, () => true, async () => { receipts++ })
+  assert.equal(receipts, 1)
+  assert.equal(s.rig.flows.executionOf(run.id)?.state, 'stopped')
+  assert.equal(s.rig.flows.protectedMentionStop(run.id), true)
+})
 
 const SOURCE = `version: 2
 name: Guarded work
