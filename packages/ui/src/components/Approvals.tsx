@@ -203,17 +203,17 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false, requester,
   takeFocus?: boolean
 } = {}) => {
   const store = useStore()
-  const snapshot = useSnapshot()
+  const { approvals, home, sessions, workspace } = useSnapshot()
   const runtime = useRuntime()
   const key = useSessionKey()
   const focused = useIsFocusedPane()
   const mine = useMemo(
-    () => snapshot.approvals.filter((entry) => {
+    () => approvals.filter((entry) => {
       if (entry.key !== key) return false
       const gateway = entry.approval.type === 'permission' && entry.approval.gateway === true
       return gatewayOnly ? gateway : placement === 'overlay' ? !gateway : true
     }),
-    [snapshot.approvals, key, gatewayOnly, placement],
+    [approvals, key, gatewayOnly, placement],
   )
   const approval = mine[0]?.approval
   const TITLES = titles(runtime.presentation.name)
@@ -337,8 +337,8 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false, requester,
           {approval.type === 'command' && (
             <CommandBody
               approval={approval}
-              home={snapshot.home ?? null}
-              project={(key && snapshot.sessions.get(key)?.cwd) || snapshot.workspace?.path || null}
+              home={home ?? null}
+              project={(key && sessions.get(key)?.cwd) || workspace?.path || null}
             />
           )}
           {approval.type === 'fileChange' && <FileChangeBody approval={approval} />}

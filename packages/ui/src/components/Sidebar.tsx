@@ -111,6 +111,7 @@ export const Sidebar = ({
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const { historyCursor, historyLoading, workspace } = snapshot
   const inbox = useInboxMessages(), waiting = useInboxWaiting()
   const destination = snapshot.workbench.navigation.current
   const explorerSession = effectiveWindowMode(snapshot.windowMode, snapshot.workbench) === 'editor' && destination.kind === 'work' && destination.view.kind === 'conversation' ? destination.view.session : null
@@ -138,8 +139,8 @@ export const Sidebar = ({
   }, [query, store, sessionsOwner])
 
   const onScroll = useMemo(
-    () => historyScrollAction(store, listRef, snapshot.historyCursor, snapshot.historyLoading),
-    [snapshot.historyCursor, snapshot.historyLoading, store],
+    () => historyScrollAction(store, listRef, historyCursor, historyLoading),
+    [historyCursor, historyLoading, store],
   )
 
   const health = useRuntimeHealth()
@@ -172,7 +173,7 @@ export const Sidebar = ({
     <LeftColumnNavigation>
       <LeftColumnRow label="New session" icon={<PlusIcon size={16} />}
         disabled={!ready || !snapshot.workspace} title="Start a session here" onClick={() => store.newDraft()}
-        menu={{ icons: 'all', label: 'More ways to start', onOpenChange: open => { if (open) { void store.loadWorktrees(); if (snapshot.workspace) void store.refreshWorkspaceGit(snapshot.workspace.path) } },
+        menu={{ icons: 'all', label: 'More ways to start', onOpenChange: open => { if (open) { void store.loadWorktrees(); if (workspace) void store.refreshWorkspaceGit(workspace.path) } },
           content: close => <WorktreeItems close={close} onBrowseFolders={onBrowseFolders} onChoose={() => { store.returnToWork(); setStarting(true) }} /> }} />
       <LeftColumnGroup label="Main sections" heading={false}>
         {snapshot.leadAvailable && <LeadSidebarEntry selected={activeDestination === 'lead'} />}

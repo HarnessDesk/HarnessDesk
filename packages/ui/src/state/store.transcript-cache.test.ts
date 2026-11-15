@@ -232,6 +232,7 @@ it('the default body-count target plans the oldest of 129 verified quiet bodies'
   const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
   for (let index = 0; index < 129; index++) handlers.onEvent(runtime, { type: 'session/started', session: body(sessionId(`s-${index}`)) })
   expect(await store.prepareTranscriptPressure()).toEqual([sessionKey(runtime, 's-0')])
+  expect(store.planTranscriptEvictions()).toEqual([sessionKey(runtime, 's-0')])
   expect(store.getSnapshot().sessions.size).toBe(129)
 })
 
@@ -1195,9 +1196,11 @@ it('runs default pressure after a real pane close and unloads the oldest confirm
   expect(await store.openSession(opened, { runtime })).toBe(true)
   expect(store.transcriptCacheStats().enabled).toBe(true)
   store.closePane(store.getSnapshot().layout.focused)
-  await vi.waitFor(() => { const unloaded = [...store.getSnapshot().sessions.values()].filter(session => !session.itemsLoaded).length; const snapshots = request.mock.calls.filter(([method]) => method === 'session/cache-snapshot').length; const receipts = request.mock.calls.filter(([method]) => method === 'session/prepare-eviction').length; expect({ unloaded, snapshots, receipts }).toMatchObject({ unloaded: 1 }) }, { timeout: 3000 })
+  await vi.waitFor(() => expect(store.transcriptCacheStats()).toMatchObject({ loadedFullBodies: 32, releasedBodies: 97, pressureRunning: false }), { timeout: 3000 })
   expect(request.mock.calls.some(([method]) => method === 'session/close')).toBe(true)
-  expect([...store.getSnapshot().sessions.values()].filter(session => !session.itemsLoaded)).toHaveLength(1)
+  expect(store.getSnapshot().sessions.get(sessionKey(runtime, sessionId('pressure-0')))?.itemsLoaded).toBe(false)
+  expect(request.mock.calls.filter(([method, params]) => method === 'session/cache-snapshot' && params && 'sessionId' in params && params.sessionId === sessionId('pressure-0')).length).toBeGreaterThanOrEqual(2)
+  expect(request.mock.calls.filter(([method, params]) => method === 'session/prepare-eviction' && params && 'sessionId' in params && params.sessionId === sessionId('pressure-0')).length).toBeGreaterThanOrEqual(2)
 })
 
 it('restores an unloaded session before a queued person operation', async () => {
@@ -1326,7 +1329,7 @@ it('serially re-proves each candidate when pressure requires multiple unloads', 
   const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
   for (let i = 0; i < 130; i++) handlers.onEvent(runtime, { type: 'session/started', session: body(sessionId(`multi-${i}`)) })
   store.enableTranscriptCache(); store.enableTranscriptCache()
-  await vi.waitFor(() => expect(store.transcriptCacheStats().releasedBodies).toBe(2))
+  await vi.waitFor(() => expect(store.transcriptCacheStats()).toMatchObject({ loadedFullBodies: 32, releasedBodies: 98, pressureRunning: false }))
   expect(maxInFlight).toBe(1)
   expect(receipts.get('multi-0')).toBeGreaterThanOrEqual(2)
   expect(receipts.get('multi-1')).toBeGreaterThanOrEqual(2)
@@ -1463,7 +1466,7 @@ it('disable waits for a held receipt, starts no unload, and re-enable performs a
   await disabling
   expect(store.transcriptCacheStats()).toMatchObject({ enabled: false, pressureRunning: false, releasedBodies: 0 })
   store.enableTranscriptCache()
-  await vi.waitFor(() => expect(store.transcriptCacheStats().releasedBodies).toBe(1))
+  await vi.waitFor(() => expect(store.transcriptCacheStats()).toMatchObject({ loadedFullBodies: 32, releasedBodies: 97, pressureRunning: false }))
 })
 
 it('serializes re-enable behind an older held disable drain', async () => {
@@ -1491,7 +1494,7 @@ it('serializes re-enable behind an older held disable drain', async () => {
   expect(pending).toBe(1)
   release({ ...watermark, identity })
   await disabling
-  await vi.waitFor(() => expect(store.transcriptCacheStats().releasedBodies).toBe(1))
+  await vi.waitFor(() => expect(store.transcriptCacheStats()).toMatchObject({ loadedFullBodies: 32, releasedBodies: 97, pressureRunning: false }))
   expect(maximum).toBe(1)
 })
 
@@ -1887,7 +1890,7 @@ it('refuses an actual unload when an unrelated invalidation crosses its fresh Ho
   const store = new AppStore('ws://localhost:0/'); await store.disableTranscriptCache()
   let finish!: (value: unknown) => void, hold = false
   const blocked = new Promise(resolve => { finish = resolve })
-  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId: typeof id }) => method === 'session/cache-snapshot' ? { session: body(params.sessionId), watermark, identity } : method === 'session/prepare-eviction' ? hold && params.sessionId === id ? blocked : { ...watermark, identity } : null) as never)
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId: typeof id }) => method === 'session/cache-snapshot' ? { session: body(params.sessionId), watermark, identity } : method === 'session/prepare-eviction' ? hold && params && 'sessionId' in params && params.sessionId === id ? blocked : { ...watermark, identity } : null) as never)
   const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
   for (const sid of [id, other]) handlers.onEvent(runtime, { type: 'session/started', session: body(sid) })
   expect(await store.prepareTranscriptEviction(runtime, other)).toBe(true)

@@ -1084,12 +1084,15 @@ export class AppStore {
   }
 
   async #drainTranscriptPressure(generation: number): Promise<void> {
+    // Once a burst actually releases a body, finish this drain at a lower
+    // count so later passes can refill to the normal high water.
+    let burst = false
     const active = () => this.#transcriptCacheEnabled && this.#transcriptPolicyGeneration === generation
     try {
       while (active() && this.#transcriptPressureDirty) {
         this.#transcriptPressureDirty = false
         for (;;) {
-          const planned = await this.prepareTranscriptPressure()
+          const planned = await this.prepareTranscriptPressure(burst ? { count: 32, bytes: 8 * 1024 * 1024 } : undefined)
           if (!active() || planned.length === 0) break
           let unloaded = false
           for (const key of planned) {
@@ -1098,6 +1101,7 @@ export class AppStore {
             if (await this.#unloadTranscript(runtime, id, active)) { unloaded = true; break }
           }
           if (!unloaded) break
+          burst = true
           // Each mutation starts a fresh proof round; a prior plan is not a
           // receipt authorizing any later unload.
         }
