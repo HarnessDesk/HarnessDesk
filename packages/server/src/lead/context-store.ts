@@ -112,6 +112,8 @@ export class LeadContextStore {
   #checkpoints: LeadContextCheckpoint[] = []
   /** Current-format views require screening of the complete displayed prose. */
   #checkpointScreening = false
+  /** A current-format view is hidden until its latest screen completes. */
+  #viewScreenPending = false
   /** Every summary applied, where `#checkpoints` keeps the latest eight: what Settings counts, as the thread marks them. */
   #count = 0
   #compacting = false
@@ -136,6 +138,7 @@ export class LeadContextStore {
     this.#connections = { ...this.#connections, ...connections }
     const screen = connections.screen
     if (!screen) return Promise.resolve()
+    if (this.#checkpointPending || this.#checkpointScreening) this.#viewScreenPending = true
     // Checkpoints kept from before the screen was wired pass it too before they are shown.
     return this.#serial(async () => {
       const previous = this.#checkpoints
@@ -144,12 +147,14 @@ export class LeadContextStore {
         const parts = [...(complete ? checkpoint.person?.messages.map(message => message.text) ?? [] : []),
           ...(checkpoint.text === null ? [] : [checkpoint.text])]
         if (!parts.length) return checkpoint
-        try { await screen(parts.join('\n')); return checkpoint } catch {
+        try { await screen(parts.join('\n')); return checkpoint } catch (error) {
           if (!complete) return { ...checkpoint, text: null }
+          if ((error as { wireCode?: unknown })?.wireCode !== 'lead-secret-refused') throw error
           const { person: _person, ...withheld } = checkpoint
           return { ...withheld, text: null }
         }
       }))
+      if (complete && screen !== this.#connections.screen) throw Object.assign(new Error('lead-protection-unavailable'), { wireCode: 'lead-protection-unavailable' })
       if (complete && JSON.stringify(previous) !== JSON.stringify(next)) {
         // Do not acknowledge a newly withheld view while an older staged copy
         // could be promoted after restart. An uncertain rewrite needs replay.
@@ -159,6 +164,10 @@ export class LeadContextStore {
         else await this.#persistCurrentCheckpointView(previous, next)
         this.#needsRecovery = false
       } else this.#checkpoints = next
+      if (complete) {
+        if (screen !== this.#connections.screen) throw Object.assign(new Error('lead-protection-unavailable'), { wireCode: 'lead-protection-unavailable' })
+        this.#viewScreenPending = false
+      }
     })
   }
   get epoch(): number { return this.#epoch }
@@ -297,6 +306,11 @@ export class LeadContextStore {
 
   async #open(): Promise<void> {
     const { journal } = this.options
+    // A newer canonical format is never overwritten by otherwise valid recovery.
+    const original = await readBoundedJsonResult(this.#path(CHECKPOINTS), 600_000)
+    if (original.kind === 'value' && original.value && typeof original.value === 'object' &&
+        Object.hasOwn(original.value, 'screeningVersion') && (original.value as { screeningVersion?: unknown }).screeningVersion !== 1)
+      throw new Error('lead-context-checkpoint-recovery')
     const settled = journal.state.context.epoch
     // A compaction written but not yet in place: the journal says which side of it the desk is on.
     const next = await this.#load(NEXT)
@@ -310,6 +324,7 @@ export class LeadContextStore {
     if (kept && Object.hasOwn(kept, 'screeningVersion') && kept.screeningVersion !== 1) throw new Error('lead-context-checkpoint-recovery')
     if (kept?.version === 1 && Array.isArray(kept.checkpoints)) {
       this.#checkpointScreening = kept.screeningVersion === 1
+      this.#viewScreenPending = this.#checkpointScreening
       this.#checkpoints = readableCheckpoints(kept.checkpoints.slice(-CHECKPOINT_LIST))
       if (Number.isSafeInteger(kept.count) && (kept.count as number) >= 0) this.#count = kept.count as number
     }
@@ -775,6 +790,9 @@ export class LeadContextStore {
         this.#checkpoints = [...stage.checkpoints]
         this.#count = stage.count
         this.#checkpointScreening = true
+        // A screen installed while the commit was in flight has not seen this
+        // new view yet, even if the preceding legacy view needed no mask.
+        if (this.#connections.screen !== displayScreen) this.#viewScreenPending = true
         // The journal and conversation file are now known committed; failure
         // below concerns only the independently recoverable checkpoint view.
         this.#needsRecovery = false
@@ -796,8 +814,23 @@ export class LeadContextStore {
   facts(): LeadContextFacts {
     const wakes = this.options.journal.state.wakes.flatMap(wake => wake.tokens ? [wake.tokens] : [])
     const total = wakes.reduce((sum, tokens) => sum + tokens.input + tokens.cacheRead + tokens.cacheWrite, 0)
+    const checkpoints = this.#viewScreenPending ? this.#checkpoints.map(checkpoint => {
+      const { person: _person, ...hidden } = checkpoint
+      return { ...hidden, text: null }
+    }) : this.#checkpoints
     return parseLeadContextFacts({ version: 1, windowTokens: this.window, usedTokens: this.#turns.length ? Math.min(100_000_000, Math.round(this.tokens())) : null,
-      cacheHitRate: total ? wakes.reduce((sum, tokens) => sum + tokens.cacheRead, 0) / total : null, compacting: this.#compacting, checkpoints: readableCheckpoints(this.#checkpoints),
+      cacheHitRate: total ? wakes.reduce((sum, tokens) => sum + tokens.cacheRead, 0) / total : null, compacting: this.#compacting, checkpoints: readableCheckpoints(checkpoints),
       count: this.#counted(), ...(this.#fullAt !== null ? { full: true } : {}) })
+  }
+
+  /** A view read retries a temporary screen outage; synchronous consumers remain masked. */
+  async readFacts(): Promise<LeadContextFacts> {
+    if (this.#viewScreenPending) {
+      const screen = this.#connections.screen
+      if (!screen) throw Object.assign(new Error('lead-protection-unavailable'), { wireCode: 'lead-protection-unavailable' })
+      await this.connect({ screen })
+      if (this.#viewScreenPending) throw Object.assign(new Error('lead-protection-unavailable'), { wireCode: 'lead-protection-unavailable' })
+    }
+    return this.facts()
   }
 }
