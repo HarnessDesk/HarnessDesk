@@ -110,6 +110,8 @@ export class LeadContextStore {
   #softAt: number = LEAD_CONTEXT.softShare
   #measured: RecordLine['measured'] = null
   #checkpoints: LeadContextCheckpoint[] = []
+  /** Current-format views require screening of the complete displayed prose. */
+  #checkpointScreening = false
   /** Every summary applied, where `#checkpoints` keeps the latest eight: what Settings counts, as the thread marks them. */
   #count = 0
   #compacting = false
@@ -137,22 +139,24 @@ export class LeadContextStore {
     // Checkpoints kept from before the screen was wired pass it too before they are shown.
     return this.#serial(async () => {
       const previous = this.#checkpoints
+      const complete = this.#checkpointPending || this.#checkpointScreening
       const next = await Promise.all(previous.map(async checkpoint => {
-        const parts = [...(this.#checkpointPending ? checkpoint.person?.messages.map(message => message.text) ?? [] : []),
+        const parts = [...(complete ? checkpoint.person?.messages.map(message => message.text) ?? [] : []),
           ...(checkpoint.text === null ? [] : [checkpoint.text])]
         if (!parts.length) return checkpoint
         try { await screen(parts.join('\n')); return checkpoint } catch {
-          if (!this.#checkpointPending) return { ...checkpoint, text: null }
+          if (!complete) return { ...checkpoint, text: null }
           const { person: _person, ...withheld } = checkpoint
           return { ...withheld, text: null }
         }
       }))
-      if (this.#checkpointPending && JSON.stringify(previous) !== JSON.stringify(next)) {
+      if (complete && JSON.stringify(previous) !== JSON.stringify(next)) {
         // Do not acknowledge a newly withheld view while an older staged copy
         // could be promoted after restart. An uncertain rewrite needs replay.
         this.#checkpoints = next
         this.#needsRecovery = true
-        await this.#persistWithheldCheckpointView(previous, next)
+        if (this.#checkpointPending) await this.#persistWithheldCheckpointView(previous, next)
+        else await this.#persistCurrentCheckpointView(previous, next)
         this.#needsRecovery = false
       } else this.#checkpoints = next
     })
@@ -171,6 +175,22 @@ export class LeadContextStore {
     return next
   }
   #path(name: string) { return join(this.options.directory, name) }
+
+  async #persistCurrentCheckpointView(previous: readonly LeadContextCheckpoint[], next: readonly LeadContextCheckpoint[]): Promise<void> {
+    const canonical = await readBoundedJsonResult(this.#path(CHECKPOINTS), 600_000), context = this.options.journal.state.context
+    if (canonical.kind !== 'value' || !canonical.value || typeof canonical.value !== 'object' ||
+        (canonical.value as { version?: unknown }).version !== 1 || (canonical.value as { screeningVersion?: unknown }).screeningVersion !== 1 ||
+        (canonical.value as { count?: unknown }).count !== this.#count ||
+        JSON.stringify((canonical.value as { checkpoints?: unknown }).checkpoints) !== JSON.stringify(previous))
+      throw new Error('lead-context-recovery-required')
+    await writeAtomicJson(this.#path(CHECKPOINTS), { version: 1, screeningVersion: 1, count: this.#count, checkpoints: next }, async () => {
+      const again = await readBoundedJsonResult(this.#path(CHECKPOINTS), 600_000)
+      const stage = await readBoundedJsonResult(this.#path(CHECKPOINT_STAGE), 600_000)
+      const current = this.options.journal.state.context
+      if (stage.kind !== 'missing' || again.kind !== 'value' || JSON.stringify(again.value) !== JSON.stringify(canonical.value) ||
+          current.epoch !== context.epoch || current.last?.id !== context.last?.id) throw new Error('lead-context-recovery-required')
+    })
+  }
 
   async #removeCheckpointStage(): Promise<void> {
     await rm(this.#path(CHECKPOINT_STAGE), { force: true })
@@ -196,10 +216,11 @@ export class LeadContextStore {
     if (read.kind !== 'missing') throw new Error('lead-context-recovery-required')
     const canonical = await readBoundedJsonResult(this.#path(CHECKPOINTS), 600_000)
     if (canonical.kind !== 'value' || !canonical.value || typeof canonical.value !== 'object' ||
-        (canonical.value as { version?: unknown }).version !== 1 || (canonical.value as { count?: unknown }).count !== this.#count ||
+        (canonical.value as { version?: unknown }).version !== 1 || (canonical.value as { screeningVersion?: unknown }).screeningVersion !== 1 ||
+        (canonical.value as { count?: unknown }).count !== this.#count ||
         JSON.stringify((canonical.value as { checkpoints?: unknown }).checkpoints) !== JSON.stringify(previous))
       throw new Error('lead-context-recovery-required')
-    await writeAtomicJson(this.#path(CHECKPOINTS), { version: 1, count: this.#count, checkpoints: next }, async () => {
+    await writeAtomicJson(this.#path(CHECKPOINTS), { version: 1, screeningVersion: 1, count: this.#count, checkpoints: next }, async () => {
       const stage = await readBoundedJsonResult(this.#path(CHECKPOINT_STAGE), 600_000)
       const again = await readBoundedJsonResult(this.#path(CHECKPOINTS), 600_000)
       const current = this.options.journal.state.context
@@ -224,7 +245,8 @@ export class LeadContextStore {
     if (missing) {
       const canonical = await readBoundedJsonResult(this.#path(CHECKPOINTS), 600_000)
       if (canonical.kind !== 'value' || !canonical.value || typeof canonical.value !== 'object' ||
-          (canonical.value as { version?: unknown }).version !== 1 || (canonical.value as { count?: unknown }).count !== stage.count ||
+          (canonical.value as { version?: unknown }).version !== 1 || (canonical.value as { screeningVersion?: unknown }).screeningVersion !== 1 ||
+          (canonical.value as { count?: unknown }).count !== stage.count ||
           JSON.stringify((canonical.value as { checkpoints?: unknown }).checkpoints) !== JSON.stringify(stage.checkpoints))
         throw new Error('lead-context-recovery-required')
     }
@@ -245,7 +267,7 @@ export class LeadContextStore {
       this.#checkpointPending = false
       return
     }
-    await writeAtomicJson(this.#path(CHECKPOINTS), { version: 1, count: stage.count, checkpoints: stage.checkpoints }, async () => {
+    await writeAtomicJson(this.#path(CHECKPOINTS), { version: 1, screeningVersion: 1, count: stage.count, checkpoints: stage.checkpoints }, async () => {
       if (screen !== this.#connections.screen || JSON.stringify(stage.checkpoints) !== JSON.stringify(this.#checkpoints))
         throw new Error('lead-context-recovery-required')
     })
@@ -262,7 +284,7 @@ export class LeadContextStore {
     const stage = checkpointStageOf(read.value), context = this.options.journal.state.context
     if (stage.epoch === context.epoch && context.last?.id === stage.id) {
       // Keep the stage until the canonical file and its directory are durable.
-      await writeAtomicJson(this.#path(CHECKPOINTS), { version: 1, count: stage.count, checkpoints: stage.checkpoints }, async () => {})
+      await writeAtomicJson(this.#path(CHECKPOINTS), { version: 1, screeningVersion: 1, count: stage.count, checkpoints: stage.checkpoints }, async () => {})
       await this.#removeCheckpointStage()
       return
     }
@@ -284,8 +306,10 @@ export class LeadContextStore {
     if (current && current.header.epoch === settled) { this.#adopt(current.header, current.turns, current.measured); this.#fileBytes = current.bytes }
     else await this.#seed(settled)
     await this.#recoverCheckpointStage()
-    const kept = await readBoundedJson(this.#path(CHECKPOINTS), 600_000) as { version?: unknown; checkpoints?: unknown; count?: unknown } | undefined
+    const kept = await readBoundedJson(this.#path(CHECKPOINTS), 600_000) as { version?: unknown; screeningVersion?: unknown; checkpoints?: unknown; count?: unknown } | undefined
+    if (kept && Object.hasOwn(kept, 'screeningVersion') && kept.screeningVersion !== 1) throw new Error('lead-context-checkpoint-recovery')
     if (kept?.version === 1 && Array.isArray(kept.checkpoints)) {
+      this.#checkpointScreening = kept.screeningVersion === 1
       this.#checkpoints = readableCheckpoints(kept.checkpoints.slice(-CHECKPOINT_LIST))
       if (Number.isSafeInteger(kept.count) && (kept.count as number) >= 0) this.#count = kept.count as number
     }
@@ -723,7 +747,9 @@ export class LeadContextStore {
         if (existing.kind !== 'missing') { this.#needsRecovery = true; throw new Error('lead-context-checkpoint-recovery') }
         stage = checkpointStageOf({ version: 1, id, epoch, count: this.#counted() + 1,
           checkpoints: [...this.#checkpoints, display].slice(-CHECKPOINT_LIST) })
-        if (Buffer.byteLength(JSON.stringify(stage)) > 600_000) throw new Error('lead-context-checkpoint-stage')
+        if (Buffer.byteLength(JSON.stringify(stage)) > 600_000 ||
+            Buffer.byteLength(JSON.stringify({ version: 1, screeningVersion: 1, count: stage.count, checkpoints: stage.checkpoints })) > 600_000)
+          throw new Error('lead-context-checkpoint-stage')
       }
       if (remember) this.#remember(remember)
       this.#softAt = leadNextSoftShare(share)
@@ -748,12 +774,13 @@ export class LeadContextStore {
       if (stage) {
         this.#checkpoints = [...stage.checkpoints]
         this.#count = stage.count
+        this.#checkpointScreening = true
         // The journal and conversation file are now known committed; failure
         // below concerns only the independently recoverable checkpoint view.
         this.#needsRecovery = false
         this.#checkpointPending = true
         try {
-          await writeAtomicJson(this.#path(CHECKPOINTS), { version: 1, count: stage.count, checkpoints: stage.checkpoints }, async () => {})
+          await writeAtomicJson(this.#path(CHECKPOINTS), { version: 1, screeningVersion: 1, count: stage.count, checkpoints: stage.checkpoints }, async () => {})
           await this.#removeCheckpointStage()
           this.#checkpointPending = false
         } catch { /* reopen resolves the durable stage or already-durable canonical file */ }

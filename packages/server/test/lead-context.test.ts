@@ -349,7 +349,7 @@ for (const unlinked of [false, true]) test(`pending checkpoint view resolves bef
     // The reachable state after canonical replacement and unlink, before the
     // stage removal's directory sync reports success.
     const staged = JSON.parse(savedStage.toString())
-    await writeFile(destination, JSON.stringify({ version: 1, count: staged.count, checkpoints: staged.checkpoints }))
+    await writeFile(destination, JSON.stringify({ version: 1, screeningVersion: 1, count: staged.count, checkpoints: staged.checkpoints }))
     await rm(stage)
   }
   const request = await first.store.request()
@@ -409,6 +409,82 @@ test('failed pending-view redaction keeps the view hidden and cannot advance the
   await assert.rejects(first.store.request(), /lead-context-recovery-required/)
   assert.deepEqual(await readFile(parked), saved)
   await rm(stage, { recursive: true }); await rename(parked, stage)
+})
+
+test('a recovered pending view re-screens person-only prose and durably withholds it (#2060)', async t => {
+  const stateDirectory = await directory(t), disk = await LeadFileJournal.open(stateDirectory, 'thread-1')
+  t.after(() => disk.close())
+  const journal = await lead.createLeadJournal(disk)
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'goal-1', caps: { usdMicros: LEAD_LIMITS.maxUsdMicros, rounds: 16 }, freshnessMs: 60_000 })
+  const first = await harness(t, { window: 200_000, home: join(stateDirectory, 'lead'), journal, screen: async () => {} })
+  const marker = 'synthetic-person-private-marker'
+  for (let n = 1; n <= 5; n++) await first.say(`${n === 1 ? marker : 'Synthetic message'}.${filler(n)}`)
+  const destination = join(first.home, 'context-checkpoints.json'), stage = join(first.home, 'context-checkpoints.next.json')
+  await mkdir(destination)
+  assert.equal(await first.store.compact('manual', first.send), 'applied')
+  const before = await readFile(stage), parked = `${stage}.parked`
+  const checkpoint = first.store.facts().checkpoints.at(-1)!
+  assert.ok(checkpoint.person?.messages.some(message => message.text.includes(marker)))
+  assert.ok(!checkpoint.text?.includes(marker), 'the model section alone is safe')
+  let changed = false
+  await assert.rejects(first.store.connect({ screen: async value => {
+    if (!changed && value.includes(marker)) {
+      changed = true
+      await rename(stage, parked); await mkdir(stage)
+      throw new Error('refused')
+    }
+  } }), /lead-context-recovery-required/)
+  assert.equal(journal.state.context.epoch, 1)
+  assert.deepEqual(await readFile(parked), before)
+  await rm(stage, { recursive: true }); await rename(parked, stage); await rm(destination, { recursive: true })
+  await first.loop.close(); await disk.close()
+  const recoveredDisk = await LeadFileJournal.open(stateDirectory, 'thread-1')
+  t.after(() => recoveredDisk.close())
+  const recoveredJournal = await lead.createLeadJournal(recoveredDisk)
+  const options = { directory: first.home, journal: recoveredJournal, model: MODEL, now: () => 1000, nextId: () => 'later', window: 200_000 }
+  const recovered = await LeadContextStore.open(options)
+  await recovered.connect({ screen: async value => { if (value.includes(marker)) throw new Error('refused') } })
+  assert.equal(recovered.facts().checkpoints.at(-1)?.text, null)
+  assert.equal(recovered.facts().checkpoints.at(-1)?.person, undefined)
+  const reopened = await LeadContextStore.open(options)
+  await reopened.connect({ screen: async () => {} })
+  assert.equal(reopened.facts().checkpoints.at(-1)?.text, null, 'relaxing the screen cannot resurrect the refused view')
+  assert.equal(reopened.facts().checkpoints.at(-1)?.person, undefined)
+})
+
+test('failed current-view redaction stays hidden and does not acknowledge persistence (#2060)', async t => {
+  const first = await harness(t, { window: 200_000, screen: async () => {} })
+  for (let n = 1; n <= 5; n++) await first.say(`Synthetic message ${n}.${filler(n)}`)
+  assert.equal(await first.store.compact('manual', first.send), 'applied')
+  const canonical = join(first.home, 'context-checkpoints.json'), parked = `${canonical}.parked`
+  const original = await readFile(canonical), epoch = first.store.epoch
+  let changed = false
+  await assert.rejects(first.store.connect({ screen: async value => {
+    if (!changed && value.includes('Decisions made and why')) {
+      changed = true
+      await rename(canonical, parked); await mkdir(canonical)
+      throw new Error('refused')
+    }
+  } }), /lead-context-recovery-required/)
+  assert.equal(first.store.facts().checkpoints.at(-1)?.text, null)
+  assert.equal(first.store.facts().checkpoints.at(-1)?.person, undefined)
+  assert.equal(first.journal.state.context.epoch, epoch)
+  await assert.rejects(first.store.request(), /lead-context-recovery-required/)
+  assert.deepEqual(await readFile(parked), original)
+  await rm(canonical, { recursive: true }); await rename(parked, canonical)
+})
+
+test('an unsupported checkpoint screening marker fails closed (#2060)', async t => {
+  const first = await harness(t, { window: 200_000, screen: async () => {} })
+  for (let n = 1; n <= 5; n++) await first.say(`Synthetic message ${n}.${filler(n)}`)
+  assert.equal(await first.store.compact('manual', first.send), 'applied')
+  const canonical = join(first.home, 'context-checkpoints.json'), raw = JSON.parse(await readFile(canonical, 'utf8'))
+  raw.screeningVersion = 2
+  await writeFile(canonical, JSON.stringify(raw))
+  const bytes = await readFile(canonical)
+  await assert.rejects(LeadContextStore.open({ directory: first.home, journal: first.journal, model: MODEL, now: () => 1000, nextId: () => 'later', window: 200_000 }), /lead-context-checkpoint-recovery/)
+  assert.deepEqual(await readFile(canonical), bytes)
 })
 
 test('a durable journal append that reports failure is recovered without assuming rollback (#2060)', async t => {
