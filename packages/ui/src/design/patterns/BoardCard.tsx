@@ -30,7 +30,7 @@ export const BoardCard = ({label,title,titleAside,titleProps,detail,detailProps,
  readonly [attribute: `data-${string}`]: string | number | boolean | undefined
 }) => {
  const marksId = useId()
- return <Button variant="ghost" size="pattern" render={<Card as="button" spacing="compact"/>} {...props} className={styles.card} aria-label={label} aria-describedby={[props['aria-describedby'], marks ? marksId : undefined].filter(Boolean).join(' ') || undefined} onClick={onOpen}>
+ return <Button variant="ghost" size="pattern" render={<Card as="button" spacing="compact" className="gap-(--hd-space-2)"/>} {...props} className={styles.card} aria-label={label} aria-describedby={[props['aria-describedby'], marks ? marksId : undefined].filter(Boolean).join(' ') || undefined} onClick={onOpen}>
  <span {...titleProps} className={styles.identity}><Text role="member" truncate>{title}</Text>{marks && <span id={marksId} className={styles.marks} role="img" aria-label={marks.label}>
   {marks.items.map(mark=><span key={mark.id} {...mark.props} title={mark.title} className={styles.mark} data-off={!mark.active || undefined} data-mark-active={mark.active} data-mark-attention={mark.attention || undefined}>{mark.mark}</span>)}
  </span>}{titleAside}</span>
