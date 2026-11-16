@@ -950,9 +950,9 @@ const AgentAccounts = ({
              so "Signed out" would be a guess. */
           <EmptyState variant="row" title={READINESS_LABEL.unknown} description="Its accounts show once it answers." />
         ) : rows.length === 0 && gateways.length === 0 && status?.unchecked ? (
-          /* Nobody has asked it yet (#1759): neither "Signed out" nor "No
-             account needed" is known, and its first conversation says which. */
-          <EmptyState variant="row" title="Not checked yet" description="Its first conversation shows whether it is signed in." />
+          /* Neither "Signed out" nor "No account needed" is known yet. */
+          <EmptyState variant="row" title="Not checked yet" description="Its account status is not known yet."
+            children={canSignIn ? <Button size="sm" variant="outline" onClick={() => onSignIn(info.id)}><SignInIcon size={13} />Sign in</Button> : undefined} />
         ) : (
           rows.length === 0 &&
           gateways.length === 0 && (
