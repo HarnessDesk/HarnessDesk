@@ -633,6 +633,10 @@ async function watch(args: Arguments, io: CommandIo): Promise<number> {
 
 /** Runs one command line, writing through `io`, and says how it ended. A failure is printed on `io.err`. */
 export async function runCommand(argv: readonly string[], io: CommandIo): Promise<number> {
+  if (argv.length === 1 && argv[0] === '--help') {
+    io.out(USAGE_LINE + '\n')
+    return 0
+  }
   try {
     const args = parseArgs(argv)
     // An MCP server's standard input is its client's channel, not a file.
