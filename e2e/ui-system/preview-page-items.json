@@ -301,6 +301,11 @@
       "title": "Rows \u2014 usage and worktree alerts"
     },
     {
+      "selector": "[data-frame-id=\"coverage-usage-history\"] > div",
+      "id": "coverage-usage-history",
+      "title": "Usage \u2014 an earlier unverified reading"
+    },
+    {
       "selector": "[data-frame-id=\"coverage-publication\"] > div",
       "id": "coverage-publication",
       "title": "Publication \u2014 a reviewable pull request"
