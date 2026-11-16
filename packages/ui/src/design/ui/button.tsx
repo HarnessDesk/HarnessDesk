@@ -344,6 +344,8 @@ type ButtonProps = Omit<ButtonPrimitive.Props, 'className'> & {
    * inset without help.
    */
   edge?: 'start' | 'end'
+  /** Align a small text button's label to the logical content edge. */
+  textEdge?: 'start'
   /** The glyph's own size, when it is not the icon facade's 16px default — read off whatever `size` prop the child icon was actually given. Only meaningful with `edge`. */
   edgeGlyph?: number
   /** Selection rows may keep the platform cursor while retaining button semantics. */
@@ -382,6 +384,7 @@ const Button = ({
   swatch,
   edge,
   edgeGlyph = 16,
+  textEdge,
   style,
   type,
   render,
@@ -392,6 +395,7 @@ const Button = ({
   <ButtonPrimitive
     data-slot="button"
     data-variant={variant}
+    {...(textEdge === 'start' && size === 'sm' ? { 'data-text-edge': 'start' } : {})}
     {...(stretched ? { 'data-stretched': '', 'data-focus-ring': 'inline' } : {})}
     {...(FILLED.has(variant) ? { 'data-filled': '' } : {})}
     {...(swatch !== undefined ? { 'data-swatch': '' } : {})}
@@ -405,6 +409,7 @@ const Button = ({
       quietHover && 'not-data-[trouble]:hover:text-(--hd-secondary-foreground)',
       swatch !== undefined && 'bg-(--swatch) bg-clip-border hover:bg-(--swatch)',
       edgeSize && (edge === 'end' ? 'me-(--edge-pull)' : 'ms-(--edge-pull)'),
+      textEdge === 'start' && size === 'sm' && (bordered ? 'ms-[calc(-1*(var(--hd-btn-padding-inline-sm)+1px))]' : 'ms-[calc(-1*var(--hd-btn-padding-inline-sm))]'),
     )}
     style={
       typeof style === 'function'

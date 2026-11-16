@@ -26,7 +26,9 @@ type CardProps<T extends React.ElementType = 'div'> = {
    *  carries, for a card whose surface is a visual variant on its own — a
    *  dense row on `plate`, say — and whose spacing is flush regardless. */
   spacing?: 'default' | 'compact' | 'flush'
-} & Omit<React.ComponentPropsWithoutRef<T>, 'as' | 'variant' | 'radius' | 'spacing'>
+  /** Horizontal inset for this card's content; nested cards choose their own. */
+  contentInset?: 'card' | 'row'
+} & Omit<React.ComponentPropsWithoutRef<T>, 'as' | 'variant' | 'radius' | 'spacing' | 'contentInset'>
 
 const Card = <T extends React.ElementType = 'div'>({
   as,
@@ -34,6 +36,8 @@ const Card = <T extends React.ElementType = 'div'>({
   variant,
   radius = 'default',
   spacing = 'default',
+  contentInset = 'card',
+  style,
   ...props
 }: CardProps<T>) => {
   const Component = as ?? 'div'
@@ -43,6 +47,8 @@ const Card = <T extends React.ElementType = 'div'>({
       data-variant={variant ?? 'default'}
       data-radius={radius}
       data-spacing={spacing}
+      data-content-inset={contentInset}
+      style={{ ...style, '--card-content-inset': contentInset === 'row' ? 'var(--hd-inset-row)' : 'var(--hd-inset-card)' } as React.CSSProperties}
       className={cn(
         '[--stack-surface:var(--hd-background)] bg-(--hd-background) text-card-foreground flex flex-col gap-4 rounded-(--hd-radius) border border-(--hd-border-strong) py-(--hd-inset-card)',
         variant === 'muted' && 'border-dashed bg-(--hd-muted) [--stack-surface:var(--hd-muted)]',
@@ -67,7 +73,7 @@ const CardHeader = ({ className, ...props }: React.ComponentProps<'div'>) => (
   <div
     data-slot="card-header"
     className={cn(
-      '@container/card-header grid auto-rows-min grid-rows-[auto_auto] items-start gap-1 px-(--hd-inset-card) has-data-[slot=card-action]:grid-cols-[1fr_auto]',
+      '@container/card-header grid auto-rows-min grid-rows-[auto_auto] items-start gap-1 px-[var(--card-content-inset,var(--hd-inset-card))] has-data-[slot=card-action]:grid-cols-[1fr_auto]',
       className,
     )}
     {...props}
@@ -97,11 +103,11 @@ const CardAction = ({ className, ...props }: React.ComponentProps<'div'>) => (
 type CardContentProps = React.ComponentProps<'div'> & { inset?: 'card' | 'none' }
 
 const CardContent = ({ className, inset = 'card', ...props }: CardContentProps) => (
-  <div data-slot="card-content" data-inset={inset} className={cn(inset === 'card' && 'px-(--hd-inset-card)', className)} {...props} />
+  <div data-slot="card-content" data-inset={inset} className={cn(inset === 'card' && 'px-[var(--card-content-inset,var(--hd-inset-card))]', className)} {...props} />
 )
 
 const CardFooter = ({ className, ...props }: React.ComponentProps<'div'>) => (
-  <div data-slot="card-footer" className={cn('flex items-center px-(--hd-inset-card)', className)} {...props} />
+  <div data-slot="card-footer" className={cn('flex items-center px-[var(--card-content-inset,var(--hd-inset-card))]', className)} {...props} />
 )
 
 /**

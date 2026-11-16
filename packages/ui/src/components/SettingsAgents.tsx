@@ -2,7 +2,7 @@ import { slotForCategory } from '../lib/composer-slots'
 import { useNewSessionDefaults } from '../lib/use-new-session-defaults'
 import { CheckIcon } from './Icons'
 import { DestinationBar, useDestinationActive } from '../panels/destination-page'
-import { PageExplanation, PageControls, PageOptions, MenuItem, MenuNote, Toolbar } from '../design'
+import { PageExplanation, PageControls, PageOptions, MenuItem, MenuNote, Toolbar, SettingsBack } from '../design'
 import { AgentHistory } from './History'
 import { RuntimeResources } from './RuntimeResources'
 import { RuntimeFace } from './RuntimeFace'
@@ -1351,7 +1351,7 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
   return (
     <>
       <DestinationBar place="Add a runtime" />
-      <Toolbar><Button variant="ghost" size="sm" onClick={onBack}>Back to Runtimes</Button></Toolbar>
+      <Toolbar><SettingsBack onClick={onBack}>Back to Runtimes</SettingsBack></Toolbar>
       <PageExplanation>A runtime keeps its own account, configuration and history; adding it here only tells HarnessDesk how to start it.</PageExplanation>
       <Rows>
         {(templates ?? []).map((template) => (
@@ -1561,7 +1561,7 @@ const AccountDetail = ({
       {/* Back to the agent it belongs to, which is where its accounts are listed. */}
 <DestinationBar place={accountName(account, prefs, info.presentation.name, snapshot.hideAccountAddresses)} />
       <Toolbar>
-        <Button variant="ghost" size="sm" onClick={onBack}>Back to {info.presentation.name}</Button>
+        <SettingsBack onClick={onBack}>Back to {info.presentation.name}</SettingsBack>
         <RuntimeMark runtime={info} size={16} />
         <Chip state={state} />
       </Toolbar>
@@ -2073,6 +2073,7 @@ const AgentUsage = ({ siblings }: { siblings: readonly RuntimeInfo[] }) => {
       <div aria-label="Usage by account">
         <DashboardAccounts accounts={reports.map((report) => (
           <UsageCard
+            contentInset="row"
             key={`${report.runtime}:${report.account ?? ''}`}
             report={report}
             info={siblings.find((entry) => entry.id === report.runtime) ?? null}
@@ -2148,7 +2149,7 @@ const AgentDetail = ({
     <>
 <DestinationBar place={info.presentation.name} />
       <Toolbar>
-        <Button variant="ghost" size="sm" onClick={onBack}>Back to Runtimes</Button>
+        <SettingsBack onClick={onBack}>Back to Runtimes</SettingsBack>
       </Toolbar>
       {/* What it is and which build, on one line: the version used to float
           under the card on its own, and an update was a section further down

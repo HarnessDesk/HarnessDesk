@@ -1557,3 +1557,7 @@ export const FileButton = ({
     />
   </label>
 )
+
+/** Back navigation whose label sits on the page content edge. */
+export const SettingsBack = ({ children, onClick }: { readonly children: ReactNode; readonly onClick: () => void }) =>
+  <Button variant="ghost" size="sm" textEdge="start" onClick={onClick}>{children}</Button>

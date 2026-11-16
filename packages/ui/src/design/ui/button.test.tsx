@@ -366,3 +366,9 @@ it('keeps a figure button text on its column edge with an inset hover plate', ()
   expect(markup).toContain('h-full w-full -mx-(--hd-space-2) px-(--hd-space-2)')
   expect(markup).toContain('items-start justify-start text-left whitespace-normal')
 })
+
+it('allows a labelled Back button to align its text while preserving its target', () => {
+  const html = renderToStaticMarkup(<Button variant="ghost" size="sm" textEdge="start">Back</Button>)
+  expect(html).toContain('data-text-edge="start"')
+  expect(html).toContain('ms-[calc(-1*(var(--hd-btn-padding-inline-sm)+1px))]')
+})

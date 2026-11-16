@@ -65,6 +65,7 @@ export {
   FormStack,
   Note,
   NoteList,
+  SettingsBack,
   Segmented,
   SegmentedReadout,
   SectionHead,

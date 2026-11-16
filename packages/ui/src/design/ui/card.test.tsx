@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { Card, CardContent, CardViewport } from './card'
+import { Card, CardContent, CardFooter, CardHeader, CardViewport } from './card'
 import { Button } from './button'
 import { KeyValue, KeyValueRow } from './key-value'
 import { Section, SectionBody } from './section'
@@ -230,4 +230,15 @@ it('caps a panel section at the column\'s allotment for panels', () => {
   expect(container.querySelector('[data-slot="section"]')?.className).toContain('max-h-(--panel-max,none)')
   act(() => root.render(<Section variant="plain">plain</Section>))
   expect(container.querySelector('[data-slot="section"]')?.className).not.toContain('max-h-')
+})
+
+
+it('resets the content inset on a default card nested inside a row-inset card', () => {
+  act(() => root.render(<Card contentInset="row"><CardHeader>Header</CardHeader><CardContent><Card><CardHeader>Nested header</CardHeader><CardContent>Nested</CardContent><CardFooter>Nested footer</CardFooter></Card></CardContent><CardFooter>Footer</CardFooter></Card>))
+  const cards = [...container.querySelectorAll<HTMLElement>('[data-slot="card"]')]
+  expect(cards[0]?.style.getPropertyValue('--card-content-inset')).toBe('var(--hd-inset-row)')
+  expect(cards[1]?.style.getPropertyValue('--card-content-inset')).toBe('var(--hd-inset-card)')
+  for (const node of container.querySelectorAll<HTMLElement>('[data-slot="card-header"], [data-slot="card-content"], [data-slot="card-footer"]')) {
+    expect(node.className).toContain('px-[var(--card-content-inset,var(--hd-inset-card))]')
+  }
 })

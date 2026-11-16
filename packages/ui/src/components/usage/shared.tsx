@@ -219,8 +219,10 @@ export const Card = ({
   onStopTracking,
   shapeChip,
   moneyRow,
+  contentInset,
 }: {
   report: UsageReport
+  contentInset?: 'row'
   info: RuntimeInfo | null
   preference?: AccountPrefs
   now: number
@@ -326,6 +328,7 @@ export const Card = ({
   return (
     <SurfaceCard
       as="article"
+      contentInset={contentInset}
       variant={hero || balance || money ? 'default' : 'muted'}
     >
       {/* The canonical card inset holds the recorded heading and its state. */}
