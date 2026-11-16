@@ -484,6 +484,37 @@ test('staged copies nobody references are collected; frozen, approved and openin
   assert.deepEqual(await readdir(join(folder, '.staged', 'mcp')), [])
 })
 
+test('a revoked frozen write releases only its own opening pin', async () => {
+  const folder = tempDir('hd-attach-revoked-pin-')
+  const shared = identity({ name: 'revoked-shared', seed: 'revoked' })
+  const held = identity({ name: 'held-frozen', seed: 'held' })
+  const port = portFor({ shared: [declaration(shared)], held: [declaration(held)] })
+  permit(port, subject({ agent: 'shared' }), shared)
+  permit(port, subject({ agent: 'held' }), held)
+  const plane = new AttachmentsPlane(folder, port)
+  const first = await plane.prepare(subject({ agent: 'shared' }))
+  const second = await plane.prepare(subject({ agent: 'shared' }))
+  const frozen = await plane.prepare(subject({ agent: 'held' }))
+  await plane.record(seat('seat-held'), frozen, { key: frozen.input.key, loaded: [{ kind: 'skill', name: held.name, digest: held.digest }], refused: [] })
+  const receipt = { key: first.input.key, loaded: [{ kind: 'skill' as const, name: shared.name, digest: shared.digest }], refused: [] }
+  let checks = 0
+  let revoked = false
+  const check = (): void => {
+    if (revoked) throw new Error('revoked')
+    // The fourth check is at the entrance to #writeFrozen; revoke while its
+    // asynchronous existing-filter read is pending, before its next check.
+    if (++checks === 4) queueMicrotask(() => { revoked = true })
+  }
+  await assert.rejects(plane.record(seat('seat-revoked'), first, receipt, check), /revoked/)
+  assert.equal(checks, 4)
+  assert.equal(await plane.collectStaged(new Set()), 0, 'the other opening and frozen holder still protect their content')
+  await assert.rejects(plane.record(seat('seat-revoked'), first, receipt, check), /revoked/)
+  assert.equal(await plane.collectStaged(new Set()), 0, 'repeated cleanup must not release the other opening')
+  await assert.rejects(plane.record(seat('seat-other'), second, { ...receipt, key: second.input.key }, () => { throw new Error('revoked') }), /revoked/)
+  assert.equal(await plane.collectStaged(new Set()), 1, 'the abandoned copy is collectable once its last opening releases it')
+  assert.deepEqual(await readdir(join(folder, '.staged', 'skill')), [held.digest])
+})
+
 test('a frozen filter that cannot be read keeps every staged copy', async () => {
   const folder = tempDir('hd-attach-seat-collect-damaged-')
   const orphan = identity({ name: 'orphan', seed: 'damaged' })

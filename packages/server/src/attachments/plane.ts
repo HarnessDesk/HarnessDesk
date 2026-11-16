@@ -736,77 +736,80 @@ export class AttachmentsPlane {
    * expose a tool or send a turn.
    */
   async record(seat: SeatRecord, prepared: PreparedAttachments, receipt: SessionAttachmentReceipt, check: () => void = () => {}): Promise<SeatAttachmentsRecord> {
-    check()
-    const bindings: Binding[] = prepared.declarations
-      .filter((one): one is AttachmentDeclaration & { identity: AttachmentIdentity } => one.identity !== null && one.problem === null)
-      .map((one) => ({
-        candidate: { kind: one.kind as 'skill' | 'mcp', name: one.identity.name, digest: one.identity.digest },
-        approved: true,
-        permitted: true,
-        supported: true,
-      }))
-    const observedByKey = new Map(receipt.loaded.map((one) => [`${one.kind}:${one.name}`, one.digest]))
-    const results = await activateBindings(bindings, async (candidate: Candidate) => {
-      const observed = observedByKey.get(`${candidate.kind}:${candidate.name}`)
-      if (observed === undefined) throw new Error('not loaded')
-      return observed
-    })
-    check()
-    const byName = new Map(results.map((one) => [`${one.candidate.kind}:${one.candidate.name}`, one]))
-    const loadResults: AttachmentLoadResult[] = prepared.declarations
-      .filter((one) => one.identity !== null)
-      .map((one) => {
-        const identity = one.identity!
-        if (one.problem) return { identity, status: 'not-loaded' as const, reason: one.problem }
-        const activated = byName.get(`${identity.kind}:${identity.name}`)
-        return activated
-          ? { identity, status: activated.status, reason: activated.reason }
-          : { identity, status: 'not-loaded' as const, reason: 'Loading failed; review the runtime status and start a new Seat.' }
+    try {
+      check()
+      const bindings: Binding[] = prepared.declarations
+        .filter((one): one is AttachmentDeclaration & { identity: AttachmentIdentity } => one.identity !== null && one.problem === null)
+        .map((one) => ({
+          candidate: { kind: one.kind as 'skill' | 'mcp', name: one.identity.name, digest: one.identity.digest },
+          approved: true,
+          permitted: true,
+          supported: true,
+        }))
+      const observedByKey = new Map(receipt.loaded.map((one) => [`${one.kind}:${one.name}`, one.digest]))
+      const results = await activateBindings(bindings, async (candidate: Candidate) => {
+        const observed = observedByKey.get(`${candidate.kind}:${candidate.name}`)
+        if (observed === undefined) throw new Error('not loaded')
+        return observed
       })
+      check()
+      const byName = new Map(results.map((one) => [`${one.candidate.kind}:${one.candidate.name}`, one]))
+      const loadResults: AttachmentLoadResult[] = prepared.declarations
+        .filter((one) => one.identity !== null)
+        .map((one) => {
+          const identity = one.identity!
+          if (one.problem) return { identity, status: 'not-loaded' as const, reason: one.problem }
+          const activated = byName.get(`${identity.kind}:${identity.name}`)
+          return activated
+            ? { identity, status: activated.status, reason: activated.reason }
+            : { identity, status: 'not-loaded' as const, reason: 'Loading failed; review the runtime status and start a new Seat.' }
+        })
 
-    const previous = await this.#receipts.read(seat.id)
-    check()
-    const record: SeatAttachmentsRecord = {
-      version: 1,
-      seat: seat.id,
-      agentDigest: prepared.subject.agentDigest,
-      runtime: prepared.subject.runtime,
-      build: prepared.subject.build,
-      epoch: previous ? previous.epoch + 1 : 0,
-      observedAt: Date.now(),
-      skillsMode: prepared.input.skills === null ? 'runtime-defaults' : 'allowlist',
-      mcpMode: prepared.input.mcp === null ? 'runtime-defaults' : 'allowlist',
-      declarations: prepared.declarations,
-      results: loadResults,
-      restored: false,
+      const previous = await this.#receipts.read(seat.id)
+      check()
+      const record: SeatAttachmentsRecord = {
+        version: 1,
+        seat: seat.id,
+        agentDigest: prepared.subject.agentDigest,
+        runtime: prepared.subject.runtime,
+        build: prepared.subject.build,
+        epoch: previous ? previous.epoch + 1 : 0,
+        observedAt: Date.now(),
+        skillsMode: prepared.input.skills === null ? 'runtime-defaults' : 'allowlist',
+        mcpMode: prepared.input.mcp === null ? 'runtime-defaults' : 'allowlist',
+        declarations: prepared.declarations,
+        results: loadResults,
+        restored: false,
+      }
+      await this.#writeFrozen(seat.id, prepared, check)
+      check()
+      await this.#receipts.append(record, check)
+      check()
+      const keys = this.#keys.get(seat.id) ?? new Set<string>()
+      keys.add(prepared.input.key)
+      this.#keys.set(seat.id, keys)
+      if (prepared.input.mcp && seat.closed === null) {
+        // Matched on kind *and* name, never name alone: a skill and a server
+        // may share a name, and a skill that loaded must never make a server
+        // of the same name live (nor lend it the skill's identity).
+        const loadedServer = (name: string): AttachmentLoadResult | undefined =>
+          loadResults.find((r) => r.identity.kind === 'mcp' && r.identity.name === name && r.status === 'loaded')
+        this.#live.set(seat.id, {
+          servers: prepared.input.mcp.flatMap((one) => {
+            const result = loadedServer(one.name)
+            const spec = prepared.servers.get(one.endpoint)
+            return result && spec && result.identity.digest === one.digest ? [{ identity: result.identity, endpoint: one.endpoint, spec }] : []
+          }),
+        })
+      }
+      return record
+    } finally {
+      if (this.#pinned.delete(prepared)) for (const digest of stagedDigests(prepared)) {
+        const left = (this.#opening.get(digest) ?? 0) - 1
+        if (left > 0) this.#opening.set(digest, left)
+        else this.#opening.delete(digest)
+      }
     }
-    await this.#writeFrozen(seat.id, prepared, check)
-    check()
-    if (this.#pinned.delete(prepared)) for (const digest of stagedDigests(prepared)) {
-      const left = (this.#opening.get(digest) ?? 0) - 1
-      if (left > 0) this.#opening.set(digest, left)
-      else this.#opening.delete(digest)
-    }
-    await this.#receipts.append(record, check)
-    check()
-    const keys = this.#keys.get(seat.id) ?? new Set<string>()
-    keys.add(prepared.input.key)
-    this.#keys.set(seat.id, keys)
-    if (prepared.input.mcp && seat.closed === null) {
-      // Matched on kind *and* name, never name alone: a skill and a server
-      // may share a name, and a skill that loaded must never make a server
-      // of the same name live (nor lend it the skill's identity).
-      const loadedServer = (name: string): AttachmentLoadResult | undefined =>
-        loadResults.find((r) => r.identity.kind === 'mcp' && r.identity.name === name && r.status === 'loaded')
-      this.#live.set(seat.id, {
-        servers: prepared.input.mcp.flatMap((one) => {
-          const result = loadedServer(one.name)
-          const spec = prepared.servers.get(one.endpoint)
-          return result && spec && result.identity.digest === one.digest ? [{ identity: result.identity, endpoint: one.endpoint, spec }] : []
-        }),
-      })
-    }
-    return record
   }
 
   /** The keys this Seat's filter was handed under in this process. */
