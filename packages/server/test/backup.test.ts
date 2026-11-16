@@ -1872,7 +1872,6 @@ test('feature restore applies partial choices through the live host and counts a
 test('startup snapshot changes the directory without a backup import', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-startup-race-'))
   const dispose = disposeHostsThenRemove(t, [dir])
-  const { host } = await hostAt(dir); dispose(host)
   const fsp = createRequire(import.meta.url)('node:fs/promises') as typeof import('node:fs/promises')
   const originalRead = fsp.readdir
   const originalRename = fsp.rename
@@ -1890,6 +1889,7 @@ test('startup snapshot changes the directory without a backup import', async t =
   }) as typeof originalRename
   syncBuiltinESMExports()
   try {
+    const { host } = await hostAt(dir); dispose(host)
     await reading
     const before = await originalRead(dir)
     release()
@@ -1921,7 +1921,6 @@ test('a completed startup snapshot leaves the directory unchanged without an imp
   const dispose = disposeHostsThenRemove(t, [dir])
   await seedStartupSnapshot(dir)
   await seedStartupSnapshot(dir)
-  const { host } = await hostAt(dir); dispose(host)
   const fsp = createRequire(import.meta.url)('node:fs/promises') as typeof import('node:fs/promises')
   const originalRead = fsp.readdir
   let entered!: () => void, release!: () => void, checked!: () => void
@@ -1936,6 +1935,7 @@ test('a completed startup snapshot leaves the directory unchanged without an imp
   }) as typeof originalRead
   syncBuiltinESMExports()
   try {
+    const { host } = await hostAt(dir); dispose(host)
     await reading
     const before = await originalRead(dir)
     release()
