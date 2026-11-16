@@ -192,7 +192,10 @@ session totals and cached spend. Allowance is projected field by field from the
 Dashboard cache without requesting a vendor refresh; account addresses,
 identifiers and credentials are omitted. Accounts share a presentation name and
 are distinguished by plan and ordinal. Each account also says how many minutes old its
-reading is and whether the last refresh failed, and the summary names the account
+reading is and whether the last refresh failed. Phone and Lead mark a reading
+stale when its read time is unknown or in the future, its freshness period has
+ended, or a non-placeholder window has passed its reset. Last-known figures and the
+last refresh failure remain visible. The summary names the account
 to use first with its window, what is left and its reset (`pacing`); all of it
 comes from the same cache. A paired phone's usage rows carry the same
 `refreshFailed` flag and, when an allowance is about to be lost, a `pacing` entry
