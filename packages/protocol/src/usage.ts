@@ -285,6 +285,8 @@ export interface UsageReport {
   readonly error: UsageError | null
   /** Figures for another sign-in, drawn beside this account and never read as it. */
   readonly unverified?: UnverifiedUsage | null
+  /** A dated earlier observation for an unverified account, for display only. */
+  readonly historical?: { readonly lanes: readonly UsageLane[]; readonly credits: UsageCredits | null; readonly fetchedAt: number }
   /**
    * A stand-in, not a reading: the agent is tracked, it has been asked since the desk started, and nothing answered for
    * it. Every surface says "Not reporting" for it and shows no figures. Set only by `trackedUsage`.

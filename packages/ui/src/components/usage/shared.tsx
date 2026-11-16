@@ -30,6 +30,7 @@ import {
   byUrgency,
   coverageLabel,
   describeLane,
+  describeLaneReset,
   describeReport,
   drawnReport,
   formatAge,
@@ -198,6 +199,17 @@ export const stateOf = (report: UsageReport, view: ReportView): Readiness => {
 }
 
 /** One account with one agent: what it has left, and how we know. */
+export const HistoricalReading = ({ history, now }: { history: NonNullable<UsageReport['historical']>; now: number }) => (
+  <DashboardLanes>
+    <Separator />
+    <Text as="div" role="meta">Earlier saved reading · {new Date(history.fetchedAt).toLocaleString()} · {formatAge(history.fetchedAt, now)} · account unverified</Text>
+    {history.lanes.map(lane => (
+      <Text key={lane.id} as="div" role="muted">{lane.label}{lane.windowMinutes !== null ? ` (${lane.windowMinutes} min)` : ''}: {lane.usageKnown === false || lane.placeholder ? 'usage unknown' : `${lane.usedPercent}% used`}{lane.resetsAt !== null ? ` · recorded reset ${new Date(lane.resetsAt).toLocaleString()}` : ''}</Text>
+    ))}
+    {history.credits && <Text as="div" role="muted">Earlier balance: {history.credits.unlimited ? 'unlimited' : history.credits.remaining === null ? 'unknown' : `${history.credits.remaining} ${history.credits.unit}`}</Text>}
+  </DashboardLanes>
+)
+
 export const Card = ({
   report,
   info,
@@ -261,8 +273,8 @@ export const Card = ({
         : null
   const headlineReset = hero
     ? (elsewhere
-        ? [view.all.length > 1 && hero.title, resetOf(hero, false), sentence]
-        : [view.all.length > 1 && hero.title, sentence ?? resetOf(hero, false)]
+        ? [view.all.length > 1 && hero.title, describeLaneReset(hero), sentence]
+        : [view.all.length > 1 && hero.title, sentence ?? describeLaneReset(hero)]
       ).filter(Boolean).join(' · ')
     : null
   const agent = info?.presentation.name ?? 'Runtime'
@@ -360,6 +372,8 @@ export const Card = ({
           )}
           </DashboardLanes>
         )}
+
+        {report.historical && <HistoricalReading history={report.historical} now={now} />}
 
         {note && (
           <DashboardReadingNote glyph={noteGlyph(note.tone)} text={<Text role="muted" tone={note.tone ? paletteTone(note.tone) : 'neutral'}>{note.text}</Text>} />
@@ -604,12 +618,6 @@ export { balanceOf, type Balance }
 /** A balance in whatever unit the vendor keeps it in. */
 const amount = (value: number, unit: string): string =>
   unit === 'USD' ? (formatMoney(value) ?? '—') : `${value.toLocaleString()} ${unit}`
-
-/** Which window the headline belongs to, and when it comes back. */
-const resetOf = (lane: LaneView, name: boolean): string =>
-  [name && lane.title, lane.resetClock && `resets ${lane.resetClock}`, lane.countdown && `in ${lane.countdown}`]
-    .filter(Boolean)
-    .join(' · ')
 
 /**
  * The glyph a note wears.

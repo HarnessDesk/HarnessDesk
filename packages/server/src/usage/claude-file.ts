@@ -225,6 +225,7 @@ export class ClaudeFileMeter implements UsageMeter {
           }
         : null
     return {
+      historyIdentity: typeof file.oauthAccount?.accountUuid === 'string' && file.oauthAccount.accountUuid.trim() ? file.oauthAccount.accountUuid : null,
       account,
       plan: planFor(
         file.oauthAccount?.organizationRateLimitTier,

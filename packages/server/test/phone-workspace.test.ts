@@ -328,6 +328,22 @@ const report = (account: string, over: Partial<UsageReport> = {}): UsageReport =
 const ledgerOf = (rows: { key: string; cost: number | null }[], total: number | null, daily: { day: number; cost: number }[] = []): LedgerReport =>
   ({ totalCost: total, scannedAt: NOW - HOUR, rows: rows.map(row => ({ ...row, label: row.key, runtime: null, tokens: 1, hasUnpriced: false })), daily: daily.map(day => ({ ...day, runtime: agent, tokens: 1 })) } as unknown as LedgerReport)
 
+test('phone and Lead omit desktop-only earlier readings and keep current standing unknown', async () => {
+  const a = await fixture(), b = await fixture()
+  try {
+    const current = report('', { plan: null, lanes: [], credits: null, fetchedAt: NOW, error: { code: 'needsSignIn', message: 'Sign in' } as never })
+    const historical = { fetchedAt: NOW - HOUR, lanes: [{ id: 'saved-history-sentinel', label: 'saved-history-sentinel', usedPercent: 91.91, windowMinutes: 300, resetsAt: NOW + HOUR }], credits: null }
+    a.reports = [current]; b.reports = [{ ...current, historical }]
+    a.ledger = b.ledger = () => ledgerOf([], 0)
+    const project = async (f: Fixture) => ({ phone: await f.workspace.workUsage(), dashboard: await f.workspace.dashboardRead({}), lead: await f.workspace.usageSummary(f.reports) })
+    const before = await project(a), after = await project(b)
+    assert.deepEqual(after, before)
+    assert.equal(after.phone!.runtimes[0]!.standing, 'unknown')
+    assert.deepEqual(after.lead.accounts[0]!.windows, [])
+    assert.doesNotMatch(JSON.stringify(after), /historical|saved-history-sentinel|91\.91/)
+  } finally { await Promise.all([a.done(), b.done()]) }
+})
+
 test('the dashboard shows today’s spend, seats, counts, the week and the range, with no account in sight', async () => {
   const f = await populated()
   try {

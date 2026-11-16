@@ -221,6 +221,12 @@ const worst = (a: Tone, b: Tone): Tone => {
   return rank[a] >= rank[b] ? a : b
 }
 
+/** The Dashboard headline's reset words, shared by account readings. */
+export const describeLaneReset = (lane: LaneView, name = false): string =>
+  [name && lane.title, lane.resetClock && `resets ${lane.resetClock}`, lane.countdown && `in ${lane.countdown}`]
+    .filter(Boolean)
+    .join(' · ')
+
 export const describeLane = (
   lane: UsageLane,
   now: number,

@@ -466,6 +466,22 @@ last good copy, or nothing, in its place.
 and deleting the folder deletes them. What the far end keeps of a request is
 that service's policy, the same as any request your machine makes.
 
+The Dashboard can show an earlier saved quota or balance when its first read
+after restart fails. The reading is dated and its account is unverified; it
+never decides whether a runtime may work. The private local cache stores only
+normalized numerical quota and balance facts, not account labels, credentials,
+provider error text or plan prices. It keeps at most 128 runtime readings and
+1 MiB of observations, with at most 32 windows per reading. For a file-backed
+reading, the source account identifier may be compared in memory to detect a
+change of sign-in; it is not saved in this cache. Turning usage
+tracking off does not read its saved reading. Signing out or removing an agent
+forgets its reading; if the local cache cannot be cleared, sign-out still
+proceeds and the desk warns that the anonymous reading may remain on this
+device. A storage failure can leave that earlier reading visible after a later
+restart. A stranded cache lock after an interrupted or failed write leaves saved
+readings unavailable across restarts rather than assuming that a partial
+cleanup succeeded.
+
 ---
 
 ## Vendor clouds — already happening, and not ours to promise about
