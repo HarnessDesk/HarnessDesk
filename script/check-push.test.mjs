@@ -559,3 +559,14 @@ test('template script tests require the Node build even for script-only changes'
   assert.equal(independent.steps.find(step => step.name === 'Node build').status, 'skipped')
   assert.equal(independent.steps.find(step => step.name === 'Script tests').needs, undefined)
 })
+
+test('selected screenshot rig tests build their server imports on a cold checkout', async () => {
+  const { createPlan } = await api()
+  for (const path of ['script/shots-front-door.test.mjs', 'script/shots-isolation.test.mjs', 'script/shots/shoot.mjs']) {
+    const plan = createPlan(root, { paths: [path], fast: true })
+    const scripts = plan.steps.find(step => step.name === 'Script tests')
+    assert.ok(scripts.args.some(arg => ['script/shots-front-door.test.mjs', 'script/shots-isolation.test.mjs'].includes(arg)), path)
+    assert.equal(plan.steps.find(step => step.name === 'Node build').status, 'run', path)
+    assert.deepEqual(scripts.needs, ['Node build'], path)
+  }
+})
