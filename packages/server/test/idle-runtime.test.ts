@@ -1309,3 +1309,38 @@ test('an owner-death callback from a removed runtime cannot cancel its replaceme
     assert.equal(host.registry.opens(current.info.id, id).pending, 1, 'retired runtime cannot revoke replacement')
   } finally { release(); await outcome }
 })
+
+test('a revoked resume waiting for an idle stop cannot restart the runtime', async t => {
+  const { SessionWorktrees } = await import('../src/session-worktrees.js')
+  const runtime = new IdleRuntime({ id: 'revoked-stop' as never })
+  const { host, stateDir } = await makeHost(runtime, 50, 60_000)
+  let releasePrepare!: () => void, entered!: () => void
+  const gate = new Promise<void>(resolve => { releasePrepare = resolve }), began = new Promise<void>(resolve => { entered = resolve })
+  t.after(async () => { releasePrepare(); runtime.continueStop(); await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  await host.start()
+  const created = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: '/w' } })
+  const params = { runtime: runtime.info.id, sessionId: created.id }
+  await host.call('session/close', params)
+  runtime.holdNextStop()
+  const original = SessionWorktrees.prototype.prepare
+  let first = true
+  t.mock.method(SessionWorktrees.prototype, 'prepare', async function (this: InstanceType<typeof SessionWorktrees>, ...args: Parameters<typeof original>) {
+    if (first) { first = false; entered(); await gate }
+    return original.apply(this, args)
+  })
+  const startCount = runtime.starts
+  const opening = host.call('session/resume', params)
+  const refused = assert.rejects(opening, /earlier open/)
+  try {
+    await began
+    await until(() => runtime.stops > 0)
+    releasePrepare()
+    await new Promise(resolve => setImmediate(resolve))
+    await new Promise(resolve => setImmediate(resolve))
+    host.registry.detachAll(params.runtime, params.sessionId)
+    await refused
+    runtime.continueStop()
+    await pause(100)
+    assert.equal(runtime.starts, startCount, 'revoked work cannot restart after the pending stop')
+  } finally { releasePrepare(); runtime.continueStop(); await refused }
+})

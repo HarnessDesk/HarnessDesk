@@ -45,3 +45,40 @@ test('fake resume ownership rejects the wrong generation and retires a gated sta
   fake.dieResumeOwner(id)
   assert.deepEqual(died, [owner]); assert.notEqual(fake.resumeOwner(id), owner)
 })
+
+test('retirement during the rest barrier prevents a subsequent readiness start', async () => {
+  const rest = gate<void>()
+  let starts = 0, opens = 0
+  const attempt = managedResumeAttempt(async (start, check) => {
+    await rest.promise
+    check()
+    starts++ // mirrors the managed proxy invoking #ensureStarted after rest
+    return start()
+  }, () => { opens++; return { result: Promise.resolve({}), retire: async () => {} } })
+  const failed = assert.rejects(attempt.result, /earlier open/)
+  await attempt.retire({ published: false })
+  rest.resolve()
+  await failed
+  assert.equal(starts, 0, 'a revoked attempt cannot start the runtime after a rest wait')
+  assert.equal(opens, 0)
+})
+
+test('a dispatched readiness start settles, but retirement prevents its subsequent raw open', async () => {
+  const starting = gate<void>(), entered = gate<void>()
+  let starts = 0, settled = 0, opens = 0
+  const attempt = managedResumeAttempt(async (start, check) => {
+    check(); starts++; entered.resolve()
+    await starting.promise
+    settled++
+    check()
+    return start()
+  }, () => { opens++; return { result: Promise.resolve({}), retire: async () => {} } })
+  const failed = assert.rejects(attempt.result, /earlier open/)
+  await entered.promise
+  await attempt.retire({ published: false })
+  starting.resolve()
+  await failed
+  assert.equal(starts, 1)
+  assert.equal(settled, 1, 'the already-dispatched start may settle')
+  assert.equal(opens, 0, 'no raw open follows retirement')
+})

@@ -3002,9 +3002,11 @@ export class Host {
         if (typeof member !== 'function') return member
         if (key === 'beginResumeAttempt') {
           return (session: SessionId, options: Partial<import('@harnessdesk/protocol').SessionOptions>, owner: object) => managedResumeAttempt(
-            start => this.#withRuntimeActivity(target, async () => {
+            (start, check) => this.#withRuntimeActivity(target, async () => {
               await this.#restingSessions.get(sessionKey(id, session))
-              await this.#ensureStarted(target)
+              check()
+              await this.#ensureStarted(target, check)
+              check()
               return start()
             }, session),
             () => Reflect.apply(member, target, [session, options, owner]) as import('@harnessdesk/protocol').RuntimeResumeAttempt,
@@ -3724,11 +3726,13 @@ export class Host {
     return observation
   }
 
-  async #ensureStarted(runtime: AgentRuntime): Promise<void> {
+  async #ensureStarted(runtime: AgentRuntime, check: () => void = () => {}): Promise<void> {
     if (this.#disposed) throw new Error('The desk is closing.')
     await this.#waitForRuntimeStop(runtime)
+    check()
     if (runtime.health().state === 'ready') return
     await this.#beginRuntimeStart(runtime, false)
+    check()
   }
 
   async #waitForRuntimeStop(runtime: AgentRuntime): Promise<void> {
