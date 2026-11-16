@@ -350,3 +350,45 @@ test('folding an item event advances the body revision with the actual content',
   assert.ok(record.bodyRevision > before)
   assert.equal(record.session.turns[0]?.items.at(-1)?.id, itemId('late'))
 })
+
+test('coordinated open detach invalidates even when there is no session record', async () => {
+  const registry = new SessionRegistry(), owner = {}
+  let rejectLate!: (error: Error) => void
+  const result = new Promise<never>((_, reject) => { rejectLate = reject })
+  const pending = registry.coordinatedOpen(RUNTIME, ID, owner, () => ({ result, retire: () => new Promise<void>(() => {}) }))
+  const refused = assert.rejects(pending, /finishing an earlier open/)
+  assert.deepEqual(registry.opens(RUNTIME, ID), { opened: 1, pending: 1 })
+  registry.detachAll(RUNTIME, ID)
+  await refused
+  assert.deepEqual(registry.opens(RUNTIME, ID), { opened: 1, pending: 0 })
+  rejectLate(new Error('late'))
+})
+
+test('legacy and coordinated open counts do not double count each other', async () => {
+  const registry = new SessionRegistry(), owner = {}
+  let finish!: (value: object) => void
+  const attempt = new Promise<object>(resolve => { finish = resolve })
+  const opened = registry.coordinatedOpen(RUNTIME, ID, owner, () => ({ result: attempt, retire: async () => {} }))
+  const release = registry.opening(RUNTIME, ID)
+  assert.deepEqual(registry.opens(RUNTIME, ID), { opened: 2, pending: 2 })
+  release(); assert.deepEqual(registry.opens(RUNTIME, ID), { opened: 2, pending: 1 })
+  finish({}); await opened
+  assert.deepEqual(registry.opens(RUNTIME, ID), { opened: 2, pending: 0 })
+})
+
+test('distinct session owners under one runtime retire independently and retain lifetime counts', async () => {
+  const registry = new SessionRegistry(), a = {}, b = {}, replacement = {}, second = sessionId('s-2')
+  let oldDone!: (value: object) => void, otherDone!: (value: object) => void
+  const oldResult = new Promise<object>(resolve => { oldDone = resolve })
+  const otherResult = new Promise<object>(resolve => { otherDone = resolve })
+  const old = registry.coordinatedOpen(RUNTIME, ID, a, () => ({ result: oldResult, retire: () => new Promise<void>(() => {}) }))
+  const other = registry.coordinatedOpen(RUNTIME, second, b, () => ({ result: otherResult, retire: async () => {} }))
+  const refused = assert.rejects(old, /finishing an earlier open/)
+  assert.equal(registry.opens(RUNTIME, ID).pending, 1); assert.equal(registry.opens(RUNTIME, second).pending, 1)
+  registry.coordinatedOwnerDied(RUNTIME, a); await refused
+  assert.equal(registry.opens(RUNTIME, second).pending, 1)
+  const next = registry.coordinatedOpen(RUNTIME, ID, replacement, () => ({ result: Promise.resolve({}), retire: async () => {} }))
+  await next; assert.deepEqual(registry.opens(RUNTIME, ID), { opened: 2, pending: 0 })
+  const handle = {}; otherDone(handle); assert.equal(await other, handle)
+  oldDone({}); await oldResult
+})

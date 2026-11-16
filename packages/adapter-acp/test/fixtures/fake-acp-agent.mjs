@@ -1632,10 +1632,14 @@ const handlers = {
     // A file gate lets a test promote an in-flight read without racing a timer.
     const gate = process.env.FAKE_ACP_LOAD_GATE
     if (gate && !existsSync(gate)) await new Promise(resolve => {
-      const watcher = watch(dirname(gate), () => {
+      if (process.env.FAKE_ACP_LOAD_GATE_POLL === '1') {
+        const interval = setInterval(() => { if (existsSync(gate)) { clearInterval(interval); resolve() } }, 10)
+      } else {
+        const watcher = watch(dirname(gate), () => {
+          if (existsSync(gate)) { watcher.close(); resolve() }
+        })
         if (existsSync(gate)) { watcher.close(); resolve() }
-      })
-      if (existsSync(gate)) { watcher.close(); resolve() }
+      }
     })
     // Hold replay so tests can overlap a read or resume with a load already in flight.
     if (process.env.FAKE_ACP_LOAD_DELAY_MS) await new Promise((resolve) => setTimeout(resolve, Number(process.env.FAKE_ACP_LOAD_DELAY_MS)))

@@ -92,7 +92,7 @@ export class AttachmentReceipts {
    * line over the byte bound, or a declaration list over the per-kind count
    * — bounds a hostile or malformed caller must never be able to grow past.
    */
-  async append(record: SeatAttachmentsRecord): Promise<void> {
+  async append(record: SeatAttachmentsRecord, check: () => void = () => {}): Promise<void> {
     const perKind = (kind: 'skill' | 'mcp' | 'notes'): number => record.declarations.filter((one) => one.kind === kind).length
     if (perKind('skill') > MAX_DECLARATIONS_PER_KIND || perKind('mcp') > MAX_DECLARATIONS_PER_KIND) {
       throw new Error(`A Seat may declare at most ${MAX_DECLARATIONS_PER_KIND} attachments per kind.`)
@@ -102,9 +102,11 @@ export class AttachmentReceipts {
       throw new Error(`This Seat's attachment record is larger than ${MAX_LINE_BYTES / 1024} KiB.`)
     }
     const run = this.#tail.then(async () => {
+      check()
       await mkdir(this.folder, { recursive: true, mode: 0o700 })
       const path = join(this.folder, seatFile(record.seat))
       const existing = await this.#historyOf(path)
+      check()
       const nextEpoch = existing.length === 0 ? 0 : existing[existing.length - 1]!.epoch + 1
       if (record.epoch !== nextEpoch) {
         throw new Error(`This Seat's attachment epoch must increase by exactly one (expected ${nextEpoch}, got ${record.epoch}).`)
@@ -124,6 +126,7 @@ export class AttachmentReceipts {
         await handle.close()
       }
       try {
+        check()
         await rename(temporary, path)
       } finally {
         await rm(temporary, { force: true })

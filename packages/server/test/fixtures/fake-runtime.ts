@@ -748,6 +748,44 @@ export class FakeRuntime implements AgentRuntime {
     }
   }
 
+  /** A deterministic ownership seam for host open/retirement tests. */
+  readonly #resumeOwners = new Map<SessionId, object>()
+  readonly #resumeOwnerListeners = new Set<(owner: object) => void>()
+  resumeAttemptGate: Promise<void> | null = null
+  resumeRetirementGate: Promise<void> | null = null
+  resumeOwner(id: SessionId): object {
+    let owner = this.#resumeOwners.get(id)
+    if (!owner) { owner = {}; this.#resumeOwners.set(id, owner) }
+    return owner
+  }
+  onResumeOwnerDied(listener: (owner: object) => void): Unsubscribe {
+    this.#resumeOwnerListeners.add(listener)
+    return () => { this.#resumeOwnerListeners.delete(listener) }
+  }
+  dieResumeOwner(id: SessionId): void {
+    const owner = this.#resumeOwners.get(id)
+    if (!owner) return
+    this.#resumeOwners.delete(id)
+    for (const listener of this.#resumeOwnerListeners) listener(owner)
+  }
+  beginResumeAttempt(id: SessionId, options: Partial<SessionOptions>, owner: object): import('@harnessdesk/protocol').RuntimeResumeAttempt {
+    if (this.#resumeOwners.get(id) !== owner) throw new Error('wrong resume owner')
+    let retired = false, owned: AgentSession | undefined
+    const result = (async () => {
+      await this.resumeAttemptGate
+      if (retired || this.#resumeOwners.get(id) !== owner) throw new Error('resume attempt retired')
+      const previous = this.sessions.get(id)
+      const live = await this.resumeSession(id, options)
+      if (!previous && this.sessions.get(id) === live) owned = live
+      return live
+    })()
+    return { result, ownsHandle: handle => owned === handle && this.sessions.get(id) === handle, retire: async () => {
+      retired = true
+      await result.catch(() => {})
+      await this.resumeRetirementGate
+    } }
+  }
+
   /** What `resumeSession` throws instead of answering, for failure plumbing. */
   resumeFailure: Error | null = null
 

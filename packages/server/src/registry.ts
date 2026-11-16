@@ -1,3 +1,4 @@
+import { OpenCoordinator, OpenUnavailableError, type OpenAttempt, type OpenAuthority } from './open-coordinator.js'
 import { randomUUID } from 'node:crypto'
 import type { DispatchAdmission } from './dispatch-admission.js'
 import {
@@ -289,6 +290,28 @@ export class SessionRegistry {
    * hand to several callers at once. Kept past a record's removal, so a count never runs backwards.
    */
   readonly #opens = new Map<SessionKey, { readonly opened: number; readonly pending: number }>()
+  readonly #coordinatedOwners = new Map<SessionKey, { runtime: RuntimeId; owner: object }>()
+  readonly #coordinated = new OpenCoordinator({ deadlineMs: 120_000, schedule: (callback, ms) => {
+    const timer = setTimeout(callback, ms)
+    return () => clearTimeout(timer)
+  } })
+  /** The caller supplies an exact owner generation, not a reusable runtime object. */
+  coordinatedOpen<T, U = T>(runtime: RuntimeId, id: SessionId, owner: object,
+    start: (authority: OpenAuthority) => OpenAttempt<T>,
+    complete?: (handle: T, authority: OpenAuthority) => Promise<U>): Promise<U> {
+    const key = sessionKey(runtime, id), prior = this.#coordinatedOwners.get(key)
+    if (prior && prior.owner !== owner) return Promise.reject(new OpenUnavailableError())
+    this.#coordinatedOwners.set(key, { runtime, owner })
+    return this.#coordinated.open(owner, key, start, complete, this)
+  }
+  /** The owner must have confirmed the exact generation is dead before calling this. */
+  coordinatedOwnerDied(runtime: RuntimeId, owner: object): void {
+    const held = [...this.#coordinatedOwners].filter(([, binding]) => binding.runtime === runtime && binding.owner === owner)
+    if (!held.length) return
+    this.#coordinated.runtimeDied(owner)
+    for (const [key] of held) this.#coordinatedOwners.delete(key)
+  }
+
 
   /**
    * One caller is opening this conversation: counted at once, and outstanding until the release it returns. Each
@@ -296,20 +319,23 @@ export class SessionRegistry {
    */
   opening(runtime: RuntimeId, id: SessionId): () => void {
     const key = sessionKey(runtime, id)
-    const held = this.opens(runtime, id)
+    const held = this.#opens.get(key) ?? { opened: 0, pending: 0 }
     this.#opens.set(key, { opened: held.opened + 1, pending: held.pending + 1 })
     let released = false
     return () => {
       if (released) return
       released = true
-      const now = this.opens(runtime, id)
+      const now = this.#opens.get(key) ?? { opened: 0, pending: 0 }
       this.#opens.set(key, { opened: now.opened, pending: Math.max(0, now.pending - 1) })
     }
   }
 
   /** How many opens this conversation has had, and how many are still under way. */
   opens(runtime: RuntimeId, id: SessionId): { readonly opened: number; readonly pending: number } {
-    return this.#opens.get(sessionKey(runtime, id)) ?? { opened: 0, pending: 0 }
+    const key = sessionKey(runtime, id), legacy = this.#opens.get(key) ?? { opened: 0, pending: 0 }
+    const owner = this.#coordinatedOwners.get(key)?.owner
+    const coordinated = this.#coordinated.counts(owner ?? this, key, this)
+    return { opened: legacy.opened + coordinated.opened, pending: legacy.pending + coordinated.pending }
   }
   readonly #pendingNotices = new PendingConversationNotices()
   /**
@@ -660,6 +686,7 @@ export class SessionRegistry {
    */
   apply(runtime: RuntimeId, event: AgentEvent): SessionRecord | undefined {
     if (event.type === 'session/detached') this.detachAll(runtime, event.sessionId)
+    if (event.type === 'session/closed') this.cancelPendingOpen(runtime, event.sessionId)
     if (event.type === 'session/started') {
       return this.upsert(event.session, this.get(runtime, event.session.id)?.live ?? null)
     }
@@ -739,6 +766,12 @@ export class SessionRegistry {
     return this.get(runtime, id)?.attachmentSeat ?? null
   }
 
+  /** Revoke a pending reopen before an explicit close can take effect. */
+  cancelPendingOpen(runtime: RuntimeId, id: SessionId): void {
+    const key = sessionKey(runtime, id), binding = this.#coordinatedOwners.get(key)
+    if (binding) this.#coordinated.detach(binding.owner, key)
+  }
+
   /**
    * Drops live handles without discarding transcripts, e.g. on runtime
    * restart. Returns the conversations whose queue was held, which the host
@@ -746,6 +779,9 @@ export class SessionRegistry {
    * user like a message that vanished.
    */
   detachAll(runtime: RuntimeId, session?: SessionId): SessionRecord[] {
+    for (const [key, binding] of this.#coordinatedOwners) {
+      if (binding.runtime === runtime && (session === undefined || key === sessionKey(runtime, session))) this.#coordinated.detach(binding.owner, key)
+    }
     const held: SessionRecord[] = []
     for (const record of this.#records.values()) {
       if (record.runtime !== runtime || (session !== undefined && record.session.id !== session)) continue

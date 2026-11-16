@@ -268,6 +268,8 @@ export const installCommandFor = (path: string | null | undefined): string => {
   return /node_modules\/@openai\/codex\//.test(real) ? 'npm i -g @openai/codex' : 'brew install codex'
 }
 
+type ResumeOwner = { readonly token: object; readonly death: Promise<void>; readonly died: () => void; track?: { abandoned: boolean; published: boolean } }
+
 export class CodexRuntime implements AgentRuntime {
   readonly #server: CodexAppServer
   readonly #binaryPath: string | null
@@ -284,6 +286,37 @@ export class CodexRuntime implements AgentRuntime {
   /** The shell sessions a thread has left running; see `RuntimeTasks`. */
   readonly tasks: CodexTasks
   readonly #sessions = new Map<string, CodexSession>()
+  readonly #resumeOwners = new Map<SessionId, ResumeOwner>()
+  readonly #resumeOwnerListeners = new Set<(owner: object) => void>()
+  resumeOwner(id: SessionId): object {
+    if (this.#disposed) throw new Error('The agent has stopped.')
+    let owner = this.#resumeOwners.get(id)
+    if (!owner) {
+      let died!: () => void
+      const death = new Promise<void>(resolve => { died = resolve })
+      owner = { token: {}, death, died }; this.#resumeOwners.set(id, owner)
+    }
+    return owner.token
+  }
+  onResumeOwnerDied(listener: (owner: object) => void): Unsubscribe {
+    this.#resumeOwnerListeners.add(listener)
+    return () => { this.#resumeOwnerListeners.delete(listener) }
+  }
+  beginResumeAttempt(id: SessionId, options: Partial<SessionOptions>, token: object): import('@harnessdesk/protocol').RuntimeResumeAttempt {
+    const owner = this.#resumeOwners.get(id)
+    if (!owner || owner.token !== token || owner.track?.abandoned) throw new Error('wrong or retired resume owner')
+    const track = { abandoned: false, published: false }; owner.track = track
+    const result = this.#opened(() => this.#resumeSession(id, options, track))
+    return { result, retire: async state => { track.abandoned = true; track.published = state.published; await owner.death } }
+  }
+  #forgetResumeOwners(): void {
+    for (const owner of this.#resumeOwners.values()) {
+      owner.died()
+      for (const listener of this.#resumeOwnerListeners) listener(owner.token)
+    }
+    this.#resumeOwners.clear()
+  }
+
   readonly #closingSessions = new Map<string, Promise<void>>()
   readonly #delegateSweeps = new Map<string, symbol>()
   /** Closed handles Codex has not yet closed the threads of; see `ThreadReleases`. */
@@ -410,6 +443,10 @@ export class CodexRuntime implements AgentRuntime {
       this.#server.onNotification((notification) => {
         if (notification.method === 'account/updated' || notification.method === 'account/login/completed') this.#identityEpoch++
         if (notification.method === 'account/login/completed') this.#identityActionEpoch++
+        const params = notification.params as unknown as { threadId?: unknown; thread?: { id?: unknown } } | undefined
+        const id = typeof params?.threadId === 'string' ? params.threadId : typeof params?.thread?.id === 'string' ? params.thread.id : undefined
+        const retired = id ? this.#resumeOwners.get(makeSessionId(id))?.track : undefined
+        if (retired?.abandoned && !retired.published) return
         if (this.#releases.ends(notification)) return
         // A review's turn is told as any other turn is before anything reads
         // it; see `ReviewTurns`.
@@ -595,6 +632,7 @@ export class CodexRuntime implements AgentRuntime {
     this.#sessions.clear()
     this.tasks.dispose()
     await this.#server.stop()
+    this.#forgetResumeOwners()
   }
 
   /**
@@ -1378,8 +1416,11 @@ export class CodexRuntime implements AgentRuntime {
     return this.#opened(() => this.#resumeSession(id, options))
   }
 
-  async #resumeSession(id: SessionId, options: Partial<SessionOptions>): Promise<AgentSession> {
+  async #resumeSession(id: SessionId, options: Partial<SessionOptions>, track?: { abandoned: boolean; published: boolean }): Promise<AgentSession> {
+    const check = () => { if (track?.abandoned || !track && this.#resumeOwners.get(id)?.track?.abandoned) throw new Error('The reopen was given up.') }
+    check()
     await this.#closingSessions.get(id)
+    check()
     const frozenServers = this.#runtimeServers.get(id)
     if (frozenServers !== undefined) {
       if (options.runtimeServers !== undefined && JSON.stringify(options.runtimeServers) !== JSON.stringify(frozenServers)) throw new Error('A conversation cannot change its native server selection.')
@@ -1401,8 +1442,11 @@ export class CodexRuntime implements AgentRuntime {
     const existing = this.#sessions.get(id)
     if (existing) return existing
     options = await this.#nativeSelectionFolder(id, options)
+    check()
     const { start, after } = await this.#startParamsFor(options)
+    check()
     const gitCaller = await this.#steerStart(options.cwd, start)
+    check()
     let response: CodexProtocol.v2.ThreadResumeResponse
     try {
       response = await this.#resumeThread({
@@ -1417,6 +1461,7 @@ export class CodexRuntime implements AgentRuntime {
     } catch (error) {
       throw (await this.#busyOr(error, id)) ?? error
     }
+    check()
     // Subscribed again: a thread that was waiting out its minute stays loaded.
     this.#releases.cancel(id)
     // An older close no longer owns this root's descendants, even while registering.
@@ -1428,13 +1473,15 @@ export class CodexRuntime implements AgentRuntime {
       route: options.route ?? null,
       environment: options.environment,
       runtimeServers: options.runtimeServers,
+      ...(track ? { resumeTrack: track } : {}),
     })
+    check()
     if (gitCaller) this.#onGitSession?.(gitCaller, String(session.id))
     if (response.thread.status.type === 'active') {
-      try { await session.recoverActiveTurn() }
-      catch (error) { await session.close(); throw error }
+      try { await session.recoverActiveTurn(); check() }
+      catch (error) { if (!track?.abandoned) await session.close(); throw error }
     }
-    return this.#applyAfterStart(session, after)
+    return this.#applyAfterStart(session, after, check, () => !!track?.abandoned)
   }
 
   /** The desk's standing instruction as a thread verb's field, or nothing when there is none. */
@@ -1593,11 +1640,13 @@ export class CodexRuntime implements AgentRuntime {
   async #applyAfterStart(
     session: CodexSession,
     after: readonly (readonly [string, OptionValue])[],
+    check: () => void = () => {},
+    abandoned: () => boolean = () => false,
   ): Promise<CodexSession> {
     try {
-      for (const [id, value] of after) await session.setOption(id, value)
+      for (const [id, value] of after) { check(); await session.setOption(id, value); check() }
     } catch (error) {
-      await session.close()
+      if (!abandoned()) await session.close()
       throw error
     }
     return session
@@ -1624,15 +1673,18 @@ export class CodexRuntime implements AgentRuntime {
       readonly route?: ResolvedModelRoute | null
       readonly environment?: Readonly<Record<string, string>> | undefined
       readonly runtimeServers?: readonly string[] | undefined
+      readonly resumeTrack?: { abandoned: boolean; published: boolean }
     } = {},
   ): Promise<CodexSession> {
+    if (opened.resumeTrack?.abandoned) throw new Error('The reopen was given up.')
     if (thread.path) this.#sourcePaths.set(makeSessionId(thread.id), thread.path)
     const created = opened.created ?? false
     // Whatever was heard of this thread before it was opened here is over.
     this.#reviewTurns.forget(thread.id)
     let catalog: Catalog
     try { catalog = await this.#catalog.load(state.cwd) }
-    catch (error) { await this.#letGo(thread.id); throw error }
+    catch (error) { if (!opened.resumeTrack?.abandoned) await this.#letGo(thread.id); throw error }
+    if (opened.resumeTrack?.abandoned) throw new Error('The reopen was given up.')
     if (this.#server.state.type !== 'ready') {
       throw new CodexError('notRunning', 'The runtime stopped while the conversation was opening.')
     }
@@ -1678,8 +1730,9 @@ export class CodexRuntime implements AgentRuntime {
           this.tasks.forget(id)
         }, forgetClosing)
       },
-      emit: (event) => this.#emit(event),
+      emit: (event) => { if (!opened.resumeTrack?.abandoned || opened.resumeTrack.published) this.#emit(event) },
     })
+    if (opened.resumeTrack?.abandoned) throw new Error('The reopen was given up.')
     if (opened.runtimeServers !== undefined) this.#runtimeServers.set(thread.id, [...opened.runtimeServers])
     if (opened.environment) this.#environments.set(thread.id, laneEnvironmentOf(opened.environment))
     this.#sessions.set(thread.id, session)
@@ -2326,6 +2379,10 @@ export class CodexRuntime implements AgentRuntime {
     request: CodexProtocol.ServerRequest,
     responder: ServerRequestResponder,
   ): void {
+    const params = request.params as unknown as { threadId?: unknown } | undefined
+    const id = typeof params?.threadId === 'string' ? makeSessionId(params.threadId) : undefined
+    const retired = id ? this.#resumeOwners.get(id)?.track : undefined
+    if (retired?.abandoned && !retired.published) { responder.fail(-32000, 'The reopen was given up.'); return }
     if (request.method === 'item/tool/call') {
       void this.#invokePluginTool(request.params, responder)
       return
@@ -2429,6 +2486,9 @@ export class CodexRuntime implements AgentRuntime {
   #onStateChange(state: ConnectionState): void {
     this.#identityEpoch++
     this.#identityActionEpoch++
+    // `restarting` is emitted only by app-server's exit handler after the exact child exited.
+    // `stopped` alone is not proof: stop() reports it before awaiting process exit.
+    if (state.type === 'restarting' || state.type === 'failed' && state.error.code === 'crashed') this.#forgetResumeOwners()
     const resting = state.type === 'stopped' && this.#idleStopped
     if (state.type !== 'stopped') {
       this.#idleStopped = false

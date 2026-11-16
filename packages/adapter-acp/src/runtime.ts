@@ -1,3 +1,4 @@
+import { ResumeEventFence } from './resume-event-fence.js'
 import { recommendAcpOptions } from './recommendations.js'
 import { randomUUID } from 'node:crypto'
 import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
@@ -447,7 +448,8 @@ const CANCEL_SETTLE_MS = 5_000
 const REOPEN_DEADLINE_MS = 15_000
 
 /** What a stop's reopen is opening on, so a reopen given up on can end it. */
-interface ReopenTrack { connection?: AcpConnection; abandoned?: boolean }
+interface ReopenTrack { connection?: AcpConnection; abandoned?: boolean; owner?: object; id?: SessionId; replay?: AcpSession; published?: boolean }
+type ResumeOwner = { readonly token: object; readonly death: Promise<void>; readonly died: () => void; track?: ReopenTrack }
 
 /**
  * What a start that arrives after the host has finished with the agent says.
@@ -945,6 +947,54 @@ export class AcpRuntime implements AgentRuntime {
   readonly #sessions = new Map<SessionId, AcpSession>()
   readonly #environments = new Map<SessionId, Readonly<Record<string, string>>>()
   readonly #resuming = new Map<SessionId, Promise<AgentSession>>()
+  readonly #resumeEventFence = new ResumeEventFence()
+  readonly #resumeOwners = new Map<SessionId, ResumeOwner>()
+  readonly #resumeOwnerListeners = new Set<(owner: object) => void>()
+  #forgetResumeOwners(connection?: AcpConnection): void {
+    for (const [id, owner] of this.#resumeOwners) {
+      if (connection && owner.track?.connection !== connection) continue
+      this.#resumeOwners.delete(id)
+      this.#resumeEventFence.forget(id, owner.token)
+      owner.died()
+      for (const listener of this.#resumeOwnerListeners) listener(owner.token)
+    }
+  }
+  #trackOwnedReplay(track?: ReopenTrack): void {
+    if (!track?.owner || !track.id || !track.connection || !track.replay || track.published) return
+    this.#resumeEventFence.track(track.id, track.owner, track.connection, track.replay)
+    if (track.abandoned) this.#resumeEventFence.retire(track.id, track.owner)
+  }
+  resumeOwner(id: SessionId): object {
+    if (this.#disposed) throw new Error('The agent has stopped.')
+    let owner = this.#resumeOwners.get(id)
+    if (!owner) {
+      let died!: () => void
+      const death = new Promise<void>(resolve => { died = resolve })
+      owner = { token: {}, death, died }; this.#resumeOwners.set(id, owner)
+    }
+    return owner.token
+  }
+  onResumeOwnerDied(listener: (owner: object) => void): Unsubscribe {
+    this.#resumeOwnerListeners.add(listener)
+    return () => { this.#resumeOwnerListeners.delete(listener) }
+  }
+  beginResumeAttempt(id: SessionId, options: Partial<SessionOptions>, token: object): import('@harnessdesk/protocol').RuntimeResumeAttempt {
+    const owner = this.#resumeOwners.get(id)
+    if (!owner || owner.token !== token || owner.track?.abandoned) throw new Error('wrong or retired resume owner')
+    const track: ReopenTrack = { owner: token, id }
+    owner.track = track
+    this.#cancelReadRest(id); this.#transientReads.delete(id)
+    const result = this.#resumeSession(id, options, track)
+    return { result, retire: async state => {
+      track.abandoned = true
+      track.published = state.published
+      if (state.published) this.#resumeEventFence.forget(id, token)
+      else this.#trackOwnedReplay(track)
+      // The shared peer can keep sending same-ID updates after its response. Only its actual death proves retirement.
+      await owner.death
+    } }
+  }
+
   /**
    * The folder each conversation opened here was opened in, as the agent
    * accepted it in `session/new`. For an agent that keeps no listing — Gemini
@@ -1067,8 +1117,8 @@ export class AcpRuntime implements AgentRuntime {
         if (!worker) this.#handedKeys = new Set(Object.keys(keys))
         return { ...config.env, ...keys }
       },
-      onNotification: (method, params) => this.#onNotification(method, params),
-      onRequest: (method, params) => this.#onAgentRequest(method, params),
+      onNotification: (method, params) => this.#onNotification(connection, method, params),
+      onRequest: (method, params) => this.#onAgentRequest(connection, method, params),
       onStderr: (line) => config.logger?.debug?.('agent stderr', { agent: config.id, line }),
       /* Not `onStderr`: that is the agent's own output and the host files it
          at `debug`, which a default run drops on the floor. This is the host
@@ -1121,7 +1171,7 @@ export class AcpRuntime implements AgentRuntime {
       if (!this.#isProbe(id)) this.emit({ type: 'session/detached', sessionId: id })
     }
     // Keep the connection until its process group has been reaped.
-    void connection.stop().finally(() => this.#workers.delete(connection))
+    void connection.stop().finally(() => { this.#workers.delete(connection); this.#forgetResumeOwners(connection) })
   }
 
   #stoppingConnections: Promise<void> | null = null
@@ -1615,6 +1665,7 @@ export class AcpRuntime implements AgentRuntime {
     // them gets to continue.
     this.#disposed = true
     await this.#stopConnections()
+    this.#forgetResumeOwners()
     this.#sessions.clear()
     this.#invalidateSearchListing()
     this.#resuming.clear()
@@ -3360,6 +3411,7 @@ export class AcpRuntime implements AgentRuntime {
         throw error
       }
     }
+    if (track) { track.connection = connection; this.#trackOwnedReplay(track) }
     const existingId = params['sessionId']
     if (method !== 'session/fork' && typeof existingId === 'string') this.#sessionConnections.set(makeSessionId(existingId), connection)
     let opened = false
@@ -3390,10 +3442,9 @@ export class AcpRuntime implements AgentRuntime {
     if (forking) this.#pendingForks.set(connection, (this.#pendingForks.get(connection) ?? 0) + 1)
     try {
       if (track?.abandoned) throw new Error('The reopen was given up.')
-      return this.#opened(
-        claim(await connection.request<T>(method, extend({ ...params, mcpServers: servers }))),
-        authGeneration,
-      )
+      const result = await connection.request<T>(method, extend({ ...params, mcpServers: servers }))
+      if (track?.abandoned) throw new Error('The reopen was given up.')
+      return this.#opened(claim(result), authGeneration)
     } catch (error) {
       const message = describeAcp(error)
       // The tool-server refusal is answered first, by a retry without the
@@ -3420,7 +3471,9 @@ export class AcpRuntime implements AgentRuntime {
         for (const listener of this.#infoListeners) listener()
       }
       try {
-        return this.#opened(claim(await connection.request<T>(method, extend({ ...params, mcpServers: [] })), false), authGeneration)
+        const result = await connection.request<T>(method, extend({ ...params, mcpServers: [] }))
+        if (track?.abandoned) throw new Error('The reopen was given up.')
+        return this.#opened(claim(result, false), authGeneration)
       } catch (again) {
         if (isAuthRefusal(again)) this.#observeAuth(authGeneration, { state: 'required', message: describeAcp(again) }, 'refusal')
         throw again
@@ -3739,8 +3792,11 @@ export class AcpRuntime implements AgentRuntime {
     return this.#resumeSession(id, options)
   }
 
-  async #resumeSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AcpSession> {
+  async #resumeSession(id: SessionId, options: Partial<SessionOptions> = {}, track?: ReopenTrack): Promise<AcpSession> {
+    const check = () => { if (track?.abandoned || !track && this.#resumeOwners.get(id)?.track?.abandoned) throw new Error('The reopen was given up.') }
+    check()
     await this.#closing.get(id)
+    check()
     const saved = this.#environments.get(id)
     const environment = options.environment ? laneEnvironmentOf(options.environment) : saved
     const requestedCeiling = options.requestedCeiling ?? this.#sessionCeilings.get(id)
@@ -3757,7 +3813,8 @@ export class AcpRuntime implements AgentRuntime {
     const inFlight = this.#resuming.get(id)
     if (inFlight) {
       await inFlight
-      return this.#resumeSession(id, options)
+      check()
+      return this.#resumeSession(id, options, track)
     }
     const live = this.#sessions.get(id)
     // An open handle can acquire host refusal immediately; a native guard
@@ -3781,6 +3838,7 @@ export class AcpRuntime implements AgentRuntime {
     const attachments = unguarded ? this.#attachmentInputs.get(id) ?? options.attachments : options.attachments
     if (live) {
       await live.close()
+      check()
     }
 
     const run = (async () => {
@@ -3803,6 +3861,7 @@ export class AcpRuntime implements AgentRuntime {
       // `cwd` can come from whoever called, and a folder a caller names is
       // exactly the open-root risk `#cwdOf`'s listing-only rule refuses.
       const cwd = options.knownCwd ?? (await this.#cwdOf(id))
+      check()
       // A stored session names the folder it ran in, and loading it starts the
       // agent there. Once that folder is deleted the spawn fails deep inside the
       // agent and comes back as a bare "Internal error" that names nothing —
@@ -3818,6 +3877,7 @@ export class AcpRuntime implements AgentRuntime {
       }
       const session = AcpSession.forReplay(this, id, cwd)
       this.#sessions.set(id, session)
+      if (track) { track.replay = session; this.#trackOwnedReplay(track) }
       // An agent that keeps its conversations but cannot replay one offers
       // `session/resume` alone — DeepSeek Harness's own server does. It
       // restores the context and replays nothing; the session says so
@@ -3831,7 +3891,8 @@ export class AcpRuntime implements AgentRuntime {
           ...(environment
             ? { _meta: environmentMeta(heldCeiling && this.#readCeiling ? { harnessdesk: { ceiling: heldCeiling } } : {}, environment, this.info.capabilities.sessionEnvironment) }
             : heldCeiling && this.#readCeiling ? { _meta: { harnessdesk: { ceiling: heldCeiling } } } : {}),
-        }, attachments)
+        }, attachments, false, track)
+        check()
         // Reapplied, never re-resolved: the caller (the host) is the one that
         // decides whether a resume repeats a Seat's frozen input, exactly as
         // it decided at create. This only remembers what it was handed.
@@ -3844,6 +3905,11 @@ export class AcpRuntime implements AgentRuntime {
         session.finishReplay(loaded, verb === 'session/load')
         return session
       } catch (error) {
+        if (track?.abandoned) {
+          // The attempt is quarantined until its owning connection dies. Never close by shared session id.
+          if (this.#sessions.get(id) === session) this.#sessions.delete(id)
+          throw error
+        }
         this.#environments.delete(id)
         await session.close().catch(() => {})
         if (this.#sessions.get(id) === session) this.#sessions.delete(id)
@@ -3856,7 +3922,7 @@ export class AcpRuntime implements AgentRuntime {
     try {
       return await run
     } finally {
-      this.#resuming.delete(id)
+      if (this.#resuming.get(id) === run) this.#resuming.delete(id)
       await this.#restSharedIfUnused()
     }
   }
@@ -4123,7 +4189,7 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   #onExit(code: number | null): void {
-    void this.#stopConnections()
+    void this.#stopConnections().then(() => this.#forgetResumeOwners())
     this.#setHealth({
       state: 'unavailable',
       reason: 'crashed',
@@ -4159,7 +4225,9 @@ export class AcpRuntime implements AgentRuntime {
     return this.#tasks
   }
 
-  #onNotification(method: string, params: unknown): void {
+  #onNotification(connection: AcpConnection, method: string, params: unknown): void {
+    const id = params && typeof params === 'object' && 'sessionId' in params ? (params as { sessionId?: unknown }).sessionId : undefined
+    if (typeof id === 'string' && this.#resumeEventFence.suppress(id, connection, this.#sessions.get(makeSessionId(id)))) return
     if (method === ACP_TASKS_NOTIFICATION) {
       const changed = params as AcpTasksChanged
       if (typeof changed?.sessionId !== 'string' || !Array.isArray(changed.tasks)) return
@@ -4192,7 +4260,9 @@ export class AcpRuntime implements AgentRuntime {
     this.#sessions.get(makeSessionId(sessionId))?.applyUpdate(update)
   }
 
-  async #onAgentRequest(method: string, params: unknown): Promise<unknown> {
+  async #onAgentRequest(connection: AcpConnection, method: string, params: unknown): Promise<unknown> {
+    const id = params && typeof params === 'object' && 'sessionId' in params ? (params as { sessionId?: unknown }).sessionId : undefined
+    if (typeof id === 'string' && this.#resumeEventFence.suppress(id, connection, this.#sessions.get(makeSessionId(id)))) throw new AcpError('The reopen was given up.')
     if (method === 'session/request_permission') {
       const request = params as AcpPermissionRequest
       const session = this.#sessions.get(makeSessionId(request.sessionId))

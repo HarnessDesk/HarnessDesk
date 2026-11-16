@@ -23,6 +23,7 @@ import {
 import { createChatFolder, rememberChatFolder } from '../chats.js'
 import * as gitOps from '../git-ops.js'
 import { resumeSeatSession } from '../session-resume.js'
+import { OpenUnavailableError } from '../open-coordinator.js'
 import { laneEnvironmentFor } from '../goals/lane-environment.js'
 import { assertAbsoluteCwd } from '../workspace.js'
 import type { HostContext, MethodsUnder } from './context.js'
@@ -71,6 +72,7 @@ const announceUnavailableToolsOnce = async (ctx: HostContext, runtime: AgentRunt
 
 const closeSession = async (ctx: HostContext, params: { runtime: RuntimeId; sessionId: SessionId }): Promise<null> => {
   const record = ctx.registry.get(params.runtime, makeSessionId(params.sessionId))
+  ctx.registry.cancelPendingOpen(params.runtime, makeSessionId(params.sessionId))
   ctx.ceilings.settleHeld(params.runtime, params.sessionId)
   // The handle takes the person's picks with it unless they are kept for the
   // reopen, as the quiet release and archive keep them. A pane closes at
@@ -216,6 +218,32 @@ export const sessionMethods = {
   'session/resume': async (ctx, params) => {
     assertAbsoluteCwd(params.options)
     const runtime = ctx.runtimes.resolve(params)
+    const coordinatedId = makeSessionId(params.sessionId)
+    if (runtime.resumeOwner && runtime.beginResumeAttempt) {
+      return ctx.sessions.coordinatedResume(runtime, coordinatedId, async check => {
+        const { route: _route, attachments: _attachments, runtimeServers: _servers, knownCwd: _cwd, routeId, ...rest } = (params.options ?? {}) as typeof params.options & { routeId?: string }
+        let options = rest as NonNullable<typeof params.options>
+        if (typeof routeId === 'string') { options = { ...options, route: await ctx.routes.resolve(runtime, routeId) }; check() }
+        const frozen = ctx.evidence.seats.latestKeptOf(runtime.info.id, params.sessionId)
+        const standing = ctx.evidence.seats.latestOf(runtime.info.id, params.sessionId)?.standing
+        if (frozen?.runtimeServers !== undefined) options = { ...options, runtimeServers: frozen.runtimeServers }
+        if (standing?.kind === 'ceiling') options = { ...options, requestedCeiling: standing.level }
+        const restored = await ctx.sessionWorktrees.prepare(runtime.info.id, coordinatedId)
+        check()
+        return restored.cwd ? { ...options, cwd: restored.cwd, knownCwd: restored.cwd } : options
+      }, async (live, authority) => {
+        const check = () => { if (!authority.current()) throw new OpenUnavailableError() }
+        check()
+        const resumed = ctx.registry.get(runtime.info.id, live.id)?.session
+        if (!resumed) throw new OpenUnavailableError()
+        await ctx.sessionIndex.refreshMissingFolder(resumed.cwd)
+        check()
+        ctx.loadouts.observe(runtime, live.id, resumed.cwd)
+        await announceUnavailableTools(ctx, runtime, resumed)
+        check()
+        return resumed
+      })
+    }
     const { route: _clientRoute, attachments: _clientAttachments, runtimeServers: _clientRuntimeServers, knownCwd: _clientKnownCwd, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
       routeId?: string
     }
@@ -262,7 +290,7 @@ export const sessionMethods = {
       } catch (error) {
         // The scoped path reopens through the host, which has already worded the
         // refusal and kept its code; wording it again says the sentence twice.
-        if (scoped) throw error
+        if (scoped || error instanceof OpenUnavailableError) throw error
         // A conversation held by another writer is not a failure to explain
         // but a place to be sent; it keeps its own sentence and its code.
         if (isSessionBusy(error)) {

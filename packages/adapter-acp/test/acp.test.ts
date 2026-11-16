@@ -2301,6 +2301,7 @@ const storedAgent = async (
   t: TestContext,
   stored: (dir: string) => Readonly<Record<string, StoredConversation>>,
   env: Readonly<Record<string, string>> = {},
+  sharedSessionProcess = false,
 ): Promise<{ runtime: AcpRuntime; opened: () => Opened[] }> => {
   const { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
@@ -2326,6 +2327,7 @@ const storedAgent = async (
     command: process.execPath,
     args: [FAKE],
     env: { FAKE_ACP_STORE: store, FAKE_ACP_OPENS: opens, ...env },
+    ...(sharedSessionProcess ? { sharedSessionProcess: true } : {}),
   })
   // The agent goes before the folder it writes in.
   t.after(async () => {
@@ -3402,4 +3404,37 @@ test('an agent without status metadata does not acquire a model report from its 
   } finally {
     await runtime.dispose()
   }
+})
+
+test('retired ACP resume discards a gated replay without touching a sibling', async t => {
+  const { mkdtemp, rm, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const dir = await mkdtemp(join(tmpdir(), 'acp-retired-open-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const gate = join(dir, 'continue')
+  const { runtime, opened } = await storedAgent(t, root => ({ target: { cwd: root, turns: [['old']] }, sibling: { cwd: root } }), { FAKE_ACP_LOAD_GATE: gate, FAKE_ACP_LOAD_GATE_POLL: '1' }, true)
+  const events: AgentEvent[] = []
+  runtime.subscribe(event => events.push(event))
+  const sibling = await runtime.createSession({ cwd: dir })
+  const owner = runtime.resumeOwner(sessionId('target'))
+  const attempt = runtime.beginResumeAttempt(sessionId('target'), {}, owner)
+  const rejected = assert.rejects(attempt.result, /given up|retired/)
+  for (let n = 0; n < 500 && !opened().some(one => one.method === 'session/load' && one.sessionId === 'target'); n++) await new Promise(resolve => setTimeout(resolve, 10))
+  assert.ok(opened().some(one => one.method === 'session/load' && one.sessionId === 'target'), 'load reached the gated peer')
+  const retirement = attempt.retire({ published: false })
+  await writeFile(gate, 'go'); await rejected
+  assert.equal(events.some(event => event.type === 'session/started' && String(event.session.id) === 'target'), false)
+  await sibling.send([{ type: 'text', text: 'still available' }])
+  await runtime.dispose(); await retirement
+})
+
+test('retirement preserves events from an already published ACP handle', async t => {
+  const { runtime } = await storedAgent(t, root => ({ target: { cwd: root } }), {}, true)
+  const tape = record(runtime), id = sessionId('target'), owner = runtime.resumeOwner(id)
+  const attempt = runtime.beginResumeAttempt(id, {}, owner)
+  const handle = await attempt.result
+  const retirement = attempt.retire({ published: true })
+  await handle.send([{ type: 'text', text: 'keep working' }])
+  await tape.until(event => event.type === 'item/delta' && event.sessionId === id && event.delta.kind === 'assistantText')
+  await runtime.dispose(); await retirement
 })

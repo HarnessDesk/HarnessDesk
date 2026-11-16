@@ -249,6 +249,9 @@ test('a person who writes while the host dispatches the handoff packet wins: the
 
 test('a cancel never closes the sibling when another opener attached alongside carry-on’s reopen', async t => {
   const r = await rig(t)
+  // A runtime without the owned-attempt capability can return distinct handles; retain the legacy ownership control.
+  r.sibling!.resumeOwner = undefined as never
+  r.sibling!.beginResumeAttempt = undefined as never
   await prefer(r, 'switch')
   const own = <T extends { runtime: unknown }>(value: T): T => ({ ...value, runtime: SIBLING })
   const read = r.sibling!.readSession.bind(r.sibling!)
@@ -290,7 +293,8 @@ test('a cancel never closes the sibling when another opener was handed the very 
   r.sibling!.readSession = async id => own(await read(id))
   const resume = r.sibling!.resumeSession.bind(r.sibling!)
   let session!: Session
-  let calls = 0
+  let calls = 0, entered!: () => void, release!: () => void
+  const began = new Promise<void>(resolve => { entered = resolve }), gate = new Promise<void>(resolve => { release = resolve })
   r.sibling!.resumeSession = async (id, options) => {
     calls += 1
     const first = calls === 1
@@ -302,14 +306,22 @@ test('a cancel never closes the sibling when another opener was handed the very 
       // While carry-on's reopen is in flight: the person writes, and another window opens the same thread there —
       // and the adapter hands it the handle it already holds, so the record sees one attachment, not two.
       person(r, session)
-      await r.host.call('session/resume', { runtime: SIBLING, sessionId: id })
+      entered()
+      await gate
     }
     return handle
   }
   session = await started(r)
   r.primary.sessions.get(session.id)!.fail('You have hit your usage limit.', 'credits')
 
-  await r.client.until(() => calls >= 2 && changes(r).at(-1) === null, 10_000, 'carry-on to stand down')
+  await began
+  const other = r.host.call('session/resume', { runtime: SIBLING, sessionId: session.id })
+  try {
+    await r.client.until(() => r.host.registry.opens(SIBLING, session.id).pending === 2, 5_000, 'both callers to hold a lease')
+  } finally { release() }
+  await other
+  await r.client.until(() => changes(r).at(-1) === null, 10_000, 'carry-on to stand down')
+  assert.equal(calls, 1, 'both callers joined the same adapter open')
   const shared = r.sibling!.sessions.get(session.id)
   assert.ok(shared, 'the shared handle is still the adapter’s')
   assert.equal(r.host.registry.get(SIBLING, session.id)?.live, shared, 'and still open for the other window')
@@ -356,6 +368,118 @@ test('a cancel never closes a handle that replaced the one carry-on’s create a
   assert.ok(replacement)
   assert.equal(r.host.registry.get(OTHER, replacement.id)?.live, replacement, 'the other window’s handle stays open')
   assert.deepEqual(r.sent.filter(one => one.runtime === OTHER), [], 'and the packet never went')
+})
+
+test('detached resume waiters fail before the old adapter open settles', async t => {
+  const r = await rig(t)
+  const session = await started(r)
+  const resume = r.primary.resumeSession.bind(r.primary)
+  let entered!: () => void, release!: () => void, completed!: () => void
+  const began = new Promise<void>(resolve => { entered = resolve })
+  const held = new Promise<void>(resolve => { release = resolve })
+  const finished = new Promise<void>(resolve => { completed = resolve })
+  r.primary.resumeSession = async (id, options) => { try { entered(); await held; return await resume(id, options) } finally { completed() } }
+  const opening = r.host.call('session/resume', { runtime: PRIMARY, sessionId: session.id })
+  const outcome = opening.then(() => 'resolved', () => 'refused')
+  try {
+    await began
+    r.host.registry.detachAll(PRIMARY, session.id)
+    const settled = await Promise.race([outcome, new Promise<string>(resolve => setImmediate(() => resolve('still waiting')))])
+    assert.equal(settled, 'refused', 'detachment rejects the caller without waiting for the adapter')
+  } finally { release(); await outcome; await finished }
+})
+
+test('a detached pending resume cannot attach later or hold carry-on open', async t => {
+  const r = await rig(t)
+  const session = await started(r)
+  const resume = r.primary.resumeSession.bind(r.primary)
+  let entered!: () => void, release!: () => void, completed!: () => void
+  const began = new Promise<void>(resolve => { entered = resolve })
+  const held = new Promise<void>(resolve => { release = resolve })
+  const finished = new Promise<void>(resolve => { completed = resolve })
+  r.primary.resumeSession = async (id, options) => { try { entered(); await held; return await resume(id, options) } finally { completed() } }
+  const opening = r.host.call('session/resume', { runtime: PRIMARY, sessionId: session.id })
+  try {
+    await began
+    assert.equal(r.host.registry.opens(PRIMARY, session.id).pending, 1)
+    r.host.registry.detachAll(PRIMARY, session.id)
+    assert.equal(r.host.registry.opens(PRIMARY, session.id).pending, 0)
+  } finally {
+    release()
+    await opening.catch(() => {}); await finished
+  }
+  assert.equal(r.host.registry.get(PRIMARY, session.id)?.live, null, 'late resume must not reattach')
+})
+
+for (const scopedFirst of [false, true]) test(`${scopedFirst ? 'scoped settings and ordinary resume' : 'ordinary resume and scoped settings'} share one open and publish once`, async t => {
+  const r = await rig(t)
+  const session = await r.client.call('session/create', { runtime: PRIMARY, options: { cwd: '/w' } }) as Session
+  r.host.registry.detachAll(PRIMARY, session.id)
+  const record = r.host.registry.get(PRIMARY, session.id)!, before = record.liveAttaches
+  const resume = r.primary.resumeSession.bind(r.primary), originalCount = r.primary.resumes
+  let entered!: () => void, release!: () => void
+  const began = new Promise<void>(resolve => { entered = resolve }), gate = new Promise<void>(resolve => { release = resolve })
+  r.primary.resumeSession = async (id, options) => { entered(); await gate; return resume(id, options) }
+  const requestOrdinary = () => r.host.call('session/resume', { runtime: PRIMARY, sessionId: session.id })
+  const requestScoped = () => r.host.call('session/settings', { runtime: PRIMARY, sessionId: session.id, patch: {} })
+  let ordinary: ReturnType<typeof requestOrdinary>, scoped: ReturnType<typeof requestScoped>
+  if (scopedFirst) { scoped = requestScoped(); await began; ordinary = requestOrdinary() }
+  else { ordinary = requestOrdinary(); await began; scoped = requestScoped() }
+  try {
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(r.host.registry.opens(PRIMARY, session.id).pending, 2)
+  } finally { release() }
+  const [resumed] = await Promise.all([ordinary, scoped])
+  assert.equal(resumed.id, session.id)
+  assert.equal(r.primary.resumes, originalCount + 1)
+  assert.equal(record.liveAttaches, before + 1)
+  assert.equal(r.host.registry.opens(PRIMARY, session.id).pending, 0)
+})
+
+test('detach during pre-open worktree preparation rejects and never starts the adapter', async t => {
+  const { SessionWorktrees } = await import('../src/session-worktrees.js')
+  const r = await rig(t)
+  const session = await r.client.call('session/create', { runtime: PRIMARY, options: { cwd: '/w' } }) as Session
+  const original = SessionWorktrees.prototype.prepare
+  let entered!: () => void, release!: () => void
+  const began = new Promise<void>(resolve => { entered = resolve }), gate = new Promise<void>(resolve => { release = resolve })
+  t.mock.method(SessionWorktrees.prototype, 'prepare', async function (this: InstanceType<typeof SessionWorktrees>, ...args: Parameters<typeof original>) {
+    entered(); await gate; return original.apply(this, args)
+  })
+  const before = r.primary.resumes
+  const opening = r.host.call('session/resume', { runtime: PRIMARY, sessionId: session.id })
+  const rejected = assert.rejects(opening, /earlier open/)
+  try {
+    await began
+    assert.equal(r.host.registry.opens(PRIMARY, session.id).pending, 1)
+    r.host.registry.detachAll(PRIMARY, session.id)
+    await rejected
+  } finally { release() }
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(r.primary.resumes, before)
+})
+
+test('detached option restoration retains picks and does not write later picks', async t => {
+  const r = await rig(t)
+  const session = await r.client.call('session/create', { runtime: PRIMARY, options: { cwd: '/w' } }) as Session
+  r.host.registry.detachAll(PRIMARY, session.id)
+  const record = r.host.registry.get(PRIMARY, session.id)!
+  record.restedOptions = { model: 'fake-2', tone: 'cheerful' }
+  let entered!: () => void, release!: () => void, finished!: () => void
+  const began = new Promise<void>(resolve => { entered = resolve }), gate = new Promise<void>(resolve => { release = resolve }), done = new Promise<void>(resolve => { finished = resolve })
+  const resume = r.primary.resumeSession.bind(r.primary), writes: string[] = []
+  r.primary.resumeSession = async (id, options) => {
+    const live = await resume(id, options), set = live.setOption.bind(live)
+    live.setOption = async (key, value) => { writes.push(key); if (writes.length === 1) { entered(); await gate } try { return await set(key, value) } finally { finished() } }
+    return live
+  }
+  const opening = r.host.call('session/resume', { runtime: PRIMARY, sessionId: session.id })
+  const rejected = assert.rejects(opening, /earlier open/)
+  try { await began; r.host.registry.detachAll(PRIMARY, session.id); await rejected }
+  finally { release(); await done }
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(writes, ['model'])
+  assert.deepEqual(record.restedOptions, { model: 'fake-2', tone: 'cheerful' })
 })
 
 // ------------------------------------------------------------ review round 5
@@ -466,3 +590,32 @@ const untilLedgerCleared = async (file: string) => {
     await new Promise(resolve => setTimeout(resolve, 10))
   }
 }
+
+test('detach during durable transcript recovery does not readmit a stale record', async t => {
+  const r = await rig(t)
+  const session = await started(r)
+  const store = new TranscriptStore(join(r.stateDir, 'transcripts'))
+  let durable: Session | null = null
+  for (let i = 0; i < 100 && !durable; i++) { durable = await store.recover(PRIMARY, session.id); if (!durable) await new Promise(resolve => setTimeout(resolve, 20)) }
+  assert.ok(durable)
+  r.host.registry.delete(PRIMARY, session.id)
+  let entered!: () => void, release!: () => void
+  const began = new Promise<void>(resolve => { entered = resolve }), gate = new Promise<void>(resolve => { release = resolve })
+  const recover = TranscriptStore.prototype.recover
+  t.mock.method(TranscriptStore.prototype, 'recover', async function (this: TranscriptStore, runtime: Parameters<TranscriptStore['recover']>[0], id: Parameters<TranscriptStore['recover']>[1]) {
+    const kept = await recover.call(this, runtime, id)
+    if (runtime === PRIMARY && id === session.id) { entered(); await gate }
+    return kept
+  })
+  const opening = r.host.call('session/resume', { runtime: PRIMARY, sessionId: session.id })
+  const refused = assert.rejects(opening)
+  try {
+    await began
+    r.host.registry.detachAll(PRIMARY, session.id)
+    await refused
+    release()
+    await new Promise(resolve => setImmediate(resolve))
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(r.host.registry.get(PRIMARY, session.id), undefined, 'a retired recovery cannot re-admit the record')
+  } finally { release(); await refused }
+})

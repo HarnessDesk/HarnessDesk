@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import type { AgentEvent, AgentRuntime } from '@harnessdesk/protocol'
+import { sessionId, type AgentEvent, type AgentRuntime } from '@harnessdesk/protocol'
 import { CodexRuntime } from '../src/index.js'
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-codex.mjs', import.meta.url))
@@ -717,4 +717,42 @@ test('resource observations track only live control and conversation roots witho
   await d.stop()
   assert.deepEqual(d.runtime.resourceProcessIds(), [])
   assert.equal(d.runtime.health().state, 'idle')
+})
+
+test('retired Codex resume cannot publish a late thread and keeps a sibling alive', async t => {
+  const hold = join(tmpdir(), `hd-resume-retire-${process.pid}.hold`)
+  t.after(() => rm(hold, { force: true }))
+  const d = await rig(t, 'hold', { FAKE_CODEX_HOLD_THREAD_OPEN: hold })
+  const old = await d.runtime.createSession({ cwd: d.dir }), sibling = await d.runtime.createSession({ cwd: d.dir })
+  await old.close(); await writeFile(hold, '')
+  const owner = d.runtime.resumeOwner(old.id)
+  const attempt = d.runtime.beginResumeAttempt(old.id, { cwd: d.dir }, owner)
+  const refused = assert.rejects(attempt.result, /given up|retired/)
+  await until(() => d.events.some(event => event.type === 'notice' && event.message === 'THREAD_OPEN_HELD'))
+  const retirement = attempt.retire({ published: false })
+  await rm(hold); await refused
+  assert.equal(d.runtime.session(old.id), undefined)
+  assert.equal(d.runtime.session(sibling.id), sibling)
+  await d.runtime.dispose(); await retirement
+})
+
+test('retirement preserves events from an already published Codex handle', async t => {
+  const d = await rig(t, 'hold', released), old = await d.runtime.createSession({ cwd: d.dir })
+  await old.close()
+  const owner = d.runtime.resumeOwner(old.id), attempt = d.runtime.beginResumeAttempt(old.id, { cwd: d.dir }, owner)
+  const live = await attempt.result, retirement = attempt.retire({ published: true })
+  await live.send([{ type: 'text', text: 'keep working' }])
+  await until(() => d.events.some(event => event.type === 'turn/started' && event.sessionId === live.id))
+  await d.runtime.dispose(); await retirement
+})
+
+for (const maxRestarts of [5, 0]) test(`Codex owner death is reported after app-server exit with ${maxRestarts} restarts`, async t => {
+  const d = await rig(t, 'hold', released, maxRestarts), id = sessionId('owner-death')
+  const owner = d.runtime.resumeOwner(id), deaths: object[] = []
+  d.runtime.onResumeOwnerDied(value => deaths.push(value))
+  const [pid] = await d.servers()
+  assert.ok(pid)
+  process.kill(pid, 'SIGTERM')
+  await until(() => deaths.includes(owner))
+  assert.notEqual(d.runtime.resumeOwner(id), owner)
 })

@@ -693,8 +693,11 @@ export class AttachmentsPlane {
     }
   }
 
-  async #writeFrozen(seat: SeatId, prepared: PreparedAttachments): Promise<void> {
-    if (await this.#readFrozen(seat)) return
+  async #writeFrozen(seat: SeatId, prepared: PreparedAttachments, check: () => void = () => {}): Promise<void> {
+    check()
+    const existing = await this.#readFrozen(seat)
+    check()
+    if (existing) return
     const frozen: FrozenAttachments = {
       version: 1,
       seat,
@@ -716,6 +719,7 @@ export class AttachmentsPlane {
       } finally {
         await handle.close()
       }
+      check()
       await rename(temporary, target)
     } finally {
       await rm(temporary, { force: true })
@@ -731,7 +735,8 @@ export class AttachmentsPlane {
    * exception the caller has to guess the meaning of, and never a reason to
    * expose a tool or send a turn.
    */
-  async record(seat: SeatRecord, prepared: PreparedAttachments, receipt: SessionAttachmentReceipt): Promise<SeatAttachmentsRecord> {
+  async record(seat: SeatRecord, prepared: PreparedAttachments, receipt: SessionAttachmentReceipt, check: () => void = () => {}): Promise<SeatAttachmentsRecord> {
+    check()
     const bindings: Binding[] = prepared.declarations
       .filter((one): one is AttachmentDeclaration & { identity: AttachmentIdentity } => one.identity !== null && one.problem === null)
       .map((one) => ({
@@ -746,6 +751,7 @@ export class AttachmentsPlane {
       if (observed === undefined) throw new Error('not loaded')
       return observed
     })
+    check()
     const byName = new Map(results.map((one) => [`${one.candidate.kind}:${one.candidate.name}`, one]))
     const loadResults: AttachmentLoadResult[] = prepared.declarations
       .filter((one) => one.identity !== null)
@@ -759,6 +765,7 @@ export class AttachmentsPlane {
       })
 
     const previous = await this.#receipts.read(seat.id)
+    check()
     const record: SeatAttachmentsRecord = {
       version: 1,
       seat: seat.id,
@@ -773,13 +780,15 @@ export class AttachmentsPlane {
       results: loadResults,
       restored: false,
     }
-    await this.#writeFrozen(seat.id, prepared)
+    await this.#writeFrozen(seat.id, prepared, check)
+    check()
     if (this.#pinned.delete(prepared)) for (const digest of stagedDigests(prepared)) {
       const left = (this.#opening.get(digest) ?? 0) - 1
       if (left > 0) this.#opening.set(digest, left)
       else this.#opening.delete(digest)
     }
-    await this.#receipts.append(record)
+    await this.#receipts.append(record, check)
+    check()
     const keys = this.#keys.get(seat.id) ?? new Set<string>()
     keys.add(prepared.input.key)
     this.#keys.set(seat.id, keys)
