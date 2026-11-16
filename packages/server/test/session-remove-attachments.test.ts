@@ -352,6 +352,45 @@ for (const ownership of ['unknown', 'shared'] as const) test(`receipt failure pr
   assert.ok(JSON.stringify(desk.harness.host.registry.get(session.runtime, session.id)?.session).includes('new owner output'), 'new owner events are accepted')
 })
 
+test('a filtered resume cannot use tools before its handle is published', async t => {
+  const { desk, session, params } = await seated(t)
+  await desk.client.call('session/remove', { ...params, removed: true })
+  await desk.client.call('session/remove', { ...params, removed: false })
+  let entered!: () => void, release!: () => void
+  const began = new Promise<void>(resolve => { entered = resolve })
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const resume = desk.runtime.resumeSession.bind(desk.runtime)
+  desk.runtime.resumeSession = async (...args: Parameters<typeof resume>) => {
+    const live = await resume(...args)
+    entered()
+    await gate
+    return live
+  }
+  const kernel = new ExtensionKernel(), effects: string[] = []
+  t.after(() => kernel.dispose())
+  await kernel.load({ manifest: { id: 'r4-before', name: 'Before publish' }, plugin: { name: 'r4-before', inject: ['tools'], apply(ctx: { tools: { register(spec: unknown): void } }) { ctx.tools.register({ name: 'probe', description: 'probe', inputSchema: { type: 'object', properties: {} }, execute: () => { effects.push('called'); return 'called' } }) } } as never })
+  const gated = new GatedRegistry(kernel, () => desk.harness.host.ceilingGate)
+  const tool = kernel.list('tool').find(one => one.name === 'probe')!
+  const mcp = attachmentGateway(() => desk.harness.host, () => ({ runtime: String(session.runtime), sessionId: String(session.id) }))
+  const opening = desk.harness.host.call('session/resume', params)
+  try {
+    await began
+    assert.equal(desk.harness.host.registry.get(session.runtime, session.id)?.live, null)
+    const plugin = await gated.invokeTool(tool.id, {}, params)
+    const server = await mcp.mcpCall('token', 'reviewer-tools', 'flag_issue', {})
+    const listed = await mcp.mcpList('token')
+    assert.equal(plugin.ok, false, 'an unpublished handle cannot invoke a plugin')
+    assert.equal(server.ok, false, 'an unpublished handle cannot invoke MCP')
+    assert.deepEqual(listed, [])
+    assert.deepEqual(effects, [])
+    release()
+    await opening
+    assert.equal((await gated.invokeTool(tool.id, {}, params)).ok, true)
+    assert.equal((await mcp.mcpCall('token', 'reviewer-tools', 'flag_issue', {})).ok, true)
+    assert.deepEqual(effects, ['called'])
+  } finally { release(); await opening.catch(() => {}) }
+})
+
 test('closing a conversation during receipt finalization revokes the pending reopen', async t => {
   const { desk, session, params, seat } = await seated(t)
   await desk.client.call('session/remove', { ...params, removed: true })

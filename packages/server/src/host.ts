@@ -9086,11 +9086,12 @@ export class Host {
 
   #unfinalizedFor(runtime: string, id: string): boolean {
     const live = this.registry.get(runtimeId(runtime), makeSessionId(id))?.live
+    const key = String(sessionKey(runtimeId(runtime), makeSessionId(id)))
     // Withholding a preserved owner clears record.live without stopping its
     // callers. Its exact-owner death subscription retires this quarantine;
     // losing the registry reference must not restore access to tools.
-    return this.#withheldResumeEvents.has(String(sessionKey(runtimeId(runtime), makeSessionId(id)))) ||
-      !!live && this.#unfinalizedReopens.has(live)
+    return this.#withheldResumeEvents.has(key) ||
+      (live ? this.#unfinalizedReopens.has(live) : this.#hostReopenWork.has(key))
   }
 
   /** Newly attached filtered handles remain unavailable until their receipt completes. */
