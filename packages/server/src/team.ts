@@ -1515,6 +1515,7 @@ export class Team {
     /** Where a client said it was answering from, for the channel line: an MCP client, or the command line. */
     clientSurface?: 'mcp',
   ): Promise<void> {
+    const by: TeamActor = origin ?? this.#userActor()
     /* An answer is first only once it is saved. While one is still being
        saved the board already reads as answered — the next change is built on
        it — but a failed save puts it back, so nothing that this answer would
@@ -1549,7 +1550,6 @@ export class Team {
     if (client !== undefined && action === 'done' && !person!.outcomes.includes(outcome?.trim() ?? '')) {
       throw Object.assign(new Error('This outcome is not an answer the person role declares.'), { wireCode: 'refused' })
     }
-    const by: TeamActor = origin ?? this.#userActor()
     if (action === 'block') {
       /* `blockedBy: 'hand'`, the same as an agent's `release(blocked)`: a
          completed dependency must never silently restart work somebody
