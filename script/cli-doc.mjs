@@ -72,6 +72,9 @@ export const render = ({ commands, exitCodes, globalOptions, mcp }) => {
   push('Working from a checkout of the repository, `node packages/cli/dist/src/bin.js` is the same program once `pnpm build:node` has run.')
   push('')
 
+  push('Run `harnessdesk --help` by itself to print the command list. It does not need a running desk.')
+  push('')
+
   push('## Picking a desk')
   push('')
   push('A desk is one running HarnessDesk, found by the folder it keeps its state in. `--home DIR` or `HARNESSDESK_HOME` picks it; with neither, it is `~/.harnessdesk`. If no desk is running there, the command exits 3 and names the desks it did find. It never connects to some other desk that happens to be up. `harnessdesk desks` lists the ones running.')

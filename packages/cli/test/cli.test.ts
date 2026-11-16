@@ -46,6 +46,28 @@ test('preview prints attachment counts and indented refusal reasons with sanitiz
   assert.match(chunks.join(''), /skills runtime defaults  servers 0 load · 1 will not load/)
 })
 
+test('root help prints usage without reaching a desk, while mixed help remains invalid', async () => {
+  const out: string[] = [], err: string[] = []
+  const io: CommandIo = { out: text => out.push(text), err: text => err.push(text), interactive: false }
+  assert.equal(await runCommand(['--help'], io), 0)
+  assert.equal(out.join(''), 'harnessdesk <desks|status|teams|runs|watch|open|flows|flow preview|flow start|session show|run show|run stop|run wait|library list|library show|card show|card handoff|card answer|card abandon|waiting> [--home DIR] [--json] [--trace-wire]\n')
+  assert.deepEqual(err, [])
+  for (const args of [['--help', '--json'], ['status', '--help'], ['--bogus'], ['-h']]) {
+    out.length = 0
+    err.length = 0
+    assert.equal(await runCommand(args, io), 2, args.join(' '))
+    assert.deepEqual(out, [])
+    assert.match(err.join(''), /Unknown flag/)
+  }
+})
+
+test('root help reports an output failure through the normal error boundary', async () => {
+  const err: string[] = []
+  const io: CommandIo = { out: () => { throw new Error('output failed') }, err: text => err.push(text), interactive: false }
+  assert.equal(await runCommand(['--help'], io), 1)
+  assert.deepEqual(err, ['output failed\n'])
+})
+
 test('the executable command table covers exactly the public client surface', () => {
   assert.deepEqual(COMMANDS.map(command => command.name), ['desks', 'status', 'teams', 'runs', 'watch', 'open', 'flows', 'flow preview', 'flow start', 'session show', 'run show', 'run stop', 'run wait', 'library list', 'library show', 'card show', 'card handoff', 'card answer', 'card abandon', 'waiting'])
   const methods = new Set<string>(COMMANDS.flatMap(command => [...command.methods]))
