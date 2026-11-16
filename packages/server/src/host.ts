@@ -1613,15 +1613,18 @@ export class Host {
       preferences: () => this.#state.state.preferences,
       projectOf: async cwd => await this.#boardRootOf(cwd) ?? cwd,
       scope: (runtime, sessionId) => this.#gitSteerScope(runtime, sessionId),
+      available: scope => !!scope.owner && this.registry.get(runtimeId(scope.runtime), makeSessionId(scope.sessionId))?.live === scope.owner && !this.#unfinalizedFor(scope.runtime, scope.sessionId),
       ask: (scope, question, signal) => this.#askHeld(scope.runtime, scope.sessionId, question, this.options.heldWaitMs ?? 10 * 60_000, signal),
       admit: async (scope, tool) => {
         const result = await this.#ceilingGate.admit({ tool, needs: tool === 'pr_merge' ? 'merge' : 'publish', publishes: true,
           scope: { runtime: runtimeId(scope.runtime), sessionId: makeSessionId(scope.sessionId), ...(scope.turn ? { turnId: scope.turn as TurnId } : {}) } })
         if (!result.admitted) throw new Error(result.refusal)
         const allowed = await this.#forge.publicationAllowed({ runtime: scope.runtime, sessionId: scope.sessionId })
+        if (this.#unfinalizedFor(scope.runtime, scope.sessionId)) throw new OpenUnavailableError()
         if (!allowed.ok) throw new Error(allowed.reason)
       },
       invoke: async (scope, name, args) => {
+        if (this.#unfinalizedFor(scope.runtime, scope.sessionId)) throw new OpenUnavailableError()
         const tools = this.#requireExtensions()
         const plugin = tools.plugins().find(entry => entry.identity.id === 'git' && entry.identity.source.kind === 'builtin')
         const tool = tools.list('tool', {}).find(entry => entry.name === name && entry.owner === plugin?.instanceId && entry.namespace === String(plugin.instanceId))
@@ -5465,6 +5468,23 @@ export class Host {
   }
 
   async #call<M extends HostMethodName>(method: M, params: HostParams<M>, context = this.#context): Promise<HostResult<M>> {
+    if (method === 'approval/respond') {
+      const addressed = params as HostParams<'approval/respond'>
+      if (this.#unfinalizedFor(addressed.runtime, addressed.sessionId)) {
+        const decision = addressed.decision
+        const approval = this.registry.get(addressed.runtime, addressed.sessionId)?.approvals.get(String(addressed.approvalId))
+        const safe = decision.type === 'cancel' || decision.type === 'option' && approval && 'options' in approval &&
+          approval.options.some(option => option.id === decision.optionId && option.intent === 'deny')
+        if (!safe) throw Object.assign(new OpenUnavailableError(), { approvalNotDelivered: true })
+        const live = this.registry.get(addressed.runtime, addressed.sessionId)?.live
+        if (live) context = { ...context, sessions: { ...context.sessions, live: async query => {
+          if (query.runtime !== addressed.runtime || query.sessionId !== addressed.sessionId ||
+            this.registry.get(addressed.runtime, addressed.sessionId)?.live !== live ||
+            this.registry.get(addressed.runtime, addressed.sessionId)?.approvals.get(String(addressed.approvalId)) !== approval) throw new OpenUnavailableError()
+          return live
+        } } }
+      }
+    }
     try { this.#noteReach(params) }
     catch (error) {
       if (method === 'approval/respond' && error instanceof Error) Object.assign(error, { approvalNotDelivered: true })
@@ -8552,7 +8572,9 @@ export class Host {
     refused: (call, reason) => this.#forge.refuseTool(call.tool, call.args, { runtime: String(call.scope.runtime), sessionId: String(call.scope.sessionId) }, reason, call.startedAt),
     rootOf: (runtime, sessionId) => this.#rootOf(runtime, sessionId),
     ceilingOf: (runtime, sessionId) => this.#ceilingOf(runtime, sessionId),
-    closedOf: (runtime, sessionId) => this.#closedConsultRefusal(runtime, sessionId),
+    closedOf: (runtime, sessionId) => this.#unfinalizedFor(runtime, sessionId)
+      ? 'This conversation is still completing its reopen.'
+      : this.#closedConsultRefusal(runtime, sessionId),
     causeOf: (runtime, sessionId, turnId) => this.#causeOf(runtime, sessionId, turnId),
     nameOf: (runtime, sessionId) => this.#conversationName(runtime, sessionId),
     say: (runtime, sessionId, text) => void this.#say(runtime, sessionId, text),
@@ -8979,10 +9001,12 @@ export class Host {
   async #gitSteerScope(runtime: string, sessionId: string): Promise<SteerScope | null> {
     const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
     if (!record?.live) return null
+    const owner = record.live
     await this.#shellWorkspace({ runtime: runtimeId(runtime), sessionId: makeSessionId(sessionId) })
+    if (this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.live !== owner || this.#unfinalizedReopens.has(owner)) return null
     const cwd = record.shellCheckout?.cwd
     if (!cwd) return null
-    return { runtime, sessionId, cwd, root: record.shellCheckout!.project, turn: String([...record.running].at(-1) ?? record.session.turns.at(-1)?.id ?? ''), name: this.#runtimes.get(runtimeId(runtime))?.info.presentation.name ?? 'Agent' }
+    return { runtime, sessionId, owner, cwd, root: record.shellCheckout!.project, turn: String([...record.running].at(-1) ?? record.session.turns.at(-1)?.id ?? ''), name: this.#runtimes.get(runtimeId(runtime))?.info.presentation.name ?? 'Agent' }
   }
 
   /** Put a desk decision in the conversation's running or latest turn. */
@@ -9056,8 +9080,18 @@ export class Host {
    * A caller that names a route has the reopen run on it. One that arrives
    * while a reopen is already in flight shares that reopen, route and all.
    */
+  #canAnswer(runtime: RuntimeId, id: SessionId, live: AgentSession): boolean {
+    return this.registry.get(runtime, id)?.live === live && !this.#unfinalizedReopens.has(live)
+  }
+
+  #unfinalizedFor(runtime: string, id: string): boolean {
+    const live = this.registry.get(runtimeId(runtime), makeSessionId(id))?.live
+    return !!live && this.#unfinalizedReopens.has(live)
+  }
+
   /** Newly attached filtered handles remain unavailable until their receipt completes. */
   readonly #unfinalizedReopens = new WeakSet<AgentSession>()
+  readonly #unfinalizedApprovals = new WeakMap<AgentSession, Set<string>>()
 
   async #liveFor(runtime: RuntimeId, id: SessionId, route?: ResolvedModelRoute): Promise<AgentSession> {
     const key = sessionKey(runtime, id)
@@ -9577,12 +9611,24 @@ export class Host {
     const needsReceipt = !!reopened && !removed && !priorLive && !!authority
     if (needsReceipt) this.#unfinalizedReopens.add(live)
     authority?.published()
+    const previousLive = this.registry.get(runtime.info.id, id)?.live
+    if (previousLive && previousLive !== live) this.#unfinalizedApprovals.delete(previousLive)
     const record = this.registry.upsert(session, live)
     this.#context.sessions.noteReconciled(record, transcript)
     this.#recordSessionIndex(record.session, true)
     if (reopened && !removed) await this.#finishReopen(runtime, live, reopened, authority, priorLive, openedAtStart, ownsHandle, withhold)
     check()
-    if (needsReceipt) this.#unfinalizedReopens.delete(live)
+    if (needsReceipt) {
+      this.#unfinalizedReopens.delete(live)
+      const pending = this.#unfinalizedApprovals.get(live)
+      this.#unfinalizedApprovals.delete(live)
+      for (const approvalId of pending ?? []) {
+        check()
+        if (this.registry.get(runtime.info.id, id)?.live !== live) break
+        const approval = this.registry.get(runtime.info.id, id)?.approvals.get(approvalId)
+        if (approval) this.#foldEvent(runtime.info.id, { type: 'approval/requested', approval })
+      }
+    }
     if (reopened) this.registry.recordAttachmentSeat(runtime.info.id, live.id, reopened.seat.id)
     if (!alreadyAttached) this.#loadoutHandles.delete(live)
     this.#observeLoadout(runtime, id, record.session.cwd)
@@ -11214,7 +11260,10 @@ export class Host {
     this.#sessionIndex.admitCreated(runtime.info.id, id)
     const existing = this.registry.get(runtime.info.id, id)
     if (existing) {
-      if (existing.live !== live) this.#loadoutHandles.delete(live)
+      if (existing.live !== live) {
+        if (existing.live) this.#unfinalizedApprovals.delete(existing.live)
+        this.#loadoutHandles.delete(live)
+      }
       existing.live = live
       this.#recordSessionIndex(existing.session, true)
       if (observe) this.#observeLoadout(runtime, id, existing.session.cwd)
@@ -11560,6 +11609,16 @@ export class Host {
   }
 
   #foldEvent(runtime: RuntimeId, event: AgentEvent, initialBase?: import('./transcripts.js').DurableTranscriptBase, source?: AgentRuntime, replayOnlyBody = false): void {
+    if (event.type === 'approval/requested' && this.#unfinalizedFor(runtime, event.approval.sessionId)) {
+      const live = this.registry.get(runtime, event.approval.sessionId)?.live
+      if (live) {
+        const pending = this.#unfinalizedApprovals.get(live) ?? new Set<string>()
+        pending.add(String(event.approval.id))
+        this.#unfinalizedApprovals.set(live, pending)
+        this.registry.apply(runtime, event)
+      }
+      return
+    }
     if (event.type === 'approval/requested') {
       this.#abandonedApprovals.delete(`${runtime}\u0000${event.approval.sessionId}\u0000${event.approval.id}`)
     } else if (event.type === 'approval/resolved' && this.#abandonedApprovals.has(`${runtime}\u0000${event.sessionId}\u0000${event.approvalId}`)) {
@@ -11625,7 +11684,11 @@ export class Host {
       }
     }
     if (event.type === 'turn/completed') this.#retiredPersonTurns.delete(this.#turnKey(String(runtime), String(event.sessionId), String(event.turn.id)))
-    if (event.type === 'session/closed' || event.type === 'session/detached') this.#clearPersonTurnMarkers(String(runtime), String(event.sessionId))
+    if (event.type === 'session/closed' || event.type === 'session/detached') {
+      const live = this.registry.get(runtime, event.sessionId)?.live
+      if (live) this.#unfinalizedApprovals.delete(live)
+      this.#clearPersonTurnMarkers(String(runtime), String(event.sessionId))
+    }
     // The host's permission policy runs before the backend's own
     // question reaches a human. A matched approval never renders: it is
     // answered here, audited here, and reported as a notice.
@@ -11650,6 +11713,8 @@ export class Host {
       }
     }
     if (event.type === 'approval/resolved') {
+      const live = this.registry.get(runtime, event.sessionId)?.live
+      if (live) this.#unfinalizedApprovals.get(live)?.delete(String(event.approvalId))
       this.#questions.answered(questionKey(String(runtime), String(event.sessionId)), String(event.approvalId))
     }
     // A denial, noticed while the original approval is still in the
@@ -12106,14 +12171,15 @@ export class Host {
           const base = approval.cwd ?? record.session.cwd
           const cwd = base && this.gitSteering.commandCwd(command, base)
           if (!scope || !cwd || !await this.gitSteering.sameCheckout(scope.cwd, cwd)) throw new Error('Native git command is outside the conversation checkout.')
+          if (!this.#canAnswer(runtime, approval.sessionId, live)) return
           await live.respondToApproval(approval.id, { type: 'option', optionId: deny.id })
           declined = true
           this.#say(String(runtime), String(approval.sessionId), `Steered ${redactGitCommand(command)} to HarnessDesk — ask the agent to use git_push`)
-          if (scope) await this.gitSteering.steer(scope, command, write, false, undefined, cwd)
+          if (scope && this.#canAnswer(runtime, approval.sessionId, live)) await this.gitSteering.steer(scope, command, write, false, undefined, cwd)
         }).catch(error => {
           this.#logger.warn('Git approval steering failed', { error: String(error) })
           if (declined) this.#say(String(runtime), String(approval.sessionId), 'Git steering could not finish; ask the agent to use git_push.')
-          else {
+          else if (this.#canAnswer(runtime, approval.sessionId, live)) {
             const event: AgentEvent = { type: 'approval/requested', approval }
             this.registry.apply(runtime, event)
             this.#audit.record(runtime, event, () => record.session.cwd)
@@ -12173,8 +12239,9 @@ export class Host {
       // Both async rejections and synchronous throws from the runtime responder
       // are caught and safely degrade to surfacing human approval.
       void Promise.resolve()
-        .then(() => live.respondToApproval(approval.id, { type: 'option', optionId: option.id }))
+        .then(() => this.#canAnswer(runtime, approval.sessionId, live) ? live.respondToApproval(approval.id, { type: 'option', optionId: option.id }) : undefined)
         .catch((error: unknown) => {
+          if (!this.#canAnswer(runtime, approval.sessionId, live)) return
           this.#logger.warn('failed to auto-decide approval by policy, falling back to human approval', {
             runtime,
             approvalId: approval.id,
@@ -12244,10 +12311,12 @@ export class Host {
     const option = approval.options.find((entry) => entry.intent === 'approve')
     const record = this.registry.get(runtime, approval.sessionId)
     if (!option || !record?.live) return false
+    const live = record.live
 
     void Promise.resolve()
       .then(async () => {
-        await record.live!.respondToApproval(approval.id, { type: 'option', optionId: option.id })
+        if (!this.#canAnswer(runtime, approval.sessionId, live)) return
+        await live.respondToApproval(approval.id, { type: 'option', optionId: option.id })
         this.#audit.append({
           at: Date.now(),
           runtime,
@@ -12260,6 +12329,7 @@ export class Host {
         })
       })
       .catch((error: unknown) => {
+        if (!this.#canAnswer(runtime, approval.sessionId, live)) return
         this.#logger.warn('failed to answer a flow board tool permission, falling back to human approval', {
           runtime,
           approvalId: approval.id,

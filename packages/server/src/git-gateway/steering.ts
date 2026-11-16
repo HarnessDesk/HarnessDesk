@@ -10,12 +10,13 @@ import type { GitGateway, GitRecordEntry } from './index.js'
 import { gitSteerContext } from './steer-context.js'
 const exec = promisify(execFile)
 const FORGE_OPERATIONS: Readonly<Record<string, GitRecordEntry['op']>> = { pr_create: 'pr.create', pr_update: 'pr.update', pr_merge: 'pr.merge', pr_comment: 'pr.comment', pr_review: 'pr.review', issue_comment: 'issue.comment' }
-export interface SteerScope { readonly runtime: string; readonly sessionId: string; readonly cwd: string; readonly root: string; readonly turn: string; readonly name: string }
+export interface SteerScope { readonly runtime: string; readonly sessionId: string; readonly cwd: string; readonly root: string; readonly turn: string; readonly name: string; readonly owner?: object }
 export interface SteerReply { readonly action: 'done' | 'own'; readonly ok?: boolean; readonly output?: string; readonly ticket?: string }
 export interface SteeringPort {
   preferences(): Record<string, unknown>
   projectOf(cwd: string): Promise<string>
   scope(runtime: string, sessionId: string): Promise<SteerScope | null>
+  available?(scope: SteerScope): boolean
   ask(scope: SteerScope, question: HeldQuestion, signal?: AbortSignal): Promise<'allowed' | 'standing' | 'refused' | 'unanswered'>
   admit(scope: SteerScope, tool: string, args: unknown): Promise<void>
   invoke(scope: SteerScope, tool: string, args: unknown): Promise<ToolResult>
@@ -133,11 +134,12 @@ export class GitSteering {
   }
   async handle(runtime: string, sessionId: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<SteerReply> {
     const scope = await this.port.scope(runtime, sessionId)
-    if (!scope) return { action: 'done', ok: false, output: 'HarnessDesk: this caller has no live conversation.' }
+    if (!scope || this.port.available?.(scope) === false) return { action: 'done', ok: false, output: 'HarnessDesk: this caller has no live conversation.' }
     if (params['modeOnly'] === true) return { action: this.steerFor(scope.root) === 'off' ? 'own' : 'done' }
     if (typeof params['ticket'] === 'string') return this.#finishOwn(scope, params['ticket'], params['exitCode'])
     if (params['binary'] !== 'git' && params['binary'] !== 'gh' || !Array.isArray(params['argv']) || !params['argv'].every(value => typeof value === 'string')) return { action: 'done', ok: false, output: 'HarnessDesk: invalid steering request.' }
     if (typeof params['cwd'] === 'string' && !await this.inside(scope.cwd, params['cwd'])) return { action: 'done', ok: false, output: 'HarnessDesk: this command is outside the conversation checkout; use the git_push tool.' }
+    if (this.port.available?.(scope) === false) return { action: 'done', ok: false, output: 'HarnessDesk: this caller has no live conversation.' }
     const cwd = typeof params['cwd'] === 'string' ? params['cwd'] : scope.cwd
     const command = gitCommandText(params['binary'], params['argv']), write = parseGitWrite(params['binary'], params['argv'], (verb, globals) => this.#aliases(verb, ['-C', cwd, ...globals]))
     if (!write) return { action: 'own' }
@@ -162,6 +164,7 @@ export class GitSteering {
       steeredFrom: command, ...(write.kind === 'push' && write.branch ? { branch: write.branch } : {}), ...(write.kind === 'forge' && typeof write.args['number'] === 'number' ? { number: write.args['number'] } : {}) }, reason)
   }
   async steer(scope: SteerScope, command: string, write = this.parseCommand(command, scope.cwd), allowOwn = true, signal?: AbortSignal, cwd = scope.cwd): Promise<SteerReply> {
+    if (this.port.available?.(scope) === false) return { action: 'done', ok: false, output: 'HarnessDesk: this caller has no live conversation.' }
     this.#expireTickets()
     const mode = this.steerFor(scope.root)
     if (!write) return { action: 'own' }
@@ -185,8 +188,10 @@ export class GitSteering {
           reason: `${!pinned && push ? 'Approve and pin this repository for the project. ' : ''}Through HarnessDesk the write is recorded and runs without this checkout’s git settings. Its own command is not recorded as HarnessDesk’s.`, facts: [{ label: 'Repository', value: `${repository ?? 'Not pinned'}${!pinned && push ? ' (pinned on approval)' : ''}` }, ...(translated.branch ? [{ label: 'Branch', value: translated.branch }, { label: 'Head', value: translated.sha! }] : []), { label: 'Command', value: command }, { label: 'Becomes', value: becomes }],
           options: [{ id: 'allow', label: push ? 'Push through HarnessDesk' : 'Write through HarnessDesk', intent: 'approve' }, ...(allowOwn ? [{ id: 'own', label: push ? 'Let it use its own git' : 'Let it use its own gh', intent: 'alternative' as const }] : []), { id: 'refuse', label: push ? "Don't push" : "Don't write", intent: 'deny' }] }, signal)
         signal?.throwIfAborted()
+        if (this.port.available?.(scope) === false) throw new Error('This conversation is still completing its reopen.')
         if (answer === 'standing' && allowOwn) {
           const ticket = randomUUID(), repository = await this.gateway.pins.pinned(scope.root) ?? await this.gateway.proposedRepository(scope.cwd)
+          if (this.port.available?.(scope) === false) throw new Error('This conversation is still completing its reopen.')
           if (!repository) throw new Error('The project repository could not be identified for the outside record. Use git_push to approve the repository first.')
           if (this.#tickets.size >= 2000) throw new Error('Too many own-git commands are waiting for a result.')
           this.#expireTickets()
@@ -200,6 +205,7 @@ export class GitSteering {
       signal?.throwIfAborted()
       this.port.say(scope, mode === 'redirect' ? `Sent through HarnessDesk · ${command} · your choice for this project` : `Sent through HarnessDesk · ${command} · you approved`)
       if (translated.sha && await this.#gitRead(scope, ['rev-parse', 'HEAD']) !== translated.sha) throw new Error('The checkout head changed while the steering question waited; retry the push.')
+      if (this.port.available?.(scope) === false) throw new Error('This conversation is still completing its reopen.')
       invoked = true
       const result = await gitSteerContext.run({ command, admitted: true, signal, approved, ...(translated.branch && translated.sourceBranch && translated.sha ? { push: { branch: translated.branch, sourceBranch: translated.sourceBranch, sha: translated.sha } } : {}) }, () => this.port.invoke(scope, translated.tool, translated.args))
       if (!result.ok) throw new Error(result.error)

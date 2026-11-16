@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { itemId, type Session } from '@harnessdesk/protocol'
+import { approvalId, itemId, type Session } from '@harnessdesk/protocol'
+
+import { GatedRegistry } from '../src/ceilings/gate.js'
+import { ExtensionKernel } from '@harnessdesk/cordis-host'
+import { attachmentGateway } from '../src/attachments/wiring.js'
 
 import { deskWithMergeAgent, recordOf, reviewAndApprove } from './attachments-lifecycle.test.js'
 
@@ -540,4 +544,150 @@ test('an independently live handle remains usable when another open expires', as
     await desk.harness.host.call('session/options/set', { ...params, optionId: 'tone', value: 'cheerful' })
     await desk.harness.host.call('turn/send', { ...params, input: [{ type: 'text', text: 'valid existing handle' }] })
   } finally { release(); await outcome }
+})
+
+for (const receiptOutcome of ['resolve', 'reject'] as const) test(`an expired filtered reopen cannot auto-approve after receipt ${receiptOutcome}s`, async t => {
+  const { desk, session, params } = await seated(t)
+  const kernel = new ExtensionKernel(), effects: string[] = []
+  t.after(() => kernel.dispose())
+  await kernel.load({ manifest: { id: 'r3-fake', name: 'R3 fake' }, plugin: { name: 'r3-fake', inject: ['tools'], apply(ctx: { tools: { register(spec: unknown): void } }) { ctx.tools.register({ name: 'probe', description: 'probe', inputSchema: { type: 'object', properties: {} }, execute: () => { effects.push('called'); return 'called' } }) } } as never })
+  const gated = new GatedRegistry(kernel, () => desk.harness.host.ceilingGate)
+  const tool = kernel.list('tool').find(one => one.name === 'probe')!
+  const mcp = attachmentGateway(() => desk.harness.host, () => ({ runtime: String(session.runtime), sessionId: String(session.id) }))
+  await desk.client.call('app/state/set', { patch: { permissionPolicy: [{ id: 'r1', name: 'Allow', match: { type: 'command' }, action: 'approve' }] } })
+  const existing = desk.runtime.sessions.get(session.id)!
+  assert.deepEqual(await existing.askApproval(approvalId('r3-valid')), { type: 'option', optionId: 'opt-0' })
+  assert.equal((await gated.invokeTool(tool.id, {}, params)).ok, true)
+  assert.equal((await mcp.mcpCall('token', 'reviewer-tools', 'flag_issue', {})).ok, true)
+  effects.length = 0
+  await desk.client.call('session/remove', { ...params, removed: true })
+  await desk.client.call('session/remove', { ...params, removed: false })
+  let entered!: () => void, release!: () => void, finished!: () => void, expire: (() => void) | undefined
+  const began = new Promise<void>(resolve => { entered = resolve }), gate = new Promise<void>(resolve => { release = resolve }), done = new Promise<void>(resolve => { finished = resolve })
+  const record = desk.harness.host.attachmentsPlane.record.bind(desk.harness.host.attachmentsPlane)
+  t.mock.method(desk.harness.host.attachmentsPlane, 'record', async (...args: Parameters<typeof record>) => {
+    entered(); await gate; try { if (receiptOutcome === 'reject') throw new Error('late refusal'); return await record(...args) } finally { finished() }
+  })
+  const timeout = globalThis.setTimeout
+  t.mock.method(globalThis, 'setTimeout', ((fn: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
+    if (ms === 120_000) expire = () => fn(...args)
+    return timeout(fn, ms, ...args)
+  }) as typeof setTimeout)
+  const opening = desk.harness.host.call('session/resume', params), outcome = opening.then(() => 'resolved', () => 'rejected')
+  try {
+    await began
+    const live = desk.runtime.sessions.get(session.id)!
+    const respond = t.mock.method(live, 'respondToApproval')
+    await live.send([{ type: 'text', text: 'Synthetic active turn' }])
+    void live.askApproval(approvalId('r3-pending'))
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(respond.mock.callCount(), 0, 'no automatic decision before the deadline')
+    assert.equal((await gated.invokeTool(tool.id, {}, params)).ok, false)
+    assert.equal((await mcp.mcpCall('token', 'reviewer-tools', 'flag_issue', {})).ok, false)
+    const steering1 = await desk.harness.host.gitSteering.handle(String(session.runtime), String(session.id), { modeOnly: true })
+    assert.equal(steering1.action, 'done')
+    assert.equal(steering1.ok, false)
+    assert.deepEqual(effects, [])
+    assert.ok(expire); expire(); assert.equal(await outcome, 'rejected')
+    void live.askApproval(approvalId('r3-before'))
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(respond.mock.callCount(), 0, 'no automatic decision while receipt is pending')
+    const capability = await desk.harness.host.ceilingGate.admit({ tool: 'synthetic', needs: 'read', scope: params })
+    assert.equal(capability.admitted, false, 'scoped capabilities cannot be admitted for the provisional handle')
+    assert.equal((await gated.invokeTool(tool.id, {}, params)).ok, false)
+    assert.equal((await mcp.mcpCall('token', 'reviewer-tools', 'flag_issue', {})).ok, false)
+    const steering2 = await desk.harness.host.gitSteering.handle(String(session.runtime), String(session.id), { modeOnly: true })
+    assert.equal(steering2.action, 'done')
+    assert.equal(steering2.ok, false)
+    assert.deepEqual(effects, [])
+    release(); await done
+    await new Promise(resolve => setImmediate(resolve))
+    void live.askApproval(approvalId('r3-after'))
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(respond.mock.callCount(), 0, 'late receipt settlement does not authorize effects')
+    assert.equal((await gated.invokeTool(tool.id, {}, params)).ok, false)
+    assert.equal((await mcp.mcpCall('token', 'reviewer-tools', 'flag_issue', {})).ok, false)
+    const steering3 = await desk.harness.host.gitSteering.handle(String(session.runtime), String(session.id), { modeOnly: true })
+    assert.equal(steering3.action, 'done')
+    assert.equal(steering3.ok, false)
+    assert.deepEqual(effects, [])
+  } finally { release(); await outcome }
+})
+
+test('an approval requested during receipt finalization is answered after successful finalization', async t => {
+  const { desk, session, params } = await seated(t)
+  await desk.client.call('app/state/set', { patch: { permissionPolicy: [{ id: 'r1', name: 'Allow', match: { type: 'command' }, action: 'approve' }] } })
+  await desk.client.call('session/remove', { ...params, removed: true })
+  await desk.client.call('session/remove', { ...params, removed: false })
+  let entered!: () => void, release!: () => void
+  const began = new Promise<void>(resolve => { entered = resolve }), gate = new Promise<void>(resolve => { release = resolve })
+  const record = desk.harness.host.attachmentsPlane.record.bind(desk.harness.host.attachmentsPlane)
+  t.mock.method(desk.harness.host.attachmentsPlane, 'record', async (...args: Parameters<typeof record>) => { entered(); await gate; return record(...args) })
+  const opening = desk.harness.host.call('session/resume', params)
+  try {
+    await began
+    const live = desk.runtime.sessions.get(session.id)!
+    await live.send([{ type: 'text', text: 'Synthetic active turn' }])
+    const respond = t.mock.method(live, 'respondToApproval')
+    const answer = live.askApproval(approvalId('r3-deferred'))
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(respond.mock.callCount(), 0)
+    release(); await opening
+    assert.deepEqual(await answer, { type: 'option', optionId: 'opt-0' })
+    assert.equal(respond.mock.callCount(), 1)
+  } finally { release(); await opening }
+})
+
+test('a pending unmatched approval remains answerable after successful receipt finalization', { timeout: 20_000 }, async t => {
+  const { desk, session, params } = await seated(t)
+  await desk.client.call('session/remove', { ...params, removed: true })
+  await desk.client.call('session/remove', { ...params, removed: false })
+  let entered!: () => void, release!: () => void
+  const began = new Promise<void>(resolve => { entered = resolve }), gate = new Promise<void>(resolve => { release = resolve })
+  const record = desk.harness.host.attachmentsPlane.record.bind(desk.harness.host.attachmentsPlane)
+  t.mock.method(desk.harness.host.attachmentsPlane, 'record', async (...args: Parameters<typeof record>) => { entered(); await gate; return record(...args) })
+  const opening = desk.harness.host.call('session/resume', params)
+  let active: ReturnType<typeof desk.runtime.sessions.get>
+  try {
+    await began
+    const live = desk.runtime.sessions.get(session.id)!
+    active = live
+    await live.send([{ type: 'text', text: 'Synthetic active turn' }])
+    const answer = live.askApproval(approvalId('r3-unmatched'))
+    release(); await opening
+    await desk.client.until(() => desk.client.events.some(event => event.type === 'approval/requested' && String(event.approval.id) === 'r3-unmatched'))
+    await desk.client.call('approval/respond', { ...params, approvalId: 'r3-unmatched', decision: { type: 'option', optionId: 'opt-1' } })
+    assert.deepEqual(await answer, { type: 'option', optionId: 'opt-1' })
+  } finally { active?.finish(); release(); await opening }
+})
+
+test('a pending provisional approval can be explicitly denied without granting it', async t => {
+  const { desk, session, params } = await seated(t)
+  await desk.client.call('session/remove', { ...params, removed: true })
+  await desk.client.call('session/remove', { ...params, removed: false })
+  let entered!: () => void, release!: () => void
+  const began = new Promise<void>(resolve => { entered = resolve }), gate = new Promise<void>(resolve => { release = resolve })
+  const record = desk.harness.host.attachmentsPlane.record.bind(desk.harness.host.attachmentsPlane)
+  t.mock.method(desk.harness.host.attachmentsPlane, 'record', async (...args: Parameters<typeof record>) => { entered(); await gate; return record(...args) })
+  const opening = desk.harness.host.call('session/resume', params)
+  try {
+    await began
+    const live = desk.runtime.sessions.get(session.id)!
+    const answer = live.askApproval(approvalId('r3-deny'))
+    await assert.rejects(desk.harness.host.call('approval/respond', { ...params, approvalId: approvalId('r3-deny'), decision: { type: 'option', optionId: 'opt-0' } }))
+    await desk.harness.host.call('approval/respond', { ...params, approvalId: approvalId('r3-deny'), decision: { type: 'option', optionId: 'opt-1' } })
+    assert.deepEqual(await answer, { type: 'option', optionId: 'opt-1' })
+    release(); await opening
+  } finally { release(); await opening }
+})
+
+test('an MCP caller revoked during preparation cannot start the approved server', async t => {
+  const { desk, session } = await seated(t)
+  const scope = { runtime: String(session.runtime), sessionId: String(session.id) }
+  let reads = 0
+  const backend = attachmentGateway(() => desk.harness.host, () => ++reads < 3 ? scope : undefined)
+  const answer = await backend.mcpCall('token', 'reviewer-tools', 'flag_issue', {})
+  assert.deepEqual(answer, { ok: false, reason: 'This connection is no longer live. Start a new Seat to reach this server.' })
+  reads = 0
+  assert.deepEqual(await backend.mcpList('token'), [])
 })
