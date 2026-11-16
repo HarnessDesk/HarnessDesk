@@ -583,8 +583,8 @@ export const TEAM_START_POLICIES = {
   "mechanical-contest": {
     "version": 2,
     "name": "Mechanical contest",
-    "description": "Two attempts, and a script decides between them by its exit status alone — never an agent's own prose.",
-    "summary": "Two attempts; a script's exit status decides.",
+    "description": "Two isolated attempts, optional project checks, then a person chooses and merges one.",
+    "summary": "Two attempts; optional project checks, then you choose.",
     "inputs": [
       {
         "id": "task",
@@ -605,21 +605,6 @@ export const TEAM_START_POLICIES = {
         "independentOf": []
       },
       {
-        "id": "decide",
-        "kind": "check",
-        "check": {
-          "run": "script/flow-contest.sh",
-          "cwd": ".",
-          "timeout": 300,
-          "exits": {
-            "0": "first",
-            "1": "second",
-            "2": "draw"
-          },
-          "otherwise": "no-contest"
-        }
-      },
-      {
         "id": "referee",
         "kind": "person",
         "outcomes": [
@@ -630,53 +615,20 @@ export const TEAM_START_POLICIES = {
     ],
     "rules": [
       {
-        "id": "to-decide",
+        "id": "to-person",
         "on": "competitor",
         "then": {
-          "role": "decide",
-          "title": "Decide between the two attempts"
-        }
-      },
-      {
-        "id": "first-wins",
-        "on": "decide",
-        "when": {
-          "every": [
-            "first"
-          ]
-        },
-        "then": {
           "role": "referee",
-          "title": "Merge the first attempt"
-        }
-      },
-      {
-        "id": "second-wins",
-        "on": "decide",
-        "when": {
-          "every": [
-            "second"
-          ]
-        },
-        "then": {
-          "role": "referee",
-          "title": "Merge the second attempt"
-        }
-      },
-      {
-        "id": "drawn",
-        "on": "decide",
-        "when": {
-          "every": [
-            "draw"
-          ]
-        },
-        "then": {
-          "role": "referee",
-          "title": "Pick between two equally scoring attempts"
+          "title": "Choose and merge an attempt"
         }
       }
     ],
+    "complete": {
+      "referee": [
+        "merged",
+        "dropped"
+      ]
+    },
     "seed": {
       "role": "competitor",
       "title": "{{task}}"
@@ -807,6 +759,12 @@ export const TEAM_START_POLICIES = {
         }
       }
     ],
+    "complete": {
+      "referee": [
+        "merged",
+        "dropped"
+      ]
+    },
     "seed": {
       "role": "fixer",
       "title": "{{task}}",
