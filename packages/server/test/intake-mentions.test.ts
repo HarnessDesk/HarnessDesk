@@ -428,6 +428,9 @@ test('linked review progress survives a Host restart without resuming twice', E2
   d.forge.pulls[0]!.updated = at
   d.clocks.advance(60_000); await d.host.intakePlane.tick()
   assert.equal((await decisions(d)).threads[0]!.resumes, 1)
+  await d.host.intakePlane.deskPosted({ kind: 'comment', action: 'posted', repo: 'acme/widgets', number: 5,
+    url: 'https://github.com/acme/widgets/pull/5#discussion_r201', title: null, state: null, author: null,
+    additions: null, deletions: null, files: null, excerpt: null, via: 'gh', signature: null })
   const pulls = structuredClone(d.forge.pulls)
   await d.stop()
   const restored = await desk(t, ASK(), { stateDir: d.stateDir, repo: d.repo, clocks: d.clocks, arm: false })
@@ -438,8 +441,14 @@ test('linked review progress survives a Host restart without resuming twice', E2
   // rather than reusing the prior process's conversation ID.
   assert.ok(restored.runtime instanceof HoldFake)
   restored.runtime.reuseId = 'synthetic-restart-session'
+  const selfAt = restored.clocks.wall + 1000
+  restored.forge.pulls[0]!.reviews!.push({ id: 102, commit_id: sha('c'), body: '', state: 'COMMENTED', submitted_at: new Date(selfAt).toISOString(), user: ME })
+  restored.forge.pulls[0]!.reviewComments = [{ id: 201, review: 102, body: '@dex stop', created: selfAt, updated: selfAt, user: ME }]
+  restored.clocks.advance(60_000); await restored.host.intakePlane.tick()
+  assert.equal((await decisions(restored)).threads[0]!.resumes, 1)
+  assert.equal((await decisions(restored)).threads[0]!.state, 'open', 'a remembered desk inline stop cannot stop its own thread after restart')
   const next = restored.clocks.wall + 1000
-  restored.forge.pulls[0]!.reviews!.push({ id: 102, commit_id: sha('c'), body: '@dex also check the retry', state: 'COMMENTED', submitted_at: new Date(next).toISOString(), user: ME })
+  restored.forge.pulls[0]!.reviews!.push({ id: 103, commit_id: sha('c'), body: '@dex also check the retry', state: 'COMMENTED', submitted_at: new Date(next).toISOString(), user: ME })
   restored.forge.pulls[0]!.updated = next
   restored.clocks.advance(60_000); await restored.host.intakePlane.tick()
   assert.equal((await decisions(restored)).threads[0]!.resumes, 2, 'later reviews still resume after restart')
@@ -1887,4 +1896,29 @@ test('baseline comment progress survives a Host restart without leaking cleanup'
   for (const run of new Set((await history(restored)).items.flatMap(item => item.run ? [item.run] : []))) {
     await restored.host.flowsPlane.stopRun(run, 'The test is finished.')
   }
+})
+
+test('a review between two linked thread openings resumes the eligible older thread', async () => {
+  const home = tempDir('hd-mention-review-open-order-')
+  const first = 'a'.repeat(64), second = 'b'.repeat(64), resumed = 'c'.repeat(64)
+  const thread = (id: string, openedAt: number, firing: string, issue: number) => ({ id, trigger: 'ask', project: '/fixture', repository: 'acme/widgets',
+    origin: { kind: 'issue' as const, number: issue }, links: { issues: [issue], pulls: [5], goals: [] }, state: 'open', closed: null,
+    resumes: 0, observations: 0, openedAt, firings: [firing], seen: [] })
+  await writeFile(join(home, LEDGER), JSON.stringify({ version: 1, decisions: [], threads: [thread('newer', 3000, first, 1), thread('older', 1000, second, 2)], pendingThreads: [], modes: {}, assessed: { day: '', count: 0 } }))
+  const pending = new Set([first, second])
+  const port = { home, forge: {}, assess: null, leadName: () => 'dex', pendingFirings: () => [...pending], knowsFirings: () => true,
+    observationWindowMs: 300_000, now: () => 4000, signal: new AbortController().signal, changed() {}, log() {} } as any
+  const arm = { project: '/fixture', id: 'ask', definition: parseTriggers(ASK()).definitions[0]!, baseline: 0, armedAt: 0,
+    binding: { project: '/fixture', incarnation: 'fixture', source: 'fixture', closure: 'fixture', account: '7', repository: 'acme/widgets' } }
+  const fact = { source: 'mention' as const, project: '/fixture', repository: 'acme/widgets', subject: '5', event: 'review', action: 'commented' as const,
+    thread: 'pull-request' as const, head: null, fork: false, title: '', trigger: null, at: 2000, author: '7', login: 'jane-doe',
+    body: '@dex please add a test', url: 'https://github.com/acme/widgets/pull/5#pullrequestreview-55' }
+  const triage = new MentionTriage(port)
+  await triage.setMode(arm, 'act')
+  let subject = ''
+  await triage.judge(arm, fact, async (_arm, input) => { subject = input.subject; pending.add(resumed); return { outcome: 'fired', firing: resumed, goal: null, reason: null } })
+  const saved = JSON.parse(await readFile(join(home, LEDGER), 'utf8')) as { threads: { id: string; resumes: number }[] }
+  assert.equal(subject, '2', 'the eligible older origin receives the review')
+  assert.equal(saved.threads.find(one => one.id === 'newer')?.resumes, 0)
+  assert.equal(saved.threads.find(one => one.id === 'older')?.resumes, 1)
 })
