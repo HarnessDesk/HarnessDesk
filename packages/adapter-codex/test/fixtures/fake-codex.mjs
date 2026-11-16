@@ -552,13 +552,14 @@ const forcedLoginMethod = process.env['FAKE_CODEX_FORCED_LOGIN'] ?? null
 let activeLogin = null
 const retiredLogins = new Set()
 let loginCounter = 0
+let identityReadCount = 0
 
 const completeLogin = (loginId, success, error) => {
   if (activeLogin?.id === loginId) activeLogin = null
   retiredLogins.add(loginId)
   if (success) signedIn = true
   notify('account/login/completed', { loginId, success, error })
-  if (success) notify('account/updated', { authMode: 'chatgpt', planType: 'team' })
+  if (success && process.env['FAKE_CODEX_SKIP_LOGIN_UPDATE'] !== '1') notify('account/updated', { authMode: 'chatgpt', planType: 'team' })
 }
 
 const startLogin = (type) => {
@@ -2477,8 +2478,12 @@ rl.on('line', (line) => {
       } else if (params?.refreshWorkspaceMetadata !== false) {
         send({ id, error: { code: -32602, message: 'fixture forbids membership refresh' } })
       } else {
-        if (process.env.FAKE_CODEX_IDENTITY_UPDATE_BEFORE_REPLY === '1') notify('account/updated', { authMode: 'chatgpt', planType: 'team' })
-        send({ id, result: JSON.parse(process.env.FAKE_CODEX_SESSION_IDENTITY) })
+        identityReadCount++
+        if (process.env.FAKE_CODEX_IDENTITY_UPDATE_BEFORE_REPLY === '1' || (process.env.FAKE_CODEX_IDENTITY_UPDATE_ONCE === '1' && identityReadCount === 1)) notify('account/updated', { authMode: 'chatgpt', planType: 'team' })
+        const response = identityReadCount > 1 && process.env.FAKE_CODEX_SESSION_IDENTITY_SECOND ? process.env.FAKE_CODEX_SESSION_IDENTITY_SECOND : process.env.FAKE_CODEX_SESSION_IDENTITY
+        const hold = (identityReadCount === Number(process.env.FAKE_CODEX_IDENTITY_HOLD_AT)) ? process.env.FAKE_CODEX_IDENTITY_HOLD : null
+        if (hold && process.env.FAKE_CODEX_IDENTITY_COMPLETE_WHILE_HELD === '1') notify('account/login/completed', { loginId: 'retired-fixture', success: false, error: 'retired' })
+        replyAfterHold(hold, id, JSON.parse(response), 'IDENTITY_HELD')
       }
       return
 

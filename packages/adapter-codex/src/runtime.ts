@@ -328,6 +328,7 @@ export class CodexRuntime implements AgentRuntime {
   #lastAccount: AccountStatus | null = null
   #accountEpoch = 0
   #identityEpoch = 0
+  #identityActionEpoch = 0
   #lastRateLimits: RateLimits | null = null
   #lastAccountActivity: AccountActivity | null = null
   #lastFeatures: CodexProtocol.v2.ExperimentalFeature[] = []
@@ -408,6 +409,7 @@ export class CodexRuntime implements AgentRuntime {
     this.#disposeServer.push(
       this.#server.onNotification((notification) => {
         if (notification.method === 'account/updated' || notification.method === 'account/login/completed') this.#identityEpoch++
+        if (notification.method === 'account/login/completed') this.#identityActionEpoch++
         if (this.#releases.ends(notification)) return
         // A review's turn is told as any other turn is before anything reads
         // it; see `ReviewTurns`.
@@ -500,6 +502,7 @@ export class CodexRuntime implements AgentRuntime {
 
   async start(): Promise<void> {
     this.#identityEpoch++
+    this.#identityActionEpoch++
     // Read beside the spawn, never ahead of it: a quit must find the start where it always did.
     this.#providerRead = this.#readProvider()
     await this.#spawnServer()
@@ -583,6 +586,7 @@ export class CodexRuntime implements AgentRuntime {
 
   async dispose(): Promise<void> {
     this.#identityEpoch++
+    this.#identityActionEpoch++
     this.#disposed = true
     this.#idleStopped = false
     for (const unsubscribe of this.#disposeServer) unsubscribe()
@@ -617,6 +621,7 @@ export class CodexRuntime implements AgentRuntime {
     if (!this.canStopForIdle()) return false
     this.#idleStopped = true
     this.#identityEpoch++
+    this.#identityActionEpoch++
     await this.#server.stop()
     return true
   }
@@ -816,18 +821,30 @@ export class CodexRuntime implements AgentRuntime {
 
   async accountIdentitySnapshot(): Promise<{ key: string; generation: number } | null> {
     if (this.#disposed || this.#server.state.type !== 'ready') return null
-    const generation = this.#identityEpoch
+    const action = this.#identityActionEpoch
+    const server = this.#server
     try {
-      const answer = await this.#server.request('accountSession/list', { refreshWorkspaceMetadata: false }, { timeoutMs: 5_000 })
-      if (generation !== this.#identityEpoch || this.#server.state.type !== 'ready') return null
-      const id = answer.activeSessionId
-      if (typeof id !== 'string' || !id.trim() || !Array.isArray(answer.sessions) || answer.sessions.some(session => !session || typeof session.sessionId !== 'string' || !session.sessionId.trim() || typeof session.isActive !== 'boolean')) return null
-      const active = answer.sessions.filter(session => session.isActive === true)
-      if (!id || active.length !== 1 || active[0]?.sessionId !== id || answer.sessions.filter(session => session.sessionId === id).length !== 1) return null
-      const { userId, selectedWorkspaceAccountId: workspace } = active[0]
-      if (typeof userId !== 'string' || typeof workspace !== 'string' || !userId.trim() || !workspace.trim() || userId !== userId.trim() || workspace !== workspace.trim() || userId.length > 4096 || workspace.length > 4096) return null
-      const key = createHash('sha256').update(JSON.stringify(['codex-session-v1', userId, workspace])).digest('hex')
-      return { key: `codex-session-v1:${key}`, generation }
+      let generation = this.#identityEpoch
+      let answer = await server.request('accountSession/list', { refreshWorkspaceMetadata: false }, { timeoutMs: 5_000 })
+      const keyOf = (answer: CodexProtocol.v2.AccountSessionsResponse): string | null => {
+        const id = answer.activeSessionId
+        if (typeof id !== 'string' || !id.trim() || !Array.isArray(answer.sessions) || answer.sessions.some(session => !session || typeof session.sessionId !== 'string' || !session.sessionId.trim() || typeof session.isActive !== 'boolean')) return null
+        const active = answer.sessions.filter(session => session.isActive === true)
+        if (!id || active.length !== 1 || active[0]?.sessionId !== id || answer.sessions.filter(session => session.sessionId === id).length !== 1) return null
+        const { userId, selectedWorkspaceAccountId: workspace } = active[0]
+        if (typeof userId !== 'string' || typeof workspace !== 'string' || !userId.trim() || !workspace.trim() || userId !== userId.trim() || workspace !== workspace.trim() || userId.length > 4096 || workspace.length > 4096) return null
+        const key = createHash('sha256').update(JSON.stringify(['codex-session-v1', userId, workspace])).digest('hex')
+        return `codex-session-v1:${key}`
+      }
+      if (!keyOf(answer) || action !== this.#identityActionEpoch || server !== this.#server || this.#server.state.type !== 'ready') return null
+      if (generation !== this.#identityEpoch) {
+        generation = this.#identityEpoch
+        answer = await server.request('accountSession/list', { refreshWorkspaceMetadata: false }, { timeoutMs: 5_000 })
+        if (action !== this.#identityActionEpoch || server !== this.#server || generation !== this.#identityEpoch || this.#server.state.type !== 'ready') return null
+      }
+      const key = keyOf(answer)
+      if (key === null) return null
+      return { key, generation }
     } catch { return null }
   }
 
@@ -854,6 +871,7 @@ export class CodexRuntime implements AgentRuntime {
    */
   async login(method: string): Promise<LoginStart> {
     this.#identityEpoch++
+    this.#identityActionEpoch++
     const params = loginParamsFor(method)
     if (!params) {
       throw new Error(`Sign-in method ${JSON.stringify(method)} cannot be started from the interface.`)
@@ -879,6 +897,7 @@ export class CodexRuntime implements AgentRuntime {
 
   async logout(): Promise<void> {
     this.#identityEpoch++
+    this.#identityActionEpoch++
     await this.#server.request('account/logout', undefined)
     if (this.#unverifiedIdleAccount) {
       this.#accountEpoch++
@@ -2409,6 +2428,7 @@ export class CodexRuntime implements AgentRuntime {
 
   #onStateChange(state: ConnectionState): void {
     this.#identityEpoch++
+    this.#identityActionEpoch++
     const resting = state.type === 'stopped' && this.#idleStopped
     if (state.type !== 'stopped') {
       this.#idleStopped = false

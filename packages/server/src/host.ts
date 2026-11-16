@@ -12207,9 +12207,9 @@ export class Host {
     try {
       if (previous) await previous
       if (!this.ownsRuntime(runtime) || !accounts.slotOf(runtime.info)) return
-      const generation = runtime.accountIdentityGeneration()
       const identity = await runtime.accountIdentitySnapshot()
-      if (!identity || identity.generation !== generation || !this.ownsRuntime(runtime) || runtime.accountIdentityGeneration() !== generation) return
+      if (!identity || !this.ownsRuntime(runtime) || runtime.accountIdentityGeneration() !== identity.generation) return
+      const generation = identity.generation
       const peers = [...this.#runtimes.values()].filter(other => other !== runtime && accounts.slotOf(other.info)?.agent === agent)
       peers.sort((a, b) => {
         const aSlot = accounts.slotOf(a.info), bSlot = accounts.slotOf(b.info)
@@ -12220,9 +12220,10 @@ export class Host {
       for (const peer of peers) {
         const peerSlot = accounts.slotOf(peer.info)
         if (!peerSlot || peerSlot.gateway || !peer.accountIdentitySnapshot || !peer.accountIdentityGeneration) continue
-        const peerGeneration = peer.accountIdentityGeneration()
         const otherIdentity = await peer.accountIdentitySnapshot()
-        if (!otherIdentity || otherIdentity.generation !== peerGeneration || otherIdentity.key !== identity.key) continue
+        const recheckedPeer = accounts.slotOf(peer.info)
+        if (!recheckedPeer || !otherIdentity || peer.accountIdentityGeneration() !== otherIdentity.generation || otherIdentity.key !== identity.key) continue
+        const peerGeneration = otherIdentity.generation
         const leftFile = accounts.identityOf?.(runtime.info) ?? null
         const rightFile = accounts.identityOf?.(peer.info) ?? null
         if (leftFile !== null && rightFile !== null && leftFile !== rightFile) continue

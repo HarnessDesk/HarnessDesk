@@ -39,3 +39,19 @@ test('the production host resolves a Codex seat when the account notice lands on
   })
   assert.equal(code, 0, stderr)
 })
+
+test('a real Codex callback folds a matching fileless managed session', { timeout: 40_000 }, async () => {
+  const root = tempDir('hd-session-fold-')
+  const env: NodeJS.ProcessEnv = {
+    ...process.env, HOME: tempDir('hd-session-fold-home-'), HARNESSDESK_NO_UPDATE_CHECK: '1', HD_STATE: root,
+    HD_BOOTSTRAP: new URL('../src/bootstrap.js', import.meta.url).href,
+    HD_FAKE: fileURLToPath(new URL('../../../adapter-codex/test/fixtures/fake-codex.mjs', import.meta.url)),
+    FAKE_CODEX_VERSION: '0.167.1', FAKE_CODEX_LOGIN: 'succeed',
+    FAKE_CODEX_SESSION_IDENTITY: JSON.stringify({ activeSessionId: 'session', sessions: [{ sessionId: 'session', isActive: true, userId: 'person', selectedWorkspaceAccountId: 'workspace' }] }),
+  }
+  delete env['SHELL']; delete env['CODEX_HOME']
+  const child = spawn(process.execPath, [fileURLToPath(new URL('./fixtures/bootstrap-session-fold.mjs', import.meta.url))], { env, stdio: ['ignore', 'pipe', 'pipe'] })
+  let stderr = ''; child.stdout.resume(); child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+  const code = await new Promise<number | null>((resolve) => { const deadline = setTimeout(() => child.kill('SIGKILL'), 30_000); child.once('exit', value => { clearTimeout(deadline); resolve(value) }) })
+  assert.equal(code, 0, stderr)
+})

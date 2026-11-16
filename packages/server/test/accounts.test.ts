@@ -2533,3 +2533,21 @@ test('a keeper account change while its label is read suppresses the duplicate n
   assert.equal(host.ownsRuntime(own), true)
   assert.equal(slots.find(candidate.info.id), null)
 })
+
+test('a fresh session identity after an update does not fold a different workspace', async t => {
+  const { host, stateDir, slots, accounts, created, own } = await hostWithAccounts()
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  const added = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  const candidate = created.get(added.runtime)!
+  let generation = 1, peerRead!: () => void
+  const compared = new Promise<void>(resolve => { peerRead = resolve })
+  Object.assign(candidate, { accountIdentityGeneration: () => generation, accountIdentitySnapshot: async () => { generation = 2; return { key: 'fresh-other-workspace', generation } } })
+  Object.assign(own, { accountIdentityGeneration: () => 1, accountIdentitySnapshot: async () => { peerRead(); return { key: 'original-workspace', generation: 1 } } })
+  let removed = false
+  accounts.prepareRemove = () => { removed = true; throw new Error('different identities must not be removed') }
+  candidate.emit({ type: 'account/loginCompleted', runtime: added.runtime, loginId: 'fixture', success: true })
+  await Promise.race([compared, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('peer was not compared')), 5000))])
+  assert.equal(removed, false)
+  assert.ok(slots.find(added.runtime))
+  assert.ok(host.ownsRuntime(candidate))
+})
