@@ -844,3 +844,58 @@ for (const kind of ['review', 'inline'] as const) test(`a late earlier linked ba
   assert.deepEqual(conservative.facts, [], 'legacy unknown boundary does not invent a rewind or replay')
   assert.equal(conservative.next.mentionReviews?.pulls['5']?.since, ARMED)
 })
+
+test('subscriber backfill keeps exact routes across failed pages, restart and unlink/relink', async () => {
+  const forge = new FakeForge(), at = ARMED + 3 * MINUTE
+  forge.pulls.push({ number: 5, head: sha('c'), state: 'open', created: ARMED, updated: at,
+    reviews: [{ id: 901, commit_id: sha('c'), body: '@triager follow up', state: 'COMMENTED', submitted_at: iso(at), user: { id: 7, login: 'jane-doe' } }], reviewComments: [] })
+  const a = { id: 'a', trigger: 'ask', since: ARMED + MINUTE, incarnation: '11111111-1111-1111-1111-111111111111' }
+  const b = { id: 'b', trigger: 'triage', since: ARMED + 2 * MINUTE, incarnation: '22222222-2222-2222-2222-222222222222' }
+  const link = (subscriber: typeof a) => ({ number: 5, since: subscriber.since, subscriber })
+  const initial = await source(forge).inventory(PROJECT, 'mention', REPO, never)
+  const first = await source(forge, ARMED + 10 * MINUTE).poll(PROJECT, initial, never, { mentionPulls: [link(a)] })
+  const persisted = JSON.parse(JSON.stringify(first.next)) as SourceCursor
+  forge.fail = path => path.includes('/pulls/5/reviews?') ? { exitCode: 1, stderr: 'synthetic failure' } : null
+  await assert.rejects(source(forge, ARMED + 20 * MINUTE).poll(PROJECT, persisted, never, { mentionPulls: [link(a), link(b)] }))
+  forge.fail = null
+  const after = await source(forge, ARMED + 20 * MINUTE).poll(PROJECT, persisted, never, { mentionPulls: [link(a), link(b)] })
+  assert.equal(after.facts.length, 1)
+  assert.deepEqual(after.mentionRoutes?.get(after.facts[0]!), b)
+  const saved = JSON.parse(JSON.stringify(after.next)) as SourceCursor
+  const unlinked = await source(forge, ARMED + 30 * MINUTE).poll(PROJECT, saved, never, { mentionPulls: [] })
+  const relinked = await source(forge, ARMED + 40 * MINUTE).poll(PROJECT, JSON.parse(JSON.stringify(unlinked.next)) as SourceCursor, never, { mentionPulls: [link(b)] })
+  assert.deepEqual(relinked.facts, [], 'retained subscription is not replayed after unlink and reload')
+  const replacement = { ...b, incarnation: '33333333-3333-3333-3333-333333333333' }
+  const reopened = await source(forge, ARMED + 50 * MINUTE).poll(PROJECT, relinked.next, never, { mentionPulls: [link(replacement)] })
+  assert.deepEqual(reopened.facts, [], 'an already handled same-trigger fact is not repeated')
+  assert.equal(Object.keys(reopened.next.mentionReviews?.pulls['5']?.subscribers ?? {}).length, 3, 'replacement incarnation is retained separately')
+})
+
+test('subscriber coverage capacity refuses a new subscription without advancing its cursor', async () => {
+  const forge = new FakeForge(), initial = await source(forge).inventory(PROJECT, 'mention', REPO, never)
+  forge.pulls.push({ number: 5, head: sha('c'), state: 'open', created: ARMED, updated: ARMED, reviews: [], reviewComments: [] })
+  const subscribers = Object.fromEntries(Array.from({ length: 1000 }, (_, i) => [JSON.stringify([`thread-${i}`, 'ask', ARMED, '11111111-1111-1111-1111-111111111111']), ARMED + MINUTE]))
+  const cursor: SourceCursor = { ...initial, mentionReviews: { next: 0, pulls: { '5': { through: ARMED + MINUTE, since: ARMED, seen: {}, subscribers } } } }
+  const next = { id: 'new', trigger: 'other', since: ARMED, incarnation: '22222222-2222-2222-2222-222222222222' }
+  const batch = await source(forge, ARMED + 10 * MINUTE).poll(PROJECT, cursor, never, { mentionPulls: [{ number: 5, since: ARMED, subscriber: next }] })
+  assert.equal(batch.complete, false)
+  assert.deepEqual(batch.next, cursor)
+  assert.ok(batch.problem)
+})
+
+test('an unlinked same-trigger subscriber does not cover facts read for another trigger', async () => {
+  const forge = new FakeForge(), initial = await source(forge).inventory(PROJECT, 'mention', REPO, never)
+  const a = { id: 'a', trigger: 'ask', since: ARMED + MINUTE, incarnation: '11111111-1111-1111-1111-111111111111' }
+  const b = { id: 'b', trigger: 'ask', since: ARMED + 2 * MINUTE, incarnation: '22222222-2222-2222-2222-222222222222' }
+  const c = { id: 'c', trigger: 'other', since: ARMED + MINUTE, incarnation: '33333333-3333-3333-3333-333333333333' }
+  const link = (subscriber: typeof a) => ({ number: 5, since: subscriber.since, subscriber })
+  const pull = { number: 5, head: sha('c'), state: 'open' as const, created: ARMED, updated: ARMED, reviews: [] as { id: number; commit_id: string; body: string; state: string; submitted_at: string; user: { id: number; login: string } }[], reviewComments: [] }
+  forge.pulls.push(pull)
+  const first = await source(forge, ARMED + 4 * MINUTE).poll(PROJECT, initial, never, { mentionPulls: [link(a), link(c)] })
+  const at = ARMED + 5 * MINUTE
+  pull.updated = at; pull.reviews.push({ id: 991, commit_id: sha('c'), body: '@ask do this', state: 'COMMENTED', submitted_at: iso(at), user: { id: 7, login: 'jane-doe' } })
+  const whileUnlinked = await source(forge, ARMED + 10 * MINUTE).poll(PROJECT, first.next, never, { mentionPulls: [link(c)] })
+  const later = await source(forge, ARMED + 20 * MINUTE).poll(PROJECT, whileUnlinked.next, never, { mentionPulls: [link(b), link(c)] })
+  assert.equal(later.facts.length, 1)
+  assert.deepEqual(later.mentionRoutes?.get(later.facts[0]!), b)
+})

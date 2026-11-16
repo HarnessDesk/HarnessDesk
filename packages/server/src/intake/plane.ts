@@ -287,8 +287,8 @@ export class IntakePlane {
       deliver: (watch, batch) => this.#following?.deliver(watch, batch) ?? Promise.resolve(),
       sources: intakeSources(this.#forge, (project, repository) => this.#mentions.linkedPulls(project, repository)),
       cursors: new SourceCursors(port.home),
-      offer: async (arm, fact, batch) => {
-        if (arm.definition.on.kind === 'mention') await this.#judge(arm, fact, batch)
+      offer: async (arm, fact, batch, route) => {
+        if (arm.definition.on.kind === 'mention') await this.#judge(arm, fact, batch, route)
         else await this.#offer(arm, fact, batch)
       },
       wall: () => port.now(),
@@ -679,11 +679,12 @@ export class IntakePlane {
    * nothing for this trigger. What it admits goes through the trigger's own
    * admission, exactly as any other firing.
    */
-  async #judge(arm: ArmedTrigger, fact: TriggerFact, batch?: object): Promise<void> {
+  async #judge(arm: ArmedTrigger, fact: TriggerFact, batch?: object, route?: import('./forge.js').MentionSubscriber): Promise<void> {
     if (this.#closed) throw new Error('The desk is closing.')
     if (this.#prefs.paused) throw new Error(PAUSED)
     if (fact.desk !== true && await this.#postedHere(fact)) fact = { ...fact, desk: true }
-    await this.#mentions.judge(arm, fact, (one, admitted) => this.#offer(one, admitted, batch))
+    if (route) fact = { ...fact, trigger: null }
+    await this.#mentions.judge(arm, fact, (one, admitted) => this.#offer(one, admitted, batch), route)
   }
 
   /**
