@@ -499,7 +499,7 @@ test('real-tree script reads include named gates and their static imports withou
     // dependency too, as for every other source named by UI text.
     'script/brands.mjs', 'script/build-icons.mjs',
     'script/check-reachable.mjs', 'script/check-ui-system.mjs', 'script/design-audit.mjs', 'script/design-doc.mjs',
-    'script/design-sections.mjs', 'script/design-tokens.mjs', 'script/design-usage.mjs', 'script/flow-contest.sh',
+    'script/design-sections.mjs', 'script/design-tokens.mjs', 'script/design-usage.mjs',
     'script/lib/repository-files.mjs', 'script/lib/steps.mjs', 'script/lib/stylesheet-imports.mjs', 'script/lib/without-comments.mjs',
     'script/shots/cli-install.mjs', 'script/ui-architecture.mjs', 'script/ui-catalog.mjs', 'script/vendor-fonts.mjs', 'script/verify.mjs',
   ], 'update this list consciously when UI text or script imports change')
@@ -513,7 +513,7 @@ test('real-tree script reads include named gates and their static imports withou
   }
   const measuredPlan = paths => bounded(() => plan(paths))
   bounded(() => outsideReads(root))
-  for (const path of ['script/cli-doc.mjs', 'script/generate-codex-protocol.mjs', 'script/check-secrets.mjs', 'script/cut-avatars.mjs']) {
+  for (const path of ['script/cli-doc.mjs', 'script/generate-codex-protocol.mjs', 'script/check-secrets.mjs', 'script/cut-avatars.mjs', 'script/flow-contest.sh']) {
     assert.equal(measuredPlan([path]).mode, 'none', path)
   }
   for (const path of ['script/brands.mjs', 'script/build-icons.mjs', 'script/design-audit.mjs', 'script/verify.mjs', 'script/check-ui-system.mjs']) assert.equal(measuredPlan([path]).mode, 'all', path)
