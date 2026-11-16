@@ -272,6 +272,23 @@ test('an account picture is fetched again after its URL is removed and restored'
   await until(async () => !!(await r.service.status()).account?.pictureDataUrl); r.service.close()
 })
 
+test('a profile save that removes the picture allows the same URL to be loaded again', async t => {
+  const pictureDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jYVQAAAAASUVORK5CYII='
+  let reads = 0
+  const url = 'https://images.example.com/jane.png'
+  const r = await rig({ pictureUrl: url, readPicture: async () => { reads++; return pictureDataUrl } })
+  t.after(() => r.service.close())
+  await r.service.signIn(); r.approve(); await r.timers.shift()!()
+  await until(async () => !!(await r.service.status()).account?.pictureDataUrl)
+  const updated = await r.service.updateProfile('Jane at work')
+  assert.equal(updated.account?.pictureUrl, null)
+  assert.equal(updated.account?.pictureDataUrl, undefined)
+  // The provider restores the original URL in the next metadata response.
+  await r.timers.shift()!()
+  assert.equal(reads, 2)
+  await until(async () => (await r.service.status()).account?.pictureDataUrl === pictureDataUrl)
+})
+
 test('an approved desk is revoked when cancelled before the first poll', async () => {
   const r = await rig(); await r.service.signIn(); r.approve(); await r.service.cancel()
   assert.equal((await r.service.status()).status, 'signedOut')

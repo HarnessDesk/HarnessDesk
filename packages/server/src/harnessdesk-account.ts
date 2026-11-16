@@ -517,6 +517,7 @@ export class HarnessDeskAccount {
       if (!this.#secrets?.cached || this.#snapshot.status !== 'signedIn') return this.#snapshot
       this.#secrets.cached = { ...this.#secrets.cached, account }
       if (this.#secrets.picture?.source !== account.pictureUrl) delete this.#secrets.picture
+      if (this.#pictureSource !== account.pictureUrl) this.#pictureSource = undefined
       await this.#persist()
       if (!this.#current(requestedGeneration)) return this.#snapshot
       this.#emit({ ...this.#snapshot, account: this.#withPicture(account) })
