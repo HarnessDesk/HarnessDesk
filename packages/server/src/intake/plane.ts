@@ -711,7 +711,7 @@ export class IntakePlane {
       if (isMap(parsed) && parsed['version'] === 1 && isMap(parsed['comments'])) {
         // Whatever reads is kept; an entry that does not is dropped from memory, never from the file on its own.
         for (const [repository, ids] of Object.entries(parsed['comments'])) {
-          if (REPO.test(repository) && Array.isArray(ids)) posts.set(repository, ids.filter((one): one is string => typeof one === 'string' && /^(?:review:)?[1-9][0-9]{0,18}$/.test(one)).slice(-DESK_POSTS_LIMIT))
+          if (REPO.test(repository) && Array.isArray(ids)) posts.set(repository, ids.filter((one): one is string => typeof one === 'string' && /^(?:review:|review-comment:)?[1-9][0-9]{0,18}$/.test(one)).slice(-DESK_POSTS_LIMIT))
         }
       } else {
         this.#deskPostsUnreadable = 'it is not a record this desk wrote'

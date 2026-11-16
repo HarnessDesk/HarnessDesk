@@ -949,18 +949,17 @@ export class MentionTriage {
           }
         } catch { /* An invalid legacy URL cannot identify a linked thread. */ }
       }
+      const review = id.startsWith('review:') || id.startsWith('review-comment:')
       const candidates = [...ledger.threads, ...ledger.pendingThreads].filter((one) => one.project === arm.project && one.trigger === arm.id &&
         !!repository && typeof one.repository === 'string' && one.repository.toLowerCase() === repository && repository === boundRepository &&
-        (kind === 'pull-request' ? one.links.pulls.includes(number) : kind === 'issue' && one.links.issues.includes(number)))
+        (kind === 'pull-request' ? one.links.pulls.includes(number) : kind === 'issue' && one.links.issues.includes(number)) &&
+        (!review || fact.at > one.openedAt))
       // An active lifecycle takes a new stop first. A closed protected thread
       // remains reachable for an explicit retry when no current work is open.
       const linked = candidates.find(one => one.state === 'open') ?? (retryingUnconfirmed ? candidates.find(one =>
         one.state === 'closed' && ledger.stopIntents.some(stop => stop.threadId === one.id && stop.state !== 'consumed' && stop.key.project === one.project &&
           stop.key.trigger === one.trigger && stop.key.repository === repository)) : undefined)
       if (linked) {
-        // A review predating this particular thread cannot resume it, even
-        // when another older thread follows the same pull request.
-        if ((id.startsWith('review:') || id.startsWith('review-comment:')) && fact.at <= linked.openedAt) return
         if (linked.seen.includes(id)) return
         const allowed = await this.#allowed(arm, fact)
         if (!allowed.passed) {
@@ -1012,7 +1011,7 @@ export class MentionTriage {
 
       // Reviews are followed only to resume already-linked work; they do not
       // open an unrelated new mention thread.
-      if (id.startsWith('review:') || id.startsWith('review-comment:')) return
+      if (review) return
 
       // Ordinary discussion on a thread no work follows: not a request, so no decision.
       if (!addressed) return

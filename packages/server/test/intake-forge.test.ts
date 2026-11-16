@@ -793,3 +793,22 @@ test('linked review submission reads share the existing per-poll budget', async 
   assert.equal(result.complete, false, 'a burst over the shared budget does not advance coverage')
   assert.deepEqual(result.next, cursor)
 })
+
+
+test('failed first twenty linked PR reads rotate to an eligible twenty-first without moving failed coverage', async () => {
+  const forge = new FakeForge(), at = ARMED + MINUTE
+  const linked = Array.from({ length: 21 }, (_, i) => ({ number: i + 1, since: ARMED }))
+  for (const { number } of linked) forge.pulls.push({ number, head: sha('c'), state: 'open', created: ARMED, updated: at,
+    reviews: [{ id: number * 100, commit_id: sha('c'), body: '@dex please look', state: 'COMMENTED', submitted_at: iso(at), user: { id: 7, login: 'jane-doe' } }] })
+  const cursor = await source(forge).inventory(PROJECT, 'mention', REPO, never)
+  forge.fail = path => /\/pulls\/(?:[1-9]|1[0-9]|20)\/reviews\?/.test(path) ? { exitCode: 1, stderr: 'connection failed' } : null
+  const first = await source(forge, at + MINUTE).poll(PROJECT, cursor, never, { mentionPulls: linked })
+  assert.equal(first.complete, true, 'bounded retry rotation remains available')
+  assert.match(first.problem ?? '', /will be retried/, 'the partial failure remains visible')
+  for (let i = 1; i <= 20; i++) assert.equal(first.next.mentionReviews?.pulls[String(i)], undefined)
+  const second = await source(forge, at + 2 * MINUTE).poll(PROJECT, first.next, never, { mentionPulls: linked })
+  assert.ok(second.facts.some(one => one.subject === '21'), 'healthy PR 21 is not starved')
+  forge.fail = null
+  const recovered = await source(forge, at + 3 * MINUTE).poll(PROJECT, second.next, never, { mentionPulls: linked })
+  assert.ok(recovered.facts.some(one => one.subject === '1'), 'failed PR 1 remains eligible after recovery')
+})

@@ -1501,7 +1501,7 @@ export class ForgeSource {
       throw error
     }
     if (!complete) return this.#gap(cursor, burst)
-    let reviews: { facts: TriggerFact[]; coverage: MentionReviewCoverage } | null
+    let reviews: { facts: TriggerFact[]; coverage: MentionReviewCoverage; retrying: boolean } | null
     try { reviews = await this.#mentionReviewFacts(project, repository, cursor, linked, deadline, signal) }
     catch (error) {
       // A separate review read must not prevent already-covered issue
@@ -1511,16 +1511,17 @@ export class ForgeSource {
     }
     if (reviews === null && facts.length === 0) return this.#gap(cursor, 'More linked pull request reviews changed than one read can cover.')
     if (reviews) facts.push(...reviews.facts)
-    return this.#bounded(cursor, facts, {
+    const batch = this.#bounded(cursor, facts, {
       ...cursor, observedThrough: through, continuation: null, subjects: { [MENTION_MARK]: { head: null, event: String(highest) } },
       ...(reviews ? { mentionReviews: reviews.coverage } : {}),
     }, [])
+    return batch.complete && reviews?.retrying ? { ...batch, problem: 'Some linked pull request reviews could not be read and will be retried.' } : batch
   }
 
   /** Read only linked PRs, with independent per-PR watermarks and bounded overlap. */
   async #mentionReviewFacts(project: string, repository: string, cursor: SourceCursor,
     linked: readonly { readonly number: number; readonly since: number }[], deadline: number, signal: AbortSignal,
-  ): Promise<{ facts: TriggerFact[]; coverage: MentionReviewCoverage } | null> {
+  ): Promise<{ facts: TriggerFact[]; coverage: MentionReviewCoverage; retrying: boolean } | null> {
     const sinceByPull = new Map<number, number>()
     for (const one of linked) {
       if (!Number.isSafeInteger(one.number) || one.number < 1 || !Number.isSafeInteger(one.since) || one.since < 0) continue
@@ -1595,10 +1596,10 @@ export class ForgeSource {
         firstFailure ??= error
       }
     }
-    if (firstFailure && completed === 0) throw firstFailure
+    if (firstFailure && completed === 0 && ordered.length <= SETTLE_LIMIT) throw firstFailure
     const coverage = { next: ordered.length > SETTLE_LIMIT ? ordered[SETTLE_LIMIT]! : 0, pulls }
     if (!mentionReviewCoverageOf(coverage)) return null
-    return { facts, coverage }
+    return { facts, coverage, retrying: firstFailure !== undefined }
   }
 }
 

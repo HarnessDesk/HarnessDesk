@@ -446,6 +446,7 @@ export class IntakeMonitor {
       if (signal.aborted) return
       await this.#options.cursors.commit(group.key, batch.next)
       this.#done(state, batch.skipped.reduce((sum, one) => sum + one.count, 0))
+      if (batch.problem) this.#say(state, 'unreadable', { reason: batch.problem, fix: 'The desk will retry the affected pull requests.' })
     } catch (error) {
       if (signal.aborted) return
       state.failures += 1
