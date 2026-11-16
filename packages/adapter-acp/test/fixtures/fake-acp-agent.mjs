@@ -1657,6 +1657,12 @@ const handlers = {
         if (existsSync(gate)) { watcher.close(); resolve() }
       }
     })
+    if (process.env.FAKE_ACP_LOAD_REFUSE_TOOLS === '1' && (params?.mcpServers?.length ?? 0) > 0) return fail(id, 'Invalid params: mcpServers is not supported')
+    const authGate = process.env.FAKE_ACP_FALLBACK_AUTH_GATE
+    if (authGate && (params?.mcpServers?.length ?? 0) === 0) {
+      while (!existsSync(authGate)) await new Promise(resolve => setTimeout(resolve, 10))
+      return fail(id, 'authentication required')
+    }
     // Hold replay so tests can overlap a read or resume with a load already in flight.
     if (process.env.FAKE_ACP_LOAD_DELAY_MS) await new Promise((resolve) => setTimeout(resolve, Number(process.env.FAKE_ACP_LOAD_DELAY_MS)))
     const store = readStore()

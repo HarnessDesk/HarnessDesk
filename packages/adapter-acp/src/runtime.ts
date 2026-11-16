@@ -3461,6 +3461,9 @@ export class AcpRuntime implements AgentRuntime {
       if (track?.abandoned && track.owner) throw new Error('The reopen was given up.')
       return this.#opened(claim(result), authGeneration)
     } catch (error) {
+      // A retired open no longer owns capability or authentication observations,
+      // and must not start the fallback request.
+      if (track?.abandoned) throw new Error('The reopen was given up.')
       const message = describeAcp(error)
       // The tool-server refusal is answered first, by a retry without the
       // server; only a failure that is not that refusal is read for what
@@ -3490,6 +3493,7 @@ export class AcpRuntime implements AgentRuntime {
         if (track?.abandoned) throw new Error('The reopen was given up.')
         return this.#opened(claim(result, false), authGeneration)
       } catch (again) {
+        if (track?.abandoned) throw new Error('The reopen was given up.')
         if (isAuthRefusal(again)) this.#observeAuth(authGeneration, { state: 'required', message: describeAcp(again) }, 'refusal')
         throw again
       }

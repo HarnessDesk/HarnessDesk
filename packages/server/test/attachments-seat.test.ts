@@ -644,3 +644,16 @@ test('a Seat that froze nothing to load filters nothing, so carry-on may move it
   assert.equal(await plane.filters('seat-declared' as never), true, 'a declared attachment does not carry over')
   assert.equal(await plane.filters('seat-never' as never), false)
 })
+
+test('a reopened Seat refuses if its frozen filter vanishes after reapply', async () => {
+  const folder = tempDir('hd-reopen-lost-frozen-')
+  const plane = new AttachmentsPlane(folder, portFor({}))
+  const opened = seat('seat-lost')
+  const first = await plane.prepare(subject())
+  await plane.record(opened, first, { key: first.input.key, loaded: [], refused: [] })
+  const reopened = await plane.reapply(opened, { build: '1.0.0' })
+  assert.ok(reopened)
+  await rm(join(folder, '.frozen', 'seat-lost.json'))
+  await assert.rejects(plane.record(opened, reopened, { key: reopened.input.key, loaded: [], refused: [] }), /frozen.*(missing|changed)/i)
+  assert.equal((await plane.read(opened.id))?.epoch, 0)
+})

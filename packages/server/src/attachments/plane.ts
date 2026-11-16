@@ -242,6 +242,7 @@ type Staged = { readonly path: string } | { readonly endpoint: string; readonly 
 
 export class AttachmentsPlane {
   readonly #receipts: AttachmentReceipts
+  readonly #reapplied = new WeakMap<PreparedAttachments, string>()
   readonly #staging: string
   readonly #frozen: string
   /**
@@ -438,7 +439,7 @@ export class AttachmentsPlane {
       if (declaration.kind === 'mcp' && seat.closed !== null) return { problem: 'This Seat has ended, so its servers are no longer reachable.' }
       return declaration.kind === 'skill' ? this.#restagedSkill(declaration.identity!) : this.#restagedServer(declaration.identity!)
     })
-    return {
+    const reapplied = {
       ...prepared,
       input: {
         ...prepared.input,
@@ -446,6 +447,8 @@ export class AttachmentsPlane {
         mcp: frozen.mcpMode === 'allowlist' ? (prepared.input.mcp ?? []) : null,
       },
     }
+    this.#reapplied.set(reapplied, JSON.stringify(frozen))
+    return reapplied
   }
 
   /**
@@ -697,6 +700,10 @@ export class AttachmentsPlane {
     check()
     const existing = await this.#readFrozen(seat)
     check()
+    const expected = this.#reapplied.get(prepared)
+    if (expected !== undefined && (!existing || JSON.stringify(existing) !== expected)) {
+      throw new Error('The frozen attachment filter is missing or changed since reapply.')
+    }
     if (existing) return
     const frozen: FrozenAttachments = {
       version: 1,
@@ -765,25 +772,23 @@ export class AttachmentsPlane {
             : { identity, status: 'not-loaded' as const, reason: 'Loading failed; review the runtime status and start a new Seat.' }
         })
 
-      const previous = await this.#receipts.read(seat.id)
-      check()
-      const record: SeatAttachmentsRecord = {
+      const record = (epoch: number): SeatAttachmentsRecord => ({
         version: 1,
         seat: seat.id,
         agentDigest: prepared.subject.agentDigest,
         runtime: prepared.subject.runtime,
         build: prepared.subject.build,
-        epoch: previous ? previous.epoch + 1 : 0,
+        epoch,
         observedAt: Date.now(),
         skillsMode: prepared.input.skills === null ? 'runtime-defaults' : 'allowlist',
         mcpMode: prepared.input.mcp === null ? 'runtime-defaults' : 'allowlist',
         declarations: prepared.declarations,
         results: loadResults,
         restored: false,
-      }
+      })
       await this.#writeFrozen(seat.id, prepared, check)
       check()
-      await this.#receipts.append(record, check)
+      const committed = await this.#receipts.appendNext(seat.id, record, check)
       check()
       const keys = this.#keys.get(seat.id) ?? new Set<string>()
       keys.add(prepared.input.key)
@@ -802,7 +807,7 @@ export class AttachmentsPlane {
           }),
         })
       }
-      return record
+      return committed
     } finally {
       if (this.#pinned.delete(prepared)) for (const digest of stagedDigests(prepared)) {
         const left = (this.#opening.get(digest) ?? 0) - 1

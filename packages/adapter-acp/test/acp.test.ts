@@ -2303,6 +2303,7 @@ const storedAgent = async (
   env: Readonly<Record<string, string>> = {},
   sharedSessionProcess = false,
   withSecret = false,
+  withTools = false,
 ): Promise<{ runtime: AcpRuntime; opened: () => Opened[] }> => {
   const { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
@@ -2330,6 +2331,7 @@ const storedAgent = async (
     env: { FAKE_ACP_STORE: store, FAKE_ACP_OPENS: opens, ...env },
     ...(sharedSessionProcess ? { sharedSessionProcess: true } : {}),
     ...(withSecret ? { secrets: [{ env: 'HD_FAKE_ONLY_KEY', label: 'Fake key', optional: true }] } : {}),
+    ...(withTools ? { toolServer: { name: 'harnessdesk', command: process.execPath, args: ['--version'], env: {} } } : {}),
   })
   // The agent goes before the folder it writes in.
   t.after(async () => {
@@ -3554,4 +3556,56 @@ for (const published of [false, true]) test(`closing a dedicated ACP worker reti
   await sibling.send([{ type: 'text', text: 'sibling remains available' }])
   const fresh = await runtime.beginResumeAttempt(id, {}, replacement).result
   assert.equal(fresh.id, id)
+})
+
+
+test('an abandoned gated ACP tool refusal cannot retry or change capability', async t => {
+  const { mkdtemp, rm, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const dir = await mkdtemp(join(tmpdir(), 'acp-refusal-retired-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const gate = join(dir, 'continue')
+  const { runtime, opened } = await storedAgent(t, root => ({ target: { cwd: root }, sibling: { cwd: root } }),
+    { FAKE_ACP_LOAD_GATE: gate, FAKE_ACP_LOAD_GATE_POLL: '1', FAKE_ACP_LOAD_REFUSE_TOOLS: '1' }, true, false, true)
+  const sibling = await runtime.createSession({ cwd: dir })
+  const owner = runtime.resumeOwner(sessionId('target'))
+  const attempt = runtime.beginResumeAttempt(sessionId('target'), {}, owner)
+  const rejected = assert.rejects(attempt.result, /given up|retired/)
+  for (let n = 0; n < 500 && !opened().some(one => one.method === 'session/load' && one.sessionId === 'target'); n++) await new Promise(resolve => setTimeout(resolve, 10))
+  assert.ok(opened().some(one => one.method === 'session/load' && one.sessionId === 'target'))
+  const retirement = attempt.retire({ published: false })
+  await writeFile(gate, 'go'); await rejected
+  assert.equal(opened().filter(one => one.method === 'session/load' && one.sessionId === 'target').length, 1, 'no fallback request after abandonment')
+  assert.equal(runtime.info.capabilities.pluginTools, true, 'abandoned refusal does not change capability')
+  await sibling.send([{ type: 'text', text: 'still available' }])
+  await runtime.dispose(); await retirement
+})
+
+test('an active ACP tool refusal still retries without the bridge', async t => {
+  const { runtime, opened } = await storedAgent(t, root => ({ target: { cwd: root } }),
+    { FAKE_ACP_LOAD_REFUSE_TOOLS: '1' }, true, false, true)
+  const live = await runtime.resumeSession(sessionId('target'))
+  assert.equal(live.id, sessionId('target'))
+  assert.equal(opened().filter(one => one.method === 'session/load' && one.sessionId === 'target').length, 2)
+  assert.equal(runtime.info.capabilities.pluginTools, false)
+})
+
+
+test('an abandoned fallback authentication refusal cannot change account state', async t => {
+  const { mkdtemp, rm, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const dir = await mkdtemp(join(tmpdir(), 'acp-fallback-auth-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const gate = join(dir, 'auth-reply')
+  const { runtime, opened } = await storedAgent(t, root => ({ target: { cwd: root } }),
+    { FAKE_ACP_LOAD_REFUSE_TOOLS: '1', FAKE_ACP_FALLBACK_AUTH_GATE: gate }, true, false, true)
+  const attempt = runtime.beginResumeAttempt(sessionId('target'), {}, runtime.resumeOwner(sessionId('target')))
+  const rejected = assert.rejects(attempt.result)
+  for (let n = 0; n < 500 && opened().filter(one => one.method === 'session/load' && one.sessionId === 'target').length < 2; n++) await new Promise(resolve => setTimeout(resolve, 10))
+  assert.equal(opened().filter(one => one.method === 'session/load' && one.sessionId === 'target').length, 2, 'fallback reached the gated peer')
+  const before = await runtime.getAccount()
+  const retirement = attempt.retire({ published: false })
+  await writeFile(gate, 'go'); await rejected
+  assert.deepEqual(await runtime.getAccount(), before)
+  await runtime.dispose(); await retirement
 })
