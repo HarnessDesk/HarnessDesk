@@ -2895,6 +2895,12 @@ One line of `DescLines`: a mark, the name, then what is true of it.
 
 Inline parts of one value, wrapped together with the shared chip gap.
 
+### `SettingsBack`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+Back navigation whose label sits on the page content edge.
+
 ### `PictureChoices`
 
 `packages/ui/src/design/patterns/SettingsChoices.tsx`

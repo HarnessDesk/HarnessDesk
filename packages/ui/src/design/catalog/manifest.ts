@@ -803,7 +803,7 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'RefusedAction': ['RefusedAction'],
   'SeatList': ['SeatList'],
   'SelectionAction': ['SelectionAction'],
-  'Settings': ['AppIcon', 'PersonFace', 'AccountMark', 'Chip', 'Clipped', 'CodeText', 'DescLine', 'DescLines', 'DetailMark', 'Dot', 'Face', 'Field', 'FileButton', 'FormStack', 'InlineParts', 'Keycap', 'MetaList', 'Monogram', 'NavigationGroupHeader', 'NavigationList', 'Note', 'NoteList', 'Row', 'RowButton', 'RowChoice', 'RowInput', 'RowMark', 'RowValue', 'Rows', 'Search', 'SectionHead', 'Segmented', 'SegmentedReadout', 'Spinner', 'Text', 'TextMark'],
+  'Settings': ['AppIcon', 'PersonFace', 'AccountMark', 'Chip', 'Clipped', 'CodeText', 'DescLine', 'DescLines', 'DetailMark', 'Dot', 'Face', 'Field', 'FileButton', 'FormStack', 'InlineParts', 'Keycap', 'MetaList', 'Monogram', 'NavigationGroupHeader', 'NavigationList', 'Note', 'NoteList', 'Row', 'RowButton', 'RowChoice', 'RowInput', 'RowMark', 'RowValue', 'Rows', 'Search', 'SectionHead', 'Segmented', 'SegmentedReadout', 'SettingsBack', 'Spinner', 'Text', 'TextMark'],
   'SettingsChoices': ['AccentChoices', 'PictureChoices', 'RingChoices'],
   'SettingsRowMenu': ['SettingsRowMenu'],
   'SidebarMenuState': ['SidebarMenuState'],

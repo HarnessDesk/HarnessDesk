@@ -8,7 +8,8 @@ it('keeps the Teams card element order, slots and description wiring', () => {
   path={[{id:'review',label:'Review',state:'current'}]} faces={<span data-faces="seats">JD</span>} project="storefront" age="2h" open={()=>{}}/>)
  const button=host.querySelector('button')!
  expect(Object.fromEntries(Array.from(button.attributes).filter(attribute=>attribute.name!=='class' && attribute.name!=='aria-describedby').map(attribute=>[attribute.name,attribute.value]))).toEqual({
-  type:'button','data-slot':'button','data-variant':'ghost',tabindex:'0','data-team-row':'one','aria-label':'Open Checkout','data-radius':'default','data-spacing':'compact',
+  type:'button','data-slot':'button','data-variant':'ghost',tabindex:'0','data-team-row':'one','aria-label':'Open Checkout','data-radius':'default','data-spacing':'compact','data-content-inset':'card',
+  style:'--card-content-inset:var(--hd-inset-card)',
  })
  expect(Array.from(button.children).map(child=>child.tagName)).toEqual(['SPAN','SPAN','DIV','SPAN'])
  expect(button.children[0]?.getAttribute('data-slot')).toBe('team-title')

@@ -98,3 +98,15 @@ describe('Card with a pinned lane', () => {
     expect(text).not.toMatch(/80%\s*left/)
   })
 })
+
+it('uses the row inset only for Settings usage cards', () => {
+  const render = (inset?: 'row') => renderToStaticMarkup(
+    <Card report={report([lane({ id: 'session', usedPercent: 10 })])} info={null} preference={{}} now={NOW}
+      onRefresh={() => {}} onStopTracking={() => {}} contentInset={inset} />,
+  )
+  const settings = document.createElement('div'); settings.innerHTML = render('row')
+  const dashboard = document.createElement('div'); dashboard.innerHTML = render()
+  expect(settings.querySelector('[data-slot="card"]')?.getAttribute('style')).toContain('--card-content-inset:var(--hd-inset-row)')
+  expect(dashboard.querySelector('[data-slot="card"]')?.getAttribute('style')).toContain('--card-content-inset:var(--hd-inset-card)')
+  expect([...settings.querySelectorAll('[data-slot="card-content"]')].length).toBeGreaterThanOrEqual(2)
+})

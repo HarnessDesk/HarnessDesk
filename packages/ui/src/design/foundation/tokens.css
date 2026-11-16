@@ -1075,7 +1075,8 @@ body {
   --hd-btn-h-sm: 28px; /* Solved for box/cap ≈ 3.2. */
   --hd-btn-radius: var(--hd-radius-md);
   --hd-btn-padding: 0 12px; /* 1.29 × the cap. */
-  --hd-btn-padding-sm: 0 10px; /* 1.17 × the cap. */
+  --hd-btn-padding-inline-sm: 10px;
+  --hd-btn-padding-sm: 0 var(--hd-btn-padding-inline-sm); /* 1.17 × the cap. */
   --hd-btn-text: var(--hd-text-sm);
   --hd-btn-text-sm: var(--hd-text-xs);
   --hd-btn-fill: var(--hd-muted);

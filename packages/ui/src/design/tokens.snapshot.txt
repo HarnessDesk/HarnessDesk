@@ -35,6 +35,7 @@
 --hd-btn-h = 32px
 --hd-btn-h-sm = 28px
 --hd-btn-padding = 0 12px
+--hd-btn-padding-inline-sm = 10px
 --hd-btn-padding-sm = 0 10px
 --hd-btn-primary-disabled-fill = color-mix(in srgb, rgb(27, 27, 27) 16%, rgb(245, 245, 245))
 --hd-btn-primary-disabled-foreground = color-mix(in srgb, rgb(27, 27, 27) 60%, rgb(245, 245, 245))
@@ -638,6 +639,7 @@
 --hd-btn-h = 32px
 --hd-btn-h-sm = 28px
 --hd-btn-padding = 0 12px
+--hd-btn-padding-inline-sm = 10px
 --hd-btn-padding-sm = 0 10px
 --hd-btn-primary-disabled-fill = color-mix(in srgb, rgb(231, 231, 231) 16%, rgb(49, 49, 49))
 --hd-btn-primary-disabled-foreground = color-mix(in srgb, rgb(231, 231, 231) 60%, rgb(49, 49, 49))
@@ -1241,6 +1243,7 @@
 --hd-btn-h = 32px
 --hd-btn-h-sm = 28px
 --hd-btn-padding = 0 12px
+--hd-btn-padding-inline-sm = 10px
 --hd-btn-padding-sm = 0 10px
 --hd-btn-primary-disabled-fill = color-mix(in srgb, rgb(27, 27, 27) 16%, rgb(245, 245, 245))
 --hd-btn-primary-disabled-foreground = color-mix(in srgb, rgb(27, 27, 27) 60%, rgb(245, 245, 245))
@@ -1849,6 +1852,7 @@
 --hd-btn-h = 32px
 --hd-btn-h-sm = 28px
 --hd-btn-padding = 0 12px
+--hd-btn-padding-inline-sm = 10px
 --hd-btn-padding-sm = 0 10px
 --hd-btn-primary-disabled-fill = color-mix(in srgb, rgb(231, 231, 231) 16%, rgb(49, 49, 49))
 --hd-btn-primary-disabled-foreground = color-mix(in srgb, rgb(231, 231, 231) 60%, rgb(49, 49, 49))
