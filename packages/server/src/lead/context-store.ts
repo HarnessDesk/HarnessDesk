@@ -380,7 +380,12 @@ export class LeadContextStore {
    * words the person can read, which is what every request carried before. */
   async #seed(epoch: number): Promise<void> {
     const messages = this.options.journal.state.messages
-    const turns = leadHistory(messages)
+    // Seed every retained journal message, without leadHistory’s presentation-window truncation.
+    const spoken = messages.filter(message => message.role === 'user' || message.role === 'assistant')
+    const turns = spoken.flatMap((message, index) => {
+      const group = leadHistory([message])
+      return index === 0 ? group : group.slice(-1)
+    })
     this.#adopt({ type: 'header', version: 1, epoch, known: messages.filter(message => message.role === 'user').map(message => message.id), overhead: 0, softAt: LEAD_CONTEXT.softShare }, turns, null)
     await this.#snapshot(FILE)
   }
