@@ -23,7 +23,7 @@ import { Notices, NoticeStripOutlet, SidebarNotices } from '../components/Notice
 import { Publication } from '../components/Publication'
 import { Deliverables, JobsBar } from '../components/SessionBars'
 import { AddAgents, PlanSection, UsageMeter, UsageSection } from '../components/SettingsAgents'
-import { AsleepAlert, Runway } from '../components/usage/shared'
+import { AsleepAlert, Card, Runway } from '../components/usage/shared'
 import { UncommittedFiles, WorktreeProblem } from '../components/WorktreeAlerts'
 import { Boundary } from './boundary'
 import { Dial, Frame } from './main'
@@ -310,6 +310,13 @@ export const CoverageFrames = () => {
           <WorktreeProblem>This checkout could not be updated.</WorktreeProblem>
           <TroubleNote message="This checkout needs attention." trouble={null} onAsk={() => {}} />
         </div>
+      </Frame>
+      <Frame id="coverage-usage-history" title="Usage — an earlier unverified reading">
+        <StoreProvider store={coverageStore}>
+          <Card report={{ ...noticeQuota, lanes: [], reached: null, error: { message: 'Refresh failed', needsSignIn: true },
+            historical: { fetchedAt: Date.now() - 3_600_000, lanes: [{ id: 'saved-1', label: 'Window 1', usedPercent: 40, windowMinutes: 300, resetsAt: null }], credits: { remaining: 42, unit: 'USD' } } }}
+            info={null} now={Date.now()} onRefresh={() => {}} onStopTracking={() => {}} />
+        </StoreProvider>
       </Frame>
       <Frame id="coverage-publication" title="Publication — a reviewable pull request">
         <div className="p-4"><Publication root={PREVIEW_ROOT} item={{ reference: { kind: 'pullRequest', repo: 'acme/storefront', number: 42, url: 'https://example.com/acme/storefront/pull/42', state: 'open', title: 'Keep preview coverage honest', author: 'Jane Doe', files: 2, additions: 14, deletions: 3, excerpt: 'Adds coverage fixtures.' } } as never} /></div>

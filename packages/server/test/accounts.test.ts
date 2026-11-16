@@ -23,6 +23,7 @@ import {
 import { Host, Logger, StateStore, type AccountFactory } from '../src/index.js'
 import { AgentDirectory, AgentRegistryStore } from '../src/agent-registry.js'
 import { FAKE_RUNTIME_ID, FakeRuntime } from './fixtures/fake-runtime.js'
+import { until } from './fixtures/harness.js'
 
 /**
  * More than one account of one agent.
@@ -37,6 +38,16 @@ import { FAKE_RUNTIME_ID, FakeRuntime } from './fixtures/fake-runtime.js'
 const silent = new Logger('test', { level: 'error', console: false })
 
 const home = async (): Promise<string> => mkdtemp(join(tmpdir(), 'harnessdesk-accounts-'))
+
+/** Wait for the fold's removal, durable slot update and user-facing notice. */
+const watchFold = (host: Host, slotsDone: () => boolean, count = 1): (() => Promise<void>) => {
+  let removals = 0, noticed = false
+  host.addBroadcaster(notification => {
+    if (notification.method === 'runtime/removed') removals++
+    if (notification.method === 'event' && notification.params.event.type === 'notice') noticed = true
+  })
+  return () => until(() => removals >= count && slotsDone() && noticed, undefined, 'account fold completion')
+}
 
 test('a credential home shares everything except the credential', async (t) => {
   const root = await home()
@@ -1199,13 +1210,14 @@ test('a sign-in that lands on the account you already have is undone, with a rea
   const slot = slots.find(added.runtime)
   assert.ok(slot)
   await writeFile(join(slot.home, 'auth.json'), chatgptAuth('user-a', 'workspace-1', 'fresh'))
+  const foldDone = watchFold(host, () => slots.list().length === 0, 1)
   created.get(added.runtime)?.emit({
     type: 'account/loginCompleted',
     runtime: added.runtime,
     loginId: 'login-1',
     success: true,
   })
-  await new Promise((resolve) => setTimeout(resolve, 20))
+  await foldDone()
 
   assert.deepEqual(
     host.syncPayload().params.runtimes.map((info) => info.id),
@@ -1270,8 +1282,9 @@ test("signing the agent's own account back in folds the second account instead",
   // second account already is. The duplicate is now the second account, and
   // the agent's own row cannot be removed, so that is the one that goes.
   await writeFile(join(primary, 'auth.json'), chatgptAuth('user-b', 'workspace-1', 'again'))
+  const foldDone = watchFold(host, () => slots.list().length === 0, 1)
   own.emit({ type: 'account/loginCompleted', runtime: FAKE_RUNTIME_ID, loginId: 'login-1', success: true })
-  await new Promise((resolve) => setTimeout(resolve, 20))
+  await foldDone()
 
   assert.deepEqual(
     host.syncPayload().params.runtimes.map((info) => info.id),
@@ -1306,8 +1319,9 @@ test('two duplicates folded together say so once, naming the row that stays', as
   // The user signs their own account back in as `user-b`. Both slots are now
   // copies of it, and both go — but that is one thing that happened.
   await writeFile(join(primary, 'auth.json'), chatgptAuth('user-b', 'workspace-1', 'again'))
+  const foldDone = watchFold(host, () => slots.list().length === 0, 2)
   own.emit({ type: 'account/loginCompleted', runtime: FAKE_RUNTIME_ID, loginId: 'login-1', success: true })
-  await new Promise((resolve) => setTimeout(resolve, 30))
+  await foldDone()
 
   assert.deepEqual(
     host.syncPayload().params.runtimes.map((info) => info.id),
@@ -1386,13 +1400,14 @@ test('the notice names the account that survives, not whichever peer was registe
       notices.push(params.event.message ?? '')
     }
   })
+  const foldDone = watchFold(host, () => slots.list().length === 1, 1)
   made.get(newer.runtime)?.emit({
     type: 'account/loginCompleted',
     runtime: newer.runtime,
     loginId: 'login-1',
     success: true,
   })
-  await new Promise((resolve) => setTimeout(resolve, 30))
+  await foldDone()
 
   // Both peers hold this identity. The row the user is left looking at is the
   // agent's own — it is the one that cannot be removed — so it is the one the
@@ -1439,9 +1454,10 @@ test('one completion reported twice folds two slots once, not one each', async (
     loginId: 'login-1',
     success: true,
   }
+  const foldDone = watchFold(host, () => slots.list().length === 0, 2)
   own.emit(completion)
   own.emit(completion)
-  await new Promise((resolve) => setTimeout(resolve, 40))
+  await foldDone()
 
   assert.deepEqual(
     host.syncPayload().params.runtimes.map((info) => info.id),
@@ -1476,6 +1492,7 @@ test('two accounts signing in as one person do not each announce the same fold',
   // second away; what does is that folding a row detaches it, so the
   // completion it reports afterwards reaches nobody. Either way the user is
   // left with one row and told once.
+  const foldDone = watchFold(host, () => slots.list().length === 0, 1)
   own.emit({ type: 'account/loginCompleted', runtime: FAKE_RUNTIME_ID, loginId: 'a', success: true })
   created.get(added.runtime)?.emit({
     type: 'account/loginCompleted',
@@ -1483,7 +1500,7 @@ test('two accounts signing in as one person do not each announce the same fold',
     loginId: 'b',
     success: true,
   })
-  await new Promise((resolve) => setTimeout(resolve, 40))
+  await foldDone()
 
   assert.deepEqual(
     host.syncPayload().params.runtimes.map((info) => info.id),
@@ -1512,13 +1529,14 @@ test('an account nothing can name is left out of the sentence, not called "Fake 
       notices.push(params.event.message ?? '')
     }
   })
+  const foldDone = watchFold(host, () => slots.list().length === 0, 1)
   created.get(added.runtime)?.emit({
     type: 'account/loginCompleted',
     runtime: added.runtime,
     loginId: 'login-1',
     success: true,
   })
-  await new Promise((resolve) => setTimeout(resolve, 30))
+  await foldDone()
 
   assert.equal(notices.length, 1)
   // "signed in to Fake Runtime as Fake Runtime" reads like a bug, so the

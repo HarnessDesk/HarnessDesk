@@ -265,3 +265,26 @@ describe("another sign-in's figures", () => {
     expect(text).toContain('100%')
   })
 })
+
+describe('an earlier saved account reading', () => {
+  it('retains an earlier unlimited balance without treating it as current', async () => {
+    const saved = { ...reportWith([], null), account: null, error: { message: 'Sign in again', needsSignIn: true }, unverified: null,
+      historical: { lanes: [], credits: { remaining: null, unit: 'credits', unlimited: true }, fetchedAt: NOW - DAY } } as UsageReport
+    await render(saved)
+    await expandRow('Antigravity')
+    expect(host.textContent).toContain('Earlier balance: unlimited')
+    expect(host.textContent).toContain('account unverified')
+    expect(readinessOf({ registered: true, health: { state: 'ready' }, account: { accounts: [], signInMethods: [] }, usage: [saved] })).not.toBe('ready')
+  })
+  it('shows dated anonymous history without making it current standing', async () => {
+    const saved = { ...reportWith([], null), account: null, error: { message: 'Sign in again', needsSignIn: true }, unverified: null,
+      historical: { lanes: [group('weekly', 'Models', 40)], credits: { remaining: 7, unit: 'USD' }, fetchedAt: NOW - DAY } } as UsageReport
+    await render(saved)
+    await expandRow('Antigravity')
+    expect(host.textContent).toContain('Earlier saved reading')
+    expect(host.textContent).toContain('account unverified')
+    expect(host.textContent).toContain('Weekly (10080 min): 40% used')
+    expect(host.textContent).toContain('Earlier balance: 7 USD')
+    expect(readinessOf({ registered: true, health: { state: 'ready' }, account: { accounts: [], signInMethods: [] }, usage: [saved] })).not.toBe('ready')
+  })
+})

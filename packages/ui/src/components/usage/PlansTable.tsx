@@ -37,7 +37,7 @@ import { accountForUsage, runtimeAccountBadge, runtimeTint, shownAccountLabel } 
 import type { AppSnapshot } from '../../state/store'
 import { CaretIcon } from '../Icons'
 import { RuntimeMark } from '../BrandIcons'
-import { Card } from './shared'
+import { Card, HistoricalReading } from './shared'
 import { AllowanceBody, BalanceBody, FreeBody, KeyBody } from './ShapeBodies'
 import { MoneyRowView } from './PlanFrame'
 import { useAccountLabel } from '../../state/context'
@@ -337,6 +337,7 @@ const ExpandedBody = ({
   return (
     <>
       {body}
+      {row.shape !== 'windows' && row.raw.historical && <HistoricalReading history={row.raw.historical} now={now} />}
       {onSignIn && row.shape !== 'none' && <Button variant="outline" size="sm" onClick={onSignIn}>Sign in to {info?.presentation.name ?? 'the account'}</Button>}
       {summary && <AccountActivityBand summary={summary} />}
     </>

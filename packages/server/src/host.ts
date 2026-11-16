@@ -3084,6 +3084,7 @@ export class Host {
     this.#runtimeSubscriptions.delete(id)
     this.#catalogs.forget(id)
     this.#runtimes.delete(id)
+    const forgottenHistory = this.#usageService.forgetHistory(id)
     this.#runtimeSources.delete(String(id))
     this.#discoveringRuntimes.delete(String(id))
     this.#discoveryOnlyRuntimes.delete(String(id))
@@ -3108,6 +3109,7 @@ export class Host {
     } finally {
       if (stopping) this.#removalDisposals.delete(stopping)
     }
+    await forgottenHistory
     if (!this.#runtimes.has(id)) this.#push({ method: 'runtime/removed', params: { runtime: id } })
   }
 
@@ -3195,6 +3197,10 @@ export class Host {
     this.#usage ??= new UsageService({
       runtimes: () => this.#meteredRuntimes(),
       meters: this.#meters,
+      historyPath: join(this.#state.directory, 'usage-last-observation.json'),
+      historyAllowed: id => this.#meteredRuntimes().some(runtime => runtime.info.id === id),
+      historyWarning: runtime => this.#push({ method: 'event', params: { runtime, event: { type: 'notice', class: 'result', level: 'warning',
+        message: 'The saved earlier usage reading could not be cleared. It is hidden for now and may remain on this device.' } } }),
       spend: {
         spendFor: (runtime, days) => this.#ledgerService.spendFor(runtime, days),
         turnsFor: (runtime, sinceMs) => this.#ledgerService.turnsFor(runtime, sinceMs),
@@ -4108,6 +4114,7 @@ export class Host {
     this.#sessionIndex.close()
     await this.#gateways.dispose()
     this.#usage?.dispose()
+    await this.#usage?.flushHistory()
     this.#ledger?.close()
     await runtimesGone
     await removedGone
@@ -11147,7 +11154,11 @@ export class Host {
     if ((replaceReplayTurns || clearReplayUsage) && held && !held.transcriptIncomplete && event.type === 'session/started') {
       held.session = { ...held.session, ...(replaceReplayTurns ? { turns: event.session.turns } : {}), ...(clearReplayUsage ? { usage: null } : {}) }
     }
-    if (event.type === 'account/changed') this.#accountReads.get(runtime)?.invalidate()
+    if (event.type === 'account/changed') {
+      this.#accountReads.get(runtime)?.invalidate()
+      // The first observation can be a runtime's startup state, not a change of account.
+      if (this.#usage?.asked(runtime)) void this.#usage.forgetHistory(runtime)
+    }
     if (event.type === 'catalog/changed' || event.type === 'runtime/options') {
       const owner = this.#runtimeSources.get(String(runtime))
       if (owner?.observations && owner.health().state === 'ready') this.#recordObservations(owner, owner.observations())
