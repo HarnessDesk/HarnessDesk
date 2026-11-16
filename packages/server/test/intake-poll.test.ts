@@ -502,3 +502,37 @@ test('a stalled review read is visible even when issue comments make progress', 
   assert.equal(r.monitor.statuses()[0]?.state, 'watching')
   await r.monitor.close()
 })
+
+test('unsafe PR keys in review coverage are refused without overwriting cursor bytes', async () => {
+  const home = tempDir('hd-intake-unsafe-pr-key-'), file = join(home, 'triggers-cursors.json')
+  const cursor = { version: 1, source: 'mention', repository: 'acme/widgets', baseline: 1, observedThrough: 1, continuation: null, subjects: {},
+    mentionReviews: { next: 0, pulls: { '9999999999999999': { through: 1, seen: {} } } } }
+  const original = JSON.stringify({ version: 1, cursors: { fixture: cursor } })
+  await writeFile(file, original)
+  const cursors = new SourceCursors(home)
+  await assert.rejects(cursors.read('fixture'), /will not be rebaselined/)
+  await assert.rejects(cursors.commit('fixture', cursor as any), /will not be rebaselined/)
+  assert.equal(await readFile(file, 'utf8'), original)
+})
+
+test('unsafe request-settlement PR keys are refused without overwriting cursor bytes', async () => {
+  const home = tempDir('hd-intake-unsafe-request-pr-'), file = join(home, 'triggers-cursors.json')
+  const cursor = { version: 1, source: 'pull-request', repository: 'acme/widgets', baseline: 1, observedThrough: 1, continuation: null, subjects: {},
+    requests: { seen: { u9999999999999999: 1 } } }
+  const original = JSON.stringify({ version: 1, cursors: { fixture: cursor } })
+  await writeFile(file, original)
+  const cursors = new SourceCursors(home)
+  await assert.rejects(cursors.read('fixture'), /will not be rebaselined/)
+  assert.equal(await readFile(file, 'utf8'), original)
+})
+
+test('maximum safe numeric PR keys round-trip in both coverage formats', async () => {
+  const home = tempDir('hd-intake-safe-pr-key-'), cursors = new SourceCursors(home)
+  const mention = { version: 1 as const, source: 'mention' as const, repository: 'acme/widgets', baseline: 1, observedThrough: 1, continuation: null, subjects: {},
+    mentionReviews: { next: 0, pulls: { '9007199254740991': { through: 1, seen: {} } } } }
+  const pull = { version: 1 as const, source: 'pull-request' as const, repository: 'acme/widgets', baseline: 1, observedThrough: 1, continuation: null, subjects: {},
+    requests: { seen: { u9007199254740991: 1 } } }
+  await cursors.commit('mention', mention); await cursors.commit('pull', pull)
+  assert.deepEqual(await cursors.read('mention'), mention)
+  assert.deepEqual(await cursors.read('pull'), pull)
+})
