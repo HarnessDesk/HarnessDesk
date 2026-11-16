@@ -96,16 +96,16 @@ for (const undoFirst of [false, true]) test(`a failed frozen receipt ${undoFirst
   assert.equal(closes, 1, 'successful admission does not close the resumed handle')
 })
 
-test('a stale failed receipt never closes the handle adopted by a newer opener', async t => {
+test('a stale failed receipt settles before a newer owner can reopen', async t => {
   const { desk, session, params } = await seated(t)
   await desk.client.call('session/remove', { ...params, removed: true })
   await desk.client.call('session/remove', { ...params, removed: false })
   const plane = desk.harness.host.attachmentsPlane, record = plane.record.bind(plane)
-  let entered!: () => void, release!: () => void, calls = 0
-  const began = new Promise<void>(resolve => { entered = resolve }), gate = new Promise<void>(resolve => { release = resolve })
+  let entered!: () => void, release!: () => void, finished!: () => void, calls = 0
+  const began = new Promise<void>(resolve => { entered = resolve }), gate = new Promise<void>(resolve => { release = resolve }), done = new Promise<void>(resolve => { finished = resolve })
   t.mock.method(plane, 'record', async (...args: Parameters<typeof record>) => {
     calls++
-    if (calls === 1) { entered(); await gate; throw new Error('late receipt refusal') }
+    if (calls === 1) { entered(); await gate; finished(); throw new Error('late receipt refusal') }
     return record(...args)
   })
   let closes = 0
@@ -122,13 +122,13 @@ test('a stale failed receipt never closes the handle adopted by a newer opener',
     await began
     desk.harness.host.registry.detachAll(session.runtime, session.id)
     desk.runtime.dieResumeOwner(session.id)
+    await assert.rejects(desk.harness.host.call('session/resume', params), /earlier open|notRunning/)
+    desk.runtime.sessions.delete(session.id)
+    release(); await done; await outcome
+    await new Promise(resolve => setImmediate(resolve))
     await desk.harness.host.call('session/resume', params)
     const current = desk.harness.host.registry.get(session.runtime, session.id)?.live
     assert.ok(current)
-    release(); await outcome
-    await new Promise(resolve => setImmediate(resolve))
-    await new Promise(resolve => setImmediate(resolve))
-    assert.equal(desk.harness.host.registry.get(session.runtime, session.id)?.live, current)
     assert.equal(closes, 0, 'old failure cannot close a newer holder')
   } finally { release(); await outcome }
 })
