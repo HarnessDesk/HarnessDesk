@@ -162,10 +162,11 @@ for (const theme of WALL_THEMES) {
       expect((await page.locator('[data-left-top]').boundingBox())!.height).toBe(FRAME.bar.height)
       expect((await page.locator('[data-left-seat]').locator('..').boundingBox())!.height).toBe(FRAME.sidebar.footerHeight)
       const seatTextX = await page.locator('[data-left-seat]').evaluate(seat => {
-        const walker = document.createTreeWalker(seat, NodeFilter.SHOW_TEXT)
+        const trigger = seat.querySelector('[data-slot="popover-trigger"]') ?? seat
+        const walker = document.createTreeWalker(trigger, NodeFilter.SHOW_TEXT)
         let node: Node | null
         while ((node = walker.nextNode())) {
-          if (node.textContent?.trim() === 'Jane Doe') {
+          if (node.textContent?.trim()) {
             const range = document.createRange()
             range.selectNodeContents(node)
             return range.getBoundingClientRect().x

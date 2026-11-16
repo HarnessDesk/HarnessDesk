@@ -1,5 +1,4 @@
 import { useEffect, useMemo } from 'react'
-import accountPicture from '../../../../assets/avatars/128/guardian.png?inline'
 import type { HarnessDeskAccountStatus } from '@harnessdesk/protocol'
 import { StoreProvider, useStore } from '../state/context'
 import { App } from '../app/App'
@@ -15,10 +14,10 @@ export const HarnessDeskAccountPreview = () => {
     const pending = stage === 'pending' || stage === 'pending-staging'
     const status: HarnessDeskAccountStatus = {
       status: pending ? 'pending' : stage === 'signed-out' ? 'signedOut' : 'signedIn',
-      desk: { name: 'Jane’s MacBook Pro', reachable: true },
+      desk: { name: 'Work Mac', reachable: true },
       phones: stage === 'signed-out' || pending ? [] : [{ deviceId: 'AAAAAAAAAAAAAAAAAAAAAA', name: 'iPhone', lastSeenAt: Math.floor(Date.now() / 1000) - 120 }],
       ...(pending ? { pending: { userCode: 'ABCD-EFGH', verifyUrl: `https://${stage === 'pending-staging' ? 'staging.example.com' : 'app.harnessdesk.app'}/link#code=ABCD-EFGH`, expiresAt: Math.floor(Date.now() / 1000) + 600 } }
-        : stage === 'signed-out' ? {} : { account: { name: 'Jane Doe', email: 'jane@example.com', pictureUrl: null, pictureDataUrl: accountPicture } }),
+        : stage === 'signed-out' ? {} : { account: { id: 'jane', name: 'Jane Doe', nickname: 'Jane at work', email: 'jane@example.com', pictureUrl: null } }),
     }
     const mobile = params.get('feature-mobile')
     const features = mobile === 'problem' ? { lead: true, mobile: true, problem: { kind: 'preferences' as const, message: 'The saved feature settings need repair.' } } : mobile === 'off' ? { lead: false, mobile: false } : fixture.getSnapshot().features
@@ -33,7 +32,7 @@ export const HarnessDeskAccountPreview = () => {
       }
       return request(method, args)
     }) as typeof next.transport.request
-    if (stage === 'settings' || stage === 'settings-offline' || stage === 'settings-delete' || stage === 'settings-delete-offline') next.openDestination({ kind: 'settings', route: { kind: 'section', section: params.get('account-section') === 'mobile' ? 'phone' : 'profile', focus: null } })
+    if (stage?.startsWith('settings') || stage === 'signed-out') next.openDestination({ kind: 'settings', route: { kind: 'section', section: params.get('account-section') === 'mobile' ? 'phone' : params.get('account-section') === 'general' ? 'general' : params.get('account-section') === 'appearance' ? 'appearance' : 'profile', focus: null } })
     if (stage === 'settings-offline') {
       const signOut = next.signOutOfHarnessDesk.bind(next)
       next.signOutOfHarnessDesk = async localOnly => {
@@ -41,9 +40,12 @@ export const HarnessDeskAccountPreview = () => {
         await signOut(true)
       }
     }
+    if (stage === 'settings-save-failed') next.updateHarnessDeskProfile = async () => { throw new Error('Could not save your display name. Try again.') }
+    if (stage === 'settings-rename-failed') next.renameHarnessDesk = async () => { throw new Error('Could not rename this desk. Try again.') }
     return next
   }, [fixture, stage])
   useEffect(() => {
+    Object.assign(window, { __hdIdentity: store })
     const resize = () => store.setWindowSize(window.innerWidth, window.innerHeight)
     resize()
     window.addEventListener('resize', resize)

@@ -25,6 +25,8 @@ import { StoreProvider } from '../../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../../state/store'
 import {
   AccountMark,
+  AppIcon,
+  PersonFace,
   CustomizeTabs,
   type CustomizeSection,
   ComposerNotice,
@@ -781,8 +783,8 @@ const FaceBoard = () => (
     <Specimen caption="Face at its sizes, and one drawn into a subject summary">
     <div className={styles.stack}>
       <div>
-        <Face avatar={null} size={24} /> <Face avatar="astronaut" size={24} /> <Face avatar="pirate" size={24} />{' '}
-        <Face avatar={null} size={44} /> <Face avatar="wizard" size={44} />
+        <PersonFace size={24} /> <AppIcon avatar="astronaut" size={24} /> <AppIcon avatar="pirate" size={24} />{' '}
+        <PersonFace size={44} /> <AppIcon avatar="wizard" size={44} />
       </div>
       <SectionHead level="label" name="Jane Doe" description="A person's face, drawn through the canonical avatar primitive." />
     </div>
@@ -790,7 +792,7 @@ const FaceBoard = () => (
     <p className={styles.rule}>
       A person is a face; an account is a ring. A face is round unless the person chose square (the Faces dial
       above), and its corner follows that choice at every size. The tile is the shared avatar primitive — one
-      plate, one hairline — its corner stepping up as it grows, and the house mark for any face this build
+      plate, one hairline. PersonFace uses a neutral person glyph when no raster is available; AppIcon keeps a thing’s tile. Legacy Face uses the house mark for artwork this build
       does not ship: the third tile is an id no build has.
     </p>
   </>

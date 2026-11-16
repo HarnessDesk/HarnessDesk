@@ -22,7 +22,7 @@ export async function mountFocusFixture(page: Page) {
     await route.fulfill({ response, body: `${source.replace('createRoot(container).render(', 'void (')}
       import focusReact from ${JSON.stringify(reactUrl)};
       import { CommandPalette } from '/src/components/CommandPalette.tsx';
-      import { ProfileSection } from '/src/components/SettingsYou.tsx';
+      import { HarnessDeskAccountSection } from '/src/components/HarnessDeskAccount.tsx';
       import { Button, Dialog, Input, Search, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '/src/design/index.ts';
       // The palette's debounced reads need wire-shaped answers. The preview
       // transport's null fallback made files.map crash and unmount this root.
@@ -35,6 +35,7 @@ export async function mountFocusFixture(page: Page) {
         if (method === 'transcripts/search') return [];
         return request(method, params);
       };
+      store.patch({ harnessDeskAccount: { status: 'signedIn', account: { id: 'jane', name: 'Jane Doe', nickname: 'Jane at work', email: 'jane@example.com', pictureUrl: null }, desk: { name: 'Work Mac', reachable: false }, phones: [] } });
       const h = focusReact.createElement;
       const FocusFixture = () => {
         useTheme();
@@ -45,8 +46,8 @@ export async function mountFocusFixture(page: Page) {
             h(Sidebar, { onOpenSettings: close, onOpenPlugins: close, onOpenTeams: close, onOpenAgents: close, onOpenUsage: close, onBrowseFolders: close, onSignIn: close, onSearch: () => setOpen('palette') })),
           h('div', null,
           h('section', { 'aria-label': 'Focus settings', style: { width: 880, padding: 24, background: 'var(--hd-background)' } },
-            h('h1', null, 'Settings · Profile'),
-            h(ProfileSection)),
+            h('h1', null, 'Settings · Account'),
+            h(HarnessDeskAccountSection)),
             h('div', { style: { display: 'flex', gap: 8, marginTop: 16 } },
               h(Button, { onClick: () => setOpen('palette') }, 'Open palette'),
               h(Button, { onClick: () => setOpen('dialog') }, 'Open dialog'),

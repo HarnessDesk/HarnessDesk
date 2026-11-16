@@ -74,6 +74,8 @@ export {
   RowChoice,
   Clipped,
   Face,
+  PersonFace,
+  AppIcon,
   FileButton,
   AccountMark,
   CodeText,

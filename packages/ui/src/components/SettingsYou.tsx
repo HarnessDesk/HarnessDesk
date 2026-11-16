@@ -1,7 +1,7 @@
-import { useDestinationActive } from '../panels/destination-page'
+import { HarnessDeskNameSection } from './HarnessDeskAccount'
 import { PageExplanation, PageOptions, ShortcutKeys } from '../design'
 import { useInboxMessages } from './Notices'
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useId, useMemo, useState, type ReactNode } from 'react'
 
 import { useSnapshot, useStore } from '../state/context'
 import { chordParts, SHORTCUTS, type Shortcut } from '../lib/shortcuts'
@@ -11,21 +11,14 @@ import { SYSTEM_NOTIFICATION_KINDS, systemNotificationOn } from '../lib/system-n
 import { FONT_SIZES, installedFaces, TAB_SIZES } from '../editor'
 import { formatAge } from '../lib/usage'
 import { AVATARS, isAvatarId, type AvatarId } from '../lib/avatars'
-import {
-  applyProfile,
-  DEFAULT_PROFILE_NAME,
-  editName,
-  isDefaultProfile,
-  profileName,
-} from '../lib/profile'
 import { EditorSample, ThemeCards, useResolvedDark } from './AppearancePreview'
 import {
   Button,
   DisclosureChevron,
   PictureChoices,
   AccentChoices,
-  Face,
-  Input,
+  AppIcon,
+  Dialog,
   InboxPanel,
   Keycap,
   Note,
@@ -47,149 +40,6 @@ import {
  * read in: who am I, what does this look like, what does it say to me, how do
  * I drive it — and only then, what can it do.
  */
-
-/**
- * You: the name and the face the desk shows for you.
- *
- * The page the seat's menu opens and the settings rail starts with. Its head
- * is your face at a size you can see and your name as you type it, so the
- * page is its own preview, the way Appearance is — nothing on it needs a
- * sentence saying what it would change.
- *
- * These local controls sit beneath the HarnessDesk account settings. They
- * keep a separate name and face on this Mac for rooms and the signed-out
- * seat; signing in does not overwrite them.
- *
- * Three ways back, each where you would look for it: clear the field for the
- * name, the first face for the picture, and "Reset to default" for both —
- * shown only while there is something to reset.
- */
-export const ProfileSection = () => {
-  const destinationActive = useDestinationActive()
-
-  const store = useStore()
-  const { profile, harnessDeskAccount } = useSnapshot()
-  const stored = profile.name ?? ''
-  /* The field keeps its own text until it is let go — Enter, a click
-     elsewhere, the window closing. The store tidies a name (trims it, folds
-     its runs of spaces), and tidying under the caret would eat the space
-     between two words as it was typed; the account nickname field makes the
-     same choice for the same reason. `latest` is the draft as of this
-     instant, because a blur fires before the render that would carry it. */
-  const [draft, setDraft] = useState(stored)
-  const latest = useRef(draft)
-  latest.current = draft
-  const kept = useRef(stored)
-  kept.current = stored
-  const commit = (): void => {
-    // Let go without an edit, the field writes nothing: a name a later build
-    // wrote to its own rules survives being looked at. An edit is held to
-    // this build's: the field lets a longer name be shortened any way — from
-    // the middle, say — and whatever is left when it is let go is cut to
-    // forty, so a single Backspace on a sixty-character name keeps forty.
-    if (latest.current === kept.current) return
-    store.setProfile({ name: latest.current })
-    setDraft(applyProfile({}, { name: latest.current }).name ?? '')
-  }
-  // Reset puts the field back itself rather than waiting for the store to
-  // answer. A draft nobody committed would otherwise outlive it — the stored
-  // profile did not change, so nothing would tell the field to — and the
-  // write on the way out below would read the stale draft back into the store.
-  const reset = (): void => {
-    latest.current = ''
-    setDraft('')
-    store.setProfile({ name: null, avatar: null })
-  }
-  // Any change from outside the field puts the field back.
-  useEffect(() => { if (destinationActive) setDraft(stored) }, [destinationActive, stored])
-  // Leaving is letting go — of an edit, if there is one; a page opened and
-  // closed again writes nothing. Leaving for another page unmounts this one.
-  // A quit or a reload tears the page down without running React's cleanups,
-  // so `pagehide` writes it on the way out too: best effort, because the write
-  // is a message that has to leave before the page does, and a crash writes
-  // nothing at all.
-  useEffect(() => {
-    if (!destinationActive) return
-
-    const letGo = (): void => {
-      if (latest.current !== kept.current) store.setProfile({ name: latest.current })
-    }
-    window.addEventListener('pagehide', letGo)
-    window.addEventListener('beforeunload', letGo)
-    return () => {
-      window.removeEventListener('pagehide', letGo)
-      window.removeEventListener('beforeunload', letGo)
-      letGo()
-    }
-  }, [destinationActive, store])
-
-  // The head previews what is typed, before it is let go — and while nothing
-  // is, shows what is kept, as it is kept.
-  const live = draft === stored ? profile : applyProfile(profile, { name: draft })
-  const noteId = useId()
-  const keeps = profile.avatar !== undefined && !isAvatarId(profile.avatar)
-
-  return (
-    <>
-      <Rows><Row kind="record" face={<Face avatar={profile.avatar} />} title={profileName(live)} desc={harnessDeskAccount?.status === 'signedIn' ? "Shown beside what you say in a room and in the sidebar when signed out. Kept on this Mac." : "Shown at the foot of the sidebar and beside what you say in a room. Kept on this Mac."} control={isDefaultProfile(live) ? undefined : (
-            <Button variant="outline" onClick={reset}>
-              Reset to default
-            </Button>
-          )}/></Rows>
-
-      <Rows>
-        <Row
-          title="Name"
-          desc={`Leave it empty to use ${DEFAULT_PROFILE_NAME}.`}
-          control={
-            <Input
-              measure="name"
-              value={draft}
-              placeholder={DEFAULT_PROFILE_NAME}
-              aria-label="Your name"
-              /* Capped by character, the count the store keeps. `maxLength`
-                 counts UTF-16 units, and stopped an emoji name at twenty. */
-              onChange={(event) => {
-                const node = event.target
-                const edit = editName(latest.current, node.value, node.selectionEnd)
-                latest.current = edit.value
-                setDraft(edit.value)
-                // Setting a value puts the caret at its end, and React sets
-                // one whenever the edit was cut: put the caret back after
-                // what was kept of the edit, once React is done.
-                if (edit.value !== node.value) queueMicrotask(() => node.setSelectionRange(edit.caret, edit.caret))
-              }}
-              onBlur={commit}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') event.currentTarget.blur()
-                if (event.key === 'Escape' && draft !== stored) {
-                  // The first Escape takes the edit back; the next is the window's.
-                  event.stopPropagation()
-                  latest.current = stored
-                  setDraft(stored)
-                  event.currentTarget.blur()
-                }
-              }}
-            />
-          }
-        />
-      </Rows>
-
-      <SectionHead level="label" name="Picture" />
-      <FacePicker
-        value={profile.avatar}
-        describedBy={keeps ? noteId : undefined}
-        onChange={(avatar) => store.setProfile({ avatar })}
-      />
-      {keeps && (
-        <Note id={noteId}>
-          Your profile holds a face this version of HarnessDesk cannot draw, so it shows as the house mark. It is kept
-          as it is until you choose one here.
-        </Note>
-      )}
-    </>
-  )
-}
 
 /**
  * Eight to a row: Default and the mark's six colourways fill the first row and
@@ -248,6 +98,8 @@ const FacePicker = ({
 export const GeneralSection = ({ rows }: { rows: ReactNode }) => (
   <>
     <PageExplanation>Defaults for new conversations, and what this Mac’s HarnessDesk keeps.</PageExplanation>
+
+    <HarnessDeskNameSection />
 
     {rows}
 
@@ -322,6 +174,9 @@ const AccentSwatches = () => {
 export const AppearanceSection = () => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const [choosingIcon, setChoosingIcon] = useState(false)
+  const iconNoteId = useId()
+  const unknownIcon = snapshot.appIcon != null && !isAvatarId(snapshot.appIcon)
   // Asked of the machine once: the answer cannot change while the page is
   // open, and `document.fonts.check` is a layout read.
   const faces = useMemo(() => installedFaces(), [])
@@ -339,6 +194,15 @@ export const AppearanceSection = () => {
   return (
     <>
       <PageExplanation>How HarnessDesk looks. Every change shows here as you make it.</PageExplanation>
+
+      <Rows><Row title="App icon" face={<AppIcon avatar={snapshot.appIcon} size={32} />} control={<Button variant="outline" onClick={() => setChoosingIcon(true)}>Change…</Button>} /></Rows>
+      {choosingIcon && <Dialog title="App icon" size="lg" onClose={() => setChoosingIcon(false)} footer={<>
+        <Button onClick={() => setChoosingIcon(false)}>Done</Button>
+        <Button variant="secondary" onClick={() => store.setAppIcon(null)}>Restore default</Button>
+      </>}>
+        <FacePicker value={snapshot.appIcon} describedBy={unknownIcon ? iconNoteId : undefined} onChange={icon => store.setAppIcon(icon)} />
+        {unknownIcon && <Note id={iconNoteId}>This version cannot draw your saved app icon. It is kept until you choose one here.</Note>}
+      </Dialog>}
 
       <SectionHead level="label" name="Theme" />
       <ThemeCards />

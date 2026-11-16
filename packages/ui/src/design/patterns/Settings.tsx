@@ -1,3 +1,4 @@
+import { UserIcon } from '../../components/Icons'
 import { FaceBadge } from '../ui/icon-tile'
 import { Button } from '../ui/button'
 import { Children, createContext, createElement, isValidElement, useContext, useEffect, useId, useState, type ButtonHTMLAttributes, type ComponentProps, type CSSProperties, type FocusEventHandler, type HTMLAttributes, type KeyboardEventHandler, type ReactNode, type Ref } from 'react'
@@ -1246,40 +1247,15 @@ export const RowChoice = ({
   )
 }
 
-/**
- * A person's face: the picture they chose, or the house mark when they have
- * not.
- *
- * It is the avatar above, filled with its plate and hairline, in the face
- * shape, because a person is not an account: account marks are hollow rings,
- * a face is whatever the person chose for faces (`--hd-face-radius`, round
- * unless they picked square), and it is the same corner the agents' marks
- * beside it wear. When faces are square the corner steps up the radius scale
- * with the size, so the seat's 24px and the profile page's 44px read as one
- * object at two sizes.
- * Plated colourways crop their inset plate to that same corner without
- * enlarging the mark. Transparent marks and sticker artwork stay whole.
- *
- * Without a `size` it fills the box it is put in and takes that box's corner:
- * a room's message rows draw a tile for every sender, and a person's face
- * belongs in the same tile as the agents' marks beside it.
- *
- * `avatar` is whatever the profile stores. Anything this build does not ship —
- * a face a later build added, a picture it keeps — draws the house mark. It is
- * not dropped: keeping what it cannot draw is the profile's job
- * (`lib/profile.ts`), so a later build finds it where it left it.
- *
- * A signed-in account may supply `pictureDataUrl` independently of the local
- * avatar. Only host-provided PNG, JPEG or WebP data is displayed; remote
- * URLs are refused. Pictures fall back to the house mark when they cannot
- * load, without changing the local profile.
- */
-export const Face = ({
+/** Legacy artwork presentation; account identity uses PersonFace and the app uses AppIcon. */
+const IdentityPicture = ({
+  presentation = 'legacy',
   avatar,
   pictureDataUrl,
   size,
   className,
 }: {
+  readonly presentation?: 'legacy' | 'person' | 'app'
   readonly avatar?: unknown
   /** An account raster supplied by the host, never a remote URL. */
   readonly pictureDataUrl?: string | null
@@ -1288,14 +1264,14 @@ export const Face = ({
   readonly className?: string
 }) => {
   const accountPicture = pictureDataUrl && /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(pictureDataUrl) ? pictureDataUrl : null
-  const source = accountPicture ?? avatarSrc(avatar)
+  const source = accountPicture ?? (presentation === 'person' ? null : avatarSrc(avatar))
   const [failedPicture, setFailedPicture] = useState<string | null>(null)
   const src = source === failedPicture ? null : source
   const picture = src ? <img className={styles.avatarPicture} src={src} alt="" draggable={false} referrerPolicy="no-referrer" onError={() => setFailedPicture(src)} /> : null
   return (
     <span
-      className={className ? `${styles.avatar} ${className}` : styles.avatar}
-      data-shape="face"
+      className={cx(styles.avatar, presentation === 'app' && styles.appIcon, className)}
+      data-shape={presentation === 'app' ? 'square' : 'face'}
       {...(size === undefined
         ? { 'data-fill': '' }
         : { 'data-size': size > 32 ? 'm' : 's', style: { width: size, height: size } })}
@@ -1309,11 +1285,20 @@ export const Face = ({
         // 0.44 is the ratio the seat always drew at: an 11px mark in its
         // 24px disc, 13px in the menu's 30px one. A filling tile sizes the
         // mark in the stylesheet, by the same ratio.
-        <HarnessMark size={size === undefined ? 16 : Math.round(size * 0.44)} />
+        presentation === 'person' ? <UserIcon size={size === undefined ? 16 : Math.round(size * 0.6)} /> : <HarnessMark size={size === undefined ? 16 : Math.round(size * 0.44)} />
       )}
     </span>
   )
 }
+
+/** Retained artwork contract for existing design examples. */
+export const Face = (props: Omit<Parameters<typeof IdentityPicture>[0], 'presentation'>) => <IdentityPicture {...props} />
+
+/** A person uses only the host's bounded raster, with a neutral person fallback. */
+export const PersonFace = (props: Omit<Parameters<typeof IdentityPicture>[0], 'presentation' | 'avatar'>) => <IdentityPicture {...props} presentation="person" />
+
+/** Application artwork is a thing's tile, independent of account identity and Faces. */
+export const AppIcon = (props: Omit<Parameters<typeof IdentityPicture>[0], 'presentation' | 'pictureDataUrl'>) => <IdentityPicture {...props} presentation="app" />
 
 /**
  * One line of text that ellipsises, and says itself whole on hover — only

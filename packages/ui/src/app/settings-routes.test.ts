@@ -107,3 +107,10 @@ it('Lead settings remain routable while the feature is off', () => {
   expect((destinationForSettings as any)('lead', null, true)).toEqual({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: null } })
   expect(destinationForSettings('lead')).toEqual(destinationForSettings('lead', null, true))
 })
+
+it.each([
+  ['nickname', 'profile'], ['display-name', 'profile'], ['account-name', 'profile'],
+  ['desk-name', 'general'], ['app-icon', 'appearance'], ['dock-icon', 'appearance'],
+])('resolves the distinct identity deep link %s', (alias, section) => {
+  expect(resolveSection(alias)).toBe(section)
+})

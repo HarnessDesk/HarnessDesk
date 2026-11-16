@@ -48,12 +48,15 @@ for (const [name, query] of [
 
 
 for (const theme of ['light', 'dark'] as const) for (const width of [1440, 1100, 720]) {
-  test(`E2a Profile choices remain inside the frame ${width} ${theme}`, async ({ page }) => {
-    await openFrame(page, 'frame-wall=settings&frame-section=profile', theme, width)
+  test(`E2a App icon choices remain inside the frame ${width} ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=settings&frame-section=appearance', theme, width)
+    await expectSettingsChrome(page, width)
+    await page.getByRole('button', { name: 'Change…', exact: true }).click()
     const choices = page.getByRole('radiogroup', { name: 'Picture', exact: true })
     await expect(choices).toBeVisible()
     await expect(choices).toHaveAttribute('data-slot', 'picture-choices')
     expect(await choices.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    await page.getByRole('button', { name: 'Done', exact: true }).click()
     await expectSettingsChrome(page, width)
   })
 }
