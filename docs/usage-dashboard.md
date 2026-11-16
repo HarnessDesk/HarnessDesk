@@ -1659,11 +1659,11 @@ later reads can continue. An oversized whole-file source stays partial. The
 Insight response qualifies totals and carries `scan: 'partial'` when a scan
 limit was reached; Projects shows **Partial** in a chip. Missing measurements
 and unreadable-source warnings retain their own qualification. The cache is
-local and does not write transcripts or receipt evidence. Its 128 MiB total and
-16 MiB per-source admission targets are logical budgets, not hard filesystem
-quotas; a miss, eviction, busy cache or oversized entry falls back to the source
-reader and can use the host-lifetime in-memory cache. Goal reports visit the
-project's observations for attribution and consult reconciliation while holding
+local and does not write transcripts or receipt evidence. Its 128 MiB total
+admission target is a logical budget, not a hard filesystem quota; a source may
+use the available total budget. A miss, eviction, busy cache or oversized
+entry falls back to the source reader and can use the host-lifetime in-memory
+cache. Goal reports visit the project's observations for attribution and consult reconciliation while holding
 only requested Teams' observations and the necessary consult state in the normal
 indexed path. The largest source and the requested results still cost memory. Goal reports
 use the index snapshot's validation time as each selected source's checked

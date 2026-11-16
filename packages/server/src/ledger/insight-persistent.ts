@@ -6,7 +6,6 @@ import type { ScanTarget } from './scan.js'
 import type { UsageSample } from './insight.js'
 
 /** Disposable cache; the source corpus remains the authority. Limits are admission targets, not filesystem quotas. */
-const SOURCE_BYTES = 16 * 1024 * 1024
 const TOTAL_BYTES = 128 * 1024 * 1024
 
 /** Create or open only a private regular cache file; never follow an existing symlink. */
@@ -197,7 +196,7 @@ export class PersistentInsight {
         hash.update('\0').update(project).update('\0').update(observation.payload)
         bytes += Buffer.byteLength(project) + Buffer.byteLength(observation.payload)
       }
-      if (bytes > SOURCE_BYTES || bytes > this.#limit) { this.#db.exec('ROLLBACK'); return false }
+      if (bytes > this.#limit) { this.#db.exec('ROLLBACK'); return false }
       let used = (this.#db.prepare('SELECT COALESCE(SUM(bytes), 0) AS bytes FROM generations').get() as { bytes: number }).bytes
       if (used + bytes > this.#limit) {
         const victims = this.#db.prepare('SELECT id, bytes FROM generations ORDER BY used, id').all() as { id: string; bytes: number }[]
