@@ -289,6 +289,15 @@ test('receipt failure preserves a handle when the adapter cannot attest ownershi
     const attempt = begin(...args)
     return { result: attempt.result, retire: attempt.retire }
   }
+  // The Host's exact-owner subscription is released only after its retirement
+  // work has settled. Owner death itself is synchronous but does not await it.
+  let retirementSettled!: () => void
+  const settled = new Promise<void>(resolve => { retirementSettled = resolve })
+  const onDeath = desk.runtime.onResumeOwnerDied.bind(desk.runtime)
+  t.mock.method(desk.runtime, 'onResumeOwnerDied', (listener: Parameters<typeof onDeath>[0]) => {
+    const unsubscribe = onDeath(listener)
+    return () => { unsubscribe(); retirementSettled() }
+  })
   await assert.rejects(desk.harness.host.call('session/resume', params), /receipt refusal/)
   assert.equal(closes, 0, 'unknown ownership does not authorize closing')
   assert.ok(desk.runtime.sessions.has(session.id))
@@ -308,6 +317,7 @@ test('receipt failure preserves a handle when the adapter cannot attest ownershi
   assert.equal(desk.runtime.resumes, resumes, 'unknown ownership remains quarantined until owner death')
   desk.runtime.sessions.delete(session.id) // the fake owner's process has died
   desk.runtime.dieResumeOwner(session.id)
+  await settled
   failure.mock.restore()
   await desk.harness.host.call('session/resume', params)
   assert.equal(desk.runtime.resumes, resumes + 1, 'a new generation can reopen after proven death')
