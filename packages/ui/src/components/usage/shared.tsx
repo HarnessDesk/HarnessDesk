@@ -30,6 +30,7 @@ import {
   byUrgency,
   coverageLabel,
   describeLane,
+  describeLaneReset,
   describeReport,
   drawnReport,
   formatAge,
@@ -272,8 +273,8 @@ export const Card = ({
         : null
   const headlineReset = hero
     ? (elsewhere
-        ? [view.all.length > 1 && hero.title, resetOf(hero, false), sentence]
-        : [view.all.length > 1 && hero.title, sentence ?? resetOf(hero, false)]
+        ? [view.all.length > 1 && hero.title, describeLaneReset(hero), sentence]
+        : [view.all.length > 1 && hero.title, sentence ?? describeLaneReset(hero)]
       ).filter(Boolean).join(' · ')
     : null
   const agent = info?.presentation.name ?? 'Runtime'
@@ -617,12 +618,6 @@ export { balanceOf, type Balance }
 /** A balance in whatever unit the vendor keeps it in. */
 const amount = (value: number, unit: string): string =>
   unit === 'USD' ? (formatMoney(value) ?? '—') : `${value.toLocaleString()} ${unit}`
-
-/** Which window the headline belongs to, and when it comes back. */
-const resetOf = (lane: LaneView, name: boolean): string =>
-  [name && lane.title, lane.resetClock && `resets ${lane.resetClock}`, lane.countdown && `in ${lane.countdown}`]
-    .filter(Boolean)
-    .join(' · ')
 
 /**
  * The glyph a note wears.
