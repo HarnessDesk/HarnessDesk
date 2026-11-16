@@ -2470,6 +2470,18 @@ rl.on('line', (line) => {
       })
       return
 
+    case 'accountSession/list':
+      if (process.env.FAKE_CODEX_IDENTITY_NO_REPLY === '1') return
+      if (!process.env.FAKE_CODEX_SESSION_IDENTITY) {
+        send({ id, error: { code: -32601, message: 'method not found' } })
+      } else if (params?.refreshWorkspaceMetadata !== false) {
+        send({ id, error: { code: -32602, message: 'fixture forbids membership refresh' } })
+      } else {
+        if (process.env.FAKE_CODEX_IDENTITY_UPDATE_BEFORE_REPLY === '1') notify('account/updated', { authMode: 'chatgpt', planType: 'team' })
+        send({ id, result: JSON.parse(process.env.FAKE_CODEX_SESSION_IDENTITY) })
+      }
+      return
+
     case 'account/read':
       if (accountNotice === 'first-read') sayAccountNotice()
       replyAfterHold(process.env.FAKE_CODEX_HOLD_ACCOUNT, id, {

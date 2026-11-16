@@ -465,6 +465,18 @@ export const createDefaultHost = (
       if (slot?.gateway) return null // Its key is the broker's, not a home's.
       return accountIdentity(slot?.home ?? codexHome)
     },
+    ownsSlot: (runtime) => {
+      if (!host.ownsRuntime(runtime)) return false
+      if (runtime.info.id === CODEX_RUNTIME_ID) return true
+      const owned = codexSlots.get(runtime.info.id)
+      return owned?.runtime === runtime && slots.find(runtime.info.id) === owned.slot
+    },
+    identityOrder: (info) => {
+      const slot = codexSlotOf(info)
+      if (!slot) return null
+      const index = slots.of(slot.agent).findIndex(other => other === slot)
+      return index < 0 ? null : index
+    },
     // The host has resolved the credential and started the loopback gateway;
     // all that is left is telling this account's Codex to use it, which is a
     // file in a home only this module knows the shape of.

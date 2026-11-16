@@ -765,6 +765,10 @@ export interface AccountFactory {
    * treated as a match.
    */
   identityOf?(info: RuntimeInfo): string | null
+  /** Stable registration order for same-agent account slots, oldest first. */
+  identityOrder?(info: RuntimeInfo): number | null
+  /** Whether this exact runtime still owns its persisted account slot. */
+  ownsSlot?(runtime: AgentRuntime): boolean
   /**
    * Points a gateway account at the loopback address its traffic must use,
    * before it starts and again on every restart — the port is not stable
@@ -910,6 +914,7 @@ export class Host {
   readonly #creatingTranscripts = new Map<RuntimeId, number>()
   /** Accounts a fold is in flight for; see `#foldDuplicateAccount`. */
   readonly #folding = new Set<string>()
+  readonly #sessionFolding = new Map<string, Promise<void>>()
   /**
    * Conversations, by runtime and id, with a turn started since the host last
    * handled an idle status as a turn ending: the next idle is that turn's,
@@ -3008,6 +3013,9 @@ export class Host {
           return key === 'getAccount'
             ? () => accountReads.read(() => read() as ReturnType<AgentRuntime['getAccount']>)
             : read
+        }
+        if (key === 'accountIdentitySnapshot') {
+          return () => this.#withRuntimeRead(target, () => Reflect.apply(member, target, []) as Promise<{ key: string; generation: number } | null>)
         }
         if (LIVE_RUNTIME_METHODS.has(key)) {
           return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
@@ -12121,9 +12129,9 @@ export class Host {
     this.#folding.add(id)
     try {
       const identity = accounts.identityOf(runtime.info)
-      if (identity === null) return
+      if (identity === null) { await this.#foldSessionDuplicateAccount(runtime); return }
       const peers = this.#peerAccounts(runtime, identity)
-      if (peers.length === 0) return
+      if (peers.length === 0) { await this.#foldSessionDuplicateAccount(runtime); return }
       const mine = accounts.slotOf(runtime.info)?.removable === true
       // Whichever row survives, the notice has to name it — so the agent's own
       // account is preferred over another slot, because that is the row the
@@ -12183,6 +12191,91 @@ export class Host {
       })
     } finally {
       this.#folding.delete(id)
+    }
+  }
+
+  /** Compare provider-issued person/workspace pairs only while both owners are ready. */
+  async #foldSessionDuplicateAccount(runtime: AgentRuntime): Promise<void> {
+    const accounts = this.options.accounts
+    const mine = accounts?.slotOf(runtime.info)
+    if (!accounts?.prepareRemove || !accounts.ownsSlot || !mine || mine.gateway || !runtime.accountIdentitySnapshot || !runtime.accountIdentityGeneration) return
+    const agent = mine.agent
+    const previous = this.#sessionFolding.get(agent)
+    let release!: () => void
+    const next = new Promise<void>(resolve => { release = resolve })
+    this.#sessionFolding.set(agent, next)
+    try {
+      if (previous) await previous
+      if (!this.ownsRuntime(runtime) || !accounts.slotOf(runtime.info)) return
+      const generation = runtime.accountIdentityGeneration()
+      const identity = await runtime.accountIdentitySnapshot()
+      if (!identity || identity.generation !== generation || !this.ownsRuntime(runtime) || runtime.accountIdentityGeneration() !== generation) return
+      const peers = [...this.#runtimes.values()].filter(other => other !== runtime && accounts.slotOf(other.info)?.agent === agent)
+      peers.sort((a, b) => {
+        const aSlot = accounts.slotOf(a.info), bSlot = accounts.slotOf(b.info)
+        const primary = Number(aSlot?.removable === true) - Number(bSlot?.removable === true)
+        return primary || (accounts.identityOrder?.(a.info) ?? Number.MAX_SAFE_INTEGER) - (accounts.identityOrder?.(b.info) ?? Number.MAX_SAFE_INTEGER)
+      })
+      let keptForNotice: { runtime: AgentRuntime; owner: AgentRuntime; generation: number; home: string | null; removable: boolean } | null = null
+      for (const peer of peers) {
+        const peerSlot = accounts.slotOf(peer.info)
+        if (!peerSlot || peerSlot.gateway || !peer.accountIdentitySnapshot || !peer.accountIdentityGeneration) continue
+        const peerGeneration = peer.accountIdentityGeneration()
+        const otherIdentity = await peer.accountIdentitySnapshot()
+        if (!otherIdentity || otherIdentity.generation !== peerGeneration || otherIdentity.key !== identity.key) continue
+        const leftFile = accounts.identityOf?.(runtime.info) ?? null
+        const rightFile = accounts.identityOf?.(peer.info) ?? null
+        if (leftFile !== null && rightFile !== null && leftFile !== rightFile) continue
+        const nowMine = accounts.slotOf(runtime.info), nowPeer = accounts.slotOf(peer.info)
+        const mineOwner = this.#runtimeSources.get(String(runtime.info.id)), peerOwner = this.#runtimeSources.get(String(peer.info.id))
+        if (!mineOwner || !peerOwner || !accounts.ownsSlot(mineOwner) || !accounts.ownsSlot(peerOwner) || !this.ownsRuntime(runtime) || !this.ownsRuntime(peer) ||
+          runtime.accountIdentityGeneration() !== generation || peer.accountIdentityGeneration() !== peerGeneration ||
+          !nowMine || !nowPeer || nowMine.agent !== agent || nowPeer.agent !== agent ||
+          nowMine.home !== mine.home || nowPeer.home !== peerSlot.home || nowMine.removable !== mine.removable || nowPeer.removable !== peerSlot.removable || nowMine.gateway || nowPeer.gateway) break
+        const mineOrder = accounts.identityOrder?.(runtime.info) ?? null
+        const peerOrder = accounts.identityOrder?.(peer.info) ?? null
+        if (mine.removable && peerSlot.removable && (mineOrder === null || peerOrder === null || mineOrder === peerOrder)) continue
+        const keepMine = !mine.removable || (peerSlot.removable && mineOrder !== null && peerOrder !== null && mineOrder < peerOrder)
+        const target = keepMine ? peer : runtime
+        const keep = keepMine ? runtime : peer
+        if (accounts.slotOf(target.info)?.removable !== true) continue
+        const owner = this.#runtimeSources.get(String(target.info.id)) ?? target
+        if (!this.ownsRuntime(owner)) break
+        const finish = accounts.prepareRemove(owner)
+        if (!finish) break
+        let stopped = false
+        try {
+          await this.unregister(target.info.id, () => { stopped = true })
+          finish(false, stopped)
+        } catch (error) {
+          if (this.ownsRuntime(target)) finish.rollback?.()
+          else finish(false, false)
+          throw error
+        }
+        if (!stopped || !this.ownsRuntime(keep)) break
+        keptForNotice = { runtime: keep, owner: keep === runtime ? mineOwner : peerOwner,
+          generation: keep === runtime ? generation : peerGeneration,
+          home: keep === runtime ? mine.home : peerSlot.home, removable: keep === runtime ? mine.removable : peerSlot.removable }
+        if (target === runtime) break
+      }
+      if (keptForNotice) {
+        const kept = keptForNotice
+        const stillKept = (): boolean => {
+          const slot = accounts.slotOf(kept.runtime.info)
+          return this.ownsRuntime(kept.runtime) && this.ownsRuntime(kept.owner) && accounts.ownsSlot?.(kept.owner) === true &&
+            kept.runtime.accountIdentityGeneration?.() === kept.generation && slot !== null && slot.agent === agent &&
+            slot.home === kept.home && slot.removable === kept.removable && !slot.gateway
+        }
+        if (!stillKept()) return
+        const name = await this.#accountLabel(kept.runtime)
+        if (!stillKept()) return
+        this.#push({ method: 'event', params: { runtime: kept.runtime.info.id, event: {
+          type: 'notice', level: 'warning', message: `A duplicate account was dropped because you are already signed in to ${kept.runtime.info.presentation.name}${name === null ? '' : ` as ${name}`}. The sign-in page uses whichever account your browser is in — choose a different one there to add a second.`,
+        } } })
+      }
+    } finally {
+      release()
+      if (this.#sessionFolding.get(agent) === next) this.#sessionFolding.delete(agent)
     }
   }
 
