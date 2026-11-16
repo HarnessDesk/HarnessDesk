@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Your account, desk and app icon each have their own setting.** Edit your account's display name with Save/Cancel, rename this desk under General even while signed out, and change the app and Dock artwork under Appearance. Missing account pictures use a person glyph. Room messages keep their recorded author across account switches; older anonymous messages remain You.
+
 - **Repair an incomplete installation.** If the installed app is missing its interface, it offers Downloads and keeps update checks available instead of asking for a source build.
 
 - **Old quota readings no longer look current.** The account menu stops showing stale percentages as current allowance and labels the last known figures with their age. Usage refreshes through an existing agent process when supported, without starting a conversation; repeated requests share a read and failures back off. An independent account reads its own cache, and a previous login's cache cannot supply its allowance.

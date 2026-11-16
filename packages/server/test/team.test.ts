@@ -5010,3 +5010,51 @@ test('a Seat that lists the board before its order arrives reads what the Team i
   assert.ok(said.startsWith('Team: Add a one-line comment at the top of README.md\n'), said)
   assert.match(said, /#1 open — Implement the approved goal/)
 })
+
+
+test('new user posts record only host-known identity and keep earlier posts anonymous', async t => {
+  const { team, teamPort, room } = await rig(t)
+  await team.post(room, 'Anonymous historical entry')
+  Object.assign(teamPort, { userActor: () => ({ kind: 'user', accountId: 'jane', name: 'Work Jane', email: 'jane@example.com', pictureDataUrl: 'data:bad' }) })
+  await team.post(room, 'Known person entry')
+  Object.assign(teamPort, { userActor: () => ({ kind: 'user', accountId: 'other', name: 'Demo Person' }) })
+  await team.post(room, 'Another person entry')
+  const entries = team.stateFor(room).channel.filter((entry): entry is TeamMessage => entry.kind === 'message')
+  assert.deepEqual(entries.map(entry => entry.from), [{ kind: 'user' }, { kind: 'user', accountId: 'jane', name: 'Work Jane' }, { kind: 'user', accountId: 'other', name: 'Demo Person' }])
+})
+
+test('a room post keeps its initiating author when account changes during send', async t => {
+  const { team, teamPort, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  let name = 'Work Jane'
+  Object.assign(teamPort, { userActor: () => ({ kind: 'user', accountId: name, name }) })
+  let release!: () => void
+  port.gate = new Promise<void>(resolve => { release = resolve })
+  const posting = team.post(room, 'Started by Jane')
+  name = 'Demo Person'; release(); await posting
+  const entries = team.stateFor(room).channel.filter((entry): entry is TeamMessage => entry.kind === 'message' && entry.text === 'Started by Jane')
+  assert.equal(entries.length, 2)
+  assert.ok(entries.every(entry => entry.from.kind === 'user' && entry.from.accountId === 'Work Jane'))
+})
+
+test('a room handout keeps the initiating author across asynchronous deliveries', async t => {
+  const { team, teamPort, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  let name = 'Work Jane'
+  Object.assign(teamPort, { userActor: () => ({ kind: 'user', accountId: name, name }) })
+  let release!: () => void
+  port.gate = new Promise<void>(resolve => { release = resolve })
+  const posting = team.handout(room, 'Handout by Jane', [codex, claude] as never)
+  name = 'Demo Person'; release(); await posting
+  const entries = team.stateFor(room).channel.filter((entry): entry is TeamMessage => entry.kind === 'message' && entry.text === 'Handout by Jane')
+  assert.equal(entries.length, 2)
+  assert.ok(entries.every(entry => entry.from.kind === 'user' && entry.from.accountId === 'Work Jane'))
+})
+
+test('user-origin flow cards cannot select an authenticated actor', async t => {
+  const { team, teamPort, room } = await rig(t)
+  Object.assign(teamPort, { userActor: () => ({ kind: 'user', accountId: 'jane', name: 'Work Jane' }) })
+  team.addIntentForFlow(room, { title: 'Review work', role: 'reviewer' }, { kind: 'user', accountId: 'someone-else', name: 'Other' })
+  const signal = team.stateFor(room).channel.find(entry => entry.kind === 'signal')
+  assert.deepEqual(signal?.kind === 'signal' && signal.by, { kind: 'user', accountId: 'jane', name: 'Work Jane' })
+})

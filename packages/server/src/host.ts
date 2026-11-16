@@ -587,6 +587,8 @@ export interface HostOptions {
   readonly accountOpenExternal?: (url: string) => Promise<void>
   /** HTTPS cloud origin; defaults to HARNESSDESK_CLOUD_URL or the production app. */
   readonly accountCloudUrl?: string
+  /** Desktop system ComputerName; headless hosts use the hostname. */
+  readonly deskName?: string
   /** Optional: HarnessDesk runs fine with no extension kernel at all. */
   readonly extensions?: ExtensionHost
   readonly state?: StateStore
@@ -1302,9 +1304,12 @@ export class Host {
       }),
     })
     this.#harnessDeskAccount = new HarnessDeskAccount({
-      state: this.#state, cipher: options.credentialCipher, cloudUrl: options.accountCloudUrl,
+      state: this.#state, cipher: options.credentialCipher, cloudUrl: options.accountCloudUrl, deskName: options.deskName,
       openExternal: options.accountOpenExternal,
-      changed: (status) => this.#push({ method: 'account/changed', params: { status } }),
+      changed: (status) => {
+        this.#push({ method: 'account/changed', params: { status } })
+        if (this.#phoneLink) this.#push({ method: 'phone/changed', params: this.#phoneLink.state() })
+      },
     })
     this.#credentials = new CredentialBroker(
       join(this.#state.directory, 'credentials.json'),
@@ -1617,6 +1622,7 @@ export class Host {
       },
     })
     this.#team = new Team(join(this.#state.directory, 'team'), {
+      userActor: () => this.#harnessDeskAccount.userActor(),
       peers: () => this.#teamPeers(),
       rootOf: (cwd) => this.#boardRootOf(cwd),
       // Through `#liveFor`, not the record's handle: a member whose agent
@@ -4205,7 +4211,7 @@ export class Host {
     if (this.#disposed) throw new Error('The desk is closing.')
     if (feature === 'mobile') {
       if (enabled) this.#mobileService ??= await startPhoneLink(this, this.#logger,
-        { ...this.options.phoneLink, home: this.#state.directory, account: this.phoneRelayAccount(), available: () => !this.#disposed && !this.#features.read().problem })
+        { ...this.options.phoneLink, name: () => this.#harnessDeskAccount.deskName(), home: this.#state.directory, account: this.phoneRelayAccount(), available: () => !this.#disposed && !this.#features.read().problem })
       else { await this.#mobileService?.close(); this.#mobileService = null }
       return
     }

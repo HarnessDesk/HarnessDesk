@@ -296,7 +296,8 @@ it('keeps Profile callable by route, with no identity in preferences', async () 
   expect(navRow('HarnessDesk')).toBeUndefined()
   await act(async () => drive.route('profile'))
   expect(drive.held()).toBe('profile')
-  expect(document.body.querySelector('input[aria-label="Your name"]')).not.toBeNull()
+  expect(document.body.textContent).toContain('Sign in to HarnessDesk')
+  expect(document.body.textContent).not.toContain('Local profile')
 })
 
 it('preference search finds Account and retains account keywords', async () => {
@@ -362,28 +363,6 @@ it('ordinary Permissions navigation preserves its controls without writing ceili
   expect(store.setQuestionWait).not.toHaveBeenCalled()
 })
 
-it('takes a typed name back on Escape and keeps the Profile page open', async () => {
-  const drive = await mount()
-  await act(async () => drive.route('profile'))
-  const input = document.body.querySelector<HTMLInputElement>('input[aria-label="Your name"]')
-  if (!input) throw new Error('no name field')
-  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
-  act(() => {
-    input.focus()
-    setValue?.call(input, 'Jane')
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-  })
-  act(() => {
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-  })
-  expect(drive.held()).toBe('profile')
-  expect(document.body.querySelector<HTMLInputElement>('input[aria-label="Your name"]')?.value).toBe('')
-  act(() => {
-    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-  })
-  expect(drive.held()).toBe('profile')
-})
-
 it('keeps the routed profile page up while preference search changes', async () => {
   const drive = await mount()
   await act(async () => drive.route('profile'))
@@ -395,7 +374,8 @@ it('keeps the routed profile page up while preference search changes', async () 
   })
   expect(navRow('HarnessDesk')).toBeUndefined()
   expect(drive.held()).toBe('profile')
-  expect(document.body.querySelector('input[aria-label="Your name"]')).not.toBeNull()
+  expect(document.body.textContent).toContain('Sign in to HarnessDesk')
+  expect(document.body.textContent).not.toContain('Local profile')
 })
 
 it('a profile name never becomes a preference search result', async () => {
@@ -409,7 +389,7 @@ it('a profile name never becomes a preference search result', async () => {
   })
   expect(navRow(name)).toBeUndefined()
   expect(document.body.textContent).toContain('Nothing in settings matches')
-  expect(document.body.querySelector<HTMLInputElement>('input[aria-label="Your name"]')?.value).toBe(name)
+  expect(document.body.textContent).not.toContain(name)
 })
 
 // Runtime-owned Hooks keeps a stable route and names its owner on hover.

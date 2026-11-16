@@ -9,6 +9,7 @@ export const harnessDeskAccountMethods = {
   'account/delete': (ctx) => ctx.harnessDeskAccount.deleteAccount(),
   'account/signOut': (ctx, params) => ctx.harnessDeskAccount.signOut(params.localOnly),
   'account/unlinkPhone': (ctx, params) => ctx.harnessDeskAccount.unlinkPhone(params.deviceId),
+  'account/updateProfile': (ctx, params) => ctx.harnessDeskAccount.updateProfile(params.nickname),
   'account/renameDesk': (ctx, params) => ctx.harnessDeskAccount.renameDesk(params.name),
   'account/setReachable': (ctx, params) => ctx.harnessDeskAccount.setReachable(params.reachable),
 } satisfies MethodsUnder<'account/'>

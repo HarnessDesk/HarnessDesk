@@ -40,7 +40,7 @@ const button = (name: string) => [...document.querySelectorAll<HTMLButtonElement
 it('keeps Account identity and desk lifecycle with one always available Mobile link', () => {
   mount()
   expect(container.textContent).toContain('jane@example.com')
-  expect(container.textContent).toContain('Jane’s MacBook Pro')
+  expect(container.textContent).not.toContain('Jane’s MacBook Pro')
   expect(container.textContent).not.toContain('iPhone')
   expect(container.querySelector('[role="switch"]')).toBeNull()
   expect(button('Mobile settings').disabled).toBe(false)
@@ -135,21 +135,6 @@ it('formats host last-seen timestamps as Unix seconds', () => {
   mount({ ...account, phones: [{ ...account.phones[0]!, lastSeenAt: Math.floor(Date.now() / 1000) - 120 }] }, false, true, 'off', true)
   expect(container.textContent).toContain('Last seen 2m ago')
 })
-it('opens an eighty-character desk rename field and only writes on confirmation', async () => {
-  const { renameHarnessDesk } = mount()
-  act(() => button('Rename').click())
-  const dialog = document.querySelector('[role="dialog"]')!
-  const field = dialog.querySelector<HTMLInputElement>('input[aria-label="Desk name"]')!
-  expect(field.maxLength).toBe(80)
-  expect(renameHarnessDesk).not.toHaveBeenCalled()
-  act(() => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, 'Demo laptop')
-    field.dispatchEvent(new Event('input', { bubbles: true }))
-  })
-  await act(async () => [...dialog.querySelectorAll('button')].find(one => one.textContent === 'Rename')!.click())
-  expect(renameHarnessDesk).toHaveBeenCalledWith('Demo laptop')
-})
-
 it('leaves the pending sign-in banner to the visible sidebar', () => {
   mount({ status: 'pending', desk: account.desk, phones: [], pending: { userCode: 'ABCD-EFGH', verifyUrl: 'https://app.harnessdesk.app/link#code=ABCD-EFGH', expiresAt: Math.floor(Date.now() / 1000) + 60 } })
   expect(container.textContent).not.toContain('Finish in your browser')

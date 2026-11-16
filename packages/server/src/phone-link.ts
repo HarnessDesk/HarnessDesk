@@ -110,7 +110,7 @@ export interface PhoneLinkOptions {
   /** 0 picks a free port. */
   readonly port?: number
   readonly host?: string
-  readonly name?: string
+  readonly name?: string | (() => string)
   readonly includeLoopback?: boolean
   /** How long changes to the work are gathered before one snapshot goes to the phones that are listening. */
   readonly workspaceDelayMs?: number

@@ -2784,32 +2784,19 @@ built for.
 
 `packages/ui/src/design/patterns/Settings.tsx`
 
-A person's face: the picture they chose, or the house mark when they have
-not.
+Retained artwork contract for existing design examples.
 
-It is the avatar above, filled with its plate and hairline, in the face
-shape, because a person is not an account: account marks are hollow rings,
-a face is whatever the person chose for faces (`--hd-face-radius`, round
-unless they picked square), and it is the same corner the agents' marks
-beside it wear. When faces are square the corner steps up the radius scale
-with the size, so the seat's 24px and the profile page's 44px read as one
-object at two sizes.
-Plated colourways crop their inset plate to that same corner without
-enlarging the mark. Transparent marks and sticker artwork stay whole.
+### `PersonFace`
 
-Without a `size` it fills the box it is put in and takes that box's corner:
-a room's message rows draw a tile for every sender, and a person's face
-belongs in the same tile as the agents' marks beside it.
+`packages/ui/src/design/patterns/Settings.tsx`
 
-`avatar` is whatever the profile stores. Anything this build does not ship —
-a face a later build added, a picture it keeps — draws the house mark. It is
-not dropped: keeping what it cannot draw is the profile's job
-(`lib/profile.ts`), so a later build finds it where it left it.
+A person uses only the host's bounded raster, with a neutral person fallback.
 
-A signed-in account may supply `pictureDataUrl` independently of the local
-avatar. Only host-provided PNG, JPEG or WebP data is displayed; remote
-URLs are refused. Pictures fall back to the house mark when they cannot
-load, without changing the local profile.
+### `AppIcon`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+Application artwork is a thing's tile, independent of account identity and Faces.
 
 ### `Clipped`
 

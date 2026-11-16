@@ -185,7 +185,7 @@ import { canTakeTurn, inPoolOrder, nextInPool, readAccountPools, runtimeOut, whe
 import { carryOnInboxTitle } from '../lib/carry-on'
 import type { ApprovalResponseResult } from '../lib/needs-you'
 import { isAvatarId } from '../lib/avatars'
-import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
+import { applyProfile, readAppIcon, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
 import { coalesce } from '../lib/coalesce'
 import { acceptedFindingEvidence, emptyFindingsState, type FindingFilter, type FindingsListState } from '../lib/findings'
 import { openExternal, setDockIcon, type PromptLink } from '../lib/desktop'
@@ -418,6 +418,7 @@ export class AppStore {
   readonly #editorTouched = new Set<string>()
   /** What each conversation has typed and not sent. See `state/drafts`. */
   readonly drafts: Drafts
+  #appIconExplicit = false
   #harnessDeskAccountRevision = 0
   #harnessDeskAccountRequested = false
   #captureEpoch = 0
@@ -2281,6 +2282,9 @@ export class AppStore {
   }
   async deleteHarnessDeskAccount(): Promise<void> {
     await this.#updateHarnessDeskAccount(() => this.transport.request('account/delete', {}))
+  }
+  async updateHarnessDeskProfile(nickname: string | null): Promise<void> {
+    await this.#updateHarnessDeskAccount(() => this.transport.request('account/updateProfile', { nickname }))
   }
   async renameHarnessDesk(name: string): Promise<void> {
     await this.#updateHarnessDeskAccount(() => this.transport.request('account/renameDesk', { name }))
@@ -9014,6 +9018,8 @@ export class AppStore {
         keepExternalProfile: rawBrowser?.keepExternalProfile !== false,
       }
       const profile = readProfile(preferences['profile'])
+      const appIcon = readAppIcon(preferences)
+      this.#appIconExplicit = Object.hasOwn(preferences, 'appIcon')
       const spendChartMode = preferences['spendChartMode'] === 'line' ? 'line' : 'bars'
       this.#patch({
         accountPrefs,
@@ -9021,6 +9027,7 @@ export class AppStore {
         carryOnPolicy: carryOnPolicyOf(preferences),
         hideAccountAddresses: preferences['hideAccountAddresses'] === true,
         profile,
+        appIcon,
         customPresets: readCustomPresets(preferences['customPresets']),
         planEdits,
         listPrefs,
@@ -9069,7 +9076,7 @@ export class AppStore {
       })
       // Usage may have arrived first; the saved rule applies to it now.
       this.#followPool(this.#snapshot.usage)
-      setDockIcon(isAvatarId(profile.avatar) ? profile.avatar : null)
+      setDockIcon(isAvatarId(appIcon) ? appIcon : null)
     } catch {
       // Preferences are a convenience; their absence must not block startup —
       // including for the banners that wait on them, which would otherwise be
@@ -9689,7 +9696,18 @@ export class AppStore {
     void this.#writePreference({ surface }, 'The surface')
   }
 
+  /** Choose application artwork independently; null is an explicit reset, never legacy fallback. */
+  setAppIcon(icon: import('../lib/avatars').AvatarId | null): void {
+    if (this.#appIconExplicit && this.#snapshot.appIcon === icon) return
+    this.#appIconExplicit = true
+    this.#patch({ appIcon: icon })
+    try { setDockIcon(icon) } catch { /* Native Dock changes are best effort. */ }
+    void this.#writePreference({ appIcon: icon }, 'App icon')
+  }
+
   /**
+   * Legacy profile fields. The product uses account identity and the independent app icon.
+   *
    * Your name and face. `null` puts a field back to its default, so a patch
    * naming both as `null` is the page's "Reset".
    *
@@ -9703,7 +9721,8 @@ export class AppStore {
     const profile = applyProfile(this.#snapshot.profile, patch)
     if (sameProfile(profile, this.#snapshot.profile)) return
     this.#patch({ profile })
-    if (previous.avatar !== profile.avatar) {
+    if (!this.#appIconExplicit && previous.avatar !== profile.avatar) {
+      this.#patch({ appIcon: profile.avatar ?? null })
       try {
         setDockIcon(isAvatarId(profile.avatar) ? profile.avatar : null)
       } catch {

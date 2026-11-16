@@ -39,7 +39,7 @@ class Queue {
   }
 }
 
-const rig = async (t: { after(fn: () => Promise<void>): void }) => {
+const rig = async (t: { after(fn: () => Promise<void>): void }, userActor?: TeamPort['userActor']) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-goal-projection-'))
   const peers: TeamPeer[] = [peer('worker'), peer('other')]
   /** The Goal document's board, as the host's store holds it. */
@@ -70,6 +70,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }) => {
   let sendGate: Promise<void> | null = null
   let sending: (() => void) | null = null
   const port: TeamPort = {
+    ...(userActor ? { userActor } : {}),
     peers: () => peers,
     rootOf: async () => '/repo',
     send: async () => {
@@ -629,6 +630,31 @@ for (const first of ['done', 'abandon'] as const) {
       assert.deepEqual(signalled, [1], 'its flow hears of the answer that stood, and not of the one that did not')
     })
   }
+}
+
+for (const action of ['done', 'abandon'] as const) {
+  test(`a queued ${action} keeps its initiating author across an account switch while an earlier save fails`, async (t) => {
+    let actor = { kind: 'user' as const, accountId: 'jane', name: 'Work Jane' }
+    const r = await rig(t, () => actor)
+    r.team.attachFlows(answerFlow([]))
+    const room = await setup(r)
+    const atGate = r.held()
+    const release = r.hold()
+    r.failNextWrite(new Error('EIO'))
+    const lost = ended(r.team.intentAction(room, 1, 'done', undefined, 'approved', 'First context', 'cli'))
+    await atGate
+    const next = ended(r.team.intentAction(room, 1, action, 'Replan', 'changes', 'Second context', 'cli'))
+    actor = { kind: 'user', accountId: 'other', name: 'Demo Person' }
+    release()
+    assert.deepEqual(await Promise.all([lost, next]), ['refused', 'answered'])
+    await r.team.flush()
+    const signalKind = action === 'done' ? 'completed' : 'abandoned'
+    const authors = (state: TeamState | null) => state?.channel.flatMap((entry) =>
+      entry.kind === 'signal' && entry.signal === signalKind ? [entry.by] : [])
+    const initiating = [{ kind: 'user', accountId: 'jane', name: 'Work Jane' }]
+    assert.deepEqual(authors(r.storedState()), initiating, 'the durable answer belongs to the initiating account')
+    assert.deepEqual(authors(r.team.stateFor(room)), initiating, 'the live room keeps the same author')
+  })
 }
 
 test('of several answers waiting on a save that fails, the first of them takes the card and the others are late', async (t) => {

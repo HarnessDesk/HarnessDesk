@@ -44,9 +44,9 @@ export const settingsGroups = (snapshot: AppSnapshot, runtime: RuntimeInfo): rea
   const scoped = (page: string) => `${page} belongs to ${runtime.presentation.name}, the runtime the active conversation is with.`
   return [
     { label: 'Preferences', entries: [
-      { id: 'profile', label: 'Account', icon: <UserIcon size={16} />, keywords: ['sign in', 'sign out', 'phone', 'linked phones', 'reachable', 'desk name', 'rename', 'pair', 'name', 'picture'] },
-      { id: 'general', label: 'General', icon: <SlidersIcon size={16} />, keywords: ['backup', 'restore', 'export', 'diagnostics', 'support', 'data', 'sync', 'account', 'transcripts', 'this mac'] },
-      { id: 'appearance', label: 'Appearance', icon: <ThemeSystemIcon size={16} />, keywords: ['theme', 'dark', 'light', 'system', 'accent', 'colour', 'color', 'corners', 'radius', 'surface', 'cards', 'sheet', 'faces', 'avatar shape', 'round', 'font', 'text size', 'line numbers', 'wrap', 'indent', 'tab', 'density', 'sort', 'code editor'] },
+      { id: 'profile', label: 'Account', icon: <UserIcon size={16} />, keywords: ['sign in', 'sign out', 'phone', 'linked phones', 'reachable', 'pair', 'nickname', 'display name', 'account name', 'picture'] },
+      { id: 'general', label: 'General', icon: <SlidersIcon size={16} />, keywords: ['backup', 'restore', 'export', 'diagnostics', 'support', 'data', 'sync', 'account', 'transcripts', 'this mac', 'this desk', 'desk name', 'rename'] },
+      { id: 'appearance', label: 'Appearance', icon: <ThemeSystemIcon size={16} />, keywords: ['app icon', 'dock icon', 'artwork', 'avatar', 'theme', 'dark', 'light', 'system', 'accent', 'colour', 'color', 'corners', 'radius', 'surface', 'cards', 'sheet', 'faces', 'avatar shape', 'round', 'font', 'text size', 'line numbers', 'wrap', 'indent', 'tab', 'density', 'sort', 'code editor'] },
       { id: 'notifications', label: 'Notifications', icon: <BellIcon size={16} />, keywords: ['banner', 'message', 'mute', 'silence', 'alert', 'stop showing', 'remind', 'finished turns', 'failures', 'approvals', 'needs you', 'quota', 'rate limit', 'macos'] },
       { id: 'shortcuts', label: 'Keyboard shortcuts', icon: <KeyboardIcon size={16} />, keywords: ['keys', 'bindings', 'command', 'new session', 'open folder', 'close pane', 'sidebar', 'changes', 'palette', 'send', 'new line'] },
     ] },

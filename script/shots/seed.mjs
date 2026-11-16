@@ -514,6 +514,8 @@ writeFileSync(
         lastOpenedAt: Date.now() - n * 60_000,
       })),
       preferences: {
+        // Isolated native frames must not reveal the Mac owner through ComputerName.
+        accountDeskName: 'Work Mac',
         // The five agents `usage.mjs` has never written a plan-usage report
         // for, plus Windsurf's own deliberate signed-out state
         // (`accounts.mjs`), are excluded from usage tracking the same way a

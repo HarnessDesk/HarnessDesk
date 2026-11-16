@@ -494,7 +494,7 @@ separator; its disabled reason stays on the tooltip.
 
 **The footer holds the docks, notices and seat: you, and the runtime you will pick up next.** The seat row
 is your identity — the signed-in HarnessDesk account name and picture, or the
-local profile face and name until you sign in — followed by a disclosure. Its quiet
+application icon and desk name until you sign in — followed by a disclosure. Its quiet
 48px row sits under a full-width hairline, with Inbox and Settings at the right.
 The default runtime's account, readiness and usage live in the menu. The trigger's
 tooltip still names who new sessions run as and any applicable quota warning.
@@ -573,7 +573,15 @@ and detail in the account trigger's tooltip. Dismissing or silencing the notice
 also removes that warning from the tooltip for the same occurrence or kind.
 
 **Settings › Account** shows the HarnessDesk identity and a separate sign-out
-action. **This desk** contains its name and Rename. Phone connectivity and
+action. **Display name** shows the account nickname or original provider name.
+**Edit** opens a dialog with **Save** and **Cancel**; an empty name restores the
+original provider name. The email remains separate. Failed saves keep the draft
+and previous identity; switching accounts closes an old edit. Missing or broken
+pictures use a neutral person glyph, never application artwork.
+**General › This desk** contains its name and **Rename**, available while signed
+out as well. The initial name is the Mac's system name; an existing desk name
+wins. Rename affects Mobile discovery, not the Mac's OS name. Failed saves keep
+the committed desk name and draft. Phone connectivity and
 linked-phone access controls live in **Settings › Mobile**.
 Account status comes from the host, independently of runtime accounts; credentials stay out of the renderer. Account pictures are bounded
 raster data supplied by the host; the renderer never loads the account’s
@@ -620,22 +628,23 @@ available. Replies keep the conversation's settings. Archived
 conversations are read-only until restored on the desk; Team-owned sessions
 remain with their Team. Approval answers require Answer separately from Run.
 
-The **Local profile** beneath the account settings remains a name and a face
-kept on this Mac. Its page is its own preview: the head follows the name as
-you type it. The faces are the app's
-own icon in six colourways, from `assets/brand/faces`, and then the house
-mark's family, twenty-three whales from `assets/avatars`; the whale drawn in
-black is left out because a dark surface swallows it, and the default is the
-mark itself, drawn in the theme's own ink. Whichever you wear is also what the
-Dock wears, and clearing it puts the app's own icon back there. A face is
-round by default and square when chosen, everywhere you appear; its footprint
-never changes when the face does.
-Clearing the name puts "HarnessDesk" back, picking the first face puts the
-mark back, and **Reset to default** puts back both. It stays on this Mac.
-What an avatar stores is its id — a short
-string every copy of the app draws the same. The same face marks your own
-messages in a room, where the header still
-says "You".
+**Appearance › App icon** is one compact row with the current application
+artwork and **Change…**. Its dialog contains the existing eight-column artwork
+radio grid, **Restore default** and **Done**. Choices apply immediately; arrows
+move and choose, while Home/End and blocked arrows never reset a saved choice.
+Unknown future artwork checks no tile and remains intact until an explicit
+choice. Application artwork uses a thing's tile, independently of the Faces
+setting and account pictures. It changes the app and Dock icon only. An older
+custom profile avatar remains the app icon until an explicit choice or reset;
+legacy profile data stays stored, without Local profile controls.
+
+New local room entries carry a recorded account id and safe display name when
+known. Their recorded name stays with the message. Only an id matching the
+current signed-in account can use its current bounded picture. Other recorded
+people use a neutral person glyph. Historical entries with no recorded identity
+remain **You** and neutral, including after an account switch. Distinct recorded
+user authors start separate message groups. Room actors contain no email,
+credentials or picture data.
 
 **Switching is a preference, not a navigation.** Picking a different runtime
 changes what ⌘N and a draft's runtime chip start with, and nothing else: the
@@ -1256,7 +1265,7 @@ Grouped navigation, one short page each: a rail of pages, a 20px title with a
 one-line blurb, small grey section labels over cards of rows, one control at
 the right of each row. The rail starts with **Back** and a **Search settings**
 box above every group. **Account** in Preferences opens the account and local
-profile page; the seat at the foot of the rail keeps your current identity.
+identity page; the seat at the foot of the rail keeps your current identity.
 
 Standalone pages name themselves once with a visible h1 in the first body row, on the content column's left edge. That row is one bar tall and starts at the body's top, so the title stands on the sidebar wordmark's line. Their chooser or verb sits on the right of the same row, centred on that line, with the page stack gap before the next block. The title scrolls away; the fixed bar keeps its height and tools. Sessions, Teams and edited Flows retain their subject menu in the bar; canvas surfaces have no body title. A Team also heads its body: its name as the h1 with Findings, Review stopped Run and the view's verb (Stop run…) on the same bar-tall line, and its tabs on the line below. The head stays put while the view under it scrolls.
 
@@ -1286,7 +1295,7 @@ contents, never the presence or name of its navigation row.
 Lead and Mobile stay in the rail while off and open their own enable control;
 existing Lead and Phone links reach those pages too. Navigation glyphs use the
 shared hover motion and remain still when reduced motion is requested.
-The Account page retains the older internal `profile` route. Presets are edited
+The Account page retains the older internal `profile` route. Nickname, display-name and account-name links resolve to Account; desk-name resolves to General, and app-icon/dock-icon resolve to Appearance. Presets are edited
 where they are created rather than on a page of their own; and workspaces,
 backup and support sit under General and Workspaces, because none of them is a
 behaviour. Older route names still land on the right page.

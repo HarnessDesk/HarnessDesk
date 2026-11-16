@@ -629,7 +629,7 @@ it('a fan-out to many names three and counts the rest', () => {
   )
 })
 
-it('draws you in the face the seat wears — the one you chose, or the house mark', async () => {
+it('keeps historical users neutral despite legacy local artwork', async () => {
   const you = (profile: AppSnapshot['profile']): AppStore => {
     const snapshot = { ...emptySnapshot(), status: 'open', profile } as AppSnapshot
     return { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
@@ -644,14 +644,16 @@ it('draws you in the face the seat wears — the one you chose, or the house mar
   expect(own.querySelector('[data-slot="message"]')?.getAttribute('data-align')).toBe('end')
   expect(own.querySelector('[data-slot="bubble"]')?.getAttribute('data-variant')).toBe('secondary')
   const face = container.querySelector('[data-channel="message"] [data-slot="icon-tile"]')
-  expect(face?.querySelector('img')?.getAttribute('src')).toMatch(/\/astronaut\.png$/)
+  expect(face?.querySelector('img')).toBeNull()
+  expect(face?.querySelector('.brand-harnessdesk')).toBeNull()
   // Still "You" for assistive readers; alignment and your face carry it visually.
   expect(container.textContent).toContain('You')
 
   await render(you({}), said)
   const mark = container.querySelector('[data-channel="message"] [data-slot="icon-tile"]')
   expect(mark?.querySelector('img')).toBeNull()
-  expect(mark?.querySelector('.brand-harnessdesk')).not.toBeNull()
+  expect(mark?.querySelector('.brand-harnessdesk')).toBeNull()
+  expect(mark?.querySelector('svg')).not.toBeNull()
 })
 
 it('uses actor ownership for direction while preserving safe rich content and quiet activity', async () => {
@@ -715,7 +717,7 @@ it('draws your face at the cost of anyone else’s row — no subscription of it
       reason: null,
     })) as unknown as TeamEntry[]
     await render(store, said)
-    if (from === 'user') expect(container.querySelectorAll('[data-channel="message"] [data-slot="icon-tile"] img')).toHaveLength(3)
+    if (from === 'user') expect(container.querySelectorAll('[data-channel="message"] [data-slot="icon-tile"] img')).toHaveLength(0)
     act(() => root.unmount())
     root = createRoot(container)
     return subscribe.mock.calls.length
@@ -888,4 +890,28 @@ it('shows no answers once a seat’s incident stops asking, and refuses wait whe
   expect([...container.querySelectorAll('[data-slot="channel-notice-choices"] button')].map((one) => one.textContent)).toEqual(['Wait until reset', 'Stop'])
   expect(button('Wait until reset').disabled).toBe(true)
   expect(button('Wait until reset').title).toBe('No reset time')
+})
+
+
+it('uses only matching recorded account photos and keeps different user authors separate', async () => {
+ const current = { id: 'jane', name: 'Jane Doe', nickname: 'Jane at work', email: 'jane@example.com', pictureUrl: null, pictureDataUrl: 'data:image/png;base64,AAAA' }
+ const said = [
+  { kind: 'user' }, { kind: 'user', accountId: 'jane', name: 'Jane at work' }, { kind: 'user', accountId: 'other', name: 'Demo Person' },
+ ].map((from, index) => ({ id: `author-${index}`, at: 20 + index, kind: 'message', from, text: `line ${index}`, state: 'delivered', reason: null })) as TeamEntry[]
+ const draw = async (account = current) => {
+  const snapshot = { ...emptySnapshot(), harnessDeskAccount: { status: 'signedIn', account, desk: { name: 'Work Mac', reachable: false }, phones: [] }, profile: { avatar: 'wizard' } } as AppSnapshot
+  await render({getSnapshot: () => snapshot, subscribe: () => () => {}} as unknown as AppStore, said)
+ }
+ await draw()
+ const rows = [...container.querySelectorAll('[data-channel="message"]')]
+ expect(rows[0]?.querySelector('img')).toBeNull()
+ expect(rows[1]?.querySelector('img')?.getAttribute('src')).toBe(current.pictureDataUrl)
+ expect(rows[2]?.querySelector('img')).toBeNull()
+ expect(rows.every(row => !row.hasAttribute('data-grouped'))).toBe(true)
+ expect(container.textContent).toContain('Jane at work'); expect(container.textContent).toContain('Demo Person')
+ await draw({ ...current, id: 'other', nickname: 'Demo Person' })
+ const switched = [...container.querySelectorAll('[data-channel="message"]')]
+ expect(switched[1]?.querySelector('img')).toBeNull(); expect(switched[2]?.querySelector('img')).not.toBeNull()
+ await draw({ ...current, id: undefined } as unknown as typeof current)
+ expect(container.querySelector('[data-channel="message"] img')).toBeNull()
 })

@@ -20,3 +20,21 @@ test('desk account schemas validate identity and phone data without inventing mi
   assert.equal(schemas['RenameDeskRequest']!.safeParse({ name: ' ' }).success, false)
   assert.equal(schemas['RevokeDeskRequest']!.safeParse({ deskId: 'bad' }).success, false)
 })
+
+
+test('account identity remains compatible and validates stable id and nickname', () => {
+  const base = { name: 'Jane Doe', email: 'jane@example.com', pictureUrl: null }
+  assert.equal(contract.AccountProfile.safeParse(base).success, true)
+  assert.deepEqual(contract.AccountProfile.parse({ ...base, id: 'acct-a', nickname: '  Jane  ' }), { ...base, id: 'acct-a', nickname: 'Jane' })
+  for (const id of ['', 'a'.repeat(257)]) assert.equal(contract.AccountProfile.safeParse({ ...base, id }).success, false)
+  for (const nickname of ['', ' ', 'a'.repeat(81), 1]) assert.equal(contract.AccountProfile.safeParse({ ...base, nickname }).success, false)
+  assert.equal(contract.AccountProfile.safeParse({ ...base, nickname: null }).success, true)
+})
+
+test('account profile updates accept exactly a nickname or explicit reset', () => {
+  const update = schemas['UpdateAccountProfileRequest']
+  assert.ok(update, 'nickname mutation must be shared')
+  assert.equal(update.safeParse({ nickname: 'Jane' }).success, true)
+  assert.equal(update.safeParse({ nickname: null }).success, true)
+  for (const value of [{}, { nickname: '' }, { nickname: ' ' }, { nickname: 'a'.repeat(81) }, { nickname: 1 }, { nickname: 'Jane', accountId: 'acct-b' }, { nickname: 'Jane', name: 'Other' }, { nickname: null, email: 'other@example.com' }]) assert.equal(update.safeParse(value).success, false)
+})

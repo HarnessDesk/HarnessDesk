@@ -21,7 +21,7 @@ export interface PhoneLinkOptions {
   /** 0 picks a free port. */
   readonly port?: number
   /** The name a phone shows for this desk. */
-  readonly name?: string
+  readonly name?: string | (() => string)
   /** Put `127.0.0.1` in the pairing code, for a simulator on this machine. */
   readonly includeLoopback?: boolean
   readonly now?: () => number
@@ -120,7 +120,7 @@ export class PhoneLinkService {
 
   get deskId(): string { return this.identity.id }
   get deskPub(): string { return this.identity.pub }
-  get name(): string { return this.options.name ?? hostname() }
+  get name(): string { return (typeof this.options.name === 'function' ? this.options.name() : this.options.name) ?? hostname() }
   #now(): number { return (this.options.now ?? Date.now)() }
 
   onChange(listener: (change: PhoneLinkChange) => void): () => void {

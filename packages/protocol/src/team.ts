@@ -237,7 +237,7 @@ export interface Intent {
  * names a conversation the entry can point back to.
  */
 export type TeamActor =
-  | { readonly kind: 'user' }
+  | { readonly kind: 'user'; readonly accountId?: string; readonly name?: string }
   | { readonly kind: 'trigger'; readonly trigger: string }
   | { readonly kind: 'flow'; readonly name: string }
   | {

@@ -28,6 +28,7 @@ import {
   type SeatRecord,
   type SeatCeiling,
   type SessionKey,
+  roomUserIdentity,
   type TeamActor,
   type TeamEntry,
   type TeamInbound,
@@ -284,6 +285,9 @@ export interface TeamSender {
  * routing decision, the guards — is decided here and merely executed there.
  */
 export interface TeamPort {
+  /** Synchronous identity from the host, never supplied by a room caller. */
+  userActor?(): Extract<TeamActor, { kind: 'user' }>
+
   /** Live conversations, whichever workspace. Reachability is liveness. */
   peers(): readonly TeamPeer[]
   /** The workspace a session's folder belongs to; null when none is open. */
@@ -867,6 +871,10 @@ export const cardsForWire = (intents: readonly Intent[]): readonly Intent[] =>
   })
 
 export class Team {
+  #userActor(): Extract<TeamActor, { kind: 'user' }> {
+    return { kind: 'user', ...roomUserIdentity(this.#port.userActor?.()) }
+  }
+
   readonly #dir: string
   readonly #port: TeamPort
   #settings: TeamSettings = DEFAULT_TEAM_SETTINGS
@@ -1425,7 +1433,7 @@ export class Team {
         `${outside.join(', ')} ${outside.length === 1 ? 'is' : 'are'} outside this workspace. The board can only own paths inside the project it is for. Nothing was added.`,
       )
     }
-    return this.#addIntent(board, args, { kind: 'user' })
+    return this.#addIntent(board, args, this.#userActor())
   }
 
   /**
@@ -1507,6 +1515,7 @@ export class Team {
     /** Where a client said it was answering from, for the channel line: an MCP client, or the command line. */
     clientSurface?: 'mcp',
   ): Promise<void> {
+    const by: TeamActor = origin ?? this.#userActor()
     /* An answer is first only once it is saved. While one is still being
        saved the board already reads as answered — the next change is built on
        it — but a failed save puts it back, so nothing that this answer would
@@ -1541,7 +1550,6 @@ export class Team {
     if (client !== undefined && action === 'done' && !person!.outcomes.includes(outcome?.trim() ?? '')) {
       throw Object.assign(new Error('This outcome is not an answer the person role declares.'), { wireCode: 'refused' })
     }
-    const by: TeamActor = origin ?? { kind: 'user' }
     if (action === 'block') {
       /* `blockedBy: 'hand'`, the same as an agent's `release(blocked)`: a
          completed dependency must never silently restart work somebody
@@ -1705,9 +1713,10 @@ export class Team {
     const body = text.trim()
     if (body === '') return
     const board = this.#mutableBoardById(id)
+    const author = this.#userActor()
     if (body.length > this.#settings.messageChars) {
       this.#message(board, {
-        from: { kind: 'user' },
+        from: author,
         to: null,
         text: `${body.slice(0, 200)}…`,
         state: 'refused',
@@ -1722,7 +1731,7 @@ export class Team {
       : onBoard
     if (targets.length === 0) {
       this.#message(board, {
-        from: { kind: 'user' },
+        from: author,
         to: null,
         text: body,
         state: 'refused',
@@ -1747,7 +1756,7 @@ export class Team {
       }
       if (peer.busy) {
         const entry = this.#message(board, {
-          from: { kind: 'user' },
+          from: author,
           to: address,
           text: body,
           state: 'queued',
@@ -1757,11 +1766,11 @@ export class Team {
       }
       try {
         await this.#port.send(peer.runtime, peer.sessionId, body, undefined, null)
-        this.#message(board, { from: { kind: 'user' }, to: address, text: body, state: 'delivered' })
-        this.#owe(peer, { kind: 'user' }, [board.id])
+        this.#message(board, { from: author, to: address, text: body, state: 'delivered' })
+        this.#owe(peer, author, [board.id])
       } catch (error) {
         this.#message(board, {
-          from: { kind: 'user' },
+          from: author,
           to: address,
           text: body,
           state: 'refused',
@@ -1793,6 +1802,7 @@ export class Team {
     }[],
   ): Promise<{ batch: string; delivered: number; queued: number; refused: number }> {
     const board = this.#mutableBoardById(id)
+    const author = this.#userActor()
     const batch = { id: this.#entryId(), size: recipients.length, template }
     const tally = { batch: batch.id, delivered: 0, queued: 0, refused: 0 }
     if (recipients.length === 0 || template.trim() === '') return tally
@@ -1861,9 +1871,9 @@ export class Team {
     // Rows in the order the hand-out named them, whatever order the sends
     // settled in, so the batch reads as one list and not as a race.
     for (const row of rows) {
-      const entry = this.#message(board, { from: { kind: 'user' }, to: row.to, text: row.text, state: row.state, reason: row.reason ?? null, batch })
+      const entry = this.#message(board, { from: author, to: row.to, text: row.text, state: row.state, reason: row.reason ?? null, batch })
       if (row.state === 'delivered' && row.peer) {
-        this.#owe(row.peer, { kind: 'user' }, [board.id])
+        this.#owe(row.peer, author, [board.id])
         tally.delivered += 1
       } else if (row.state === 'queued' && row.peer) {
         this.#enqueue(row.peer, entry.id, [board.id], row.text, true, null)
@@ -2377,7 +2387,7 @@ export class Team {
         return found
       }
     }
-    return this.#addIntent(board, args, by)
+    return this.#addIntent(board, args, by.kind === 'user' ? this.#userActor() : by)
   }
 
   /** The host's current candidate refusal, visible in its flow card's instructions. */
