@@ -10,13 +10,13 @@ instruction.
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="images/app/conversation-dark.png" />
-    <img src="images/app/conversation-light.png" alt="The window: a sidebar with the session tree grouped by project and a task list docked beneath it, the transcript in the middle showing a turn's reasoning and tool calls with its summary, and the composer along the bottom carrying the runtime, permission mode and model." />
+    <img src="images/app/conversation-light.png" alt="The window: a sidebar with Teams, Flows, Agents, Customize and Dashboard above conversations grouped by project; the transcript and composer in the middle; and Conversation, Plan and Trajectory panels on the right." />
   </picture>
 </p>
 
 The regions are named in the next section, and every surface below has its
-own. More of the running window — a room with its board, the dashboard, the
-repository pane — is in [`images/app/`](images/app), in both themes.
+own. The [Flow guide](flows.md) illustrates a Team board, and the [Dashboard
+guide](usage-dashboard.md) shows its overview.
 
 ## Panels
 

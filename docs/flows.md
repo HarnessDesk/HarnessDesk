@@ -359,20 +359,15 @@ shown before the button that runs it.
 Every seat it would open, what opening them costs, and a trace of the loop —
 before the button. A flow with an error offers no way to start at all.
 
-Once it runs, the room narrates what the engine did and the board shows the
-round it opened, each card wearing the role it is addressed to:
+Once a Team has work, its board groups jobs by state. This illustrative board
+shows examples in Needs you, Working, In review, To do and Ready:
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="images/app/flow-board-dark.png" />
-    <img src="images/app/flow-board-light.png" width="900" alt="The Checkout hardening room. The sidebar shows reviewer 1, reviewer 2 and reviewer 3 working, and lists the fixer and all three reviewers under the room. The Agents list has four entries: Claude · Opus as fixer with Publish · asked, and three Cursor · Gemini 3.8 … entries with Edit · asked. The channel says #1 “Retry the checkout call on a 502” was added and completed with the answer “published”, then adds #2, #3 and #4 as review round 2 cards, 1 of 3, 2 of 3 and 3 of 3. The board has three cards in To do (#2, #3 and #4, each tagged reviewer), none in Working, one in Needs you (#1, tagged fixer), and none in In review." />
+    <img src="images/app/flow-board-light.png" width="900" alt="An illustrative Checkout hardening board with jobs in Needs you, Working, In review, To do and Ready. The first Needs you job shows a failed verification, and Ready jobs show recorded checks." />
   </picture>
 </p>
-
-In that picture the fix card was answered by the person — the board's own
-referee verb, which the channel says in as many words — and everything after
-it is the engine: one round of three reviewers, opened because a rule said so,
-each card addressed to a role no other seat can claim.
 
 What then happens, in order:
 

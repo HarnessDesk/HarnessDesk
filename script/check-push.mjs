@@ -220,8 +220,9 @@ export function createPlan(root, { paths, base = 'origin/main', mergeBase = null
     unit.mode === 'related' ? '' : unit.mode === 'all' ? `${unit.summary} CI will run the full unit suite; it exceeds the local budget.` : unit.summary)
   const scripts = scriptTests(root, paths)
   const scriptStep = add('Script tests', 'node', ['--test', ...scripts], scripts.length ? '' : 'No changed script has a test, and no shared planner input changed.')
-  // This journey test and its real child import workspace dist, just as CI does after its build.
-  const scriptsNeedBuild = scripts.includes('script/shots-templates.test.mjs')
+  // These rig tests or their child processes import workspace dist, as CI does after its build.
+  const scriptsNeedBuild = ['script/shots-templates.test.mjs', 'script/shots-front-door.test.mjs', 'script/shots-isolation.test.mjs']
+    .some(path => scripts.includes(path))
   const node = packageTests(root, paths)
   const totalTests = node.tests.reduce((count, entry) => count + entry.files.length, 0)
   const nodeReason = fast ? '--fast leaves Node-package tests to CI.' : node.changed.size === 0 ? 'No package source changed.' : ''
