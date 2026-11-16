@@ -6471,7 +6471,9 @@ export class Host {
    */
   /** A seat's own recovery when its turn ends: its card handed back, and a release waiting on it answered. */
   #recoverSeat(runtime: RuntimeId, sessionId: string): void {
-    void this.#flows.reArm(runtime, sessionId)
+    void this.#flows.reArm(runtime, sessionId).catch((error: unknown) => {
+      if (!this.#disposed) this.#logger.warn('a Seat could not be re-armed after its turn', { runtime, session: sessionId, error: String(error) })
+    })
     // The same turn-ended signal answers a v2 release still waiting on this
     // Seat, rather than a poll of its own guessing when to ask again (#1027).
     this.#flows.retryRelease(runtime, sessionId)
@@ -9372,7 +9374,10 @@ export class Host {
         }
         await this.#waitForRuntimeStop(runtime)
         check()
-        if (runtime.health().state !== 'ready') {
+        const health = runtime.health()
+        const runtimeKey = String(runtime.info.id)
+        const mayStart = health.state === 'idle' || this.#coldRuntimes.has(runtimeKey) || this.#startingRuntimes.has(runtimeKey) || this.#directRuntimeStarts.has(runtimeKey)
+        if (health.state !== 'ready' && mayStart) {
           const starting = this.#beginRuntimeStart(runtime, false)
           const waiting = { promise: starting, admission }
           this.#admissionStarts.set(key, waiting)

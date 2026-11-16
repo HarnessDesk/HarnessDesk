@@ -619,3 +619,15 @@ test('detach during durable transcript recovery does not readmit a stale record'
     assert.equal(r.host.registry.get(PRIMARY, session.id), undefined, 'a retired recovery cannot re-admit the record')
   } finally { release(); await refused }
 })
+
+test('a failed asynchronous Flow re-arm is observed instead of escaping as an unhandled rejection', async t => {
+  const { FlowExecutions } = await import('../src/flow-execution.js')
+  const r = await rig(t), session = await started(r)
+  let entered!: () => void
+  const began = new Promise<void>(resolve => { entered = resolve })
+  t.mock.method(FlowExecutions.prototype, 'reArm', async () => { entered(); throw new Error('synthetic re-arm failure') })
+  await r.host.call('turn/send', { runtime: PRIMARY, sessionId: session.id, input: [{ type: 'text', text: 'Trigger completion' }] })
+  r.primary.sessions.get(session.id)!.finish('done')
+  await began
+  await new Promise(resolve => setImmediate(resolve))
+})
