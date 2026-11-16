@@ -6,7 +6,6 @@ import type { ScanTarget } from './scan.js'
 import type { UsageSample } from './insight.js'
 
 /** Disposable cache; the source corpus remains the authority. Limits are admission targets, not filesystem quotas. */
-const SOURCE_BYTES = 16 * 1024 * 1024
 const TOTAL_BYTES = 128 * 1024 * 1024
 
 /** Create or open only a private regular cache file; never follow an existing symlink. */
@@ -197,13 +196,16 @@ export class PersistentInsight {
         hash.update('\0').update(project).update('\0').update(observation.payload)
         bytes += Buffer.byteLength(project) + Buffer.byteLength(observation.payload)
       }
-      if (bytes > SOURCE_BYTES || bytes > this.#limit) { this.#db.exec('ROLLBACK'); return false }
-      let used = (this.#db.prepare('SELECT COALESCE(SUM(bytes), 0) AS bytes FROM generations').get() as { bytes: number }).bytes
+      if (bytes > this.#limit) { this.#db.exec('ROLLBACK'); return false }
+      // A replacement may coexist with its own published predecessor while readers hold it.
+      // Credit only that generation: older pinned generations and every other source still count.
+      const replaced = this.#db.prepare('SELECT g.id, g.bytes FROM published p JOIN generations g ON g.id = p.generation WHERE p.source = ?').get(key) as { id: string; bytes: number } | undefined
+      let used = (this.#db.prepare('SELECT COALESCE(SUM(bytes), 0) AS bytes FROM generations').get() as { bytes: number }).bytes - (replaced?.bytes ?? 0)
       if (used + bytes > this.#limit) {
         const victims = this.#db.prepare('SELECT id, bytes FROM generations ORDER BY used, id').all() as { id: string; bytes: number }[]
         for (const victim of victims) {
           if (used + bytes <= this.#limit) break
-          if (this.#pinned.has(victim.id)) continue
+          if (victim.id === replaced?.id || this.#pinned.has(victim.id)) continue
           this.#db.prepare('DELETE FROM published WHERE generation = ?').run(victim.id)
           this.#db.prepare('DELETE FROM observations WHERE generation = ?').run(victim.id)
           this.#db.prepare('DELETE FROM generations WHERE id = ?').run(victim.id)

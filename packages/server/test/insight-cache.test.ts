@@ -62,6 +62,95 @@ test('unchanged observations survive a Ledger restart without rereading source b
   assert.equal(count.bytes(), bytes, 'restart reuses the unchanged indexed observations')
 })
 
+test('default cache admits two large normalized sources that fit the aggregate budget across restart', async (t) => {
+  const { InsightCache } = await import('../src/ledger/insight-cache.js')
+  const dir = tempDir('hd-insight-large-source-'); const corpus = join(dir, 'corpus'); await mkdir(corpus)
+  const targets: Parameters<InstanceType<typeof InsightCache>['reference']>[0][] = []
+  for (let source = 0; source < 2; source++) {
+    const path = join(corpus, `source-${source}.jsonl`)
+    const header = JSON.stringify({ type: 'session_meta', payload: { id: `session-${source}`, cwd: query.root } }) + '\n'
+    const records = Array.from({ length: 40_000 }, (_, i) => JSON.stringify({
+      timestamp: new Date(Date.parse('2026-09-20T00:00:00Z') + i * 1000).toISOString(),
+      type: 'event_msg', payload: { type: 'token_count', info: { last_token_usage: { input_tokens: 10, output_tokens: 1, cached_input_tokens: 0 } } }, seq: i,
+    }) + '\n')
+    await writeFile(path, header + records.join(''))
+    const file = await stat(path)
+    targets.push({ path, kind: 'codex', runtime: 'alpha', size: file.size, mtime: file.mtimeMs, changedAt: file.ctimeMs, identity: path })
+  }
+  const count = reads(t, corpus)
+  const cache = new InsightCache(dir); t.after(() => cache.close())
+  await cache.withLease(async () => {
+    const refs = []
+    for (const target of targets) {
+      const result = await cache.reference(target, 64 * 1024 * 1024)
+      assert.equal(result.limited, false)
+      assert.ok(result.ref?.generation, 'each source fits the aggregate and must be indexed')
+      refs.push(result.ref!)
+    }
+    const snapshot = cache.snapshot(refs); assert.ok(snapshot)
+    try { let observations = 0; snapshot.each(() => { observations++ }); assert.equal(observations, 80_000) } finally { snapshot.close() }
+  })
+  const db = new DatabaseSync(join(dir, 'insight-cache-v2.sqlite'), { readOnly: true })
+  const sizes = db.prepare('SELECT bytes FROM generations').all() as { bytes: number }[]; db.close()
+  assert.equal(sizes.length, 2)
+  assert.ok(sizes.every(({ bytes }) => bytes > 16 * 1024 * 1024))
+  assert.ok(sizes.reduce((sum, item) => sum + item.bytes, 0) < 128 * 1024 * 1024)
+  cache.close()
+  const previousBytes = count.bytes(), reopened = new InsightCache(dir); t.after(() => reopened.close())
+  await reopened.withLease(async () => { for (const target of targets) assert.ok((await reopened.reference(target, 64 * 1024 * 1024)).ref?.generation) })
+  assert.equal(count.bytes(), previousBytes, 'restart reuses both indexed sources')
+})
+
+test('aggregate budget protects pinned generations and preserves data on oversized admission', async (t) => {
+  const { PersistentInsight } = await import('../src/ledger/insight-persistent.js')
+  const { ledger } = await fixture(); t.after(() => ledger.close())
+  const sample = (await ledger.readInsight(query)).samples[0]!; assert.ok(sample)
+  const target = (name: string) => ({ runtime: 'alpha', kind: 'gemini' as const, path: `/synthetic/${name}`, size: 1, mtime: 1, identity: name })
+  const first = target('first'), second = target('other')
+  const entry = (one: typeof first, model?: string) => ({ target: one, offset: 1, tail: [], samples: [{ ...sample, ...(model === undefined ? {} : { model }) }], limited: false })
+  const seedDir = tempDir('hd-insight-size-seed-'), seed = new PersistentInsight(seedDir)
+  assert.ok(seed.acquire()); assert.equal(seed.put(entry(first)), true); seed.release(); seed.close()
+  const seedDb = new DatabaseSync(join(seedDir, 'insight-cache-v2.sqlite'), { readOnly: true })
+  const size = (seedDb.prepare('SELECT bytes FROM generations').get() as { bytes: number }).bytes; seedDb.close()
+  const dir = tempDir('hd-insight-total-limit-'), store = new PersistentInsight(dir, size + 64)
+  t.after(() => store.close()); assert.ok(store.acquire())
+  assert.equal(store.put(entry(first)), true)
+  assert.equal(store.put(entry(second)), false, 'the pinned first generation cannot be evicted')
+  assert.ok(store.get(first, () => true)); assert.equal(store.get(second, () => true), null)
+  assert.equal(store.put(entry(first, 'x'.repeat(size + 64))), false, 'a source larger than total budget is refused')
+  assert.ok(store.get(first, () => true), 'refusal retains the committed generation')
+  store.release(); assert.ok(store.acquire())
+  assert.equal(store.put(entry(second)), true, 'an unpinned source may be evicted within the same total budget')
+  assert.equal(store.get(first, () => true), null); assert.ok(store.get(second, () => true))
+})
+
+for (const mode of ['append', 'rewrite'] as const) test(`a ${mode} of a pinned source persists its cursor for restart`, async (t) => {
+  const { InsightCache } = await import('../src/ledger/insight-cache.js')
+  const dir = tempDir('hd-insight-update-restart-'), corpus = join(dir, 'corpus'); await mkdir(corpus)
+  const path = join(corpus, 'rollout.jsonl'), original = meta + Array.from({ length: 8 }, (_, i) => event(i)).join('')
+  await writeFile(path, original)
+  const target = async () => { const file = await stat(path); return { path, kind: 'codex' as const, runtime: 'alpha', size: file.size, mtime: file.mtimeMs, changedAt: file.ctimeMs, identity: path } }
+  const first = await target(), seed = new InsightCache(dir)
+  await seed.withLease(async () => { assert.ok((await seed.reference(first, 64 * 1024 * 1024)).ref?.generation) }); seed.close()
+  const db = new DatabaseSync(join(dir, 'insight-cache-v2.sqlite'), { readOnly: true })
+  const bytes = (db.prepare('SELECT bytes FROM generations').get() as { bytes: number }).bytes; db.close()
+  const cache = new InsightCache(dir, Math.floor(bytes * 1.7)); t.after(() => cache.close())
+  const count = reads(t, corpus)
+  await cache.withLease(async () => {
+    const prior = (await cache.reference(first, 64 * 1024 * 1024)).ref; assert.ok(prior?.generation)
+    if (mode === 'append') await appendFile(path, event(8))
+    else await writeFile(path, original.replace('\"input_tokens\":10', '\"input_tokens\":20'))
+    await utimes(path, new Date(2000), new Date(2000))
+    const changed = await target(), next = (await cache.reference(changed, 64 * 1024 * 1024)).ref
+    assert.ok(next?.generation, 'changed source must publish an indexed generation')
+    assert.equal(cache.resolve(prior, () => true).length, 8, 'the pinned previous reference stays readable')
+    assert.equal(cache.resolve(next, () => true).length, mode === 'append' ? 9 : 8)
+  })
+  cache.close(); const bytesBefore = count.bytes(), reopened = new InsightCache(dir, Math.floor(bytes * 1.7)); t.after(() => reopened.close())
+  await reopened.withLease(async () => { const ref = (await reopened.reference(await target(), 64 * 1024 * 1024)).ref; assert.ok(ref?.generation); assert.equal(reopened.resolve(ref, () => true).length, mode === 'append' ? 9 : 8) })
+  assert.equal(count.bytes(), bytesBefore, 'restart reuses the changed source without reading its corpus')
+})
+
 test('serialized record fallback identity is opaque while the sample key stays stable', async (t) => {
   const { ledger, path } = await fixture(); t.after(() => ledger.close())
   const canary = 'synthetic-private-record-canary'
