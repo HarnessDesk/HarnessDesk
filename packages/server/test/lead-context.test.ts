@@ -1928,3 +1928,47 @@ test('#2126: an unrepresentable journal seed cannot write or replace a context s
     assert.ok(ids.every(id => journal.state.messages.some(message => message.id === id)))
   }
 })
+
+test('#2126: seeding a missing context retains every unanswered wake and reminder past the history window', async t => {
+  const home = await directory(t), disk = await LeadFileJournal.open(home, 'seed-backlog')
+  t.after(() => disk.close())
+  const journal = await lead.createLeadJournal(disk), ids: string[] = []
+  for (let n = 0; n < 65; n++) {
+    ids.push((await journal.appendMessage(`wake-${n}`, `Wake ${n}`, 'schedule', undefined,
+      { kind: 'reminder', reminder: `remind-${n}`, text: `Reminder ${n}` })).messageId)
+    await journal.appendReply(`Reminder line ${n}`, undefined, undefined, undefined, `remind-${n}`)
+  }
+  assert.equal(journal.state.messages.length, 130)
+  assert.equal(journal.state.messages.filter(message => message.role === 'assistant' && message.reminded === undefined).length, 0)
+  const options = { directory: join(home, 'lead'), journal, model: MODEL, now: () => 1000, nextId: () => 'seed-backlog', window: 200_000 }
+  const store = await LeadContextStore.open(options)
+  const check = (turns: readonly lead.MessagesTurn[]) => {
+    const blocks = turns.flatMap(turn => turn.content.filter(block => block.type === 'text').map(block => block.text))
+    let previous = -1
+    for (let n = 0; n < ids.length; n++) {
+      const reference = blocks.findIndex((block, index) => index > previous && block === `${lead.LEAD_WAKE_REFERENCE}${ids[n]}`)
+      assert.ok(reference > previous, `wake ${n} reference missing or out of order`)
+      const reminder = blocks.findIndex((block, index) => index > reference && block === `Reminder line ${n}`)
+      assert.ok(reminder > reference, `reminder ${n} missing or out of order`)
+      previous = reminder
+    }
+    assert.doesNotThrow(() => lead.parseLeadContextTurns(turns))
+  }
+  check((await store.request()).messages)
+  await disk.close()
+  const reopenedDisk = await LeadFileJournal.open(home, 'seed-backlog'); t.after(() => reopenedDisk.close())
+  const reopenedJournal = await lead.createLeadJournal(reopenedDisk)
+  assert.ok(ids.every(id => reopenedJournal.state.messages.some(message => message.id === id)))
+  const reopened = await LeadContextStore.open({ ...options, journal: reopenedJournal })
+  check((await reopened.request()).messages)
+})
+
+test('#2126: seeding preserves the opening stub when the Lead spoke first', async t => {
+  const home = await directory(t), { journal } = await journalOver()
+  await journal.appendReply('The desk spoke first.')
+  const store = await LeadContextStore.open({ directory: home, journal, model: MODEL, now: () => 1000, nextId: () => 'seed-first', window: 200_000 })
+  assert.equal(store.turns[0]?.role, 'user')
+  assert.match(JSON.stringify(store.turns[0]), /Lead spoke first/)
+  assert.equal(store.turns[1]?.role, 'assistant')
+  assert.doesNotThrow(() => lead.parseLeadContextTurns(store.turns))
+})
