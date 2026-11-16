@@ -899,3 +899,20 @@ test('an unlinked same-trigger subscriber does not cover facts read for another 
   assert.equal(later.facts.length, 1)
   assert.deepEqual(later.mentionRoutes?.get(later.facts[0]!), b)
 })
+
+for (const failure of ['read', 'cap'] as const) test(`issue comments progress while a linked review ${failure} remains visible`, async () => {
+  const forge = new FakeForge(), at = ARMED + MINUTE
+  const initial = await source(forge).inventory(PROJECT, 'mention', REPO, never)
+  forge.pulls.push({ number: 5, head: sha('c'), state: 'open', created: ARMED, updated: at, reviews: [] })
+  const cursor = (await source(forge, ARMED + 1000).poll(PROJECT, initial, never, { mentionPulls: [{ number: 5, since: ARMED }] })).next
+  assert.ok(cursor.mentionReviews?.pulls['5'])
+  forge.issues.push({ number: 1, state: 'open', created: at, updated: at, events: [], comments: [{ id: 701, body: '@dex issue', created: at, updated: at, user: { id: 7, login: 'jane-doe' } }] })
+  forge.pulls[0]!.reviews = Array.from({ length: failure === 'cap' ? 101 : 1 }, (_, i) => ({ id: 800 + i, commit_id: sha('c'), body: '@dex review', state: 'COMMENTED', submitted_at: iso(at), user: { id: 7, login: 'jane-doe' } }))
+  if (failure === 'read') forge.fail = path => path.includes('/pulls/5/reviews?') ? { exitCode: 1, stderr: 'synthetic failure' } : null
+  const batch = await source(forge, at + MINUTE).poll(PROJECT, cursor, never, { mentionPulls: [{ number: 5, since: ARMED }] })
+  assert.equal(batch.complete, true)
+  assert.equal(batch.facts.length, 1)
+  assert.equal(batch.next.subjects['_comments']?.event, '701')
+  assert.deepEqual(batch.next.mentionReviews, cursor.mentionReviews)
+  assert.ok(batch.problem, 'review retry or limit must be visible')
+})

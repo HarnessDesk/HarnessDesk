@@ -115,6 +115,10 @@ const cursorOf = (value: unknown): SourceCursor | null => {
     if (!isMap(entry) || !(entry['head'] === null || typeof entry['head'] === 'string') || typeof entry['event'] !== 'string') return null
     clean[key] = { head: entry['head'] as string | null, event: entry['event'] }
   }
+  if (value['source'] === 'mention' && clean['_comments'] !== undefined) {
+    const watermark = clean['_comments'].event
+    if (!/^[0-9]+$/.test(watermark) || !Number.isSafeInteger(Number(watermark))) return null
+  }
   const pulls = value['pulls'] === undefined ? undefined : pullStatesOf(value['pulls'])
   if (pulls === null || (value['pullNext'] !== undefined && (!Number.isSafeInteger(value['pullNext']) || (value['pullNext'] as number) < 0))) return null
   const requests = value['requests'] === undefined ? undefined : requestCoverageOf(value['requests'])

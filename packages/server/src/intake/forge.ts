@@ -1528,12 +1528,14 @@ export class ForgeSource {
     }
     if (!complete) return this.#gap(cursor, burst)
     let reviews: { facts: TriggerFact[]; routes: Map<TriggerFact, MentionSubscriber>; coverage: MentionReviewCoverage; retrying: boolean } | null
+    let reviewProblem: string | null = null
     try { reviews = await this.#mentionReviewFacts(project, repository, cursor, linked, deadline, signal) }
     catch (error) {
       // A separate review read must not prevent already-covered issue
       // comments from being offered. Its own cursor stays put for retry.
       if (signal.aborted || facts.length === 0) throw error
       reviews = null
+      reviewProblem = 'Linked pull request reviews could not be read and will be retried.'
     }
     if (reviews === null && facts.length === 0) return this.#gap(cursor, 'More linked pull request reviews changed than one read can cover.')
     if (reviews) facts.push(...reviews.facts)
@@ -1541,7 +1543,9 @@ export class ForgeSource {
       ...cursor, observedThrough: through, continuation: null, subjects: { [MENTION_MARK]: { head: null, event: String(highest) } },
       ...(reviews ? { mentionReviews: reviews.coverage } : {}),
     }, [])
-    return batch.complete && reviews ? { ...batch, mentionRoutes: reviews.routes, ...(reviews.retrying ? { problem: 'Some linked pull request reviews could not be read and will be retried.' } : {}) } : batch
+    if (!batch.complete) return batch
+    if (!reviews) return { ...batch, problem: reviewProblem ?? 'More linked pull request reviews changed than one read can cover.' }
+    return { ...batch, mentionRoutes: reviews.routes, ...(reviews.retrying ? { problem: 'Some linked pull request reviews could not be read and will be retried.' } : {}) }
   }
 
   /** Read only linked PRs, with independent per-PR watermarks and bounded overlap. */

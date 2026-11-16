@@ -460,3 +460,45 @@ test('malformed legacy and non-object cursor entries do not become fresh baselin
     assert.equal(await readFile(file, 'utf8'), original)
   }
 })
+
+test('legacy mention comment watermarks must be nonnegative safe decimal integers', async () => {
+  for (const event of ['bad', '-1', '9007199254740992', '1.5', '']) {
+    const home = tempDir('hd-intake-invalid-mark-'), file = join(home, 'triggers-cursors.json')
+    const cursor = { version: 1, source: 'mention', repository: 'acme/widgets', baseline: 1, observedThrough: 1, continuation: null, subjects: { _comments: { head: null, event } } }
+    const original = JSON.stringify({ version: 1, cursors: { fixture: cursor } })
+    await writeFile(file, original)
+    await assert.rejects(new SourceCursors(home).read('fixture'), /will not be rebaselined/)
+    assert.equal(await readFile(file, 'utf8'), original)
+  }
+  const home = tempDir('hd-intake-empty-mark-'), cursors = new SourceCursors(home)
+  const initial = { version: 1 as const, source: 'mention' as const, repository: 'acme/widgets', baseline: 1, observedThrough: 1, continuation: null, subjects: {} }
+  await cursors.commit('fixture', initial)
+  assert.deepEqual(await cursors.read('fixture'), initial)
+})
+
+test('a stalled review read is visible even when issue comments make progress', async () => {
+  const r = rig({ linked: async () => [{ number: 5, since: ARMED }] })
+  const base = armOf('ask', { source: 'issue' })
+  r.arms = [{ ...base, definition: { ...base.definition, on: { kind: 'mention', events: ['commented'] } } }]
+  await r.monitor.baseline(r.arms[0]!)
+  const at = ARMED + 2 * MINUTE
+  r.forge.pulls.push({ number: 5, head: sha('c'), state: 'open', created: ARMED, updated: ARMED, reviews: [] })
+  r.clocks.advance(MINUTE); await r.monitor.tick(r.clocks.wall)
+  const before = JSON.parse(await cursorFile(r.home)) as { cursors: Record<string, { mentionReviews?: unknown }> }
+  const priorReviews = Object.values(before.cursors)[0]!.mentionReviews
+  assert.ok(priorReviews)
+  r.forge.issues.push({ number: 1, state: 'open', created: at, updated: at, events: [], comments: [{ id: 101, body: '@dex issue comment', created: at, updated: at, user: { id: 7, login: 'jane-doe' } }] })
+  r.forge.pulls[0]!.reviews = [{ id: 102, commit_id: sha('c'), body: '@dex review', state: 'COMMENTED', submitted_at: iso(at), user: { id: 7, login: 'jane-doe' } }]
+  r.forge.fail = path => path.includes('/pulls/5/reviews?') ? { exitCode: 1, stderr: 'synthetic failure' } : null
+  r.clocks.advance(2 * MINUTE); await r.monitor.tick(r.clocks.wall)
+  assert.equal(r.offers.length, 1, 'the issue comment is offered')
+  assert.equal(r.monitor.statuses()[0]?.state, 'unreadable', 'review failure is visible')
+  const saved = JSON.parse(await cursorFile(r.home)) as { cursors: Record<string, { subjects: Record<string, { event: string }>; mentionReviews?: unknown }> }
+  const cursor = Object.values(saved.cursors)[0]!
+  assert.equal(cursor.subjects['_comments']?.event, '101')
+  assert.deepEqual(cursor.mentionReviews, priorReviews, 'failed review coverage did not advance')
+  r.forge.fail = null; r.clocks.advance(2 * MINUTE); await r.monitor.tick(r.clocks.wall)
+  assert.equal(r.offers.length, 2, 'the review is retried without replaying the comment')
+  assert.equal(r.monitor.statuses()[0]?.state, 'watching')
+  await r.monitor.close()
+})
