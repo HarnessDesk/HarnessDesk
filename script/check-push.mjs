@@ -219,7 +219,9 @@ export function createPlan(root, { paths, base = 'origin/main', mergeBase = null
   const related = add('UI unit tests', 'pnpm', ['--filter', '@harnessdesk/ui', 'exec', 'vitest', 'related', '--run', ...unit.files],
     unit.mode === 'related' ? '' : unit.mode === 'all' ? `${unit.summary} CI will run the full unit suite; it exceeds the local budget.` : unit.summary)
   const scripts = scriptTests(root, paths)
-  add('Script tests', 'node', ['--test', ...scripts], scripts.length ? '' : 'No changed script has a test, and no shared planner input changed.')
+  const scriptStep = add('Script tests', 'node', ['--test', ...scripts], scripts.length ? '' : 'No changed script has a test, and no shared planner input changed.')
+  // This journey test and its real child import workspace dist, just as CI does after its build.
+  const scriptsNeedBuild = scripts.includes('script/shots-templates.test.mjs')
   const node = packageTests(root, paths)
   const totalTests = node.tests.reduce((count, entry) => count + entry.files.length, 0)
   const nodeReason = fast ? '--fast leaves Node-package tests to CI.' : node.changed.size === 0 ? 'No package source changed.' : ''
@@ -235,7 +237,7 @@ export function createPlan(root, { paths, base = 'origin/main', mergeBase = null
   const browserReason = fast ? '--fast leaves browser specs to CI.'
     : browserFiles.length === 0 ? 'No edited spec or bounded reached set to run.'
       : !(chromium ?? chromiumInstalled(root)) ? 'Chromium is not installed for this checkout; run pnpm exec playwright install chromium separately. CI runs these specs.' : ''
-  const consumers = [cli, typecheck, related]
+  const consumers = [cli, typecheck, related, ...(scriptsNeedBuild ? [scriptStep] : [])]
   const build = add('Node build', 'pnpm', ['run', 'build:node'],
     // The specs import compiled host fixtures; CI builds before it runs them, and so does this.
     consumers.some(step => step.status === 'run') || !browserReason || (!nodeReason && selected.length) ? '' : nodeReason || 'No selected step reads a Node build.')
