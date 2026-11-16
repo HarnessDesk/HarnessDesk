@@ -1,0 +1,54 @@
+{
+  "pullRequest": 2254,
+  "synthetic": true,
+  "images": [
+    {
+      "path": "before/before-account-light.png",
+      "sha256": "42644d2a7fa2e8be714a41d2b2c801eec8e2906c603e90fe891c7d35a9919ede",
+      "width": 1120,
+      "height": 820
+    },
+    {
+      "path": "before/before-general-light.png",
+      "sha256": "86a66a761503a3a84487526635dea0b6416ba786a7f0b95a8ac089bb21f38d06",
+      "width": 1120,
+      "height": 820
+    },
+    {
+      "path": "before/before-appearance-light.png",
+      "sha256": "caec4f246fe95c6816ba5a99ce3d9a11e31f60df06cb23df62b4d26562428abc",
+      "width": 1120,
+      "height": 820
+    },
+    {
+      "path": "after/after-account-1440-light.png",
+      "sha256": "66132e75f5233e7f3cad94b163faddf6ddaad5bc2b312ccf671a31722cff6453",
+      "width": 1440,
+      "height": 800
+    },
+    {
+      "path": "after/after-general-1440-light.png",
+      "sha256": "16aa2a9fb37d678b9743e6acfc3d02506e3ea1f0513da0636bb991e8aa5e0ca8",
+      "width": 1440,
+      "height": 800
+    },
+    {
+      "path": "after/after-appearance-1440-light.png",
+      "sha256": "2271861869afda276f7ce79c0db757605350ec730f0c191d2e1bafa05b97ae1d",
+      "width": 1440,
+      "height": 800
+    },
+    {
+      "path": "after/after-icon-picker-720-dark.png",
+      "sha256": "61ac2224de60560d7b04d9e63e9b8572bc2d3073a1ba872f27c01395c8558c0d",
+      "width": 720,
+      "height": 800
+    },
+    {
+      "path": "after/after-account-failed-720-light.png",
+      "sha256": "09fb0eda594b3d950b958e6e4505d90bdd6137176b04197526cf67ef2d2edf0c",
+      "width": 720,
+      "height": 800
+    }
+  ]
+}
