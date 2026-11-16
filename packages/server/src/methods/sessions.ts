@@ -36,18 +36,23 @@ const folderKey = (cwd: string): string => {
 }
 
 /** A notice, never a reason to fail the open or resume it rides on. */
-const announceUnavailableTools = async (ctx: HostContext, runtime: AgentRuntime, session: Session): Promise<void> => {
+const announceUnavailableTools = async (ctx: HostContext, runtime: AgentRuntime, session: Session, check: () => void = () => {}): Promise<void> => {
   try {
-    await announceUnavailableToolsOnce(ctx, runtime, session)
+    await announceUnavailableToolsOnce(ctx, runtime, session, check)
   } catch {
     // The conversation opened; a folder we could not judge gets no notice.
+    check()
   }
 }
 
-const announceUnavailableToolsOnce = async (ctx: HostContext, runtime: AgentRuntime, session: Session): Promise<void> => {
+const announceUnavailableToolsOnce = async (ctx: HostContext, runtime: AgentRuntime, session: Session, check: () => void): Promise<void> => {
+  check()
   if (!runtime.info?.capabilities?.pluginTools || !runtime.pluginToolsAvailableAt) return
-  if (await runtime.pluginToolsAvailableAt(session.cwd)) return
+  const available = await runtime.pluginToolsAvailableAt(session.cwd)
+  check()
+  if (available) return
   const body = (await runtime.pluginToolsProblemAt?.(session.cwd)) ?? runtime.info.presentation.pluginToolsUnavailable
+  check()
   if (!body) return
   const folder = folderKey(session.cwd)
   let announced = unavailableNoticeFolders.get(ctx)
@@ -245,7 +250,7 @@ export const sessionMethods = {
         await ctx.sessionIndex.refreshMissingFolder(resumed.cwd)
         check()
         ctx.loadouts.observe(runtime, live.id, resumed.cwd)
-        await announceUnavailableTools(ctx, runtime, resumed)
+        await announceUnavailableTools(ctx, runtime, resumed, check)
         check()
         return resumed
       })
