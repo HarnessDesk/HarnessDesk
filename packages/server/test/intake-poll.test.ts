@@ -378,3 +378,17 @@ test('host-owned PR watches poll without arms and deliver observations before ad
   assert.ok(observations.some(row => row.number === 7))
   await monitor.close()
 })
+
+test('mention review cursors retain per-PR baseline across reload and accept older cursors', async () => {
+  const home = tempDir('hd-mention-review-cursor-'), key = 'fixture'
+  const original = { version: 1 as const, source: 'mention' as const, repository: 'acme/widgets', baseline: 1000,
+    observedThrough: 5000, continuation: null, subjects: {}, mentionReviews: { next: 0, pulls: { '5': { through: 5000, since: 2000, seen: { r101: 4000 } } } } }
+  await new SourceCursors(home).commit(key, original)
+  assert.deepEqual(await new SourceCursors(home).read(key), original)
+  const legacy = { ...original, mentionReviews: { next: 0, pulls: { '5': { through: 5000, seen: { r101: 4000 } } } } }
+  await new SourceCursors(home).commit(key, legacy)
+  assert.deepEqual(await new SourceCursors(home).read(key), legacy)
+  const invalid = { ...original, mentionReviews: { next: 0, pulls: { '5': { through: 5000, since: -1, seen: {} } } } }
+  await new SourceCursors(home).commit(key, invalid)
+  assert.equal(await new SourceCursors(home).read(key), null, 'a corrupt boundary does not authorize a read')
+})

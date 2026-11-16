@@ -1922,3 +1922,36 @@ test('a review between two linked thread openings resumes the eligible older thr
   assert.equal(saved.threads.find(one => one.id === 'newer')?.resumes, 0)
   assert.equal(saved.threads.find(one => one.id === 'older')?.resumes, 1)
 })
+
+for (const kind of ['review', 'inline'] as const) test(`a late-linked older Host thread receives its earlier ${kind} without replaying the newer thread`, E2E, async t => {
+  const d = await desk(t); await act(d)
+  await say(d, 1, '@dex work on the older issue')
+  const olderGoal = (await history(d)).items.find(one => one.subject === '1')?.goal ?? (await history(d)).items[0]!.goal!
+  const oldAt = d.clocks.wall + 1000
+  await say(d, 2, '@dex work on the newer issue')
+  const page = await decisions(d), older = page.threads.find(one => one.origin.number === 1)!, newer = page.threads.find(one => one.origin.number === 2)!
+  const newerGoal = newer.links.goals[0]!
+  assert.ok(oldAt > older.openedAt && oldAt <= newer.openedAt, 'review lies between the thread openings')
+  const recentAt = d.clocks.wall + 1000
+  d.links.set(newerGoal, [5])
+  d.forge.pulls.push({ number: 5, head: sha('c'), state: 'open', created: oldAt, updated: recentAt,
+    reviews: [
+      { id: 101, commit_id: sha('c'), body: kind === 'review' ? '@dex older request' : '', state: 'COMMENTED', submitted_at: new Date(oldAt).toISOString(), user: ME },
+      { id: 102, commit_id: sha('c'), body: '@dex newer request', state: 'COMMENTED', submitted_at: new Date(recentAt).toISOString(), user: ME },
+    ], reviewComments: kind === 'inline' ? [{ id: 201, review: 101, body: '@dex older inline', created: oldAt - 100, updated: oldAt - 100, user: ME }] : [] })
+  d.clocks.advance(10 * 60_000); await d.host.intakePlane.tick()
+  d.clocks.advance(60_000); await d.host.intakePlane.tick()
+  const before = await decisions(d)
+  assert.equal(before.threads.find(one => one.id === newer.id)?.resumes, 1, 'newer thread takes its own later review')
+  assert.equal(before.threads.find(one => one.id === older.id)?.resumes, 0)
+  d.links.set(olderGoal, [5])
+  d.clocks.advance(10 * 60_000); await d.host.intakePlane.tick()
+  d.clocks.advance(60_000); await d.host.intakePlane.tick()
+  const after = await decisions(d)
+  assert.equal(after.threads.find(one => one.id === older.id)?.resumes, 1, 'older linked thread receives its missed review')
+  assert.equal(after.threads.find(one => one.id === newer.id)?.resumes, 1, 'newer review does not replay')
+  d.clocks.advance(60_000); await d.host.intakePlane.tick()
+  const repeat = await decisions(d)
+  assert.equal(repeat.threads.find(one => one.id === older.id)?.resumes, 1)
+  assert.equal(repeat.threads.find(one => one.id === newer.id)?.resumes, 1)
+})

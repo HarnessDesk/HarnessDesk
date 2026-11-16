@@ -59,23 +59,24 @@ export interface SourceCursor {
 
 export interface MentionReviewCoverage {
   readonly next: number
-  readonly pulls: Readonly<Record<string, { readonly through: number; readonly seen: Readonly<Record<string, number>> }>>
+  readonly pulls: Readonly<Record<string, { readonly through: number; readonly seen: Readonly<Record<string, number>>; readonly since?: number }>>
 }
 
 export const mentionReviewCoverageOf = (value: unknown): MentionReviewCoverage | null => {
   if (!isMap(value) || !Number.isSafeInteger(value['next']) || (value['next'] as number) < 0 || !isMap(value['pulls'])) return null
-  const pulls: Record<string, { through: number; seen: Record<string, number> }> = {}
+  const pulls: Record<string, { through: number; seen: Record<string, number>; since?: number }> = {}
   const entries = Object.entries(value['pulls'])
   if (entries.length > FACT_LIMIT) return null
   let count = 0
   for (const [number, raw] of entries) {
     if (!/^[1-9][0-9]{0,15}$/.test(number) || !isMap(raw) || !Number.isSafeInteger(raw['through']) || (raw['through'] as number) < 0 || !isMap(raw['seen'])) return null
+    if (raw['since'] !== undefined && (!Number.isSafeInteger(raw['since']) || (raw['since'] as number) < 0)) return null
     const seen: Record<string, number> = {}
     for (const [key, at] of Object.entries(raw['seen'])) {
       if (!/^[rc][1-9][0-9]{0,15}$/.test(key) || !Number.isSafeInteger(at) || (at as number) < 0 || ++count > SEEN_LIMIT) return null
       seen[key] = at as number
     }
-    pulls[number] = { through: raw['through'] as number, seen }
+    pulls[number] = { through: raw['through'] as number, seen, ...(raw['since'] === undefined ? {} : { since: raw['since'] as number }) }
   }
   return { next: value['next'] as number, pulls }
 }
@@ -1530,10 +1531,10 @@ export class ForgeSource {
     if (sinceByPull.size > FACT_LIMIT) return null
     const numbers = [...sinceByPull.keys()].sort((a, b) => a - b), next = cursor.mentionReviews?.next ?? 0
     const ordered = [...numbers.filter(n => n >= next), ...numbers.filter(n => n < next)]
-    const pulls: Record<string, { through: number; seen: Record<string, number> }> = {}
+    const pulls: Record<string, { through: number; seen: Record<string, number>; since?: number }> = {}
     for (const n of numbers) {
       const previous = cursor.mentionReviews?.pulls[String(n)]
-      if (previous) pulls[String(n)] = { through: previous.through, seen: { ...previous.seen } }
+      if (previous) pulls[String(n)] = { through: previous.through, seen: { ...previous.seen }, ...(previous.since === undefined ? {} : { since: previous.since }) }
     }
     const facts: TriggerFact[] = [], now = this.#now()
     let opened = 0, completed = 0, firstFailure: unknown
@@ -1541,11 +1542,18 @@ export class ForgeSource {
       const start = facts.length, openedBefore = opened
       try {
       const baseline = Math.max(cursor.baseline, sinceByPull.get(number)!), previous = pulls[String(number)]
+      // Older version-1 cursors did not record this boundary. Treat their
+      // coverage as starting at the source baseline: never invent a rewind
+      // that could re-offer an already-consumed review.
+      const coveredSince = previous ? previous.since ?? cursor.baseline : baseline
+      const rewind = previous !== undefined && baseline < coveredSince
       const floor = Math.max(baseline, (previous?.through ?? baseline) - OVERLAP_MS)
+      const readFloor = rewind ? baseline : floor
+      const eligible = (at: number): boolean => at > baseline && (at >= floor || rewind && at <= coveredSince)
       const seen = { ...previous?.seen }
       const pull = this.#pull(await this.#get(project, `repos/${repository}/pulls/${number}`, deadline, signal))
       if (pull.number !== number || pull.baseRepo !== repository) throw unreadable()
-      if (pull.state !== 'open') { pulls[String(number)] = { through: now, seen: {} }; completed++; continue }
+      if (pull.state !== 'open') { pulls[String(number)] = { through: Math.max(previous?.through ?? 0, now), since: Math.min(baseline, coveredSince), seen: {} }; completed++; continue }
       const reviews = await this.#all(project, `repos/${repository}/pulls/${number}/reviews`, deadline, signal)
       if (reviews === null) throw unreadable()
       const published = new Map<number, { at: number; author: number | null; desk: boolean }>()
@@ -1559,12 +1567,12 @@ export class ForgeSource {
         const author = user && Number.isSafeInteger(user['id']) ? user['id'] as number : null
         const fact = mentionReviewFact(project, repository, number, raw, id, at, 'review')
         published.set(id, { at, author, desk: fact.desk === true || await this.#posted(fact) })
-        if (at <= baseline || at < floor || seen[`r${id}`] !== undefined) continue
+        if (!eligible(at) || seen[`r${id}`] !== undefined) continue
         seen[`r${id}`] = at; freshReviews.push(id)
         if (++opened > ISSUE_LIMIT) return null
         facts.push(fact)
       }
-      const inline = await this.#all(project, `repos/${repository}/pulls/${number}/comments?sort=updated&direction=asc&since=${new Date(floor).toISOString()}`, deadline, signal)
+      const inline = await this.#all(project, `repos/${repository}/pulls/${number}/comments?sort=updated&direction=asc&since=${new Date(readFloor).toISOString()}`, deadline, signal)
       if (inline === null) throw unreadable()
       const all = [...inline]
       // Inline comments may have been drafted before their review was submitted.
@@ -1580,13 +1588,13 @@ export class ForgeSource {
         const parent = published.get(review)
         if (parent === undefined) continue
         const at = Math.max(time(raw['created_at']), parent.at)
-        if (at <= baseline || at < floor || seen[`c${id}`] !== undefined) continue
+        if (!eligible(at) || seen[`c${id}`] !== undefined) continue
         seen[`c${id}`] = at
         const fact = mentionReviewFact(project, repository, number, raw, id, at, 'inline')
         const author = isMap(raw['user']) ? raw['user']['id'] : null
         facts.push(parent.desk && parent.author !== null && author === parent.author ? { ...fact, desk: true } : fact)
       }
-      pulls[String(number)] = { through: now, seen: Object.fromEntries(Object.entries(seen).filter(([, at]) => at >= Math.max(baseline, now - OVERLAP_MS))) }
+      pulls[String(number)] = { through: Math.max(previous?.through ?? 0, now), since: Math.min(baseline, coveredSince), seen: Object.fromEntries(Object.entries(seen).filter(([, at]) => at >= Math.max(baseline, now - OVERLAP_MS))) }
       completed++
       } catch (error) {
         if (signal.aborted) throw error
