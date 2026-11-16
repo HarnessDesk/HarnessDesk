@@ -5730,7 +5730,10 @@ Review round, same day:
   between people on a followed thread is counted, not acted on; the desk's
   own posts never resume it, whether told apart by marker or by the
   desk-posts record. A review on a linked pull request does not resume it
-  yet: the mention source reads comments only.
+  yet: the mention source reads comments only. Superseded: submitted reviews
+  and inline review comments on open linked pull requests now use this same
+  addressed, allowed-author and desk-post check; they do not create new work
+  on an unrelated pull request.
 - **A stop says what it stopped.** `@dex stop` stops running intake runs and
   live Seat turns on the thread's Goals through the host's stop path and
   records how many runs stopped; when nothing was running it says so, and the

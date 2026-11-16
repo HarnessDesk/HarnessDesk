@@ -7,7 +7,7 @@ import { Serial } from '../goals/assignments.js'
 import { atomicJson } from '../goals/store.js'
 import type { ArmedTrigger } from './consent.js'
 import { acceptsFact } from './definition.js'
-import { pullStatesOf, requestCoverageOf, ForgeReadError, type ForgeSource, type PollBatch, type SourceCursor, type PullWatch } from './forge.js'
+import { mentionReviewCoverageOf, pullStatesOf, requestCoverageOf, ForgeReadError, type ForgeSource, type PollBatch, type SourceCursor, type PullWatch } from './forge.js'
 import { dueSlots, scheduleInventory } from './schedule.js'
 
 /**
@@ -73,7 +73,7 @@ export interface IntakeSources {
 }
 
 /** The forge for pull requests and issues, the wall clock for schedules. */
-export const intakeSources = (forge: ForgeSource): IntakeSources => ({
+export const intakeSources = (forge: ForgeSource, linkedPulls?: (project: string, repository: string) => Promise<readonly { number: number; since: number }[]>): IntakeSources => ({
   inventory: async (group, signal, now) => {
     if (group.source === 'schedule') return scheduleInventory(now)
     if (group.repository === null) throw new ForgeReadError('unreadable', 'This source has no forge repository.')
@@ -86,6 +86,7 @@ export const intakeSources = (forge: ForgeSource): IntakeSources => ({
     group.source === 'schedule' ? dueSlots(group.project, group.arms, cursor, now) : forge.poll(group.project, cursor, signal, {
       // Asked for every comment only when an arm on this source lets collaborators' comments fire it.
       permissions: group.arms.some((arm) => arm.definition.from === 'collaborators' && (arm.definition.on.kind === 'mention' || (arm.definition.on.events as readonly string[]).includes('commented'))),
+      ...(group.source === 'mention' && group.repository && linkedPulls ? { mentionPulls: await linkedPulls(group.project, group.repository) } : {}),
       // `@harnessdesk` requests are read only when an arm names them; their authors are asked about only for collaborators.
       // Each from the earliest arm that asks: an arm added to a source already watched never reaches back before it was armed.
       ...(requested(group.arms) ? { requests: {
@@ -118,9 +119,12 @@ const cursorOf = (value: unknown): SourceCursor | null => {
   if (pulls === null || (value['pullNext'] !== undefined && (!Number.isSafeInteger(value['pullNext']) || (value['pullNext'] as number) < 0))) return null
   const requests = value['requests'] === undefined ? undefined : requestCoverageOf(value['requests'])
   if (requests === null) return null
+  const mentionReviews = value['mentionReviews'] === undefined ? undefined : mentionReviewCoverageOf(value['mentionReviews'])
+  if (mentionReviews === null) return null
   return {
     ...(pulls === undefined ? {} : { pulls }),
     ...(requests === undefined ? {} : { requests }),
+    ...(mentionReviews === undefined ? {} : { mentionReviews }),
     ...(value['pullNext'] === undefined ? {} : { pullNext: value['pullNext'] as number }),
     version: 1, source: value['source'] as TriggerSource, repository: repository as string | null,
     baseline: baseline as number, observedThrough: observedThrough as number, continuation: continuation as string | null, subjects: clean,

@@ -294,7 +294,19 @@ URL, the issue or pull request reference and the thread's Teams; nothing
 about it leaves the machine beyond the Lead's work cards described above. A
 comment that stops the Lead's goal is recorded in the Lead's journal by its
 URL, on the stop it caused. Who may ask is read
-from the forge at most once in five minutes per account. While a work thread
+from the forge at most once in five minutes per account. For open pull requests
+already linked to its work, it also reads each pull request (`pulls/{n}`), its
+reviews (`pulls/{n}/reviews`), its inline review comments (`pulls/{n}/comments`),
+and the comments of a newly submitted review (`pulls/{n}/reviews/{id}/comments`),
+all paged and bounded. It reads at most 20 linked pull requests per poll, rotating
+between them; independent per-pull-request coverage and a five-minute overlap
+are kept in the local trigger cursor. An addressed, allowed review or inline
+comment joins the existing work under the comment rules; its text is not sent
+for a new assessment. Draft reviews wait until submitted, and the desk's own
+posts do not resume work. Reviewing a still-eligible review decision reads that review
+(`pulls/{n}/reviews/{id}`) or inline comment (`pulls/comments/{id}`) again;
+an inline comment's parent review is read too. Stop intents retain their existing
+durable, one-shot rules. While a work thread
 has no pull request, the issue it follows is read on each sweep to see
 whether it closed. With the Lead
 enabled and a key configured, each comment that passes the trigger's rules is

@@ -729,3 +729,67 @@ test('an oversized supplemental response degrades only its PR', async () => {
   assert.deepEqual(batch.facts.map((one) => one.subject), ['2'])
   assert.ok(batch.skipped.some((one) => one.subject === '1' && /limit/.test(one.reason)))
 })
+
+test('linked mention review coverage survives restart and a failed page without consuming events', async () => {
+  const forge = new FakeForge(), at = ARMED + MINUTE
+  forge.pulls.push({ number: 5, head: sha('c'), state: 'open', created: ARMED, updated: at,
+    reviews: [{ id: 101, commit_id: sha('c'), body: '@dex review', state: 'COMMENTED', submitted_at: iso(at), user: { id: 7, login: 'jane-doe' } }],
+    reviewComments: [{ id: 101, review: 101, body: '@dex inline', created: at, updated: at, user: { id: 7, login: 'jane-doe' } }] })
+  const cursor = await source(forge).inventory(PROJECT, 'mention', REPO, never)
+  const options = { mentionPulls: [{ number: 5, since: ARMED }] }
+  const first = await source(forge, at + MINUTE).poll(PROJECT, cursor, never, options)
+  assert.equal(first.complete, true)
+  assert.equal(first.facts.length, 2)
+  assert.equal(new Set(first.facts.map(f => f.event)).size, 2, 'review and inline IDs have distinct namespaces')
+  const restarted = JSON.parse(JSON.stringify(first.next)) as SourceCursor
+  assert.deepEqual((await source(forge, at + 2 * MINUTE).poll(PROJECT, restarted, never, options)).facts, [])
+  forge.pulls[0]!.reviews!.push({ id: 102, commit_id: sha('c'), body: '@dex later', state: 'COMMENTED', submitted_at: iso(at + 3 * MINUTE), user: { id: 7, login: 'jane-doe' } })
+  forge.issues.push({ number: 8, state: 'open', created: ARMED, updated: at + 3 * MINUTE, events: [], comments: [{ id: 300, body: '@dex issue comment', created: at + 3 * MINUTE, updated: at + 3 * MINUTE }] })
+  forge.fail = path => path.includes('/pulls/5/comments?') ? { exitCode: 1, stderr: 'connection failed' } : null
+  const partial = await source(forge, at + 4 * MINUTE).poll(PROJECT, restarted, never, options)
+  assert.equal(partial.complete, true)
+  assert.equal(partial.facts[0]?.url, `https://github.com/${REPO}/issues/8#issuecomment-300`, 'issue comments still make progress')
+  assert.deepEqual(partial.next.mentionReviews, restarted.mentionReviews, 'failed review coverage never advances')
+  forge.fail = null
+  const retried = await source(forge, at + 4 * MINUTE).poll(PROJECT, partial.next, never, options)
+  assert.equal(retried.facts.length, 1)
+  assert.equal(retried.facts[0]?.url, `https://github.com/${REPO}/pull/5#pullrequestreview-102`)
+})
+
+test('linked mention review polling rotates a bounded batch across pull requests', async () => {
+  const forge = new FakeForge(), at = ARMED + MINUTE
+  const linked = Array.from({ length: 21 }, (_, i) => ({ number: i + 1, since: ARMED }))
+  for (const one of linked) forge.pulls.push({ number: one.number, head: sha('c'), state: 'open', created: ARMED, updated: at,
+    reviews: [{ id: 100 + one.number, commit_id: sha('c'), body: '@dex please look', state: 'COMMENTED', submitted_at: iso(at), user: { id: 7, login: 'jane-doe' } }] })
+  const cursor = await source(forge).inventory(PROJECT, 'mention', REPO, never)
+  const first = await source(forge, at + MINUTE).poll(PROJECT, cursor, never, { mentionPulls: linked })
+  assert.equal(first.complete, true); assert.equal(first.facts.length, 20)
+  const second = await source(forge, at + 2 * MINUTE).poll(PROJECT, first.next, never, { mentionPulls: linked })
+  assert.deepEqual(second.facts.map(f => f.subject), ['21'])
+})
+
+test('a failed linked review page does not starve other linked pull requests', async () => {
+  const forge = new FakeForge(), at = ARMED + MINUTE
+  const linked = Array.from({ length: 21 }, (_, i) => ({ number: i + 1, since: ARMED }))
+  for (const one of linked) forge.pulls.push({ number: one.number, head: sha('c'), state: 'open', created: ARMED, updated: at,
+    reviews: [{ id: 100 + one.number, commit_id: sha('c'), body: '@dex please look', state: 'COMMENTED', submitted_at: iso(at), user: { id: 7, login: 'jane-doe' } }] })
+  const cursor = await source(forge).inventory(PROJECT, 'mention', REPO, never)
+  forge.fail = path => path.includes('/pulls/1/reviews?') ? { exitCode: 1, stderr: 'connection failed' } : null
+  const first = await source(forge, at + MINUTE).poll(PROJECT, cursor, never, { mentionPulls: linked })
+  assert.equal(first.complete, true)
+  assert.equal(first.facts.length, 19, 'other PRs make bounded progress')
+  assert.equal(first.next.mentionReviews?.pulls['1'], undefined, 'failed PR coverage did not move')
+  forge.fail = null
+  const next = await source(forge, at + 2 * MINUTE).poll(PROJECT, first.next, never, { mentionPulls: linked })
+  assert.deepEqual(next.facts.map(f => f.subject), ['1', '21'], 'the failed PR and the rotated one are retried')
+})
+
+test('linked review submission reads share the existing per-poll budget', async () => {
+  const forge = new FakeForge(), at = ARMED + MINUTE
+  for (const number of [1, 2]) forge.pulls.push({ number, head: sha('c'), state: 'open', created: ARMED, updated: at,
+    reviews: Array.from({ length: 51 }, (_, i) => ({ id: number * 1000 + i, commit_id: sha('c'), body: '@dex please look', state: 'COMMENTED', submitted_at: iso(at), user: { id: 7, login: 'jane-doe' } })) })
+  const cursor = await source(forge).inventory(PROJECT, 'mention', REPO, never)
+  const result = await source(forge, at + MINUTE).poll(PROJECT, cursor, never, { mentionPulls: [{ number: 1, since: ARMED }, { number: 2, since: ARMED }] })
+  assert.equal(result.complete, false, 'a burst over the shared budget does not advance coverage')
+  assert.deepEqual(result.next, cursor)
+})

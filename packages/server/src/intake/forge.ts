@@ -53,6 +53,31 @@ export interface SourceCursor {
    * inside its overlap window, so reading that window again never asks twice.
    */
   readonly requests?: RequestCoverage
+  /** Review coverage for the open pull requests linked to mention work. */
+  readonly mentionReviews?: MentionReviewCoverage
+}
+
+export interface MentionReviewCoverage {
+  readonly next: number
+  readonly pulls: Readonly<Record<string, { readonly through: number; readonly seen: Readonly<Record<string, number>> }>>
+}
+
+export const mentionReviewCoverageOf = (value: unknown): MentionReviewCoverage | null => {
+  if (!isMap(value) || !Number.isSafeInteger(value['next']) || (value['next'] as number) < 0 || !isMap(value['pulls'])) return null
+  const pulls: Record<string, { through: number; seen: Record<string, number> }> = {}
+  const entries = Object.entries(value['pulls'])
+  if (entries.length > FACT_LIMIT) return null
+  let count = 0
+  for (const [number, raw] of entries) {
+    if (!/^[1-9][0-9]{0,15}$/.test(number) || !isMap(raw) || !Number.isSafeInteger(raw['through']) || (raw['through'] as number) < 0 || !isMap(raw['seen'])) return null
+    const seen: Record<string, number> = {}
+    for (const [key, at] of Object.entries(raw['seen'])) {
+      if (!/^[rc][1-9][0-9]{0,15}$/.test(key) || !Number.isSafeInteger(at) || (at as number) < 0 || ++count > SEEN_LIMIT) return null
+      seen[key] = at as number
+    }
+    pulls[number] = { through: raw['through'] as number, seen }
+  }
+  return { next: value['next'] as number, pulls }
 }
 
 /**
@@ -602,10 +627,11 @@ export class ForgeSource {
    */
   async poll(project: string, cursor: SourceCursor, signal: AbortSignal, options: {
     readonly permissions?: boolean; readonly watches?: readonly PullWatch[]; readonly requests?: RequestReading
+    readonly mentionPulls?: readonly { readonly number: number; readonly since: number }[]
   } = {}): Promise<PollBatch> {
     if (cursor.source === 'pull-request') return this.#pulls(project, cursor, signal, options.watches ?? [], options.requests ?? null)
     if (cursor.source === 'issue') return this.#issues(project, cursor, signal, options.permissions === true, options.requests ?? null)
-    if (cursor.source === 'mention') return this.#mentions(project, cursor, signal)
+    if (cursor.source === 'mention') return this.#mentions(project, cursor, signal, options.mentionPulls ?? [])
     throw unreadable()
   }
 
@@ -677,6 +703,25 @@ export class ForgeSource {
     const raw = await this.#get(project, `repos/${repository}/issues/comments/${id}`, Date.now() + this.#timeoutMs, signal)
     if (!isMap(raw) || raw['id'] !== id) throw unreadable()
     return mentionFact(project, repository, raw, id, time(raw['created_at']))
+  }
+
+  /** Re-read a linked review decision by its validated, namespaced identity. */
+  async mentionReview(project: string, repository: string, number: number, identity: string, signal: AbortSignal): Promise<TriggerFact> {
+    if (!validRepo(repository) || !Number.isSafeInteger(number) || number < 1) throw unreadable()
+    const match = /^(review|review-comment):([1-9][0-9]{0,15})$/.exec(identity)
+    if (!match) throw unreadable()
+    const id = Number(match[2]), deadline = Date.now() + this.#timeoutMs
+    const inline = match[1] === 'review-comment'
+    const raw = await this.#get(project, inline ? `repos/${repository}/pulls/comments/${id}` : `repos/${repository}/pulls/${number}/reviews/${id}`, deadline, signal)
+    if (!isMap(raw) || raw['id'] !== id) throw unreadable()
+    if (!inline) {
+      if (raw['state'] === 'PENDING' || raw['submitted_at'] == null) throw unreadable()
+      return mentionReviewFact(project, repository, number, raw, id, time(raw['submitted_at']), 'review')
+    }
+    const review = positive(raw['pull_request_review_id'])
+    const parent = await this.#get(project, `repos/${repository}/pulls/${number}/reviews/${review}`, deadline, signal)
+    if (!isMap(parent) || parent['id'] !== review || parent['state'] === 'PENDING' || parent['submitted_at'] == null) throw unreadable()
+    return mentionReviewFact(project, repository, number, raw, id, Math.max(time(raw['created_at']), time(parent['submitted_at'])), 'inline')
   }
 
   /** A pull request's lifecycle, for a thread of work that follows it: open, merged or closed. */
@@ -1425,7 +1470,7 @@ export class ForgeSource {
    * comment is new once: its id above the highest one read. Whether it
    * addresses anyone is the gate's question, never this reader's.
    */
-  async #mentions(project: string, cursor: SourceCursor, signal: AbortSignal): Promise<PollBatch> {
+  async #mentions(project: string, cursor: SourceCursor, signal: AbortSignal, linked: readonly { readonly number: number; readonly since: number }[]): Promise<PollBatch> {
     const repository = this.#repo(cursor)
     const deadline = Date.now() + this.#timeoutMs
     const mark = Number(cursor.subjects[MENTION_MARK]?.event ?? '0')
@@ -1456,9 +1501,104 @@ export class ForgeSource {
       throw error
     }
     if (!complete) return this.#gap(cursor, burst)
+    let reviews: { facts: TriggerFact[]; coverage: MentionReviewCoverage } | null
+    try { reviews = await this.#mentionReviewFacts(project, repository, cursor, linked, deadline, signal) }
+    catch (error) {
+      // A separate review read must not prevent already-covered issue
+      // comments from being offered. Its own cursor stays put for retry.
+      if (signal.aborted || facts.length === 0) throw error
+      reviews = null
+    }
+    if (reviews === null && facts.length === 0) return this.#gap(cursor, 'More linked pull request reviews changed than one read can cover.')
+    if (reviews) facts.push(...reviews.facts)
     return this.#bounded(cursor, facts, {
       ...cursor, observedThrough: through, continuation: null, subjects: { [MENTION_MARK]: { head: null, event: String(highest) } },
+      ...(reviews ? { mentionReviews: reviews.coverage } : {}),
     }, [])
+  }
+
+  /** Read only linked PRs, with independent per-PR watermarks and bounded overlap. */
+  async #mentionReviewFacts(project: string, repository: string, cursor: SourceCursor,
+    linked: readonly { readonly number: number; readonly since: number }[], deadline: number, signal: AbortSignal,
+  ): Promise<{ facts: TriggerFact[]; coverage: MentionReviewCoverage } | null> {
+    const sinceByPull = new Map<number, number>()
+    for (const one of linked) {
+      if (!Number.isSafeInteger(one.number) || one.number < 1 || !Number.isSafeInteger(one.since) || one.since < 0) continue
+      sinceByPull.set(one.number, Math.min(sinceByPull.get(one.number) ?? one.since, one.since))
+    }
+    if (sinceByPull.size > FACT_LIMIT) return null
+    const numbers = [...sinceByPull.keys()].sort((a, b) => a - b), next = cursor.mentionReviews?.next ?? 0
+    const ordered = [...numbers.filter(n => n >= next), ...numbers.filter(n => n < next)]
+    const pulls: Record<string, { through: number; seen: Record<string, number> }> = {}
+    for (const n of numbers) {
+      const previous = cursor.mentionReviews?.pulls[String(n)]
+      if (previous) pulls[String(n)] = { through: previous.through, seen: { ...previous.seen } }
+    }
+    const facts: TriggerFact[] = [], now = this.#now()
+    let opened = 0, completed = 0, firstFailure: unknown
+    for (const number of ordered.slice(0, SETTLE_LIMIT)) {
+      const start = facts.length, openedBefore = opened
+      try {
+      const baseline = Math.max(cursor.baseline, sinceByPull.get(number)!), previous = pulls[String(number)]
+      const floor = Math.max(baseline, (previous?.through ?? baseline) - OVERLAP_MS)
+      const seen = { ...previous?.seen }
+      const pull = this.#pull(await this.#get(project, `repos/${repository}/pulls/${number}`, deadline, signal))
+      if (pull.number !== number || pull.baseRepo !== repository) throw unreadable()
+      if (pull.state !== 'open') { pulls[String(number)] = { through: now, seen: {} }; completed++; continue }
+      const reviews = await this.#all(project, `repos/${repository}/pulls/${number}/reviews`, deadline, signal)
+      if (reviews === null) throw unreadable()
+      const published = new Map<number, { at: number; author: number | null; desk: boolean }>()
+      const freshReviews: number[] = []
+      for (const raw of reviews) {
+        if (!isMap(raw)) throw unreadable()
+        const id = positive(raw['id'])
+        if (raw['submitted_at'] === null || raw['submitted_at'] === undefined || raw['state'] === 'PENDING') continue
+        const at = time(raw['submitted_at'])
+        const user = isMap(raw['user']) ? raw['user'] : null
+        const author = user && Number.isSafeInteger(user['id']) ? user['id'] as number : null
+        const fact = mentionReviewFact(project, repository, number, raw, id, at, 'review')
+        published.set(id, { at, author, desk: fact.desk === true || await this.#posted(fact) })
+        if (at <= baseline || at < floor || seen[`r${id}`] !== undefined) continue
+        seen[`r${id}`] = at; freshReviews.push(id)
+        if (++opened > ISSUE_LIMIT) return null
+        facts.push(fact)
+      }
+      const inline = await this.#all(project, `repos/${repository}/pulls/${number}/comments?sort=updated&direction=asc&since=${new Date(floor).toISOString()}`, deadline, signal)
+      if (inline === null) throw unreadable()
+      const all = [...inline]
+      // Inline comments may have been drafted before their review was submitted.
+      for (const id of freshReviews) {
+        const drafted = await this.#all(project, `repos/${repository}/pulls/${number}/reviews/${id}/comments`, deadline, signal)
+        if (drafted === null) throw unreadable()
+        all.push(...drafted)
+      }
+      for (const raw of all) {
+        if (!isMap(raw)) throw unreadable()
+        if (raw['pull_request_review_id'] === null || raw['pull_request_review_id'] === undefined) continue
+        const id = positive(raw['id']), review = positive(raw['pull_request_review_id'])
+        const parent = published.get(review)
+        if (parent === undefined) continue
+        const at = Math.max(time(raw['created_at']), parent.at)
+        if (at <= baseline || at < floor || seen[`c${id}`] !== undefined) continue
+        seen[`c${id}`] = at
+        const fact = mentionReviewFact(project, repository, number, raw, id, at, 'inline')
+        const author = isMap(raw['user']) ? raw['user']['id'] : null
+        facts.push(parent.desk && parent.author !== null && author === parent.author ? { ...fact, desk: true } : fact)
+      }
+      pulls[String(number)] = { through: now, seen: Object.fromEntries(Object.entries(seen).filter(([, at]) => at >= Math.max(baseline, now - OVERLAP_MS))) }
+      completed++
+      } catch (error) {
+        if (signal.aborted) throw error
+        // A PR is atomic: discard its partial facts and keep its old cursor,
+        // but allow other linked PRs to progress and rotate on the next poll.
+        facts.length = start; opened = openedBefore
+        firstFailure ??= error
+      }
+    }
+    if (firstFailure && completed === 0) throw firstFailure
+    const coverage = { next: ordered.length > SETTLE_LIMIT ? ordered[SETTLE_LIMIT]! : 0, pulls }
+    if (!mentionReviewCoverageOf(coverage)) return null
+    return { facts, coverage }
   }
 }
 
@@ -1482,6 +1622,21 @@ const mentionFact = (project: string, repository: string, raw: Record<string, un
     authorWrites: null, desk: typeof raw['body'] === 'string' && isDeskPost(raw['body']),
     thread, login: rawLogin === null ? null : rawLogin.replace(/\[bot\]$/, '').toLowerCase(), bot,
   }
+}
+
+const mentionReviewFact = (project: string, repository: string, number: number, raw: Record<string, unknown>, id: number, at: number, kind: 'review' | 'inline'): TriggerFact => {
+  const user = isMap(raw['user']) ? raw['user'] : null
+  const authorId = user && Number.isSafeInteger(user['id']) && (user['id'] as number) >= 1 ? user['id'] as number : null
+  const rawLogin = user && typeof user['login'] === 'string' && LOGIN.test(user['login']) ? user['login'] : null
+  const bot = user?.['type'] === 'Bot' || (rawLogin?.endsWith('[bot]') ?? false)
+  const hash = kind === 'review' ? `#pullrequestreview-${id}` : `#discussion_r${id}`
+  const url = confined(raw['html_url'], `/${repository}/pull/${number}`, hash)
+  if (!url) throw unreadable()
+  return { source: 'mention', project, repository, subject: String(number), event: eventKey([repository, number, 'mention', kind, id]), action: 'commented',
+    at, head: null, fork: false, title: '', body: prose(raw['body']), url, trigger: null,
+    author: authorId === null ? null : accountDigest(authorId), authorWrites: null,
+    desk: typeof raw['body'] === 'string' && isDeskPost(raw['body']), thread: 'pull-request',
+    login: rawLogin === null ? null : rawLogin.replace(/\[bot\]$/, '').toLowerCase(), bot }
 }
 
 /** One issue or pull request as a mention's gate reads it. */
