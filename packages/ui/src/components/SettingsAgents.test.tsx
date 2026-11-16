@@ -744,10 +744,14 @@ it("an agent nobody has asked yet is not called signed out or accountless", asyn
   expect(document.body.textContent).not.toContain('No account needed')
 })
 
-it('offers declared unchecked sign-in methods without claiming a conversation is required', async () => {
+it.each([
+  ['browser', [{ id: 'login', label: 'Log in', flow: 'browser' }]],
+  ['API key', [{ id: 'key', label: 'API key', flow: 'apiKey' }]],
+  ['mixed external and browser', [{ id: 'external', label: 'Outside', flow: 'external' }, { id: 'login', label: 'Log in', flow: 'browser' }]],
+])('offers unchecked %s sign-in without claiming a conversation is required', async (_label, methods) => {
   const delta = runtime({ id: 'delta', name: 'Delta', capabilities: NO_CAPABILITIES, presentation: { name: 'Delta' } })
   const onSignIn = vi.fn()
-  await mountList({ runtimes: [...ROSTER.runtimes, delta], accountsByRuntime: { ...ROSTER.accountsByRuntime, delta: { accounts: [], signInMethods: [{ id: 'login', label: 'Log in', flow: 'browser' }], unchecked: true } } }, onSignIn)
+  await mountList({ runtimes: [...ROSTER.runtimes, delta], accountsByRuntime: { ...ROSTER.accountsByRuntime, delta: { accounts: [], signInMethods: methods, unchecked: true } } }, onSignIn)
   await act(async () => line('Delta').click())
   const action = button('Sign in')
   expect(action).toBeTruthy()
