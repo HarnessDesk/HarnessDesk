@@ -1340,7 +1340,9 @@ test('a revoked resume waiting for an idle stop cannot restart the runtime', asy
     host.registry.detachAll(params.runtime, params.sessionId)
     await refused
     runtime.continueStop()
-    await pause(100)
+    await until(() => runtime.health().state === 'idle')
+    await new Promise(resolve => setImmediate(resolve))
+    await new Promise(resolve => setImmediate(resolve))
     assert.equal(runtime.starts, startCount, 'revoked work cannot restart after the pending stop')
   } finally { releasePrepare(); runtime.continueStop(); await refused }
 })
