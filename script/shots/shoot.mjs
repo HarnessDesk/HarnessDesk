@@ -43,6 +43,7 @@ import { TILDIFY, USER, refuseUnpublishable } from './audit.mjs'
 import { CAST, CONVERSATIONS, REPOS, rigRuntimeId } from './cast.mjs'
 import { HOME, NATIVE_CODEX, WORK, SHOT_ENV, requireSeeded } from './config.mjs'
 import { runScene } from './scene.mjs'
+import { conversationState } from './conversation-state.mjs'
 import { selectScenes } from './selection.mjs'
 import { startStaticServer } from './static-server.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
@@ -1175,28 +1176,26 @@ rules:
     } },
 
     /** One conversation, mid-work: reasoning, a plan and tool calls. */
-    conversation: { leaveOverlay: true, expect: 'Worked for', run: async () => {
-      // Native Codex remains available for the terminal smoke. Its adapter
-      // fixture plays every turn in /w, so the camera conversation uses ACP
-      // and the real staged repository instead.
-      const runtime = NATIVE_CODEX ? rigRuntimeId('claude-code') : 'codex'
+    conversation: { leaveOverlay: true, expect: 'Worked', run: async () => {
+      // The scripted ACP actor supplies this scene's checkout turn in the
+      // staged repository, independent of the native Codex fixture setting.
+      const runtime = rigRuntimeId('claude-code')
       const key = await seat(cdp, { work: REPO, runtime, picks: {} })
       await cdp.eval(`${STORE}.send([{ type: 'text', text: 'Retry the checkout call on a 502' }], ${q(key)})`, 60_000)
-      // Long enough for the scripted turn to reach its summary.
-      await sleep(6500)
-      /* Unfold the steps. The app folds a finished turn down to one line, which
-         is the right default for somebody scrolling a day's work and the wrong
-         one for a photograph — folded, this pane is two paragraphs and a great
-         deal of white. Open, it shows the reasoning and the tool calls, which
-         is the part that is worth looking at. The fold is a toggle, and a
-         turn caught while it is still landing is already open, so it is
-         opened only when it reads closed — a blind click closed it again. */
-      const folded = await cdp.json(`(() => {
-        const head = [...document.querySelectorAll('button[aria-expanded]')].find((e) => (e.textContent ?? '').trim().startsWith('Worked for'))
-        return head ? head.getAttribute('aria-expanded') === 'false' : null
-      })()`)
-      if (folded === null) throw new Error('no "Worked for" fold on the turn')
-      if (folded) await click('Worked for')
+      // Observe the current turn-work control and the scripted answer, rather
+      // than assuming its elapsed-time label or that a fixed sleep completed it.
+      const state = () => cdp.json(`(${conversationState.toString()})(document)`)
+      try {
+        const ready = await waitForSnapshot(state, one => one.finished > 0 && one.answer)
+        if (!ready.expanded && !(await click('Worked'))) throw new Error('finished work could not be opened')
+        await waitForSnapshot(state, one => one.finished > 0 && one.answer && one.expanded)
+      } catch (error) {
+        // The ordinary screenshot path first tildifies and passes the same
+        // privacy audit. Never write a diagnostic image if that audit refuses.
+        try { await shoot('conversation-unready') }
+        catch { process.stderr.write('conversation diagnostic frame unavailable or privacy audit refused\n') }
+        throw error
+      }
     } },
 
     /** Session-backed inspectors, each sharing the same scripted turn. */
