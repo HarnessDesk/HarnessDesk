@@ -20,3 +20,12 @@ test('app account identity and controls are confined to the local renderer door'
     assert.equal(Object.hasOwn(CLIENT_METHODS, method), false, method)
   }
 })
+
+test('profile edits accept only a nickname or explicit reset', () => {
+  assert.doesNotThrow(() => request('account/updateProfile', { nickname: ' Jane ' }))
+  assert.doesNotThrow(() => request('account/updateProfile', { nickname: null }))
+  for (const params of [{}, { nickname: '' }, { nickname: ' ' }, { nickname: 'x'.repeat(81) }, { nickname: 2 }, { nickname: 'Jane', email: 'dev@example.com' }, { nickname: 'Jane', id: 'someone' }]) {
+    assert.throws(() => request('account/updateProfile', params), ValidationError)
+  }
+  assert.equal(clientTierFor('account/updateProfile'), null)
+})

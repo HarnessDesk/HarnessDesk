@@ -195,8 +195,11 @@ test('an OS-released writer lease permits recovery after process death', { timeo
   const { once } = await import('node:events')
   const home = await scratch(t)
   const module = new URL('../src/lead/journal.js', import.meta.url).href
-  const program = `import(${JSON.stringify(module)}).then(async m => { const j = await m.openLeadFileJournal(${JSON.stringify(home)}, 'thread-1'); console.log('ready'); setInterval(() => {}, 1000) })`
-  const child = spawn(process.execPath, ['--input-type=module', '-e', program], { stdio: ['ignore', 'pipe', 'pipe'] })
+  // The child must own the journal for its whole lifetime. An unused local can
+  // be collected after this callback returns, releasing SQLite's lease early.
+  // Force collection before signalling readiness to keep that failure causal.
+  const program = `import(${JSON.stringify(module)}).then(async m => { globalThis.writer = await m.openLeadFileJournal(${JSON.stringify(home)}, 'thread-1'); setImmediate(() => { globalThis.gc(); console.log('ready') }); setInterval(() => {}, 1000) })`
+  const child = spawn(process.execPath, ['--expose-gc', '--input-type=module', '-e', program], { stdio: ['ignore', 'pipe', 'pipe'] })
   t.after(() => { child.kill('SIGKILL') })
   const exited = once(child, 'exit')
   const ready = new Promise<void>((resolve, reject) => {

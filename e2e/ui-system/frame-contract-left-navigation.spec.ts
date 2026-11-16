@@ -151,7 +151,7 @@ for (const theme of WALL_THEMES) test(`original edges for navigation, work, foot
   }
   const measure = (row: typeof account) => row.evaluate(node => {
     const origin = node.closest('[data-left-column]')!.getBoundingClientRect().x
-    const icon = node.querySelector('[data-slot="sidebar-menu-icon"], [data-shape="face"]')!
+    const icon = node.querySelector('[data-slot="sidebar-menu-icon"], [data-shape="face"], [data-shape="square"]')!
     const label = node.querySelector('[data-slot="sidebar-menu-label-content"], [class*="accountName"]')!
     return { icon: icon.getBoundingClientRect().x - origin, label: label.getBoundingClientRect().x - origin }
   })
@@ -167,7 +167,7 @@ for (const theme of WALL_THEMES) test(`original edges for navigation, work, foot
     expect(Math.abs(row.label - measurements.navigation!.label)).toBeLessThanOrEqual(1)
   }
 
-  // The account retains its original bordered 24px face and 6px label gap.
+  // The person/app tile retains the original 24px size and 6px label gap.
   expect(measurements.account!.icon).toBe(17)
   expect(measurements.account!.label).toBe(47)
   await column.locator('[data-left-seat]').getByRole('button', { name: 'Settings', exact: true }).click()

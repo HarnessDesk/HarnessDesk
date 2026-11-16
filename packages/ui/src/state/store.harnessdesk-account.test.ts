@@ -100,3 +100,25 @@ it('does not read cloud account state on reconnect before that state has been re
   handlers.onStatus('reconnecting'); handlers.onStatus('open')
   expect(load).not.toHaveBeenCalled()
 })
+
+it('saves a nickname through the host and keeps drafts/errors outside the committed identity', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const signedIn = { status: 'signedIn', account: { id: 'jane', nickname: null, name: 'Jane Doe', email: 'jane@example.com', pictureUrl: null }, desk: { name: 'Demo desk', reachable: false }, phones: [] }
+  const updated = { ...signedIn, account: { ...signedIn.account, nickname: 'Work Jane' } }
+  const request = vi.spyOn(store.transport, 'request').mockResolvedValueOnce(signedIn as never).mockResolvedValueOnce(updated as never).mockRejectedValueOnce(new Error('offline'))
+  await store.loadHarnessDeskAccount(); await store.updateHarnessDeskProfile('Work Jane')
+  expect(request).toHaveBeenLastCalledWith('account/updateProfile', { nickname: 'Work Jane' })
+  await expect(store.updateHarnessDeskProfile(null)).rejects.toThrow('offline')
+  expect(store.getSnapshot().harnessDeskAccount).toEqual(updated)
+})
+it('rejects a late nickname response after a pushed account switch', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  let resolve!: (value: unknown) => void
+  vi.spyOn(store.transport, 'request').mockImplementation(() => new Promise(done => { resolve = done }) as never)
+  const saving = store.updateHarnessDeskProfile('Old draft')
+  const status = { status: 'signedIn', account: { id: 'other', name: 'Demo Person', email: null, pictureUrl: null }, desk: { name: 'Demo desk', reachable: false }, phones: [] }
+  const handlers = (store.transport as unknown as { handlers: { onNotification: (value: unknown) => void } }).handlers
+  handlers.onNotification({ method: 'account/changed', params: { status } })
+  resolve({ ...status, account: { ...status.account, id: 'old', nickname: 'Old draft' } }); await saving
+  expect(store.getSnapshot().harnessDeskAccount).toEqual(status)
+})

@@ -23,6 +23,7 @@ import { createIntakeNotifier } from './intake-notifications.mjs'
 import { createDockIconSetter, defaultIconPath } from './dock-icon.mjs'
 import { menuBarItemDecision, readMenuBarPreference, writeMenuBarPreference } from './menu-bar-policy.mjs'
 import { trayMenuTemplate } from './tray-menu.mjs'
+import { systemDeskName } from './desk-name.mjs'
 import { leadEnabled } from './lead-feature.mjs'
 import { leadRuntimes } from './lead-runtime.mjs'
 
@@ -731,6 +732,7 @@ const start = async () => {
     // The host pins the service origin and sign-in path before calling this.
     // Cloud sign-in always leaves the embedded pane for the system browser.
     accountOpenExternal: url => shell.openExternal(url),
+    deskName: systemDeskName(),
     // At-rest protection for stored credentials comes from the OS —
     // safeStorage keys live in the macOS Keychain. This is the only file in
     // the repository allowed to touch a keystore API; CI enforces that.

@@ -18,7 +18,7 @@ import { FrontDoor } from './FrontDoor'
 import { SessionListControls, SessionTree } from './SessionTree'
 import {
   AccountMark,
-  Face,
+  PersonFace, AppIcon,
   Banner,
   MenuFacts,
   Submenu,
@@ -46,10 +46,8 @@ import { anyBroken } from '../lib/agents'
 import { FlowIcon } from './Icons'
 import { Explorer, effectiveWindowMode } from '../editor'
 import { brandOf } from '../lib/identity'
-import { profileName } from '../lib/profile'
 import { READINESS_LABEL, readinessOf, type Readiness } from '../lib/readiness'
 import { HarnessMark, RuntimeMark } from './BrandIcons'
-import { ProfileFace } from './ProfileFace'
 import { HarnessDeskSignInPending, HarnessDeskSignOut, useHarnessDeskAccountAction } from './HarnessDeskAccount'
 import { Clipped, EmptyState } from '../design'
 import type { Section } from './Settings'
@@ -485,7 +483,7 @@ export const AccountFooter = ({
   const agentName = brandOf(runtime.presentation.name)
   const nextAs = here?.account ? `${agentName} · ${here.name}` : agentName
   // You: the profile's name, which is HarnessDesk until you choose one.
-  const yourName = deskSignedIn ? shownDeskName(deskAccount.account, hide) || 'HarnessDesk' : profileName(snapshot.profile)
+  const yourName = deskSignedIn ? shownDeskName(deskAccount.account, hide) || 'HarnessDesk' : deskAccount?.desk.name || 'HarnessDesk'
   // The chairs you can sit in. An agent that is waiting for a sign-in is not
   // one — choosing it would start nothing — so it waits behind "Add an
   // account…", whose chooser is where signing in happens. The default stays
@@ -538,7 +536,7 @@ export const AccountFooter = ({
 
   const accountTrigger = (
     <>
-      {deskSignedIn ? <Face pictureDataUrl={deskAccount.account?.pictureDataUrl} size={24} /> : <ProfileFace size={24} />}
+      {deskSignedIn ? <PersonFace pictureDataUrl={deskAccount.account?.pictureDataUrl} size={24} /> : <AppIcon avatar={snapshot.appIcon} size={24} />}
       <Text role="subject" className={styles.accountName}>
         <Clipped truncate className={styles.accountLabel}>{yourName}</Clipped>
       </Text>
@@ -572,7 +570,7 @@ export const AccountFooter = ({
               accountRef.current?.querySelector<HTMLButtonElement>('[data-slot="popover-trigger"]')?.focus()
             }}
           >
-          {deskSignedIn ? <Submenu icon={<Face pictureDataUrl={deskAccount.account?.pictureDataUrl} size={16} />} label={yourName} hint={hide ? undefined : deskAccount.account?.email ?? undefined} icons="all">
+          {deskSignedIn ? <Submenu icon={<PersonFace pictureDataUrl={deskAccount.account?.pictureDataUrl} size={16} />} label={yourName} hint={hide ? undefined : deskAccount.account?.email ?? undefined} icons="all">
             <MenuLabel>HarnessDesk account</MenuLabel>
             <MenuItem icon={<UserIcon size={16} />} label="Linked phones" value={String(deskAccount.phones.length)} onSelect={() => onOpenSettings('profile')} />
             <MenuItem icon={<SettingsIcon size={16} />} label="Account settings" onSelect={() => onOpenSettings('profile')} />

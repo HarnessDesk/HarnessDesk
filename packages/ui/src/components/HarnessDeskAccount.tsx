@@ -1,6 +1,6 @@
 import { useState, useSyncExternalStore } from 'react'
 import type { PhoneRelayState } from '@harnessdesk/protocol'
-import { ActionError, Banner, BannerAction, Button, Chip, CodeText, ConfirmDialog, Dialog, Face, Input, Note, NoticeHost, Row, Rows, RowValue, Section, SectionHead, Spinner, Switch } from '../design'
+import { ActionError, Banner, BannerAction, Button, Chip, CodeText, ConfirmDialog, Dialog, PersonFace, Input, Note, NoticeHost, Row, Rows, RowValue, Section, SectionHead, Spinner, Switch } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { shownDeskName } from '../lib/accounts'
 import { formatAge } from '../lib/usage'
@@ -93,35 +93,68 @@ export const HarnessDeskAccountSection = () => {
   const { busy, error, run } = useHarnessDeskAccountAction()
   const [signOut, setSignOut] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [renaming, setRenaming] = useState(false)
-  const [name, setName] = useState('')
+  const [editing, setEditing] = useState<string | null>(null)
+  const owner = status?.status === 'signedIn' ? status.account?.id ?? status.account?.email ?? status.account?.name ?? 'signed-in-account' : null
+  if (editing !== null && editing !== owner) setEditing(null)
   const signedIn = status?.status === 'signedIn'
   const account = status?.account
   return <>
-    <Rows><Row kind="record" face={<Face pictureDataUrl={account?.pictureDataUrl} />} title={signedIn ? shownDeskName(account, hide) || 'HarnessDesk account' : 'Sign in to HarnessDesk'}
+    <Rows><Row kind="record" face={<PersonFace pictureDataUrl={signedIn ? account?.pictureDataUrl : null} />} title={signedIn ? shownDeskName(account, hide) || 'HarnessDesk account' : 'Sign in to HarnessDesk'}
       desc={signedIn ? (hide ? undefined : account?.email) : 'Open this desk from your phone.'} control={signedIn
         ? <Button variant="outline" onClick={() => setSignOut(true)}>Sign out…</Button>
         : <Button disabled={busy || status?.status === 'pending'} onClick={() => void run(() => store.signInToHarnessDesk())}>Sign in…</Button>} /></Rows>
     {sidebarCollapsed && <HarnessDeskSignInPending />}
     {(error || (status?.status !== 'pending' && status?.error)) && <ActionError>{error || status?.error}</ActionError>}
-    {signedIn && <>
-      <SectionHead level="label" name="This desk" />
-      <Rows>
-        <Row title="Name" desc="How your phone lists this desk" control={<><RowValue>{status.desk.name}</RowValue><Button variant="outline" disabled={busy} onClick={() => { setName(status.desk.name); setRenaming(true) }}>Rename</Button></>} />
-      </Rows>
-    </>}
+    {signedIn && <Rows><Row title="Display name" control={<><RowValue>{shownDeskName(account, hide)}</RowValue><Button variant="outline" onClick={() => setEditing(owner)}>Edit</Button></>} /></Rows>}
     <Section title="Mobile"><Rows><Row mark={<MobileIcon size={16} />} title="Connect your phone" control={<Button variant="outline"
       onClick={() => store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'phone', focus: null } })}>Mobile settings</Button>} /></Rows></Section>
     {signedIn && <><SectionHead level="label" name="HarnessDesk account" />
       <Rows><Row title="Delete account" control={<Button variant="destructive" disabled={busy} onClick={() => setDeleting(true)}>Delete account…</Button>} /></Rows></>}
     {signOut && <HarnessDeskSignOut onClose={() => setSignOut(false)} />}
     {deleting && <HarnessDeskDeleteAccount onClose={() => setDeleting(false)} />}
-    {renaming && <Dialog title="Rename this desk" onClose={() => setRenaming(false)} footer={<>
-      <Button disabled={busy || !name.trim()} onClick={() => void run(() => store.renameHarnessDesk(name.trim())).then(done => { if (done) setRenaming(false) })}>Rename</Button>
-      <Button variant="secondary" disabled={busy} onClick={() => setRenaming(false)}>Cancel</Button>
-    </>}><Input aria-label="Desk name" autoFocus value={name} maxLength={80} onChange={event => setName(event.target.value)} />{error && <ActionError>{error}</ActionError>}</Dialog>}
+    {editing !== null && editing === owner && signedIn && <AccountNameEditor key={account?.id ?? account?.email} onClose={() => setEditing(current => current === owner ? null : current)} />}
+
 
   </>
+}
+
+/** Explicit account edit: a rejected save keeps the draft and the committed identity. */
+const AccountNameEditor = ({ onClose }: { readonly onClose: () => void }) => {
+  const store = useStore()
+  const { harnessDeskAccount: status } = useSnapshot()
+  const [draft, setDraft] = useState(status?.account?.nickname ?? '')
+  const { busy, error, run } = useHarnessDeskAccountAction()
+  const save = () => void run(() => store.updateHarnessDeskProfile(draft.trim() || null)).then(done => { if (done) onClose() })
+  return <Dialog title="Edit display name" onClose={() => { if (!busy) onClose() }} footer={<>
+    <Button disabled={busy} onClick={save}>Save</Button>
+    <Button variant="secondary" disabled={busy} onClick={onClose}>Cancel</Button>
+  </>}>
+    <Input aria-label="Display name" maxLength={80} value={draft} placeholder={status?.account?.name ?? 'Display name'} onChange={event => setDraft(event.target.value)}
+      onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) { event.preventDefault(); save() } }} />
+    <Note>Leave empty to use your original account name.</Note>
+    {error && <ActionError>{error}</ActionError>}
+  </Dialog>
+}
+
+/** The local desk can be renamed before an account is linked. */
+export const HarnessDeskNameSection = () => {
+  const store = useStore()
+  const { harnessDeskAccount: status } = useSnapshot()
+  const [renaming, setRenaming] = useState(false)
+  return <Section title="This desk"><Rows><Row title="Name" desc="How your phone lists this desk" control={<><RowValue>{status?.desk.name ?? 'HarnessDesk'}</RowValue><Button variant="outline" onClick={() => setRenaming(true)}>Rename</Button></>} /></Rows>
+    {renaming && <DeskNameEditor name={status?.desk.name ?? 'HarnessDesk'} save={name => store.renameHarnessDesk(name)} onClose={() => setRenaming(false)} />}
+  </Section>
+}
+
+const DeskNameEditor = ({ name, save, onClose }: { readonly name: string; readonly save: (name: string) => Promise<void>; readonly onClose: () => void }) => {
+  const [draft, setDraft] = useState(name)
+  const { busy, error, run } = useHarnessDeskAccountAction()
+  const commit = () => { if (draft.trim()) void run(() => save(draft.trim())).then(done => { if (done) onClose() }) }
+  return <Dialog title="Rename this desk" onClose={() => { if (!busy) onClose() }} footer={<>
+    <Button disabled={busy || !draft.trim()} onClick={commit}>Rename</Button>
+    <Button variant="secondary" disabled={busy} onClick={onClose}>Cancel</Button>
+  </>}><Input aria-label="Desk name" value={draft} maxLength={80} onChange={event => setDraft(event.target.value)}
+    onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) { event.preventDefault(); commit() } }} />{error && <ActionError>{error}</ActionError>}</Dialog>
 }
 
 /** Mobile owns nearby pairing and account relay access through the existing host service. */

@@ -1,413 +1,56 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-
-import { applyProfile, type Profile, type ProfilePatch } from '../lib/profile'
+import { beforeEach, afterEach, expect, it, vi } from 'vitest'
 import { StoreProvider } from '../state/context'
-import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { GeneralSection, ProfileSection } from './SettingsYou'
-
-/**
- * Settings › Profile: your name and your face.
- *
- * The page is its own preview, so what is pinned is the loop between the
- * field, the head and the store: the head follows the keys, the store only
- * hears a name once the field is let go (Enter, a click away, the page
- * closing), Escape takes an edit back, the picker is one radio group walked
- * with the arrow keys, and Reset is there exactly while there is something
- * to reset.
- */
-
+import { emptySnapshot, type AppStore } from '../state/store'
+import { AppearanceSection } from './SettingsYou'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
-
-let container: HTMLDivElement
-let root: Root
-
-beforeEach(() => {
-  container = document.createElement('div')
-  document.body.appendChild(container)
-  root = createRoot(container)
-})
-
-afterEach(() => {
-  act(() => root.unmount())
-  container.remove()
-})
-
-/** A store that holds a profile and says when it changes — the page reads its own writes back. */
-const mount = (initial: Profile = {}) => {
-  let snapshot = { ...emptySnapshot(), status: 'open', profile: initial } as AppSnapshot
-  const listeners = new Set<() => void>()
-  const setProfile = vi.fn((patch: ProfilePatch) => {
-    snapshot = { ...snapshot, profile: applyProfile(snapshot.profile, patch) }
-    for (const listener of listeners) listener()
-  })
-  const store = {
-    subscribe: (listener: () => void) => {
-      listeners.add(listener)
-      return () => {
-        listeners.delete(listener)
-      }
-    },
-    getSnapshot: () => snapshot,
-    setProfile,
-  } as unknown as AppStore
-  act(() => {
-    root.render(
-      <StoreProvider store={store}>
-        <ProfileSection />
-      </StoreProvider>,
-    )
-  })
-  return { setProfile, profile: () => snapshot.profile }
+let container: HTMLDivElement, root: Root
+beforeEach(() => { container = document.createElement('div'); document.body.append(container); root = createRoot(container) })
+afterEach(() => { act(() => root.unmount()); container.remove() })
+const button = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent === name)!
+const mount = (appIcon: unknown = null) => {
+ let snapshot = { ...emptySnapshot(), appIcon }
+ const listeners = new Set<() => void>()
+ const setAppIcon = vi.fn((appIcon: unknown) => { snapshot = { ...snapshot, appIcon }; listeners.forEach(one => one()) })
+ const store = { getSnapshot: () => snapshot, subscribe: (one: () => void) => { listeners.add(one); return () => listeners.delete(one) }, setAppIcon } as unknown as AppStore
+ act(() => root.render(<StoreProvider store={store}><AppearanceSection /></StoreProvider>))
+ act(() => button('Change…').click())
+ return { setAppIcon, value: () => snapshot.appIcon }
 }
-
-const field = (): HTMLInputElement => {
-  const found = container.querySelector<HTMLInputElement>('input[aria-label="Your name"]')
-  if (!found) throw new Error('no name field')
-  return found
+const radios = () => [...document.querySelectorAll<HTMLButtonElement>('[data-slot="picture-choices"] [role="radio"]')]
+const selected = () => radios().find(one => one.getAttribute('aria-checked') === 'true')!
+const press = (node: HTMLElement, key: string) => {
+ const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+ act(() => node.dispatchEvent(event)); return event.defaultPrevented
 }
-
-/**
- * Types into the field the way a person does: focused, one value at a time,
- * and the caret where the edit left it — the end, unless said. A browser puts
- * it after what went in; setting a value in jsdom puts it at the end, which
- * for an edit in the middle would be a caret no browser reports.
- */
-const type = (value: string, caret = value.length): void => {
-  const input = field()
-  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
-  act(() => {
-    input.focus()
-    setValue?.call(input, value)
-    input.setSelectionRange(caret, caret)
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-  })
-}
-
-const press = (element: Element, key: string): void => {
-  act(() => {
-    element.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
-  })
-}
-
-/** Presses a key as a browser does, cancelable, and says whether the page kept it from its default. */
-const pressed = (element: Element, key: string): boolean => {
-  const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
-  act(() => {
-    element.dispatchEvent(event)
-  })
-  return event.defaultPrevented
-}
-
-const click = (element: Element): void => {
-  act(() => {
-    element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  })
-}
-
-const heading = (): string => container.querySelector('[data-slot="row-title"]')?.textContent ?? ''
-const headFace = (): HTMLImageElement | null => container.querySelector('[data-slot="row-face"] img')
-const button = (name: string): HTMLButtonElement | null =>
-  [...container.querySelectorAll('button')].find((element) => element.textContent?.trim() === name) ?? null
-const tiles = (): HTMLButtonElement[] => [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
-const worn = (): HTMLButtonElement => {
-  const found = container.querySelector<HTMLButtonElement>('[role="radio"][aria-checked="true"]')
-  if (!found) throw new Error('no face is checked')
-  return found
-}
-
-it('is HarnessDesk and the house mark until you choose', () => {
-  mount()
-  expect(heading()).toBe('HarnessDesk')
-  expect(field().value).toBe('')
-  expect(field().placeholder).toBe('HarnessDesk')
-  expect(headFace()).toBeNull()
-  expect(container.querySelector('[data-slot="row-face"] .brand-harnessdesk')).not.toBeNull()
-  expect(worn().getAttribute('aria-label')).toBe('Default')
-  expect(button('Reset to default')).toBeNull()
+it('keeps one keyboard stop and chooses artwork with arrows in the existing eight-column grid', () => {
+ const { value } = mount()
+ expect(radios().filter(one => one.tabIndex === 0)).toEqual([selected()])
+ press(selected(), 'ArrowRight'); expect(value()).toBe('mark-paper')
+ press(selected(), 'ArrowDown'); expect(selected()).toBe(radios()[9])
+ expect(document.activeElement).toBe(selected())
 })
-
-it('previews a name as it is typed, and keeps it once the field is let go', () => {
-  const { setProfile, profile } = mount()
-  type('  Jane   Doe ')
-  // The head follows the keys; the store has heard nothing yet.
-  expect(heading()).toBe('Jane Doe')
-  expect(setProfile).not.toHaveBeenCalled()
-  expect(button('Reset to default')).not.toBeNull()
-
-  act(() => field().blur())
-  expect(profile()).toEqual({ name: 'Jane Doe' })
-  // The field shows what was kept, tidied.
-  expect(field().value).toBe('Jane Doe')
+it.each(['future-icon', { kind: 'image', src: 'a.png' }])('retains unknown app artwork without checking Default: %s', kept => {
+ const { setAppIcon, value } = mount(kept)
+ expect(radios().filter(one => one.getAttribute('aria-checked') === 'true')).toHaveLength(0)
+ expect(radios().filter(one => one.tabIndex === 0)).toEqual([radios()[0]])
+ const group = document.querySelector('[data-slot="picture-choices"]')!
+ expect(document.getElementById(group.getAttribute('aria-describedby')!)?.textContent).toContain('cannot draw')
+ expect(press(radios()[0]!, 'ArrowLeft')).toBe(true); expect(press(radios()[0]!, 'ArrowUp')).toBe(true)
+ expect(press(radios()[0]!, 'Home')).toBe(false); expect(press(radios()[0]!, 'End')).toBe(false)
+ expect(setAppIcon).not.toHaveBeenCalled(); expect(value()).toEqual(kept)
+ act(() => radios().find(one => one.getAttribute('aria-label') === 'Wizard')!.click())
+ expect(value()).toBe('wizard'); expect(group.hasAttribute('aria-describedby')).toBe(false)
 })
-
-it('keeps a name on Enter, and takes an edit back on Escape', () => {
-  const { profile } = mount({ name: 'Jane' })
-  type('JD')
-  press(field(), 'Enter')
-  expect(profile()).toEqual({ name: 'JD' })
-
-  type('Somebody else')
-  press(field(), 'Escape')
-  expect(profile()).toEqual({ name: 'JD' })
-  expect(field().value).toBe('JD')
-  expect(heading()).toBe('JD')
+it('does not choose with Right/Down at the last tile or Left/Up at the first', () => {
+ const { setAppIcon } = mount('beach')
+ expect(press(selected(), 'ArrowRight')).toBe(true); expect(press(selected(), 'ArrowDown')).toBe(true)
+ expect(setAppIcon).not.toHaveBeenCalled()
 })
-
-it('goes back to HarnessDesk when the field is emptied', () => {
-  const { profile } = mount({ name: 'Jane' })
-  type('')
-  expect(heading()).toBe('HarnessDesk')
-  act(() => field().blur())
-  expect(profile()).toEqual({})
-})
-
-it('keeps what was typed when the page closes with the field still held', () => {
-  const { profile } = mount()
-  type('Jane')
-  act(() => root.unmount())
-  expect(profile()).toEqual({ name: 'Jane' })
-  // afterEach unmounts again; give it a root that is still there.
-  root = createRoot(container)
-})
-
-it('wears the face you pick, and walks the faces with the arrow keys', () => {
-  const { profile } = mount()
-  expect(tiles()).toHaveLength(30)
-  // One stop on the tab order, not thirty: the face you wear.
-  expect(tiles().filter((tile) => tile.tabIndex === 0).map((tile) => tile.getAttribute('aria-label'))).toEqual([
-    'Default',
-  ])
-
-  const wizard = tiles().find((tile) => tile.getAttribute('aria-label') === 'Wizard')
-  if (!wizard) throw new Error('no Wizard')
-  click(wizard)
-  expect(profile()).toEqual({ avatar: 'wizard' })
-  expect(headFace()?.getAttribute('src')).toMatch(/\/wizard\.png$/)
-  expect(worn().tabIndex).toBe(0)
-
-  press(worn(), 'ArrowRight')
-  expect(profile().avatar).toBe('samurai')
-  expect(document.activeElement).toBe(worn())
-  // Down is a row of eight; past the last row it stays put.
-  press(worn(), 'ArrowDown')
-  expect(profile().avatar).toBe('alien')
-  press(worn(), 'ArrowDown')
-  expect(profile().avatar).toBe('alien')
-  press(worn(), 'ArrowUp')
-  expect(profile().avatar).toBe('samurai')
-  // Home and End choose nothing: in a group that chooses as it moves, a stray
-  // Home would be a silent reset.
-  press(worn(), 'Home')
-  press(worn(), 'End')
-  expect(profile().avatar).toBe('samurai')
-})
-
-it('offers a reset only while there is something to reset, and it resets both', () => {
-  const { profile } = mount({ name: 'Jane', avatar: 'dj' })
-  expect(heading()).toBe('Jane')
-  const reset = button('Reset to default')
-  if (!reset) throw new Error('no reset')
-  click(reset)
-  expect(profile()).toEqual({})
-  expect(heading()).toBe('HarnessDesk')
-  expect(field().value).toBe('')
-  expect(worn().getAttribute('aria-label')).toBe('Default')
-  expect(button('Reset to default')).toBeNull()
-})
-
-it('takes back a name nobody committed when Reset is pressed', () => {
-  const { profile } = mount({ avatar: 'dj' })
-  // Typed and still held — no blur has committed it.
-  type('Jane')
-  const reset = button('Reset to default')
-  if (!reset) throw new Error('no reset')
-  click(reset)
-  expect(profile()).toEqual({})
-  expect(field().value).toBe('')
-  expect(heading()).toBe('HarnessDesk')
-  // Leaving afterwards writes nothing back.
-  act(() => root.unmount())
-  root = createRoot(container)
-  expect(profile()).toEqual({})
-})
-
-it('holds forty characters, counted the way a person counts them', () => {
-  const { profile } = mount()
-  // No `maxLength`: it counts UTF-16 units, and would stop an emoji name at twenty.
-  expect(field().maxLength).toBe(-1)
-  type('🐳'.repeat(45))
-  expect(Array.from(field().value)).toHaveLength(40)
-  act(() => field().blur())
-  expect(profile()).toEqual({ name: '🐳'.repeat(40) })
-})
-
-it('previews a forty-character wide name as a clipped record without changing the full value', () => {
-  const { profile } = mount()
-  const name = 'W'.repeat(40)
-  type(name)
-  const row = container.querySelector<HTMLElement>('[data-slot="row"]')!
-  expect(row.getAttribute('data-kind')).toBe('record')
-  const label = row.querySelector<HTMLElement>('[data-slot="row-title"] > span')!
-  expect(label.textContent).toBe(name)
-  Object.defineProperties(label, { scrollWidth: { value: 480 }, clientWidth: { value: 200 } })
-  act(() => label.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
-  expect(label.title).toBe(name)
-  expect(field().value).toBe(name)
-  expect(button('Reset to default')).not.toBeNull()
-  act(() => field().blur())
-  expect(profile().name).toBe(name)
-})
-
-it('writes a held name when the window goes away', () => {
-  const { profile } = mount()
-  type('Jane')
-  act(() => {
-    window.dispatchEvent(new Event('pagehide'))
-  })
-  expect(profile()).toEqual({ name: 'Jane' })
-})
-
-it('writes a held name when the window goes with beforeunload alone', () => {
-  // A quit and a navigation do not fire the same event on every platform, so
-  // the page listens for both.
-  const { profile } = mount()
-  type('Jane')
-  act(() => {
-    window.dispatchEvent(new Event('beforeunload'))
-  })
-  expect(profile()).toEqual({ name: 'Jane' })
-})
-
-it('checks no face when it holds one it cannot draw, says so, and keeps it until you choose', () => {
-  for (const kept of ['pirate', { kind: 'image', src: 'a.png' }]) {
-    const { profile } = mount({ name: 'Jane', avatar: kept })
-    expect(container.querySelector('[role="radio"][aria-checked="true"]')).toBeNull()
-    // Still one stop on the tab order, on the first face.
-    expect(tiles().filter((tile) => tile.tabIndex === 0).map((tile) => tile.getAttribute('aria-label'))).toEqual([
-      'Default',
-    ])
-    expect(container.textContent).toContain('cannot draw')
-    // The note is the group's description, so a screen reader landing on an
-    // unchecked group hears why.
-    const group = container.querySelector('[role="radiogroup"]')
-    expect(document.getElementById(group?.getAttribute('aria-describedby') ?? '')?.textContent).toContain('cannot draw')
-    expect(button('Reset to default')).not.toBeNull()
-    const wizard = tiles().find((tile) => tile.getAttribute('aria-label') === 'Wizard')
-    if (!wizard) throw new Error('no Wizard')
-    click(wizard)
-    expect(profile()).toEqual({ name: 'Jane', avatar: 'wizard' })
-    expect(container.textContent).not.toContain('cannot draw')
-    expect(container.querySelector('[role="radiogroup"]')?.hasAttribute('aria-describedby')).toBe(false)
-    act(() => root.unmount())
-    root = createRoot(container)
-  }
-})
-
-it('refuses an insert into a full field rather than dropping its last character', () => {
-  const { profile } = mount()
-  const full = '🐳'.repeat(40)
-  type(full)
-  const whales = Array.from(full)
-  // X typed after the twentieth whale: the caret sits just after it.
-  type([...whales.slice(0, 20), 'X', ...whales.slice(20)].join(''), whales.slice(0, 20).join('').length + 1)
-  expect(field().value).toBe(full)
-  act(() => field().blur())
-  expect(profile()).toEqual({ name: full })
-})
-
-it('counts a flag in the field as one character, as the store does', () => {
-  const { profile } = mount()
-  type('🇺🇸'.repeat(45))
-  act(() => field().blur())
-  expect(profile()).toEqual({ name: '🇺🇸'.repeat(40) })
-})
-
-it('chooses nothing with an arrow that has nowhere to go', () => {
-  // Holding a face this build cannot draw, the tab stop is the first tile and
-  // nothing is checked: a Left there that chose would reset the kept face with
-  // a key that moved nowhere.
-  const { setProfile, profile } = mount({ avatar: 'pirate' })
-  const first = tiles()[0]
-  if (!first) throw new Error('no first face')
-  // The group keeps the key even so: an arrow it has no use for would
-  // otherwise scroll the page under the tile, in a window short enough to.
-  expect(pressed(first, 'ArrowLeft')).toBe(true)
-  expect(pressed(first, 'ArrowUp')).toBe(true)
-  expect(setProfile).not.toHaveBeenCalled()
-  // A key the group does not use is still the page's.
-  expect(pressed(first, 'Home')).toBe(false)
-  expect(profile()).toEqual({ avatar: 'pirate' })
-  // The control: a key with somewhere to go still chooses as it moves — one
-  // to the right of Default is the first of the mark's own colourways.
-  press(first, 'ArrowRight')
-  expect(profile()).toEqual({ avatar: 'mark-paper' })
-})
-
-it('chooses nothing with Right or Down on the last face', () => {
-  const { setProfile } = mount({ avatar: 'beach' })
-  expect(pressed(worn(), 'ArrowRight')).toBe(true)
-  expect(pressed(worn(), 'ArrowDown')).toBe(true)
-  expect(setProfile).not.toHaveBeenCalled()
-})
-
-it('keeps as much of a paste over the whole name as fits, rather than putting the old name back', () => {
-  const { profile } = mount({ name: 'x'.repeat(40) })
-  // Select all, paste: one input event carrying a value past the cap.
-  type('y'.repeat(45))
-  expect(field().value).toBe('y'.repeat(40))
-  act(() => field().blur())
-  expect(profile()).toEqual({ name: 'y'.repeat(40) })
-})
-
-it('keeps the end of the name when a paste lands at its front, and the caret after what went in', async () => {
-  const name = 'Jane Doe'.padEnd(39, '.')
-  mount({ name })
-  // Three characters pasted before a thirty-nine-character name: room for one.
-  type(`XYZ${name}`, 3)
-  expect(field().value).toBe(`X${name}`)
-  // Setting a value puts the caret at its end; the field puts it back.
-  await act(async () => {})
-  expect(field().selectionStart).toBe(1)
-})
-
-it('leaves a name it was given as it is, unless you edit it', () => {
-  // A later build may allow more than forty. Looking at the field is not an edit.
-  const long = 'x'.repeat(60)
-  const { setProfile, profile } = mount({ name: long })
-  expect(field().value).toBe(long)
-  expect(heading()).toBe(long)
-  expect(container.querySelector('[data-slot="row"]')?.getAttribute('data-kind')).toBe('record')
-  const label = container.querySelector<HTMLElement>('[data-slot="row-title"] > span')!
-  expect(label.textContent).toBe(long)
-  Object.defineProperties(label, { scrollWidth: { value: 720 }, clientWidth: { value: 200 } })
-  act(() => label.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
-  expect(label.title).toBe(long)
-  act(() => field().focus())
-  act(() => field().blur())
-  expect(setProfile).not.toHaveBeenCalled()
-  // Taking a character away is an edit, and always goes through; what is kept
-  // is held to this build's cap.
-  type('x'.repeat(59))
-  expect(field().value).toBe('x'.repeat(59))
-  act(() => field().blur())
-  expect(profile()).toEqual({ name: 'x'.repeat(40) })
-})
-
-it('steps Down by the row the grid is drawn with', () => {
-  // The system pattern owns the eight-column layout; frame contracts measure
-  // the rendered grid while this witness keeps its keyboard step unchanged.
-  const { profile } = mount()
-  const columns = 8
-  expect(container.querySelector('[data-slot="picture-choices"]')).not.toBeNull()
-  press(worn(), 'ArrowDown')
-  expect(profile().avatar).toBe(tiles()[columns]?.getAttribute('aria-label')?.toLowerCase())
-})
-
-it('General scopes local storage to HarnessDesk and acknowledges agent services', () => {
-  act(() => root.render(<GeneralSection rows={null} />))
-  expect(container.textContent).toContain('HarnessDesk keeps its preferences, conversations and work records on this Mac.')
-  expect(container.textContent).toContain('Runtimes connect to their own services.')
-  expect(container.textContent).not.toContain('nothing syncs or uploads')
+it('Restore default writes an explicit null and Done closes the dialog', () => {
+ const { setAppIcon } = mount('wizard')
+ act(() => button('Restore default').click()); expect(setAppIcon).toHaveBeenLastCalledWith(null)
+ expect(selected().getAttribute('aria-label')).toBe('Default')
+ act(() => button('Done').click()); expect(document.querySelector('[role="dialog"]')).toBeNull()
 })

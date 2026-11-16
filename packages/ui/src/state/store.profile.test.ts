@@ -108,3 +108,39 @@ it('writes back what a later build stored, whatever this one changes', async () 
   store.setProfile({ name: 'JD' })
   expect(writes().at(-1)).toEqual({ patch: { profile: { name: 'JD', avatar: 'pirate', account: { id: 'a1' } } } })
 })
+
+it('migrates the old avatar only until an independent app icon is explicitly chosen or reset', async () => {
+  const legacy = { name: 'Legacy Jane', avatar: 'wizard', future: { keep: true } }
+  answers['app/state/get'] = { profile: legacy, unrelated: 42 }
+  await store.loadPreferences()
+  expect(store.getSnapshot().appIcon).toBe('wizard')
+  store.setAppIcon('dj')
+  expect(writes().at(-1)).toEqual({ patch: { appIcon: 'dj' } })
+  expect(store.getSnapshot().profile).toEqual({ name: 'Legacy Jane', avatar: 'wizard', later: { future: { keep: true } } })
+  store.setAppIcon(null)
+  expect(writes().at(-1)).toEqual({ patch: { appIcon: null } })
+  answers['app/state/get'] = { profile: legacy, appIcon: null }
+  await store.loadPreferences()
+  expect(store.getSnapshot().appIcon).toBeNull()
+  expect(setDockIcon).toHaveBeenLastCalledWith(null)
+})
+it('keeps an unknown explicit icon without rewriting it or reviving the legacy avatar', async () => {
+  answers['app/state/get'] = { profile: { avatar: 'wizard' }, appIcon: { future: 'icon' } }
+  await store.loadPreferences()
+  expect(store.getSnapshot().appIcon).toEqual({ future: 'icon' })
+  expect(setDockIcon).toHaveBeenLastCalledWith(null)
+  expect(writes()).toEqual([])
+})
+
+it('keeps an explicit app icon independent of legacy profile writes and account changes', async () => {
+  answers['app/state/get'] = { profile: { avatar: 'wizard', name: 'Legacy Jane' }, appIcon: 'dj' }
+  await store.loadPreferences()
+  setDockIcon.mockClear()
+  store.setProfile({ avatar: 'astronaut', name: 'New legacy name' })
+  expect(store.getSnapshot().appIcon).toBe('dj')
+  expect(setDockIcon).not.toHaveBeenCalled()
+  answers['account/signOut'] = { status: 'signedOut', desk: { name: 'Demo desk', reachable: false }, phones: [] }
+  await store.signOutOfHarnessDesk()
+  expect(store.getSnapshot().appIcon).toBe('dj')
+  expect(writes().at(-1)).toEqual({ patch: { profile: { avatar: 'astronaut', name: 'New legacy name' } } })
+})

@@ -545,10 +545,10 @@ it('keeps Settings outside account and usage details, and ends the menu with it'
   expect(rows.at(-1)?.previousElementSibling?.matches('[data-menu-separator]')).toBe(true)
   expect(menu.textContent).not.toContain('Sign out of Claude')
 })
-it('shows your chosen name and face without the default agent mark', () => {
-  mount({ profile: { name: 'Jane', avatar: 'wizard' } })
+it('shows the signed-out desk name and independent app icon without the default agent mark', () => {
+  mount({ profile: { name: 'Legacy person' }, appIcon: 'wizard', harnessDeskAccount: { status: 'signedOut', desk: { name: 'Work Mac', reachable: false }, phones: [] } })
   const seat = row()
-  expect(seat.textContent).toContain('Jane')
+  expect(seat.textContent).toContain('Work Mac')
   expect(seat.textContent).not.toContain('HarnessDesk')
   expect(seat.querySelector('img')?.getAttribute('src')).toMatch(/\/wizard\.png$/)
   expect(seat.querySelector('.brand-harnessdesk')).toBeNull()
@@ -626,7 +626,7 @@ it('says your whole name on hover only where the row cuts it', () => {
   // A name that fits leaves the row's own title — the pen — to answer; a name
   // the ellipsis cuts says itself whole.
   const name = 'Jane Doe, Keeper of Several Long Names'
-  mount({ profile: { name } })
+  mount({ harnessDeskAccount: { status: 'signedOut', desk: { name, reachable: false }, phones: [] } })
   const seat = row().querySelector<HTMLElement>('[class*="accountLabel"]')
   if (!seat) throw new Error('no seat label')
   sized(seat, 320, 120)

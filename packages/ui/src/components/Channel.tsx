@@ -1,3 +1,4 @@
+import { roomUserIdentity } from '@harnessdesk/protocol'
 import { useMemo, type ReactNode } from 'react'
 
 import { sessionKey } from '@harnessdesk/protocol'
@@ -16,7 +17,7 @@ import { Button, Chip, Separator } from '../design'
 import { ChannelMessage, ChannelNotice, ChannelSignal, type ChannelNoticeChoice } from '../design'
 import { type Brand, brandForRuntime } from '../lib/brands'
 import { Markdown } from './Markdown'
-import { Face } from '../design'
+import { PersonFace } from '../design'
 import { sanitizeText } from '../lib/sanitize'
 import { latestLimitNotices, seatCarryOnAlways, seatCarryOnChoices } from '../lib/seat-carry-on'
 
@@ -68,7 +69,7 @@ const SIGNAL_WORD: Record<string, string> = {
 
 /** One sender, stable across their messages — the conversation, not the agent. */
 const senderKey = (actor: TeamActor): string =>
-  actor.kind === 'user' ? 'user' : actor.kind === 'flow' ? `flow\u0000${actor.name}` : actor.kind === 'trigger' ? `trigger\u0000${actor.trigger}` : `${actor.runtime}\u0000${actor.sessionId}`
+  actor.kind === 'user' ? `user\u0000${roomUserIdentity(actor)?.accountId ?? ''}\u0000${roomUserIdentity(actor)?.name ?? ''}` : actor.kind === 'flow' ? `flow\u0000${actor.name}` : actor.kind === 'trigger' ? `trigger\u0000${actor.trigger}` : `${actor.runtime}\u0000${actor.sessionId}`
 
 /** A run of messages from one sender is one person talking. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000
@@ -443,14 +444,7 @@ export const ChannelStream = ({
             state={row.entry.state}
             grouped={row.grouped}
             {...(brandOf(row.entry.from, snapshot) ? { brand: brandOf(row.entry.from, snapshot) as Brand } : {})}
-            /* You, in the face the seat wears. It fills the row's tile, so it
-               takes the tile's size and corner — drawn from
-               the snapshot this stream already holds, not a subscription of
-               its own on every message you wrote. A user row carries no
-               identity (`{ kind: 'user' }`, #218), so every one is drawn as
-               you: right on a desk of one, and the assumption to revisit the
-               day a room holds two people. */
-            {...(row.entry.from.kind === 'user' ? { face: <Face avatar={snapshot.profile.avatar} /> } : {})}
+            {...(row.entry.from.kind === 'user' ? { face: <PersonFace pictureDataUrl={snapshot.harnessDeskAccount?.status === 'signedIn' && snapshot.harnessDeskAccount.account?.id && roomUserIdentity(row.entry.from)?.accountId === snapshot.harnessDeskAccount.account?.id ? snapshot.harnessDeskAccount.account?.pictureDataUrl : null} /> } : {})}
             {...audience(row.entry, row.recipients)}
             {...(row.entry.reason ? { reason: row.entry.reason } : {})}
             {...(row.refusedFirst !== undefined ? { refusedFirst: row.refusedFirst } : {})}
@@ -489,7 +483,7 @@ export const ChannelStream = ({
  * untitled, because "Alpha (Alpha)" says one thing twice.
  */
 const actorName = (actor: TeamActor, snapshot: AppSnapshot): string => {
-  if (actor.kind === 'user') return 'You'
+  if (actor.kind === 'user') return roomUserIdentity(actor)?.name ?? 'You'
   if (actor.kind === 'flow') return `The Flow ${actor.name}`
   /* Admission opened this while nobody was at the keyboard: the card is the
      trigger's, never "You" — the misattribution a Goal a trigger opened used

@@ -87,10 +87,10 @@ it('typing "archive" reaches the Archive page', async () => {
 })
 
 it('Profile, whose nav row carries your name, is reached by what someone would call it', async () => {
-  for (const query of ['profile', 'avatar', 'picture']) {
+  for (const query of ['profile', 'nickname', 'display name', 'picture']) {
     const { openSettings } = await mount()
     type(query)
-    await choose('Settings › Profile')
+    await choose('Settings › Account')
     expect(openSettings).toHaveBeenCalledWith('profile')
     act(() => root.unmount())
     root = createRoot(container)
@@ -143,4 +143,8 @@ it.each([false, true])('Settings › Lead remains available in the palette with 
   await act(async () => {})
   const options = [...document.body.querySelectorAll('[role="option"]')].filter(node => node.textContent?.includes('Settings › Lead'))
   expect(options).toHaveLength(1)
+})
+
+it.each([['desk name', 'General', 'general'], ['rename', 'General', 'general'], ['app icon', 'Appearance', 'appearance'], ['dock icon', 'Appearance', 'appearance']])('finds the distinct %s setting', async (query, label, section) => {
+ const { openSettings } = await mount(); type(query); await choose(`Settings › ${label}`); expect(openSettings).toHaveBeenCalledWith(section)
 })

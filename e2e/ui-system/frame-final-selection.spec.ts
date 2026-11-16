@@ -47,9 +47,10 @@ for (const theme of ['light', 'dark'] as const) {
       return getComputedStyle(element).backgroundColor === expected
     })).toBe(true)
   })
-  test(`final picture selection uses a neutral selection ring in ${theme}`, async ({ page }) => {
-    await page.goto(`/preview.html?frame-wall=settings&frame-section=profile&theme=${theme}`)
-    const picture = page.locator('[data-slot="picture-choices"] [aria-checked="true"]')
+  test(`final app icon selection uses a neutral selection ring in ${theme}`, async ({ page }) => {
+    await page.goto(`/preview.html?frame-wall=settings&frame-section=appearance&theme=${theme}`)
+    await page.getByRole('button', { name: 'Change…', exact: true }).click()
+    const picture = page.getByRole('dialog', { name: 'App icon', exact: true }).locator('[data-slot="picture-choices"] [aria-checked="true"]')
     await expect(picture).toBeVisible()
     expect(await picture.evaluate(element => {
       const probe = document.createElement('div')

@@ -91,7 +91,7 @@ import {
 import { Dialog, ConfirmDialog, EmptyState } from '../design'
 import type { PolicyRule, RouteInfo, StoredCredential } from '../state/store'
 import { HarnessDeskAccountSection } from './HarnessDeskAccount'
-import { ProfileSection, GeneralSection, AppearanceSection, NotificationsSection, ShortcutsSection } from './SettingsYou'
+import { GeneralSection, AppearanceSection, NotificationsSection, ShortcutsSection } from './SettingsYou'
 import { shortPath } from '../lib/paths'
 import { NewSessionDefaults } from './SettingsAgents'
 import { ProjectPage } from './ProjectPage'
@@ -139,6 +139,12 @@ export type Section =
  */
 const MOVED: Readonly<Record<string, Section>> = {
   account: 'general',
+  nickname: 'profile',
+  'display-name': 'profile',
+  'account-name': 'profile',
+  'desk-name': 'general',
+  'app-icon': 'appearance',
+  'dock-icon': 'appearance',
   preferences: 'general',
   presets: 'models',
   // Permanent: `agents` named the installed CLIs, and that page is
@@ -1579,7 +1585,7 @@ export const Settings = ({ route, onRoute, onSignIn }: {
       : undefined} />
     {route.kind === 'section' && section !== 'runtimes' && section !== 'skills' && <DestinationBar place={SETTINGS_LABELS[section]}
       more={() => null} />}
-    {section === 'profile' && <><HarnessDeskAccountSection /><SectionHead level="label" name="Local profile" /><ProfileSection /></>}
+    {section === 'profile' && <HarnessDeskAccountSection />}
     {section === 'general' && <GeneralSection rows={<GeneralSectionRows />} />}
     {section === 'appearance' && <AppearanceSection />}
     {section === 'notifications' && <NotificationsSection />}

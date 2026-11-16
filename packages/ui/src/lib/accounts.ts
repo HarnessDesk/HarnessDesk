@@ -1,3 +1,4 @@
+import { accountDisplayName, type AccountIdentity } from '@harnessdesk/protocol'
 import { tintForRuntimeBrand } from '../design/identity'
 import { brandForRuntime } from './brands'
 
@@ -115,14 +116,8 @@ export const accountName = (
  * itself an address (some providers name you by your login) is cut at the @
  * while addresses are hidden, and the email is never the fallback then.
  */
-export const shownDeskName = (
-  account: { readonly name?: string | null; readonly email?: string | null } | null | undefined,
-  hide: boolean,
-): string | null => {
-  const name = account?.name?.trim() || null
-  if (!hide) return name || account?.email || null
-  return name?.includes('@') ? name.slice(0, name.indexOf('@')) || null : name
-}
+export const shownDeskName = (account: AccountIdentity | null | undefined, hide: boolean): string | null =>
+  accountDisplayName(account, hide)
 
 /**
  * An account as a row writes it: as the runtime wrote it, or — while

@@ -4,7 +4,7 @@ import type { AvatarId } from '../../lib/avatars'
 import { Button } from '../ui/button'
 import { Card } from '../ui/card'
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group'
-import { AccountMark, Face } from './Settings'
+import { AccountMark, AppIcon } from './Settings'
 import styles from './SettingsChoices.module.css'
 /** Picture, accent and account ring choices; picture arrows move by the eight-column grid. */
 interface PictureChoice { readonly id: AvatarId | null; readonly label: string; readonly about: string }
@@ -26,7 +26,7 @@ export const PictureChoices = ({ value, items, describedBy, change }: {
         const next = index + offset, target = items[next]
         if (!target) return
         change(target.id); buttons.current[next]?.focus()
-      }}><Face avatar={item.id} size={44} /></Button>)}
+      }}><AppIcon avatar={item.id} size={44} /></Button>)}
   </div></Card>
 }
 /** Accent colours as radio choices, with palette values supplied by the caller. */

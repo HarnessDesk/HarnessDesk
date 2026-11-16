@@ -92,7 +92,8 @@ for (const theme of ['light', 'dark'] as const) {
       test(`Input and Search use a focus border without an offset ring under ${look}`, async ({ page }) => {
         await mountFocusFixture(page)
         await page.evaluate((look) => (window as any).__hdPreview.store.patch({ look }), look)
-        for (const label of ['Your name', 'Shared field', 'Shared search']) {
+        for (const label of ['Display name', 'Shared field', 'Shared search']) {
+          if (label === 'Display name') await page.getByRole('button', { name: 'Edit', exact: true }).click()
           const field = page.getByRole(label === 'Shared search' ? 'searchbox' : 'textbox', { name: label, exact: true })
           const resting = await field.evaluate((node) => getComputedStyle(node).boxShadow)
           await field.click()
@@ -106,6 +107,7 @@ for (const theme of ['light', 'dark'] as const) {
           expect((await ringOf(page)).border).toBe((await ringOf(page)).ring)
           expect((await ringOf(page)).outline).toBe('none')
           expect((await ringOf(page)).shadow).toBe(resting)
+          if (label === 'Display name') await page.getByRole('button', { name: 'Cancel', exact: true }).click()
         }
       })
     }

@@ -6349,3 +6349,25 @@ check names, tier admission and tree-proof requirements remain in place.
 **Rule:** measure execution separately from runner wait. Remove repeated setup
 or computation only when the same failure remains detectable; a smaller count
 of test invocations is not itself a reason to remove an assertion.
+
+
+## Account identity, this desk and application artwork have separate owners
+
+The signed-in HarnessDesk account represents a person. A nullable nickname is
+an account preference, independent of the provider name and login email; explicit
+Save/Cancel makes a network write and a failed draft visible. Closing a stale
+account editor on account change keeps another person's state out of that edit.
+The renderer uses the host account wire and bounded host-fetched raster policy.
+
+The desk's name is a local discovery label, so General offers Rename while signed
+out. Appearance owns application artwork in a compact row and canonical dialog;
+its existing radio grid applies choices immediately. A legacy custom avatar can
+supply the initial app icon, while legacy personal names remain compatibility
+data. A saved future icon is retained until an explicit choice, including null
+for Restore default. PersonFace uses a neutral person fallback; AppIcon uses a
+thing's tile. Neither account saves nor sign-out can change the application icon.
+
+A room actor records only a host-known account id and safe name. The current
+account can lend a picture only to a matching recorded id; old anonymous entries
+remain You. User message grouping includes recorded identity so a new person is
+introduced with their own header. No image, email or credential enters an actor.

@@ -1760,6 +1760,11 @@ class PreviewStore {
   setSurface = (surface: AppSnapshot['surface']): void => this.patch({ surface })
   setFaces = (faces: AppSnapshot['faces']): void => this.patch({ faces })
   setLook = (next: AppSnapshot['look']): void => this.patch({ look: next })
+  setAppIcon = (appIcon: import('../lib/avatars').AvatarId | null): void => this.patch({ appIcon })
+  updateHarnessDeskProfile = async (nickname: string | null): Promise<void> => {
+    const status = this.#snapshot.harnessDeskAccount
+    if (status?.status === 'signedIn' && status.account) this.patch({ harnessDeskAccount: { ...status, account: { ...status.account, nickname } } })
+  }
   setProfile = (patch: ProfilePatch): void =>
     this.patch({ profile: applyProfile(this.#snapshot.profile, patch) })
   setDiffPrefs = (prefs: Partial<AppSnapshot['diffPrefs']>): void =>
@@ -2271,6 +2276,7 @@ class PreviewStore {
       if (method.startsWith('account/')) {
         if (method === 'account/signIn') await this.signInToHarnessDesk()
         if (method === 'account/cancel' || method === 'account/signOut') await this.cancelHarnessDeskSignIn()
+        if (method === 'account/updateProfile') await this.updateHarnessDeskProfile((params as { nickname: string | null }).nickname)
         if (method === 'account/renameDesk') await this.renameHarnessDesk((params as { name: string }).name)
         if (method === 'account/setReachable') await this.setHarnessDeskReachable((params as { reachable: boolean }).reachable)
         if (method === 'account/unlinkPhone') await this.unlinkHarnessDeskPhone((params as { deviceId: string }).deviceId)

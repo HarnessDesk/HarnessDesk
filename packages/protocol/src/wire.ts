@@ -770,7 +770,7 @@ export interface HarnessDeskPhone {
 }
 export interface HarnessDeskAccountStatus {
   readonly status: 'signedOut' | 'pending' | 'signedIn'
-  readonly account?: { readonly name: string | null; readonly email: string | null; readonly pictureUrl: string | null; readonly pictureDataUrl?: string }
+  readonly account?: { readonly id?: string; readonly nickname?: string | null; readonly name: string | null; readonly email: string | null; readonly pictureUrl: string | null; readonly pictureDataUrl?: string }
   readonly desk: { readonly name: string; readonly reachable: boolean }
   readonly pending?: { readonly userCode: string; readonly verifyUrl: string; readonly expiresAt: number }
   readonly phones: readonly HarnessDeskPhone[]
@@ -793,6 +793,7 @@ export interface HostMethods {
   'account/delete': { params: Record<string, never>; result: HarnessDeskAccountStatus }
   'account/signOut': { params: { readonly localOnly?: boolean }; result: HarnessDeskAccountStatus }
   'account/unlinkPhone': { params: { readonly deviceId: string }; result: HarnessDeskAccountStatus }
+  'account/updateProfile': { params: { readonly nickname: string | null }; result: HarnessDeskAccountStatus }
   'account/renameDesk': { params: { readonly name: string }; result: HarnessDeskAccountStatus }
   'account/setReachable': { params: { readonly reachable: boolean }; result: HarnessDeskAccountStatus }
 

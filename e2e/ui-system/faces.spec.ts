@@ -63,9 +63,17 @@ const PAGES: readonly { readonly name: string; readonly url: string; readonly re
       { what: 'Trajectory’s Events-filter rows', frame: 'panel-activity', selector: '[data-slot="icon-tile"][data-shape="face"]' },
       { what: 'a channel’s bare sender glyphs', frame: 'room-channel-grouping', selector: '[data-slot="icon-tile"][data-shape="face"][data-variant="bare"]' },
       { what: 'a person’s face in a channel', frame: 'room-channel-grouping', selector: 'span[data-shape="face"]:not([data-slot])' },
-      { what: 'the seat’s face', frame: 'sidebar-column', selector: 'span[data-shape="face"]' },
       { what: 'the setup survey’s runtime faces', frame: 'setup-survey', selector: '[data-slot="icon-tile"][data-shape="face"]' },
-      { what: 'the profile’s face', frame: 'settings-sheet', selector: 'span[data-shape="face"]' },
+    ],
+  },
+  {
+    name: 'signed-in account',
+    url: '/preview.html?desk-account=settings',
+    ready: '[data-page-destination="settings"]',
+    how: 'attribute',
+    surfaces: [
+      { what: 'the signed-in seat', selector: '[data-left-seat] span[data-shape="face"]' },
+      { what: 'the account record', selector: '[data-page-destination="settings"] span[data-shape="face"]' },
     ],
   },
   {
@@ -186,7 +194,7 @@ const faceReport = (page: Page, exceptions: Excused) =>
     for (const el of document.querySelectorAll('[data-shape]')) {
       const shape = el.getAttribute('data-shape') ?? ''
       if (!['face', 'round', 'square'].includes(shape) || !visible(el)) continue
-      if (!el.querySelector('svg.brand:not(.brand-github), svg.lucide-bot')) continue
+      if (!el.querySelector('svg.brand:not(.brand-github):not(.brand-harnessdesk), svg.lucide-bot')) continue
       if (shape === 'face') continue
       // An account's ring holds a mark and is round, and is not a tile.
       if (shape === 'round' && slot(el) !== 'icon-tile') continue
@@ -206,20 +214,27 @@ const surfaceCount = (page: Page, surface: Surface) =>
   }, { frame: surface.frame ?? null, selector: surface.selector })
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`profile pictures crop their inset plate at the face corner without scaling the artwork in ${theme}`, async ({ page }) => {
+  test(`app icons retain their square crop without scaling artwork under either Faces setting in ${theme}`, async ({ page }) => {
     await open(page, '/preview.html', PREVIEW_READY)
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
-    await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('profile')
+    await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('appearance')
     const profile = page.locator('[data-frame-id="settings-sheet"]')
+    await profile.getByRole('button', { name: 'Change…', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'App icon', exact: true })
+    let appCorner: string | undefined
     for (const shape of ['round', 'square'] as const) {
       await setFaces(page, 'attribute', shape)
       for (const name of ['Paper', 'Ink', 'Blueprint']) {
-        const choice = profile.getByRole('radio', { name, exact: true })
+        const choice = dialog.getByRole('radio', { name, exact: true })
         await choice.click()
         await expect(choice).toHaveAttribute('aria-checked', 'true')
-        const plates = profile.locator('[data-slot="face-picture-plate"]')
-        // Five choices, the profile's head and the sidebar's selected picture.
-        await expect(plates).toHaveCount(7)
+        const plates = dialog.locator('[data-slot="face-picture-plate"]')
+        // Five plated choices remain in the application-artwork picker.
+        await expect(plates).toHaveCount(5)
+        await expect(choice.locator('[data-shape="square"]')).toHaveCount(1)
+        const corner = await choice.locator('[data-shape="square"]').evaluate(node => getComputedStyle(node).borderRadius)
+        if (appCorner !== undefined) expect(corner).toBe(appCorner)
+        appCorner = corner
         const pictures = await plates.evaluateAll(elements => elements.map(plate => {
           const face = plate.parentElement!, image = plate.querySelector('img')!
           const a = face.getBoundingClientRect(), b = plate.getBoundingClientRect(), c = image.getBoundingClientRect()
@@ -243,9 +258,9 @@ for (const theme of ['light', 'dark'] as const) {
         }
       }
       for (const name of ['Plain', 'Wizard']) {
-        const choice = profile.getByRole('radio', { name, exact: true })
+        const choice = dialog.getByRole('radio', { name, exact: true })
         await expect(choice.locator('[data-slot="face-picture-plate"]')).toHaveCount(0)
-        expect(await choice.locator('img').evaluate(image => image.parentElement?.getAttribute('data-shape'))).toBe('face')
+        expect(await choice.locator('img').evaluate(image => image.parentElement?.getAttribute('data-shape'))).toBe('square')
       }
     }
   })

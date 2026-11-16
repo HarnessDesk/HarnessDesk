@@ -1663,3 +1663,5 @@ pre.mono:not([data-block])[data-wrap] {
   flex-grow: 0;
   margin-inline-start: auto;
 }
+
+.appIcon { border-radius: var(--hd-radius-sm); }
