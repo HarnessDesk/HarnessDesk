@@ -226,6 +226,7 @@ cataloguePageCases('measure glyph centring across preview frames and design expl
     const root = page.locator('main > div[data-alignment-board-id]')
     await expect(root).toHaveCount(1)
     const heading = root.locator(':scope > h1')
+    await expect(heading).toBeVisible()
     await expect(heading).toHaveText(title === 'Foundation' ? 'Tokens' : title === 'Manifest' ? 'Coverage' : title)
     await settle(page)
     const actualTitle = (await heading.innerText()).replace(/\s+/g, ' ').trim()
