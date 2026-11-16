@@ -6,7 +6,7 @@ import {
   type GoalView, type LedgerQuery, type LedgerReport, type PhoneDashboard, type PhoneProjectShare, type PhoneRange, type PhoneSeatUsage,
   type PhoneSessionRow, type PhoneSessionsList, type PhoneSessionState, type PhoneTeamRow, type PhoneTeamsList, type PhoneTeamStage,
   type PhoneTeamStatus, type PhoneWorkAllowance, type PhoneWorkItem, type PhoneWorkPeriod, type PhoneWorkUsage, type PhoneWorkWorker,
-  type RuntimeId, type SessionId, type SessionSummary, type UsageLane, type UsageReport, type UsageStandingStatus, useFirstNote, usageStandingOf, keptReading, pacingAdvice, type PhoneWorkPacing,
+  type RuntimeId, type SessionId, type SessionSummary, type UsageLane, type UsageReport, type UsageStandingStatus, useFirstNote, usageStandingOf, usageIsFresh, keptReading, pacingAdvice, type PhoneWorkPacing,
 } from '@harnessdesk/protocol'
 import { folderName, micros, money, scrub } from './phone-redact.js'
 
@@ -346,7 +346,7 @@ export class PhoneWorkspace {
       const borrowed = other && other.lanes.length > 0 ? {
         whose: safe(other.whose), windows: windowsOf(other.lanes, Boolean(other.error) || !knownReadTime(other.fetchedAt, now), other.reached),
         readAgeMinutes: readAgeMinutes(other.fetchedAt, now), readAge: readAge(other.fetchedAt, now),
-        stale: Boolean(other.error) || !knownReadTime(other.fetchedAt, now) || now - other.fetchedAt > other.staleAfterMs,
+        stale: Boolean(other.error) || !usageIsFresh(other, now),
       } : null
       if (report.credits) windows.push({ label: 'Balance', kind: 'balance', unlimited: report.credits.unlimited === true, windowMinutes: null,
         remainingPercent: null, remaining: report.credits.remaining, unit: safe(report.credits.unit), resetsAt: null, resetsIn: null,
@@ -358,7 +358,7 @@ export class PhoneWorkspace {
         runtime, label: `${runtime}${plan ? ` · ${safe(plan)}` : ''}${totals.get(runtime)! > 1 ? ` · account ${ordinal}` : ''}`,
         plan: plan === null ? null : safe(plan), runningSessions: running.get(runtime) ?? 0, windows,
         reached: report.reached !== null, fetchedAt: report.fetchedAt,
-        stale: !silent && (!knownReadTime(report.fetchedAt, now) || now - report.fetchedAt > report.staleAfterMs),
+        stale: !silent && !usageIsFresh(report, now),
         ...(nothing ? { notReporting: true as const } : {}),
         ...(borrowed ? { unverified: borrowed } : {}),
         ...(useFirstNote(report, now) ? { useFirst: true as const } : {}),
@@ -682,9 +682,9 @@ const allowanceFiguresOf = (seat: SeatRow, now: number): PhoneWorkAllowance => {
     ...(plan ? { plan: scrub(plan, 40) } : {}),
     ...(useFirstNote(report, now) ? { useFirst: true as const } : {}),
     ...(report.unverified && borrowed.length ? { unverified: { whose: scrub(report.unverified.whose, 60), lanes: borrowed, readAt: report.unverified.fetchedAt,
-      ...(report.unverified.error || now - report.unverified.fetchedAt > report.unverified.staleAfterMs ? { stale: true as const } : {}) } } : {}),
+      ...(report.unverified.error || !usageIsFresh(report.unverified, now) ? { stale: true as const } : {}) } } : {}),
     readAt: report.fetchedAt,
-    ...(now - report.fetchedAt > report.staleAfterMs || refreshFailed ? { stale: true } : {}),
+    ...(!usageIsFresh(report, now) || refreshFailed ? { stale: true } : {}),
     ...(report.error ? { problem: scrub(report.error.message, 120) } : {}),
     ...(refreshFailed ? { refreshFailed: true as const } : {}),
   }

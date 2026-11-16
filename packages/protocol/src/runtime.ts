@@ -1240,6 +1240,10 @@ export interface AgentRuntime {
     request?: { readonly fresh: boolean },
   ): Promise<readonly ConfigOption[]>
   getAccount(): Promise<AccountStatus>
+  /** Internal, ephemeral account identity. Never starts an idle runtime. */
+  accountIdentitySnapshot?(): Promise<{ readonly key: string; readonly generation: number } | null>
+  /** Changes whenever an identity snapshot can no longer be trusted. */
+  accountIdentityGeneration?(): number
   /**
    * Starts one of the methods `getAccount` declared. The outcome arrives as an
    * `account/loginCompleted` event, never as the return value: a browser flow

@@ -886,7 +886,7 @@ test('Lead allowance emits only closed error words and preserves ordinary words 
     ])
     assert.deepEqual(result.accounts.map(account => account.error), ['reading failed', 'sign-in needed', null])
     assert.equal(result.accounts[2]!.plan, 'Standard')
-    assert.equal(result.accounts[2]!.stale, false, 'the Dashboard boundary is strictly greater than the TTL')
+    assert.equal(result.accounts[2]!.stale, true, 'the Dashboard marks a reading stale at its TTL')
     assert.ok(!JSON.stringify(result).includes('jane-d'))
     assert.ok(!JSON.stringify(result).includes('Acme Example Org'))
   } finally { await f.done() }
@@ -1139,6 +1139,61 @@ test('the phone and the Lead are told which account to use first, with its reset
       assert.equal((await single.workspace.workUsage())!.pacing, undefined)
       assert.equal((await single.workspace.usageSummary(single.reports)).pacing, null)
     } finally { await single.done() }
+  } finally { await f.done() }
+})
+
+test('phone and Lead mark a recent pre-reset observation stale without discarding its figures', async () => {
+  const f = await fixture()
+  try {
+    f.ledger = () => ledgerOf([], 0)
+    const expired = { id: 'weekly', label: 'Weekly', usedPercent: 30, windowMinutes: 10080, resetsAt: NOW - 1 }
+    const borrowed = { whose: 'CLI sign-in', reached: null, fetchedAt: NOW - 60_000, staleAfterMs: HOUR, lanes: [expired] }
+    f.reports = [report('dev@example.com', { lanes: [expired], fetchedAt: NOW - 60_000, staleAfterMs: HOUR, unverified: borrowed })]
+    const phone = (await f.workspace.workUsage())!.runtimes[0]!
+    const lead = (await f.workspace.usageSummary(f.reports)).accounts[0]!
+    assert.equal(phone.stale, true, 'the current phone reading predates its reset')
+    assert.equal(phone.unverified?.stale, true, 'the other sign-in predates its reset')
+    assert.equal(lead.stale, true, 'the current Lead reading predates its reset')
+    assert.equal(lead.unverified?.stale, true, 'the other sign-in predates its reset')
+    assert.equal(phone.lanes?.[0]?.left, 0.7, 'the last figures remain visible')
+    assert.equal(phone.unverified?.lanes[0]?.left, 0.7)
+    assert.equal(lead.windows[0]?.remainingPercent, 70)
+    assert.equal(lead.windows[0]?.resetPassed, true)
+    assert.equal(phone.refreshFailed, undefined)
+    assert.equal(lead.refreshFailed, undefined)
+  } finally { await f.done() }
+})
+
+for (const surface of ['phone borrowed', 'Lead current', 'Lead borrowed'] as const) test(`${surface} marks a recently read reset-passed window stale`, async () => {
+  const f = await fixture()
+  try {
+    f.ledger = () => ledgerOf([], 0)
+    const lane = { id: 'weekly', label: 'Weekly', usedPercent: 30, windowMinutes: 10080, resetsAt: NOW - 1 }
+    const borrowed = { whose: 'CLI sign-in', reached: null, fetchedAt: NOW - 60_000, staleAfterMs: HOUR, lanes: [lane] }
+    f.reports = [report('dev@example.com', { lanes: [lane], fetchedAt: NOW - 60_000, staleAfterMs: HOUR, unverified: borrowed })]
+    const phone = (await f.workspace.workUsage())!.runtimes[0]!, lead = (await f.workspace.usageSummary(f.reports)).accounts[0]!
+    const stale = surface === 'phone borrowed' ? phone.unverified?.stale : surface === 'Lead current' ? lead.stale : lead.unverified?.stale
+    assert.equal(stale, true)
+  } finally { await f.done() }
+})
+
+for (const [label, readAt, reset, expected] of [
+  ['fresh', NOW - 60_000, NOW + HOUR, false],
+  ['expired TTL', NOW - HOUR, NOW + HOUR, true],
+  ['unknown time', 0, NOW + HOUR, true],
+  ['future time', NOW + 1, NOW + HOUR, true],
+] as const) test(`phone and Lead apply the same ${label} reading freshness`, async () => {
+  const f = await fixture()
+  try {
+    f.ledger = () => ledgerOf([], 0)
+    const lane = { id: 'weekly', label: 'Weekly', usedPercent: 30, windowMinutes: 10080, resetsAt: reset }
+    const borrowed = { whose: 'CLI sign-in', reached: null, fetchedAt: readAt, staleAfterMs: HOUR, lanes: [lane] }
+    f.reports = [report('dev@example.com', { lanes: [lane], fetchedAt: readAt, staleAfterMs: HOUR, unverified: borrowed })]
+    const phone = (await f.workspace.workUsage())!.runtimes[0]!, lead = (await f.workspace.usageSummary(f.reports)).accounts[0]!
+    assert.equal(phone.stale === true, expected)
+    assert.equal(phone.unverified?.stale === true, expected)
+    assert.equal(lead.stale, expected)
+    assert.equal(lead.unverified?.stale, expected)
   } finally { await f.done() }
 })
 

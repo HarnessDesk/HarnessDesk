@@ -50,6 +50,8 @@ import type {
   FsWatchResponse,
   FsWriteFileParams,
   FsWriteFileResponse,
+  AccountSessionsListParams,
+  AccountSessionsResponse,
   GetAccountParams,
   GetAccountResponse,
   GetAccountRateLimitsResponse,
@@ -219,6 +221,7 @@ export interface CodexMethods {
   }
 
   'account/read': { params: GetAccountParams; result: GetAccountResponse }
+  'accountSession/list': { params: AccountSessionsListParams; result: AccountSessionsResponse }
   'account/login/start': { params: LoginAccountParams; result: LoginAccountResponse }
   'account/login/cancel': { params: CancelLoginAccountParams; result: CancelLoginAccountResponse }
   'account/logout': { params: undefined; result: LogoutAccountResponse }

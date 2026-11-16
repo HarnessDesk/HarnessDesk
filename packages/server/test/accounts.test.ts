@@ -656,6 +656,11 @@ const hostWithAccounts = async (options: {
       if (slot?.gateway) return null
       return accountIdentity(slot?.home ?? primary)
     },
+    ownsSlot: runtime => runtime.info.id === FAKE_RUNTIME_ID || slots.find(runtime.info.id) !== null,
+    identityOrder: info => {
+      const slot = slots.find(info.id)
+      return slot ? slots.of(slot.agent).indexOf(slot) : null
+    },
     prepare: async (id, resolved) => {
       const slot = slots.find(id)
       if (!slot?.gateway) return
@@ -2219,4 +2224,330 @@ test('readRoster and remove refuse symlinked home pointing outside accounts dire
   assert.equal(existsSync(internalSlot.home), false, 'symlink itself was removed')
   assert.equal(existsSync(validTarget), true, 'internal target directory survived')
   assert.equal(existsSync(join(validTarget, 'data.txt')), true)
+})
+
+test('a fileless managed-session duplicate is folded without signing out either owner', async t => {
+  const { host, stateDir, slots, accounts, created, own } = await hostWithAccounts()
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  const added = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  const slot = slots.find(added.runtime)!
+  const candidate = created.get(added.runtime)!
+  const snapshot = { key: 'codex-session-v1:fake-person-and-workspace', generation: 1 }
+  Object.assign(own, { accountIdentitySnapshot: async () => snapshot, accountIdentityGeneration: () => 1 })
+  Object.assign(candidate, { accountIdentitySnapshot: async () => snapshot, accountIdentityGeneration: () => 1 })
+  let logouts = 0, prepared = 0
+  own.logout = async () => { logouts++ }
+  candidate.logout = async () => { logouts++ }
+  accounts.prepareRemove = runtime => {
+    assert.equal(runtime, candidate)
+    prepared++
+    slots.forgetDurably(runtime.info.id, slot)
+    return () => {}
+  }
+  assert.equal(accountIdentity(slot.home), null)
+  const done = watchFold(host, () => slots.list().length === 0)
+  candidate.emit({ type: 'account/loginCompleted', runtime: added.runtime, loginId: 'fixture', success: true })
+  await done()
+  assert.equal(prepared, 1)
+  assert.equal(logouts, 0)
+  assert.equal(host.ownsRuntime(own), true)
+  assert.equal(host.ownsRuntime(candidate), false)
+  assert.ok(existsSync(slot.home), 'fileless credential home is preserved')
+})
+
+for (const race of ['peer replaced', 'target removed', 'stale peer reply'] as const) {
+  test(`a pending fileless identity cannot fold after ${race}`, async t => {
+    const { host, stateDir, slots, accounts, created, own } = await hostWithAccounts()
+    t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+    const added = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+    const slot = slots.find(added.runtime)!
+    const candidate = created.get(added.runtime)!
+    const snapshot = { key: 'codex-session-v1:fake-person-and-workspace', generation: 1 }
+    let peerGeneration = 1, release!: () => void, entered!: () => void, checked!: () => void
+    const waiting = new Promise<void>(resolve => { entered = resolve })
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const rechecked = new Promise<void>(resolve => { checked = resolve })
+    let afterReply = false, prepares = 0
+    Object.assign(candidate, { accountIdentitySnapshot: async () => snapshot, accountIdentityGeneration: () => 1 })
+    Object.assign(own, { accountIdentitySnapshot: async () => { entered(); await gate; return snapshot }, accountIdentityGeneration: () => peerGeneration })
+    const originalSlotOf = accounts.slotOf
+    accounts.slotOf = info => { const value = originalSlotOf(info); if (afterReply && info.id === own.info.id) checked(); return value }
+    accounts.prepareRemove = () => { prepares++; throw new Error('stale identity must not prepare removal') }
+    candidate.emit({ type: 'account/loginCompleted', runtime: added.runtime, loginId: 'fixture', success: true })
+    await Promise.race([waiting, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('identity request did not start')), 5000))])
+    let replacement: FakeRuntime | undefined
+    if (race === 'peer replaced') {
+      await host.unregister(own.info.id)
+      replacement = new FakeRuntime({ id: own.info.id, name: 'Replacement' })
+      host.register(replacement)
+    } else if (race === 'target removed') {
+      await host.unregister(candidate.info.id)
+      slots.remove(candidate.info.id, false, slot)
+    } else peerGeneration++
+    afterReply = true
+    release()
+    await Promise.race([rechecked, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('identity reply was not rechecked')), 5000))])
+    assert.equal(prepares, 0)
+    assert.ok(existsSync(slot.home), 'the credential home remains')
+    if (replacement) assert.equal(host.ownsRuntime(replacement), true)
+    if (race !== 'target removed') assert.equal(host.ownsRuntime(candidate), true)
+  })
+}
+
+for (const scenario of ['different workspace', 'different person', 'file identity conflict', 'unsupported peer'] as const) {
+  test(`fileless session identity does not fold ${scenario}`, async t => {
+    const { host, stateDir, primary, slots, accounts, created, own } = await hostWithAccounts()
+    t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+    const added = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+    const slot = slots.find(added.runtime)!, candidate = created.get(added.runtime)!
+    candidate.getAccount = () => own.getAccount() // Identical displayed account must never decide identity.
+    if (scenario === 'file identity conflict') {
+      await writeFile(join(primary, 'auth.json'), chatgptAuth('person-a', 'workspace'))
+      await writeFile(join(slot.home, 'auth.json'), chatgptAuth('person-b', 'workspace'))
+    }
+    const identity = { key: 'codex-session-v1:person-a:workspace-a', generation: 1 }
+    let seen!: () => void, prepared = 0
+    const read = new Promise<void>(resolve => { seen = resolve })
+    Object.assign(candidate, { accountIdentitySnapshot: async () => identity, accountIdentityGeneration: () => 1 })
+    Object.assign(own, { accountIdentitySnapshot: async () => {
+      seen()
+      if (scenario === 'unsupported peer') return null
+      return { key: scenario === 'different workspace' ? 'codex-session-v1:person-a:workspace-b'
+        : scenario === 'different person' ? 'codex-session-v1:person-b:workspace-a' : identity.key, generation: 1 }
+    }, accountIdentityGeneration: () => 1 })
+    accounts.prepareRemove = () => { prepared++; throw new Error('different identity cannot be folded') }
+    candidate.emit({ type: 'account/loginCompleted', runtime: added.runtime, loginId: 'fixture', success: true })
+    await Promise.race([read, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('peer identity was not read')), 5000))])
+    await new Promise<void>(resolve => setImmediate(resolve))
+    assert.equal(prepared, 0)
+    assert.equal(host.ownsRuntime(candidate), true)
+    assert.equal(host.ownsRuntime(own), true)
+    assert.equal(slots.find(added.runtime), slot)
+  })
+}
+
+test('session duplicate keeps the primary even when its runtime was registered after an older slot', async t => {
+  const { host, stateDir, slots, accounts, created, own } = await hostWithAccounts()
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  const older = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  const newest = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  const oldRuntime = created.get(older.runtime)!, candidate = created.get(newest.runtime)!
+  const newestSlot = slots.find(newest.runtime)!
+  await host.unregister(own.info.id)
+  const primary = new FakeRuntime({ id: own.info.id, name: 'Primary' })
+  host.register(primary)
+  const snapshot = { key: 'codex-session-v1:person-workspace', generation: 1 }
+  for (const runtime of [oldRuntime, candidate, primary]) Object.assign(runtime, {
+    accountIdentitySnapshot: async () => snapshot, accountIdentityGeneration: () => 1,
+  })
+  accounts.prepareRemove = runtime => {
+    assert.equal(runtime, candidate)
+    slots.forgetDurably(runtime.info.id, newestSlot)
+    return () => {}
+  }
+  let noticeRuntime: RuntimeId | null = null
+  host.addBroadcaster(notification => {
+    if (notification.method === 'event' && notification.params.event.type === 'notice') noticeRuntime = notification.params.runtime
+  })
+  const done = watchFold(host, () => slots.find(newest.runtime) === null)
+  candidate.emit({ type: 'account/loginCompleted', runtime: newest.runtime, loginId: 'fixture', success: true })
+  await done()
+  assert.equal(noticeRuntime, primary.info.id)
+  assert.equal(host.ownsRuntime(primary), true)
+  assert.equal(host.ownsRuntime(oldRuntime), true)
+})
+
+test('session duplicate keeps the oldest known slot when registry order changed', async t => {
+  const { host, stateDir, slots, accounts, created, own } = await hostWithAccounts()
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  const older = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  const middle = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  const newest = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  const oldRuntime = created.get(older.runtime)!, middleRuntime = created.get(middle.runtime)!, candidate = created.get(newest.runtime)!
+  const newestSlot = slots.find(newest.runtime)!
+  await host.unregister(oldRuntime.info.id)
+  const oldestAgain = new FakeRuntime({ id: oldRuntime.info.id, name: 'Oldest slot' })
+  host.register(oldestAgain)
+  const snapshot = { key: 'codex-session-v1:person-workspace', generation: 1 }
+  for (const runtime of [oldestAgain, middleRuntime, candidate]) Object.assign(runtime, {
+    accountIdentitySnapshot: async () => snapshot, accountIdentityGeneration: () => 1,
+  })
+  assert.equal('accountIdentitySnapshot' in own, false)
+  accounts.prepareRemove = runtime => {
+    assert.equal(runtime, candidate)
+    slots.forgetDurably(runtime.info.id, newestSlot)
+    return () => {}
+  }
+  let noticeRuntime: RuntimeId | null = null
+  host.addBroadcaster(notification => {
+    if (notification.method === 'event' && notification.params.event.type === 'notice') noticeRuntime = notification.params.runtime
+  })
+  const done = watchFold(host, () => slots.find(newest.runtime) === null)
+  candidate.emit({ type: 'account/loginCompleted', runtime: newest.runtime, loginId: 'fixture', success: true })
+  await done()
+  assert.equal(noticeRuntime, older.runtime)
+  assert.equal(host.ownsRuntime(oldestAgain), true)
+  assert.equal(host.ownsRuntime(middleRuntime), true)
+})
+
+test('a peer whose exact slot was durably forgotten cannot authorize a fileless fold', async t => {
+  const { host, stateDir, slots, accounts, created, own } = await hostWithAccounts()
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  const peerAdded = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  const targetAdded = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  const peer = created.get(peerAdded.runtime)!, target = created.get(targetAdded.runtime)!
+  const peerSlot = slots.find(peer.info.id)!, peerProjection = accounts.slotOf(peer.info)!
+  const snapshot = { key: 'codex-session-v1:person-workspace', generation: 1 }
+  let entered!: () => void, release!: () => void, prepared = 0, forgotten = false
+  const waiting = new Promise<void>(resolve => { entered = resolve })
+  const gate = new Promise<void>(resolve => { release = resolve })
+  Object.assign(peer, { accountIdentitySnapshot: async () => { entered(); await gate; return snapshot }, accountIdentityGeneration: () => 1 })
+  Object.assign(target, { accountIdentitySnapshot: async () => snapshot, accountIdentityGeneration: () => 1 })
+  assert.equal('accountIdentitySnapshot' in own, false)
+  const originalSlotOf = accounts.slotOf
+  accounts.slotOf = info => forgotten && info.id === peer.info.id ? peerProjection : originalSlotOf(info)
+  Object.assign(accounts, { ownsSlot: (runtime: AgentRuntime) => runtime === own || slots.find(runtime.info.id) !== null })
+  accounts.prepareRemove = () => { prepared++; throw new Error('forgotten peer cannot authorize a fold') }
+  target.emit({ type: 'account/loginCompleted', runtime: target.info.id, loginId: 'fixture', success: true })
+  await Promise.race([waiting, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('peer identity was not read')), 5000))])
+  slots.forgetDurably(peer.info.id, peerSlot)
+  forgotten = true
+  release()
+  await new Promise<void>(resolve => setImmediate(resolve))
+  assert.equal(prepared, 0)
+  assert.equal(host.ownsRuntime(target), true)
+  assert.equal(host.ownsRuntime(peer), true)
+  assert.ok(slots.find(target.info.id))
+})
+
+test('simultaneous fileless sign-ins serialize and keep the primary account', async t => {
+  const { host, stateDir, slots, accounts, created, own } = await hostWithAccounts()
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  const first = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  const second = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  const a = created.get(first.runtime)!, b = created.get(second.runtime)!
+  const snapshot = { key: 'codex-session-v1:person-workspace', generation: 1 }
+  let entered!: () => void, release!: () => void, signouts = 0
+  const waiting = new Promise<void>(resolve => { entered = resolve })
+  const gate = new Promise<void>(resolve => { release = resolve })
+  Object.assign(a, { accountIdentitySnapshot: async () => { entered(); await gate; return snapshot }, accountIdentityGeneration: () => 1 })
+  for (const runtime of [b, own]) Object.assign(runtime, { accountIdentitySnapshot: async () => snapshot, accountIdentityGeneration: () => 1 })
+  for (const runtime of [a, b, own]) runtime.logout = async () => { signouts++ }
+  accounts.prepareRemove = runtime => {
+    const slot = slots.find(runtime.info.id)
+    assert.ok(slot)
+    slots.forgetDurably(runtime.info.id, slot)
+    return () => {}
+  }
+  const done = watchFold(host, () => slots.list().length === 0, 2)
+  a.emit({ type: 'account/loginCompleted', runtime: a.info.id, loginId: 'a', success: true })
+  await Promise.race([waiting, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('first identity did not start')), 5000))])
+  b.emit({ type: 'account/loginCompleted', runtime: b.info.id, loginId: 'b', success: true })
+  release()
+  await done()
+  assert.equal(signouts, 0)
+  assert.equal(host.ownsRuntime(own), true)
+  assert.equal(host.ownsRuntime(a), false)
+  assert.equal(host.ownsRuntime(b), false)
+})
+
+test('primary sign-in folds every matching fileless extra without logging out', async t => {
+  const { host, stateDir, slots, accounts, created, own } = await hostWithAccounts()
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  const first = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  const second = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  const a = created.get(first.runtime)!, b = created.get(second.runtime)!
+  const snapshot = { key: 'codex-session-v1:person-workspace', generation: 1 }
+  let signouts = 0
+  for (const runtime of [a, b, own]) {
+    Object.assign(runtime, { accountIdentitySnapshot: async () => snapshot, accountIdentityGeneration: () => 1 })
+    runtime.logout = async () => { signouts++ }
+  }
+  accounts.prepareRemove = runtime => {
+    const slot = slots.find(runtime.info.id)
+    assert.ok(slot)
+    slots.forgetDurably(runtime.info.id, slot)
+    return () => {}
+  }
+  const done = watchFold(host, () => slots.list().length === 0, 2)
+  own.emit({ type: 'account/loginCompleted', runtime: own.info.id, loginId: 'fixture', success: true })
+  await done()
+  assert.equal(signouts, 0)
+  assert.equal(host.ownsRuntime(own), true)
+  assert.equal(host.ownsRuntime(a), false)
+  assert.equal(host.ownsRuntime(b), false)
+})
+
+test('session duplicate keeps the current account when it is the oldest matching slot', async t => {
+  const { host, stateDir, slots, accounts, created, own } = await hostWithAccounts()
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  const older = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  const newer = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  const source = created.get(older.runtime)!, peer = created.get(newer.runtime)!
+  const newerSlot = slots.find(newer.runtime)!
+  const snapshot = { key: 'codex-session-v1:person-workspace', generation: 1 }
+  for (const runtime of [source, peer]) Object.assign(runtime, {
+    accountIdentitySnapshot: async () => snapshot, accountIdentityGeneration: () => 1,
+  })
+  assert.equal('accountIdentitySnapshot' in own, false)
+  accounts.prepareRemove = runtime => {
+    assert.equal(runtime, peer)
+    slots.forgetDurably(runtime.info.id, newerSlot)
+    return () => {}
+  }
+  const done = watchFold(host, () => slots.find(newer.runtime) === null)
+  source.emit({ type: 'account/loginCompleted', runtime: source.info.id, loginId: 'fixture', success: true })
+  await done()
+  assert.equal(host.ownsRuntime(source), true)
+  assert.equal(host.ownsRuntime(peer), false)
+})
+
+test('a keeper account change while its label is read suppresses the duplicate notice', async t => {
+  const { host, stateDir, slots, accounts, created, own } = await hostWithAccounts()
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  const added = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  const slot = slots.find(added.runtime)!, candidate = created.get(added.runtime)!
+  const snapshot = { key: 'codex-session-v1:person-workspace', generation: 1 }
+  let generation = 1, enter!: () => void, release!: () => void
+  const labelStarted = new Promise<void>(resolve => { enter = resolve })
+  const gate = new Promise<void>(resolve => { release = resolve })
+  Object.assign(candidate, { accountIdentitySnapshot: async () => snapshot, accountIdentityGeneration: () => 1 })
+  Object.assign(own, { accountIdentitySnapshot: async () => snapshot, accountIdentityGeneration: () => generation })
+  const label = own.getAccount.bind(own)
+  own.getAccount = async () => { enter(); await gate; return label() }
+  accounts.prepareRemove = runtime => {
+    assert.equal(runtime, candidate)
+    slots.forgetDurably(runtime.info.id, slot)
+    return () => {}
+  }
+  const notices: string[] = []
+  host.addBroadcaster(notification => {
+    if (notification.method === 'event' && notification.params.event.type === 'notice') notices.push(notification.params.event.message)
+  })
+  candidate.emit({ type: 'account/loginCompleted', runtime: candidate.info.id, loginId: 'fixture', success: true })
+  await Promise.race([labelStarted, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('keeper label was not requested')), 5000))])
+  generation++
+  release()
+  await new Promise<void>(resolve => setImmediate(resolve))
+  assert.deepEqual(notices, [])
+  assert.equal(host.ownsRuntime(own), true)
+  assert.equal(slots.find(candidate.info.id), null)
+})
+
+test('a fresh session identity after an update does not fold a different workspace', async t => {
+  const { host, stateDir, slots, accounts, created, own } = await hostWithAccounts()
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  const added = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  const candidate = created.get(added.runtime)!
+  let generation = 1, peerRead!: () => void
+  const compared = new Promise<void>(resolve => { peerRead = resolve })
+  Object.assign(candidate, { accountIdentityGeneration: () => generation, accountIdentitySnapshot: async () => { generation = 2; return { key: 'fresh-other-workspace', generation } } })
+  Object.assign(own, { accountIdentityGeneration: () => 1, accountIdentitySnapshot: async () => { peerRead(); return { key: 'original-workspace', generation: 1 } } })
+  let removed = false
+  accounts.prepareRemove = () => { removed = true; throw new Error('different identities must not be removed') }
+  candidate.emit({ type: 'account/loginCompleted', runtime: added.runtime, loginId: 'fixture', success: true })
+  await Promise.race([compared, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('peer was not compared')), 5000))])
+  assert.equal(removed, false)
+  assert.ok(slots.find(added.runtime))
+  assert.ok(host.ownsRuntime(candidate))
 })

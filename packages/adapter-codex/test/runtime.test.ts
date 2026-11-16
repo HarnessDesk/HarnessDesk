@@ -1655,3 +1655,104 @@ for (const [mode, reason] of [['page-failure', 'Next server page unavailable.'],
     assert.deepEqual((await runtime.loadout(live.id, '/home/jane/project')).mcp, { reported: false, reason })
   })
 }
+
+test('managed account identity uses the active person and workspace without refreshing memberships', async t => {
+  const response = { activeSessionId: 'fixture-session', sessions: [{ sessionId: 'fixture-session', isActive: true,
+    userId: 'fixture-person', selectedWorkspaceAccountId: 'fixture-workspace', email: null,
+    displayName: null, imageUrl: null, lastUsedAt: 1, workspaces: [] }] }
+  const runtime = makeRuntime({ FAKE_CODEX_SESSION_IDENTITY: JSON.stringify(response) })
+  t.after(() => runtime.dispose())
+  assert.equal(await runtime.accountIdentitySnapshot(), null, 'must not start the idle provider')
+  await runtime.start()
+  const result = await runtime.accountIdentitySnapshot()
+  assert.ok(result)
+  assert.match(result.key, /^codex-session-v1:[0-9a-f]{64}$/)
+  assert.equal(result.generation, runtime.accountIdentityGeneration())
+  assert.ok(!result.key.includes('fixture-person'))
+})
+
+test('unsupported managed identity is unknown without failing the account', async t => {
+  const runtime = makeRuntime()
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  assert.equal(await runtime.accountIdentitySnapshot(), null)
+  assert.ok(await runtime.getAccount())
+})
+
+test('ambiguous active-session rows cannot identify a managed account', async t => {
+  const session = { sessionId: 'fixture-session', isActive: true, userId: 'fixture-person',
+    selectedWorkspaceAccountId: 'fixture-workspace', email: null, displayName: null, imageUrl: null, lastUsedAt: 1, workspaces: [] }
+  const runtime = makeRuntime({ FAKE_CODEX_SESSION_IDENTITY: JSON.stringify({ activeSessionId: session.sessionId,
+    sessions: [session, { ...session, isActive: false, userId: 'another-person' }] }) })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  assert.equal(await runtime.accountIdentitySnapshot(), null)
+})
+
+test('an account update before the identity reply invalidates its snapshot', async t => {
+  const response = { activeSessionId: 'fixture-session', sessions: [{ sessionId: 'fixture-session', isActive: true,
+    userId: 'fixture-person', selectedWorkspaceAccountId: 'fixture-workspace', email: null,
+    displayName: null, imageUrl: null, lastUsedAt: 1, workspaces: [] }] }
+  const runtime = makeRuntime({ FAKE_CODEX_SESSION_IDENTITY: JSON.stringify(response), FAKE_CODEX_IDENTITY_UPDATE_BEFORE_REPLY: '1' })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  assert.equal(await runtime.accountIdentitySnapshot(), null)
+})
+
+test('a non-boolean active flag is not trusted as an active session', async t => {
+  const session = { sessionId: 'fixture-session', isActive: 'yes', userId: 'fixture-person',
+    selectedWorkspaceAccountId: 'fixture-workspace', email: null, displayName: null, imageUrl: null, lastUsedAt: 1, workspaces: [] }
+  const runtime = makeRuntime({ FAKE_CODEX_SESSION_IDENTITY: JSON.stringify({ activeSessionId: session.sessionId, sessions: [session] }) })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  assert.equal(await runtime.accountIdentitySnapshot(), null)
+})
+
+test('an unanswered identity request becomes unknown and leaves the runtime usable', { timeout: 15_000 }, async t => {
+  const runtime = makeRuntime({ FAKE_CODEX_IDENTITY_NO_REPLY: '1' })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  assert.equal(await runtime.accountIdentitySnapshot(), null)
+  assert.ok(await runtime.getAccount())
+})
+
+test('an update makes a fresh identity read and discards the earlier identity', async t => {
+  const row = { sessionId: 'session', isActive: true, userId: 'first', selectedWorkspaceAccountId: 'workspace' }
+  const answer = (userId: string) => JSON.stringify({ activeSessionId: 'session', sessions: [{ ...row, userId }] })
+  const runtime = makeRuntime({ FAKE_CODEX_SESSION_IDENTITY: answer('first'), FAKE_CODEX_SESSION_IDENTITY_SECOND: answer('second'), FAKE_CODEX_IDENTITY_UPDATE_ONCE: '1' })
+  const expected = makeRuntime({ FAKE_CODEX_SESSION_IDENTITY: answer('second') })
+  t.after(async () => { await runtime.dispose(); await expected.dispose() })
+  await runtime.start(); await expected.start()
+  const actual = await runtime.accountIdentitySnapshot(), fresh = await expected.accountIdentitySnapshot()
+  assert.ok(actual); assert.ok(fresh); assert.equal(actual.key, fresh.key)
+  assert.equal(actual.generation, runtime.accountIdentityGeneration())
+})
+
+for (const stage of [1, 2] as const) for (const action of ['logout', 'login'] as const) {
+  test(`identity read ${stage} cannot cross ${action}`, async t => {
+    const dir = await mkdtemp(join(tmpdir(), 'hd-identity-action-')), hold = join(dir, 'hold')
+    await writeFile(hold, '')
+    const answer = JSON.stringify({ activeSessionId: 'session', sessions: [{ sessionId: 'session', isActive: true, userId: 'person', selectedWorkspaceAccountId: 'workspace' }] })
+    const runtime = makeRuntime({ FAKE_CODEX_SESSION_IDENTITY: answer, FAKE_CODEX_IDENTITY_UPDATE_ONCE: '1', FAKE_CODEX_IDENTITY_HOLD: hold, FAKE_CODEX_IDENTITY_HOLD_AT: String(stage) })
+    t.after(async () => { await rm(hold, { force: true }); await runtime.dispose(); await rm(dir, { recursive: true, force: true }) })
+    await runtime.start(); const tape = recorder(runtime), pending = runtime.accountIdentitySnapshot()
+    await tape.until(events => noticeMessages(events).some(message => message.includes('IDENTITY_HELD')))
+    if (action === 'logout') await runtime.logout(); else await runtime.login('chatgptDeviceCode')
+    await rm(hold)
+    assert.equal(await pending, null)
+  })
+}
+
+for (const stage of [1, 2] as const) {
+  test(`identity read ${stage} cannot cross another login completion`, async t => {
+    const dir = await mkdtemp(join(tmpdir(), 'hd-identity-completion-')), hold = join(dir, 'hold')
+    await writeFile(hold, '')
+    const answer = JSON.stringify({ activeSessionId: 'session', sessions: [{ sessionId: 'session', isActive: true, userId: 'person', selectedWorkspaceAccountId: 'workspace' }] })
+    const runtime = makeRuntime({ FAKE_CODEX_SESSION_IDENTITY: answer, FAKE_CODEX_IDENTITY_UPDATE_ONCE: '1', FAKE_CODEX_IDENTITY_HOLD: hold, FAKE_CODEX_IDENTITY_HOLD_AT: String(stage), FAKE_CODEX_IDENTITY_COMPLETE_WHILE_HELD: '1' })
+    t.after(async () => { await rm(hold, { force: true }); await runtime.dispose(); await rm(dir, { recursive: true, force: true }) })
+    await runtime.start(); const tape = recorder(runtime), pending = runtime.accountIdentitySnapshot()
+    await tape.until(events => noticeMessages(events).some(message => message.includes('IDENTITY_HELD')))
+    await rm(hold)
+    assert.equal(await pending, null)
+  })
+}
