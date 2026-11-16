@@ -1,0 +1,54 @@
+{
+  "head": "a6c73eb948a96f323853c71adcb24c7b5dacc03d",
+  "base": "09fd003ce82a4aee1ac003a24b9f50e6aa4e44ac",
+  "images": [
+    {
+      "file": "baseline-overview.png",
+      "sha256": "83bc5744bd3749bb69c016360d31da456139a45755db766ff4221f95551689ef",
+      "dimensions": [
+        1280,
+        1000
+      ]
+    },
+    {
+      "file": "candidate-overview.png",
+      "sha256": "3e08557955dd25e5e7c150d116788aaa9465d53758c75e289480926b5a4985fe",
+      "dimensions": [
+        1280,
+        1000
+      ]
+    },
+    {
+      "file": "baseline-detail.png",
+      "sha256": "761997866a5e4e958b4cdb2a325395edd9eb66395ed65f877b8c37fb255eae1d",
+      "dimensions": [
+        1280,
+        1000
+      ]
+    },
+    {
+      "file": "candidate-detail.png",
+      "sha256": "0b493bd8a66a569e82b134a177291e5dbb67557a81a3ee2e8233a9f6f4a52857",
+      "dimensions": [
+        1280,
+        1000
+      ]
+    },
+    {
+      "file": "baseline-detail-640.png",
+      "sha256": "d1456231e1c342e1d0e231a5b0c9dca9a5e15dab715073ae8eef01726340dbbc",
+      "dimensions": [
+        640,
+        1000
+      ]
+    },
+    {
+      "file": "candidate-detail-640.png",
+      "sha256": "2d2d0a7389c85daad0462e17de64cccee43885ab5f7b715f83b66af4b2142797",
+      "dimensions": [
+        640,
+        1000
+      ]
+    }
+  ]
+}
