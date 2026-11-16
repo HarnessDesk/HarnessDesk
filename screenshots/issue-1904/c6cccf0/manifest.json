@@ -1,0 +1,28 @@
+{
+  "sourceBase": "6f055d9281fed3c9c52990edc4f7b04f5084ae26",
+  "candidate": "c6cccf0e53232acd0d1c89f68fa86f68eebbf33e",
+  "scenario": "New Team preview, picker \u2192 All Flows \u2192 Mechanical contest",
+  "viewport": [
+    1280,
+    1100
+  ],
+  "images": [
+    {
+      "name": "before.png",
+      "sha256": "3c43043b34dce7fb8b5e93cfad9edce5b492b9a5866c6ecb2b3f5aaef0a317d1",
+      "dimensions": [
+        1280,
+        1100
+      ]
+    },
+    {
+      "name": "after.png",
+      "sha256": "ebb93a89b429662e4dad48ee2b5a1afd85aea560abef825f91822b73c6fe1d06",
+      "dimensions": [
+        1280,
+        1100
+      ]
+    }
+  ],
+  "verification": "Actual static Chromium preview; synthetic data; COLLECT/textReasons privacy checks passed. Production app does not import these preview fixtures."
+}
