@@ -441,9 +441,15 @@ export class LeadContextStore {
   }
   /** The whole conversation as one record, written beside the file and moved over it. */
   async #snapshot(name: string, epoch = this.#epoch, turns = this.#turns): Promise<readonly MessagesTurn[]> {
-    turns = this.#bounded(leadMergedTurns(turns))
+    const known = this.#known
+    let record: RecordLine
+    try {
+      turns = this.#bounded(leadMergedTurns(turns))
+      record = { type: 'record', base: 0, extend: [], turns, measured: null }
+      this.#parseRecord({ ...record })
+    } catch (error) { this.#known = known; throw error }
     if (name === FILE) this.#turns = turns
-    const text = `${JSON.stringify(this.#header(epoch))}\n${JSON.stringify({ type: 'record', base: 0, extend: [], turns, measured: null } satisfies RecordLine)}\n`
+    const text = `${JSON.stringify(this.#header(epoch))}\n${JSON.stringify(record)}\n`
     const temporary = this.#path(`${name}.tmp`)
     const handle = await open(temporary, 'w', 0o600)
     try { await handle.writeFile(text); await handle.sync() } finally { await handle.close() }

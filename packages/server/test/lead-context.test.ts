@@ -1852,7 +1852,9 @@ test('#2126: record refuses a 65th joined block without changing valid context',
   const store = await LeadContextStore.open(options)
   await store.record({ epoch: store.epoch, base: 0, extend: [], turns: [{ role: 'user', content: Array.from({ length: 64 }, (_, i) => text(`block ${i}`)) }], usage: null })
   const path = join(home, 'context.jsonl'), before = await readFile(path, 'utf8'), turns = structuredClone(store.turns)
-  await assert.rejects(store.record({ epoch: store.epoch, base: 1, extend: [text('one too many')], turns: [], usage: null }), /lead-messages-invalid/)
+  const tokens = store.tokens()
+  await assert.rejects(store.record({ epoch: store.epoch, base: 1, extend: [text('one too many')], turns: [], usage: { input: 9000, cacheRead: 100, cacheWrite: 100 } }), /lead-messages-invalid/)
+  assert.equal(store.tokens(), tokens, 'refused usage does not alter overhead')
   assert.deepEqual(store.turns, turns)
   assert.equal(await readFile(path, 'utf8'), before)
   const reopened = await LeadContextStore.open(options)
@@ -1888,4 +1890,41 @@ test('#2126: a pending tool continuation remains representable', async t => {
   const reopened = await LeadContextStore.open(options)
   assert.deepEqual(reopened.turns, store.turns)
   assert.deepEqual(lead.parseLeadContextTurns(reopened.turns).pending, ['call-1'])
+  const otherHome = await directory(t)
+  const completeOptions = { ...options, directory: otherHome }
+  const complete = await LeadContextStore.open(completeOptions)
+  await complete.record({ epoch: complete.epoch, base: 0, extend: [], usage: null, turns: [
+    { role: 'user', content: [text('Read the desk.')] },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'call-2', name: 'chat_list', input: {} }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call-2', content: 'Two chats.', is_error: false }] },
+  ] })
+  const completedReopen = await LeadContextStore.open(completeOptions)
+  assert.deepEqual(completedReopen.turns, complete.turns)
+  assert.deepEqual(lead.parseLeadContextTurns(completedReopen.turns).pending, [])
+})
+
+test('#2126: an unrepresentable journal seed cannot write or replace a context snapshot', async t => {
+  for (const existing of [false, true]) {
+    const home = await directory(t), { journal } = await journalOver()
+    const options = { directory: home, journal, model: MODEL, now: () => 1000, nextId: () => 'seed-boundary', window: 200_000 }
+    const path = join(home, 'context.jsonl')
+    let before: string | null = null
+    if (existing) {
+      await LeadContextStore.open(options)
+      const lines = (await readFile(path, 'utf8')).split('\n')
+      lines[0] = JSON.stringify({ ...JSON.parse(lines[0]!), epoch: 99 })
+      before = lines.join('\n')
+      await writeFile(path, before)
+    }
+    for (let n = 0; n < 20; n++) {
+      await journal.appendMessage(`wake-${n}`, `Wake ${n}`, 'schedule', undefined, { kind: 'reminder', reminder: `remind-${n}`, text: `Reminder ${n}` })
+      await journal.appendReply(`Reminder ${n}`, undefined, undefined, undefined, `remind-${n}`)
+    }
+    const ids: string[] = []
+    for (let n = 0; n < 90; n++) ids.push((await journal.appendMessage(`person-${n}`, `Person ${n}`, 'person')).messageId)
+    await assert.rejects(LeadContextStore.open(options), /lead-messages-invalid/)
+    if (before === null) await assert.rejects(readFile(path, 'utf8'), { code: 'ENOENT' })
+    else assert.equal(await readFile(path, 'utf8'), before)
+    assert.ok(ids.every(id => journal.state.messages.some(message => message.id === id)))
+  }
 })
