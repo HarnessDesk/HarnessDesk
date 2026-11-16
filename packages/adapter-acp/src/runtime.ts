@@ -985,7 +985,7 @@ export class AcpRuntime implements AgentRuntime {
     owner.track = track
     this.#cancelReadRest(id); this.#transientReads.delete(id)
     const result = this.#resumeSession(id, options, track)
-    return { result, retire: async state => {
+    return { result, ownsHandle: handle => this.#resumeOwners.get(id) === owner && owner.track === track && track.replay === handle && this.#sessions.get(id) === handle, retire: async state => {
       track.abandoned = true
       track.published = state.published
       if (state.published) this.#resumeEventFence.forget(id, token)
@@ -1842,7 +1842,9 @@ export class AcpRuntime implements AgentRuntime {
       }
     }
     this.#config.logger?.info?.('restarting agent', { agent: this.#config.id, why })
+    const owners = [...this.#resumeOwners.entries()]
     await this.#stopConnections()
+    this.#forgetResumeOwners(undefined, owners)
     this.#sessions.clear()
     this.#probe = null
     this.#probeId = null
@@ -1884,7 +1886,9 @@ export class AcpRuntime implements AgentRuntime {
       return 'busy'
     }
     this.#config.logger?.info?.('restarting agent', { agent: this.#config.id, why: 'a secret changed' })
+    const owners = [...this.#resumeOwners.entries()]
     await this.#stopConnections()
+    this.#forgetResumeOwners(undefined, owners)
     this.#sessions.clear()
     this.#probe = null
     this.#probeId = null

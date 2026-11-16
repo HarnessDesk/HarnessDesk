@@ -2302,6 +2302,7 @@ const storedAgent = async (
   stored: (dir: string) => Readonly<Record<string, StoredConversation>>,
   env: Readonly<Record<string, string>> = {},
   sharedSessionProcess = false,
+  withSecret = false,
 ): Promise<{ runtime: AcpRuntime; opened: () => Opened[] }> => {
   const { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
@@ -2328,6 +2329,7 @@ const storedAgent = async (
     args: [FAKE],
     env: { FAKE_ACP_STORE: store, FAKE_ACP_OPENS: opens, ...env },
     ...(sharedSessionProcess ? { sharedSessionProcess: true } : {}),
+    ...(withSecret ? { secrets: [{ env: 'HD_FAKE_ONLY_KEY', label: 'Fake key', optional: true }] } : {}),
   })
   // The agent goes before the folder it writes in.
   t.after(async () => {
@@ -3480,4 +3482,43 @@ test('ACP idle-stop death notifications cannot retire a replacement owner create
   assert.notEqual(replacement, owner)
   assert.deepEqual(deaths, [owner])
   assert.equal(runtime.resumeOwner(id), replacement)
+})
+
+test('catalog restart retires the exact ACP owner and permits a replacement reopen', async t => {
+  const { runtime } = await storedAgent(t, root => ({ target: { cwd: root } }), {}, true)
+  const id = sessionId('target'), owner = runtime.resumeOwner(id), deaths: object[] = []
+  let replacement: object | undefined
+  runtime.onResumeOwnerDied(value => { deaths.push(value); if (value === owner) replacement = runtime.resumeOwner(id) })
+  assert.deepEqual(await runtime.refreshCatalog(), { refreshed: true })
+  assert.deepEqual(deaths, [owner])
+  assert.ok(replacement)
+  assert.equal(runtime.resumeOwner(id), replacement)
+  const attempt = runtime.beginResumeAttempt(id, {}, replacement)
+  const handle = await attempt.result
+  assert.equal(attempt.ownsHandle?.(handle), true)
+})
+
+test('ACP resume ownership excludes a cached handle', async t => {
+  const { runtime } = await storedAgent(t, root => ({ target: { cwd: root } }), {}, true)
+  const id = sessionId('target')
+  const first = await runtime.resumeSession(id)
+  const attempt = runtime.beginResumeAttempt(id, {}, runtime.resumeOwner(id))
+  const cached = await attempt.result
+  assert.equal(cached, first)
+  assert.equal(attempt.ownsHandle?.(cached), false)
+})
+
+
+test('secret reload retires the exact ACP owner and preserves a replacement', async t => {
+  const { runtime } = await storedAgent(t, root => ({ target: { cwd: root } }), {}, true, true)
+  const id = sessionId('target'), owner = runtime.resumeOwner(id), deaths: object[] = []
+  let replacement: object | undefined
+  runtime.onResumeOwnerDied(value => { deaths.push(value); if (value === owner) replacement = runtime.resumeOwner(id) })
+  assert.equal(await runtime.reloadSecrets(), 'restarted')
+  assert.deepEqual(deaths, [owner])
+  assert.ok(replacement)
+  assert.equal(runtime.resumeOwner(id), replacement)
+  const attempt = runtime.beginResumeAttempt(id, {}, replacement)
+  const handle = await attempt.result
+  assert.equal(attempt.ownsHandle?.(handle), true)
 })
