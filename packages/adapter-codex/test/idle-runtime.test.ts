@@ -807,3 +807,41 @@ test('Codex idle-stop snapshot failure does not report owner death', async t => 
   assert.equal(d.runtime.resumeOwner(id), owner)
   assert.equal(d.runtime.health().state, 'ready')
 })
+
+test('shared Codex resume retires without taking ownership or suppressing its live events', async t => {
+  const d = await rig(t, 'hold', released), live = await d.runtime.createSession({ cwd: d.dir })
+  const owner = d.runtime.resumeOwner(live.id), attempt = d.runtime.beginResumeAttempt(live.id, { cwd: d.dir }, owner)
+  assert.equal(await attempt.result, live)
+  let retired = false
+  void attempt.retire({ published: false }).then(() => { retired = true })
+  await new Promise<void>(resolve => setImmediate(resolve))
+  assert.equal(retired, true, 'a shared, effect-free attempt retires without process death')
+  assert.equal(attempt.ownsHandle?.(live), false)
+  await live.send([{ type: 'text', text: 'still live' }])
+  await until(() => d.events.some(event => event.type === 'turn/started' && event.sessionId === live.id))
+  assert.equal(d.runtime.session(live.id), live)
+})
+
+test('fresh Codex resume attests only the exact new handle', async t => {
+  const d = await rig(t, 'hold', released), old = await d.runtime.createSession({ cwd: d.dir })
+  const sibling = await d.runtime.createSession({ cwd: d.dir })
+  await old.close()
+  const owner = d.runtime.resumeOwner(old.id), attempt = d.runtime.beginResumeAttempt(old.id, { cwd: d.dir }, owner)
+  const live = await attempt.result
+  assert.equal(attempt.ownsHandle?.(live), true)
+  assert.equal(attempt.ownsHandle?.(sibling), false)
+  assert.equal(attempt.ownsHandle?.(old), false)
+})
+
+test('Codex retirement before any peer effect leaves a shared handle live', async t => {
+  const d = await rig(t, 'hold', released), live = await d.runtime.createSession({ cwd: d.dir })
+  const owner = d.runtime.resumeOwner(live.id), attempt = d.runtime.beginResumeAttempt(live.id, { cwd: d.dir }, owner)
+  const rejected = assert.rejects(attempt.result, /given up/)
+  await attempt.retire({ published: false })
+  await rejected
+  const next = d.runtime.beginResumeAttempt(live.id, { cwd: d.dir }, owner)
+  assert.equal(await next.result, live)
+  assert.equal(next.ownsHandle?.(live), false)
+  await live.send([{ type: 'text', text: 'still live' }])
+  await until(() => d.events.some(event => event.type === 'turn/started' && event.sessionId === live.id))
+})

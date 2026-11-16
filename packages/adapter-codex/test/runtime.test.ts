@@ -1296,8 +1296,18 @@ test('checkInstallation moves an idle runtime onto an upgraded binary, and waits
     await session.interrupt().catch(() => undefined)
     await until((seen) => seen.some((event) => event.type === 'turn/completed'))
 
+    // The old owner is retired only when the old process has actually stopped.
+    const owner = runtime.resumeOwner(session.id), deaths: object[] = []
+    let replacement: object | undefined
+    runtime.onResumeOwnerDied(value => {
+      deaths.push(value)
+      if (value === owner) replacement = runtime.resumeOwner(session.id)
+    })
     // Idle: the runtime restarts onto the new build and is ready again.
     const moved = await runtime.checkInstallation()
+    assert.ok(deaths.includes(owner))
+    assert.notEqual(replacement, owner)
+    assert.equal(runtime.resumeOwner(session.id), replacement, "reentrant replacement stays alive")
     assert.deepEqual(moved, { changed: true, from: 'codex-cli 0.149.0', to: 'codex-cli 0.200.0', restarted: true })
     assert.equal(runtime.info.version, 'codex-cli 0.200.0')
     assert.equal(runtime.health().state, 'ready')

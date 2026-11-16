@@ -268,7 +268,8 @@ export const installCommandFor = (path: string | null | undefined): string => {
   return /node_modules\/@openai\/codex\//.test(real) ? 'npm i -g @openai/codex' : 'brew install codex'
 }
 
-type ResumeOwner = { readonly token: object; readonly death: Promise<void>; readonly died: () => void; track?: { abandoned: boolean; published: boolean } }
+type ResumeTrack = { abandoned: boolean; published: boolean; effect: boolean; handle?: AgentSession }
+type ResumeOwner = { readonly token: object; readonly death: Promise<void>; readonly died: () => void; track?: ResumeTrack }
 
 export class CodexRuntime implements AgentRuntime {
   readonly #server: CodexAppServer
@@ -305,9 +306,20 @@ export class CodexRuntime implements AgentRuntime {
   beginResumeAttempt(id: SessionId, options: Partial<SessionOptions>, token: object): import('@harnessdesk/protocol').RuntimeResumeAttempt {
     const owner = this.#resumeOwners.get(id)
     if (!owner || owner.token !== token || owner.track?.abandoned) throw new Error('wrong or retired resume owner')
-    const track = { abandoned: false, published: false }; owner.track = track
+    const track: ResumeTrack = { abandoned: false, published: false, effect: false }; owner.track = track
     const result = this.#opened(() => this.#resumeSession(id, options, track))
-    return { result, retire: async state => { track.abandoned = true; track.published = state.published; await owner.death } }
+    return {
+      result,
+      ownsHandle: handle => track.handle === handle && this.#resumeOwners.get(id) === owner && this.#sessions.get(id) === handle,
+      retire: async state => {
+        track.abandoned = true; track.published = state.published
+        if (!track.effect) {
+          if (owner.track === track) delete owner.track
+          return
+        }
+        await owner.death
+      },
+    }
   }
   #forgetResumeOwners(owners = [...this.#resumeOwners.entries()]): void {
     for (const [id, owner] of owners) {
@@ -1419,7 +1431,7 @@ export class CodexRuntime implements AgentRuntime {
     return this.#opened(() => this.#resumeSession(id, options))
   }
 
-  async #resumeSession(id: SessionId, options: Partial<SessionOptions>, track?: { abandoned: boolean; published: boolean }): Promise<AgentSession> {
+  async #resumeSession(id: SessionId, options: Partial<SessionOptions>, track?: ResumeTrack): Promise<AgentSession> {
     const check = () => { if (track?.abandoned || !track && this.#resumeOwners.get(id)?.track?.abandoned) throw new Error('The reopen was given up.') }
     check()
     await this.#closingSessions.get(id)
@@ -1452,6 +1464,7 @@ export class CodexRuntime implements AgentRuntime {
     check()
     let response: CodexProtocol.v2.ThreadResumeResponse
     try {
+      if (track) track.effect = true
       response = await this.#resumeThread({
         threadId: id,
         ...(options.cwd ? { cwd: options.cwd } : {}),
@@ -1676,7 +1689,7 @@ export class CodexRuntime implements AgentRuntime {
       readonly route?: ResolvedModelRoute | null
       readonly environment?: Readonly<Record<string, string>> | undefined
       readonly runtimeServers?: readonly string[] | undefined
-      readonly resumeTrack?: { abandoned: boolean; published: boolean }
+      readonly resumeTrack?: ResumeTrack
     } = {},
   ): Promise<CodexSession> {
     if (opened.resumeTrack?.abandoned) throw new Error('The reopen was given up.')
@@ -1738,6 +1751,7 @@ export class CodexRuntime implements AgentRuntime {
     if (opened.resumeTrack?.abandoned) throw new Error('The reopen was given up.')
     if (opened.runtimeServers !== undefined) this.#runtimeServers.set(thread.id, [...opened.runtimeServers])
     if (opened.environment) this.#environments.set(thread.id, laneEnvironmentOf(opened.environment))
+    if (opened.resumeTrack) opened.resumeTrack.handle = session
     this.#sessions.set(thread.id, session)
     this.#ownStatus.delete(thread.id)
     this.#outlasting.delete(thread.id)
@@ -1815,7 +1829,9 @@ export class CodexRuntime implements AgentRuntime {
       to: found.version,
       path: found.path,
     })
+    const owners = [...this.#resumeOwners.entries()]
     await this.#server.stop()
+    this.#forgetResumeOwners(owners)
     // `stop` reports `stopped`, which the state hook treats as any other
     // exit: sessions, watches and the catalogue are dropped there.
     await this.#spawnServer()
