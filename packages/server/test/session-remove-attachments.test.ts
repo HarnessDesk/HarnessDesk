@@ -276,11 +276,15 @@ test('receipt failure preserves the same handle independently admitted while reo
   } finally { release(); await rejected }
 })
 
-test('receipt failure preserves a handle when the adapter cannot attest ownership', async t => {
-  const { desk, session, params } = await seated(t)
+for (const ownership of ['unknown', 'shared'] as const) test(`receipt failure preserves a handle when the adapter ${ownership === 'unknown' ? 'cannot attest ownership' : 'reports shared ownership'}`, async t => {
+  const { desk, session, params, seat } = await seated(t)
   await desk.client.call('session/remove', { ...params, removed: true })
   await desk.client.call('session/remove', { ...params, removed: false })
-  const failure = t.mock.method(desk.harness.host.attachmentsPlane, 'record', async () => { throw new Error('receipt refusal') })
+  const recordReceipt = desk.harness.host.attachmentsPlane.record.bind(desk.harness.host.attachmentsPlane)
+  const failure = t.mock.method(desk.harness.host.attachmentsPlane, 'record', async (...args: Parameters<typeof recordReceipt>) => {
+    if (args[0].id === seat) throw new Error('receipt refusal')
+    return recordReceipt(...args)
+  })
   let closes = 0
   const resume = desk.runtime.resumeSession.bind(desk.runtime)
   desk.runtime.resumeSession = async (...args: Parameters<typeof resume>) => {
@@ -291,7 +295,7 @@ test('receipt failure preserves a handle when the adapter cannot attest ownershi
   const begin = desk.runtime.beginResumeAttempt.bind(desk.runtime)
   desk.runtime.beginResumeAttempt = (...args: Parameters<typeof begin>) => {
     const attempt = begin(...args)
-    return { result: attempt.result, retire: attempt.retire }
+    return { result: attempt.result, retire: attempt.retire, ...(ownership === 'shared' ? { ownsHandle: () => false } : {}) }
   }
   // The Host's exact-owner subscription is released only after its retirement
   // work has settled. Owner death itself is synchronous but does not await it.
@@ -302,7 +306,23 @@ test('receipt failure preserves a handle when the adapter cannot attest ownershi
     const unsubscribe = onDeath(listener)
     return () => { unsubscribe(); retirementSettled() }
   })
+  const kernel = new ExtensionKernel(), effects: string[] = []
+  t.after(() => kernel.dispose())
+  await kernel.load({ manifest: { id: 'r4-fake', name: 'R4 fake' }, plugin: { name: 'r4-fake', inject: ['tools'], apply(ctx: { tools: { register(spec: unknown): void } }) { ctx.tools.register({ name: 'probe', description: 'probe', inputSchema: { type: 'object', properties: {} }, execute: () => { effects.push('called'); return 'called' } }) } } as never })
+  const gated = new GatedRegistry(kernel, () => desk.harness.host.ceilingGate)
+  const tool = kernel.list('tool').find(one => one.name === 'probe')!
+  const mcp = attachmentGateway(() => desk.harness.host, () => ({ runtime: String(session.runtime), sessionId: String(session.id) }))
   await assert.rejects(desk.harness.host.call('session/resume', params), /receipt refusal/)
+  assert.equal(desk.harness.host.registry.get(session.runtime, session.id)?.live, null)
+  assert.equal((await gated.invokeTool(tool.id, {}, params)).ok, false, 'withheld owner cannot invoke a plugin')
+  assert.equal((await mcp.mcpCall('token', 'reviewer-tools', 'flag_issue', {})).ok, false, 'withheld owner cannot invoke MCP')
+  assert.deepEqual(await mcp.mcpList('token'), [], 'withheld owner cannot start an MCP listing')
+  assert.deepEqual(effects, [])
+  const sibling = await desk.client.call('agent/seat', { id: 'reviewer', cwd: desk.work, project: desk.work, permission: 'merge' }) as Session
+  const siblingScope = { runtime: sibling.runtime, sessionId: sibling.id }
+  assert.equal((await gated.invokeTool(tool.id, {}, siblingScope)).ok, true, 'an independently valid session stays usable during quarantine')
+  const siblingMcp = attachmentGateway(() => desk.harness.host, () => ({ runtime: String(sibling.runtime), sessionId: String(sibling.id) }))
+  assert.equal((await siblingMcp.mcpCall('token', 'reviewer-tools', 'flag_issue', {})).ok, true, 'the valid sibling retains its approved server')
   assert.equal(closes, 0, 'unknown ownership does not authorize closing')
   assert.ok(desk.runtime.sessions.has(session.id))
   const held = desk.harness.host.registry.get(session.runtime, session.id)!
@@ -325,6 +345,9 @@ test('receipt failure preserves a handle when the adapter cannot attest ownershi
   failure.mock.restore()
   await desk.harness.host.call('session/resume', params)
   assert.equal(desk.runtime.resumes, resumes + 1, 'a new generation can reopen after proven death')
+  assert.equal((await gated.invokeTool(tool.id, {}, params)).ok, true, 'the retired owner does not block the valid replacement')
+  assert.equal((await mcp.mcpCall('token', 'reviewer-tools', 'flag_issue', {})).ok, true, 'the replacement can reach its approved server')
+  assert.deepEqual(effects, ['called', 'called'])
   desk.runtime.emit({ type: 'item/completed', sessionId: session.id, turnId: turn.id, item: { id: itemId('new-owner-output'), type: 'assistantMessage', text: 'new owner output' } })
   assert.ok(JSON.stringify(desk.harness.host.registry.get(session.runtime, session.id)?.session).includes('new owner output'), 'new owner events are accepted')
 })
