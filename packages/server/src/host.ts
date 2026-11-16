@@ -12224,9 +12224,9 @@ export class Host {
         const recheckedPeer = accounts.slotOf(peer.info)
         if (!recheckedPeer || !otherIdentity || peer.accountIdentityGeneration() !== otherIdentity.generation || otherIdentity.key !== identity.key) continue
         const peerGeneration = otherIdentity.generation
-        const leftFile = accounts.identityOf?.(runtime.info) ?? null
-        const rightFile = accounts.identityOf?.(peer.info) ?? null
-        if (leftFile !== null && rightFile !== null && leftFile !== rightFile) continue
+        const leftIdentity = accounts.identityOf?.(runtime.info) ?? null
+        const rightIdentity = accounts.identityOf?.(peer.info) ?? null
+        if (leftIdentity !== null && rightIdentity !== null && leftIdentity !== rightIdentity) continue
         const nowMine = accounts.slotOf(runtime.info), nowPeer = accounts.slotOf(peer.info)
         const mineOwner = this.#runtimeSources.get(String(runtime.info.id)), peerOwner = this.#runtimeSources.get(String(peer.info.id))
         if (!mineOwner || !peerOwner || !accounts.ownsSlot(mineOwner) || !accounts.ownsSlot(peerOwner) || !this.ownsRuntime(runtime) || !this.ownsRuntime(peer) ||
