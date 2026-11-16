@@ -812,3 +812,35 @@ test('failed first twenty linked PR reads rotate to an eligible twenty-first wit
   const recovered = await source(forge, at + 3 * MINUTE).poll(PROJECT, second.next, never, { mentionPulls: linked })
   assert.ok(recovered.facts.some(one => one.subject === '1'), 'failed PR 1 remains eligible after recovery')
 })
+
+for (const kind of ['review', 'inline'] as const) test(`a late earlier linked baseline recovers an older ${kind} without replaying newer covered reviews`, async () => {
+  const forge = new FakeForge(), old = ARMED + MINUTE, newer = ARMED + 3 * MINUTE
+  forge.pulls.push({ number: 5, head: sha('c'), state: 'open', created: ARMED, updated: newer,
+    reviews: [
+      { id: 101, commit_id: sha('c'), body: kind === 'review' ? '@dex older' : '', state: 'COMMENTED', submitted_at: iso(old), user: { id: 7, login: 'jane-doe' } },
+      { id: 102, commit_id: sha('c'), body: '@dex newer', state: 'COMMENTED', submitted_at: iso(newer), user: { id: 7, login: 'jane-doe' } },
+    ], reviewComments: kind === 'inline' ? [{ id: 201, review: 101, body: '@dex drafted earlier', created: ARMED + 30_000, updated: ARMED + 30_000, user: { id: 7, login: 'jane-doe' } }] : [] })
+  const initial = await source(forge).inventory(PROJECT, 'mention', REPO, never)
+  const first = await source(forge, ARMED + 10 * MINUTE).poll(PROJECT, initial, never, { mentionPulls: [{ number: 5, since: ARMED + 2 * MINUTE }] })
+  assert.deepEqual(first.facts.map(one => one.url?.split('#')[1]), ['pullrequestreview-102'])
+  const persisted = JSON.parse(JSON.stringify(first.next)) as SourceCursor
+  assert.equal(persisted.mentionReviews?.pulls['5']?.since, ARMED + 2 * MINUTE)
+  const beforeFailure = JSON.stringify(persisted)
+  forge.fail = path => path.includes('/pulls/5/reviews/101/comments?') ? { exitCode: 1, stderr: 'synthetic page failure' } : null
+  await assert.rejects(source(forge, ARMED + 20 * MINUTE).poll(PROJECT, persisted, never, { mentionPulls: [{ number: 5, since: ARMED }] }))
+  assert.equal(JSON.stringify(persisted), beforeFailure, 'failed pages do not mutate committed coverage')
+  forge.fail = null
+  const after = await source(forge, ARMED + 20 * MINUTE).poll(PROJECT, persisted, never, { mentionPulls: [{ number: 5, since: ARMED }] })
+  assert.equal(after.next.mentionReviews?.pulls['5']?.since, ARMED)
+  assert.ok(after.next.mentionReviews!.pulls['5']!.through >= persisted.mentionReviews!.pulls['5']!.through)
+  assert.deepEqual(after.facts.filter(one => one.body?.includes('older') || one.body?.includes('drafted')).map(one => one.url?.split('#')[1]),
+    [kind === 'review' ? 'pullrequestreview-101' : 'discussion_r201'])
+  assert.ok(!after.facts.some(one => one.url?.endsWith('#pullrequestreview-102')), 'already covered newer review is not replayed')
+  const repeat = await source(forge, ARMED + 21 * MINUTE).poll(PROJECT, after.next, never, { mentionPulls: [{ number: 5, since: ARMED }] })
+  assert.deepEqual(repeat.facts, [])
+  const legacy = JSON.parse(JSON.stringify(first.next)) as SourceCursor
+  delete (legacy.mentionReviews!.pulls['5'] as { since?: number }).since
+  const conservative = await source(forge, ARMED + 20 * MINUTE).poll(PROJECT, legacy, never, { mentionPulls: [{ number: 5, since: ARMED }] })
+  assert.deepEqual(conservative.facts, [], 'legacy unknown boundary does not invent a rewind or replay')
+  assert.equal(conservative.next.mentionReviews?.pulls['5']?.since, ARMED)
+})

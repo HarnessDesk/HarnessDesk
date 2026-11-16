@@ -300,7 +300,11 @@ reviews (`pulls/{n}/reviews`), its inline review comments (`pulls/{n}/comments`)
 and the comments of a newly submitted review (`pulls/{n}/reviews/{id}/comments`),
 all paged and bounded. It reads at most 20 linked pull requests per poll, rotating
 between them; independent per-pull-request coverage and a five-minute overlap
-are kept in the local trigger cursor. An addressed, allowed review or inline
+are kept in the local trigger cursor. When an older already-open thread is
+linked later, the newly eligible earlier interval is read without replaying the
+previously covered later interval. A legacy cursor that lacks its prior linked
+boundary is kept conservatively from the source baseline; it cannot prove that
+earlier missing reviews were backfilled. An addressed, allowed review or inline
 comment joins the existing work under the comment rules; its text is not sent
 for a new assessment. Draft reviews wait until submitted, and the desk's own
 posts do not resume work. Reviewing a still-eligible review decision reads that review
