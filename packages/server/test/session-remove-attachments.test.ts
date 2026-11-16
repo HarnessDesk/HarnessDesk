@@ -447,3 +447,97 @@ test('a dead owner cannot let a successor overtake pending reopen completion', a
     release(); await successor; await drained
   } finally { release(); await outcome }
 })
+
+for (const receiptOutcome of ['resolve', 'reject'] as const) test(`an expired reopen cannot use a handle before or after its frozen receipt ${receiptOutcome}s`, async t => {
+  const { desk, session, params } = await seated(t)
+  await desk.client.call('session/remove', { ...params, removed: true })
+  await desk.client.call('session/remove', { ...params, removed: false })
+  let entered!: () => void, release!: () => void, finished!: () => void, expire: (() => void) | undefined
+  const began = new Promise<void>(resolve => { entered = resolve }), gate = new Promise<void>(resolve => { release = resolve }), done = new Promise<void>(resolve => { finished = resolve })
+  const record = desk.harness.host.attachmentsPlane.record.bind(desk.harness.host.attachmentsPlane)
+  t.mock.method(desk.harness.host.attachmentsPlane, 'record', async (...args: Parameters<typeof record>) => {
+    entered(); await gate; try {
+      if (receiptOutcome === 'reject') throw new Error('late receipt refusal')
+      return await record(...args)
+    } finally { finished() }
+  })
+  let releases = 0, settled!: () => void
+  const retirementSettled = new Promise<void>(resolve => { settled = resolve })
+  const onDeath = desk.runtime.onResumeOwnerDied.bind(desk.runtime)
+  t.mock.method(desk.runtime, 'onResumeOwnerDied', (listener: Parameters<typeof onDeath>[0]) => {
+    const unsubscribe = onDeath(listener)
+    return () => { unsubscribe(); if (++releases === 2) settled() }
+  })
+  const realTimeout = globalThis.setTimeout
+  t.mock.method(globalThis, 'setTimeout', ((fn: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
+    if (ms === 120_000) expire = () => fn(...args)
+    return realTimeout(fn, ms, ...args)
+  }) as typeof setTimeout)
+  const opening = desk.harness.host.call('session/resume', params), outcome = opening.then(() => 'resolved', () => 'rejected')
+  try {
+    await began
+    assert.ok(expire, 'the real coordinator deadline is armed')
+    expire()
+    assert.equal(await outcome, 'rejected')
+    const send = () => desk.harness.host.call('turn/send', { ...params, input: [{ type: 'text', text: 'must not send' }] })
+    await assert.rejects(send(), /earlier open|notRunning/)
+    await assert.rejects(desk.harness.host.call('session/options/set', { ...params, optionId: 'tone', value: 'cheerful' }), /earlier open|notRunning/)
+    release(); await done; await retirementSettled
+    await assert.rejects(send(), /earlier open|notRunning/)
+    await assert.rejects(desk.harness.host.call('session/options/set', { ...params, optionId: 'tone', value: 'cheerful' }), /earlier open|notRunning/)
+  } finally { release(); await outcome }
+})
+
+test('a finalized attachment receipt remains usable when later reopen completion expires', async t => {
+  const { desk, params } = await seated(t)
+  await desk.client.call('session/remove', { ...params, removed: true })
+  await desk.client.call('session/remove', { ...params, removed: false })
+  const { SessionIndexRepos } = await import('../src/session-index-repos.js')
+  const original = SessionIndexRepos.prototype.refreshMissing
+  let entered!: () => void, release!: () => void, expire: (() => void) | undefined
+  const began = new Promise<void>(resolve => { entered = resolve }), gate = new Promise<void>(resolve => { release = resolve })
+  t.mock.method(SessionIndexRepos.prototype, 'refreshMissing', async function (this: InstanceType<typeof SessionIndexRepos>, ...args: Parameters<typeof original>) {
+    entered(); await gate; return original.apply(this, args)
+  })
+  const realTimeout = globalThis.setTimeout
+  t.mock.method(globalThis, 'setTimeout', ((fn: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
+    if (ms === 120_000) expire = () => fn(...args)
+    return realTimeout(fn, ms, ...args)
+  }) as typeof setTimeout)
+  const opening = desk.harness.host.call('session/resume', params), outcome = opening.then(() => 'resolved', () => 'rejected')
+  try {
+    await began
+    assert.ok(expire)
+    expire()
+    assert.equal(await outcome, 'rejected')
+    await desk.harness.host.call('session/options/set', { ...params, optionId: 'tone', value: 'cheerful' })
+    await desk.harness.host.call('turn/send', { ...params, input: [{ type: 'text', text: 'valid finalized handle' }] })
+  } finally { release(); await outcome }
+})
+
+test('an independently live handle remains usable when another open expires', async t => {
+  const { desk, session, params } = await seated(t)
+  const live = desk.harness.host.registry.get(session.runtime, session.id)?.live
+  assert.ok(live)
+  const { SessionIndexRepos } = await import('../src/session-index-repos.js')
+  const original = SessionIndexRepos.prototype.refreshMissing
+  let entered!: () => void, release!: () => void, expire: (() => void) | undefined
+  const began = new Promise<void>(resolve => { entered = resolve }), gate = new Promise<void>(resolve => { release = resolve })
+  t.mock.method(SessionIndexRepos.prototype, 'refreshMissing', async function (this: InstanceType<typeof SessionIndexRepos>, ...args: Parameters<typeof original>) {
+    entered(); await gate; return original.apply(this, args)
+  })
+  const realTimeout = globalThis.setTimeout
+  t.mock.method(globalThis, 'setTimeout', ((fn: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
+    if (ms === 120_000) expire = () => fn(...args)
+    return realTimeout(fn, ms, ...args)
+  }) as typeof setTimeout)
+  const opening = desk.harness.host.call('session/resume', params), outcome = opening.then(() => 'resolved', () => 'rejected')
+  try {
+    await began
+    assert.ok(expire); expire()
+    assert.equal(await outcome, 'rejected')
+    assert.equal(desk.harness.host.registry.get(session.runtime, session.id)?.live, live)
+    await desk.harness.host.call('session/options/set', { ...params, optionId: 'tone', value: 'cheerful' })
+    await desk.harness.host.call('turn/send', { ...params, input: [{ type: 'text', text: 'valid existing handle' }] })
+  } finally { release(); await outcome }
+})

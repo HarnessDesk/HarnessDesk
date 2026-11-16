@@ -3609,3 +3609,30 @@ test('an abandoned fallback authentication refusal cannot change account state',
   assert.deepEqual(await runtime.getAccount(), before)
   await runtime.dispose(); await retirement
 })
+
+test('a failed dedicated ACP worker stop does not retire its owner', async t => {
+  const { AcpConnection } = await import('@harnessdesk/transport-acp')
+  const { runtime } = await storedAgent(t, root => ({ target: { cwd: root } }), { FAKE_ACP_NO_CLOSE: '1' })
+  const id = sessionId('target'), owner = runtime.resumeOwner(id), deaths: object[] = []
+  runtime.onResumeOwnerDied(value => deaths.push(value))
+  const attempt = runtime.beginResumeAttempt(id, {}, owner)
+  const handle = await attempt.result
+  const retirement = attempt.retire({ published: false })
+  const original = AcpConnection.prototype.stop, worker = runtime.connectionFor(id)
+  const failed = t.mock.method(AcpConnection.prototype, 'stop', function (this: InstanceType<typeof AcpConnection>) {
+    if (this === worker) return Promise.reject(new Error('synthetic stop failure'))
+    return original.call(this)
+  })
+  try {
+    await handle.close().catch(() => {})
+    assert.ok(failed.mock.calls.length > 0, 'the dedicated stop was attempted')
+    assert.deepEqual(deaths, [], 'a rejected stop is not owner death')
+    assert.equal(runtime.resumeOwner(id), owner)
+    assert.throws(() => runtime.beginResumeAttempt(id, {}, owner), /retired/)
+  } finally {
+    failed.mock.restore()
+    await runtime.dispose()
+    await retirement
+  }
+  assert.deepEqual(deaths, [owner], 'successful disposal retires the original owner')
+})

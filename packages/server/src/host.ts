@@ -9056,12 +9056,18 @@ export class Host {
    * A caller that names a route has the reopen run on it. One that arrives
    * while a reopen is already in flight shares that reopen, route and all.
    */
+  /** Newly attached filtered handles remain unavailable until their receipt completes. */
+  readonly #unfinalizedReopens = new WeakSet<AgentSession>()
+
   async #liveFor(runtime: RuntimeId, id: SessionId, route?: ResolvedModelRoute): Promise<AgentSession> {
     const key = sessionKey(runtime, id)
     this.#seatQuietSince.delete(key)
     const agent = this.#runtime({ runtime })
     const held = this.registry.get(runtime, id)
-    if (held?.live && !this.#restingSessions.has(key) && this.registry.opens(runtime, id).pending === 0) return held.live
+    if (held?.live && !this.#restingSessions.has(key) && this.registry.opens(runtime, id).pending === 0) {
+      if (this.#unfinalizedReopens.has(held.live)) throw new OpenUnavailableError()
+      return held.live
+    }
     if (agent.resumeOwner && agent.beginResumeAttempt) {
       const promise = this.#coordinatedReopen(agent, id, async check => {
         await this.#restingSessions.get(key)
@@ -9366,6 +9372,8 @@ export class Host {
     const hostKey = String(sessionKey(runtime.info.id, id))
     let held = this.#hostReopenWork.get(hostKey)
     if (held && !held.current()) return Promise.reject(new OpenUnavailableError())
+    const live = this.registry.get(runtime.info.id, id)?.live
+    if (live && this.#unfinalizedReopens.has(live) && !held) return Promise.reject(new OpenUnavailableError())
     if (!held) { held = { callers: 0, work: 0, current: () => true }; this.#hostReopenWork.set(hostKey, held) }
     const fence = held
     const release = () => { if (!fence.callers && !fence.work && this.#hostReopenWork.get(hostKey) === fence) this.#hostReopenWork.delete(hostKey) }
@@ -9566,12 +9574,15 @@ export class Host {
       this.#context.sessionIndex.reopen(session)
     }
     check()
+    const needsReceipt = !!reopened && !removed && !priorLive && !!authority
+    if (needsReceipt) this.#unfinalizedReopens.add(live)
     authority?.published()
     const record = this.registry.upsert(session, live)
     this.#context.sessions.noteReconciled(record, transcript)
     this.#recordSessionIndex(record.session, true)
     if (reopened && !removed) await this.#finishReopen(runtime, live, reopened, authority, priorLive, openedAtStart, ownsHandle, withhold)
     check()
+    if (needsReceipt) this.#unfinalizedReopens.delete(live)
     if (reopened) this.registry.recordAttachmentSeat(runtime.info.id, live.id, reopened.seat.id)
     if (!alreadyAttached) this.#loadoutHandles.delete(live)
     this.#observeLoadout(runtime, id, record.session.cwd)
