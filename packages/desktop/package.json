@@ -17,6 +17,7 @@
     "start": "node script/prepare-lead-node.mjs && node ../../script/brand-dev-electron.mjs && electron .",
     "dev": "node script/prepare-lead-node.mjs && node ../../script/brand-dev-electron.mjs && HARNESSDESK_LOG_LEVEL=debug electron .",
     "test": "node --test \"electron/*.test.mjs\" \"script/*.test.mjs\"",
+    "test:cookie": "node script/browser-cookie-persistence.mjs",
     "pack": "electron-builder --mac dir --publish never -c.mac.identity=- -c.mac.notarize=false -c.mac.hardenedRuntime=false",
     "smoke": "node script/smoke-packaged.mjs",
     "dist": "electron-builder --mac --publish never -c.mac.notarize=false",

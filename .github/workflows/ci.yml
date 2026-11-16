@@ -285,6 +285,9 @@ jobs:
       - name: Desktop tests
         run: pnpm --filter @harnessdesk/desktop run test
 
+      - name: Native browser cookie persistence
+        run: xvfb-run -a pnpm --filter @harnessdesk/desktop run test:cookie
+
   ui-unit-tests:
     name: UI unit tests shard ${{ matrix.shard }}/${{ needs.changes.outputs.unit_shard_count }}
     needs: changes
