@@ -1127,6 +1127,15 @@ const staleDelegations = (sessionId) => notify('_harnessdesk/delegation/changed'
 })
 
 const handlers = {
+  // An explicit peer barrier: emit a session-scoped extension notification
+  // before answering, even if the client has discarded its replay handle.
+  '_test/push-tasks': (id, params) => {
+    send({ jsonrpc: '2.0', method: '_harnessdesk/tasks/changed', params: {
+      sessionId: params.sessionId,
+      tasks: [{ id: 'late-task', kind: 'command', state: 'running', label: 'Synthetic task', stoppable: false }],
+    } })
+    reply(id, {})
+  },
   initialize: async (id, params) => {
     // Hold a real spawned process after its environment was captured, without
     // recording the synthetic key itself. The test releases the gate on disk.

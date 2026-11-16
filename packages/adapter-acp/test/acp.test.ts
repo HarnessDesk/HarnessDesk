@@ -3426,6 +3426,13 @@ test('retired ACP resume discards a gated replay without touching a sibling', as
   const retirement = attempt.retire({ published: false })
   await writeFile(gate, 'go'); await rejected
   assert.equal(events.some(event => event.type === 'session/started' && String(event.session.id) === 'target'), false)
+  // The rejected result has removed the replay from the adapter's session map.
+  // This same-peer response follows the notification in the input stream.
+  await runtime.connectionFor(sessionId('target')).request('_test/push-tasks', { sessionId: 'target' })
+  assert.equal(events.some(event => event.type === 'session/tasks' && String(event.sessionId) === 'target'), false,
+    'late tasks stay fenced after the abandoned replay is removed')
+  await runtime.connectionFor(sibling.id).request('_test/push-tasks', { sessionId: sibling.id })
+  assert.ok(events.some(event => event.type === 'session/tasks' && event.sessionId === sibling.id), 'the sibling still receives tasks')
   await sibling.send([{ type: 'text', text: 'still available' }])
   await runtime.dispose(); await retirement
 })

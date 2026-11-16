@@ -10,7 +10,9 @@ export class ResumeEventFence {
   }
   suppress(id: string, connection: object, current: object | undefined): boolean {
     const replay = this.#replays.get(id)
-    return replay?.retired === true && replay.connection === connection && replay.session === current
+    // A rejected replay is removed from the live map before its peer dies.
+    // Its connection still owns late notifications while no newer handle exists.
+    return replay?.retired === true && replay.connection === connection && (current === undefined || replay.session === current)
   }
   forget(id: string, owner: object): void {
     if (this.#replays.get(id)?.owner === owner) this.#replays.delete(id)
