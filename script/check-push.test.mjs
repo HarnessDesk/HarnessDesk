@@ -547,3 +547,15 @@ test('gates read working files, never bytes from the temporary index', async () 
   }
   for (const row of GATES) visit(join(root, row.args[0]))
 })
+
+test('template script tests require the Node build even for script-only changes', async () => {
+  const { createPlan } = await api()
+  const plan = createPlan(root, { paths: ['script/shots-templates.test.mjs'], fast: true })
+  const scripts = plan.steps.find(step => step.name === 'Script tests')
+  assert.ok(scripts.args.includes('script/shots-templates.test.mjs'))
+  assert.equal(plan.steps.find(step => step.name === 'Node build').status, 'run')
+  assert.deepEqual(scripts.needs, ['Node build'])
+  const independent = createPlan(root, { paths: ['script/check-layering.test.mjs'], fast: true })
+  assert.equal(independent.steps.find(step => step.name === 'Node build').status, 'skipped')
+  assert.equal(independent.steps.find(step => step.name === 'Script tests').needs, undefined)
+})
