@@ -61,6 +61,13 @@ test('root help prints usage without reaching a desk, while mixed help remains i
   }
 })
 
+test('root help reports an output failure through the normal error boundary', async () => {
+  const err: string[] = []
+  const io: CommandIo = { out: () => { throw new Error('output failed') }, err: text => err.push(text), interactive: false }
+  assert.equal(await runCommand(['--help'], io), 1)
+  assert.deepEqual(err, ['output failed\n'])
+})
+
 test('the executable command table covers exactly the public client surface', () => {
   assert.deepEqual(COMMANDS.map(command => command.name), ['desks', 'status', 'teams', 'runs', 'watch', 'open', 'flows', 'flow preview', 'flow start', 'session show', 'run show', 'run stop', 'run wait', 'library list', 'library show', 'card show', 'card handoff', 'card answer', 'card abandon', 'waiting'])
   const methods = new Set<string>(COMMANDS.flatMap(command => [...command.methods]))
