@@ -613,6 +613,23 @@ test('the read-only transcript preview mounts both reader components', async ({ 
   ]))
 })
 
+test('the usage history preview shows a dated unverified reading through its card', async ({ page }) => {
+  await page.goto('/preview.html?frames=coverage-usage-history')
+  const frame = page.locator('[data-frame-id="coverage-usage-history"]')
+  await expect(frame).toContainText('Earlier saved reading')
+  await expect(frame).toContainText('account unverified')
+  await expect(frame).toContainText('Window 1 (300 min): 40% used')
+  await expect(frame).toContainText('Earlier balance: 42 USD')
+  await expect(frame).toContainText('Refresh failed')
+  // The registry is a dev-server module; the built preview still checks the visible card above.
+  if (process.env.UI_SYSTEM_SERVER !== 'static') {
+    expect((await collectCoverage(page)).covered).toEqual(expect.arrayContaining([
+      'components/usage/shared.tsx#Card',
+      'components/usage/shared.tsx#HistoricalReading',
+    ]))
+  }
+})
+
 test.describe('preview coverage', () => {
   test('Seat browsers preview live pages and Seats with nothing open', async ({ page }) => {
     await page.goto('/preview.html?tile-browsers')
