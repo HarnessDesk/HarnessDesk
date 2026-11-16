@@ -151,7 +151,14 @@ const allowedWords = (definition: TriggerDefinition): string => listWords([
   ...(definition.bots ?? []).map((bot) => `the bot ${bot}`),
 ])
 
-const commentId = (url: string): string => /#issuecomment-([1-9][0-9]{0,18})$/.exec(url)?.[1] ?? ''
+const commentId = (url: string): string => {
+  const comment = /#issuecomment-([1-9][0-9]{0,18})$/.exec(url)
+  if (comment) return comment[1]!
+  const review = /#pullrequestreview-([1-9][0-9]{0,18})$/.exec(url)
+  if (review) return `review:${review[1]}`
+  const inline = /#discussion_r([1-9][0-9]{0,18})$/.exec(url)
+  return inline ? `review-comment:${inline[1]}` : ''
+}
 
 /** The excerpt kept and shown: blank when the comment holds a credential, so it is never stored or sent to the phone. */
 const excerptOf = (body: string): string => {
@@ -286,7 +293,7 @@ const isStopIntent = (value: unknown): value is StopIntent => {
   if (!isMap(value) || !exactKeys(value, ['version', 'id', 'key', 'bodyDigest', 'threadId', 'thread', 'author', 'excerpt', 'url', 'createdAt', 'state', 'decisionId', 'goals', 'firings', 'queuedTargets', 'runTargets', 'interruptTargets', 'leadRunTargets', 'leadPlanTarget', 'receipts']) ||
     value.version !== 1 || !isMap(value.key) || !exactKeys(value.key, ['project', 'trigger', 'repository', 'comment']) ||
     !boundedText(value.key.project, 4096) || !boundedText(value.key.trigger, 256) || !boundedText(value.key.repository, 512) ||
-    typeof value.key.comment !== 'string' || !/^[1-9][0-9]{0,18}$/.test(value.key.comment) ||
+    typeof value.key.comment !== 'string' || !/^(?:review:|review-comment:)?[1-9][0-9]{0,18}$/.test(value.key.comment) ||
     value.key.repository !== value.key.repository.toLowerCase() || value.id !== stopId(value.key as unknown as StopIntent['key']) || typeof value.bodyDigest !== 'string' || !/^[0-9a-f]{64}$/.test(value.bodyDigest) ||
     !boundedText(value.threadId, 256) || !isMap(value.thread) || !exactKeys(value.thread, ['kind', 'number']) ||
     !['issue', 'pull-request'].includes(String(value.thread.kind)) || !Number.isSafeInteger(value.thread.number) || (value.thread.number as number) < 1 ||
@@ -431,6 +438,7 @@ export interface MentionPort {
     thread(project: string, repository: string, number: number, signal: AbortSignal): Promise<MentionThread>
     pullState(project: string, repository: string, number: number, signal: AbortSignal): Promise<'open' | 'merged' | 'closed'>
     comment(project: string, repository: string, id: number, signal: AbortSignal): Promise<TriggerFact>
+    mentionReview(project: string, repository: string, number: number, identity: string, signal: AbortSignal): Promise<TriggerFact>
   }
   /** The observer model; null when none can be asked on this desk. */
   readonly assess: MentionAssessor | null
@@ -892,6 +900,17 @@ export class MentionTriage {
     })
   }
 
+  /** Only open, already-linked pull requests can resume a mention thread. */
+  async linkedPulls(project: string, repository: string): Promise<readonly { number: number; since: number }[]> {
+    const ledger = await this.#read()
+    const pulls = new Map<number, number>()
+    for (const thread of new Map([...ledger.pendingThreads, ...ledger.threads].map(one => [one.id, one])).values()) {
+      if (thread.state !== 'open' || thread.project !== project || thread.repository !== repository) continue
+      for (const number of thread.links.pulls) pulls.set(number, Math.min(pulls.get(number) ?? thread.openedAt, thread.openedAt))
+    }
+    return [...pulls].map(([number, since]) => ({ number, since }))
+  }
+
   // --------------------------------------------------------------- judge
 
   /**
@@ -917,15 +936,31 @@ export class MentionTriage {
       const retryingUnconfirmed = addressed && asksToStop(fact.body ?? '', handle)
       const repository = (fact.repository ?? '').toLowerCase()
       const boundRepository = (arm.binding.repository ?? '').toLowerCase()
+      // Older persisted mention facts may predate the explicit thread kind.
+      // Recover it only from a confined URL for this exact repository and ID.
+      let kind = fact.thread
+      if (!kind && fact.url) {
+        try {
+          const url = new URL(fact.url)
+          if (url.origin === 'https://github.com') {
+            const path = url.pathname.toLowerCase()
+            if (path === `/${repository}/issues/${number}`) kind = 'issue'
+            else if (path === `/${repository}/pull/${number}`) kind = 'pull-request'
+          }
+        } catch { /* An invalid legacy URL cannot identify a linked thread. */ }
+      }
       const candidates = [...ledger.threads, ...ledger.pendingThreads].filter((one) => one.project === arm.project && one.trigger === arm.id &&
         !!repository && typeof one.repository === 'string' && one.repository.toLowerCase() === repository && repository === boundRepository &&
-        (one.links.issues.includes(number) || one.links.pulls.includes(number)))
+        (kind === 'pull-request' ? one.links.pulls.includes(number) : kind === 'issue' && one.links.issues.includes(number)))
       // An active lifecycle takes a new stop first. A closed protected thread
       // remains reachable for an explicit retry when no current work is open.
       const linked = candidates.find(one => one.state === 'open') ?? (retryingUnconfirmed ? candidates.find(one =>
         one.state === 'closed' && ledger.stopIntents.some(stop => stop.threadId === one.id && stop.state !== 'consumed' && stop.key.project === one.project &&
           stop.key.trigger === one.trigger && stop.key.repository === repository)) : undefined)
       if (linked) {
+        // A review predating this particular thread cannot resume it, even
+        // when another older thread follows the same pull request.
+        if ((id.startsWith('review:') || id.startsWith('review-comment:')) && fact.at <= linked.openedAt) return
         if (linked.seen.includes(id)) return
         const allowed = await this.#allowed(arm, fact)
         if (!allowed.passed) {
@@ -975,6 +1010,10 @@ export class MentionTriage {
         return
       }
 
+      // Reviews are followed only to resume already-linked work; they do not
+      // open an unrelated new mention thread.
+      if (id.startsWith('review:') || id.startsWith('review-comment:')) return
+
       // Ordinary discussion on a thread no work follows: not a request, so no decision.
       if (!addressed) return
       const verdict = await this.#gate(arm, fact, handle)
@@ -1012,7 +1051,9 @@ export class MentionTriage {
       const before = snapshot.decisions.find((one) => one.id === decisionId && one.project === arm.project && one.trigger === arm.id)
       if (!before) throw Object.assign(new Error('There is no such decision on this trigger.'), { code: 'HD_TRIGGER_REFUSED' })
       if (before.closedFiring) throw Object.assign(new Error('This records a refused firing; it is not a comment to re-evaluate.'), { code: 'HD_TRIGGER_REFUSED' })
-      const fact = { ...await this.#port.forge.comment(arm.project, before.repository, Number(before.comment.id), this.#port.signal), project: arm.project }
+      const fact = { ...await (before.comment.id.startsWith('review:') || before.comment.id.startsWith('review-comment:')
+        ? this.#port.forge.mentionReview(arm.project, before.repository, before.thread.number, before.comment.id, this.#port.signal)
+        : this.#port.forge.comment(arm.project, before.repository, Number(before.comment.id), this.#port.signal)), project: arm.project }
       if (before.commentDigest !== undefined && bodyDigest(fact.body ?? '') !== before.commentDigest) throw Object.assign(new Error(EDITED), { code: 'HD_TRIGGER_REFUSED' })
       const handle = this.#handle(arm.definition)
       const verdict: Verdict = addressesHandle(fact.body ?? '', handle)

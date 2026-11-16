@@ -182,10 +182,27 @@ export class FakeForge {
       const rows = this.pulls.filter((one) => state === 'all' || one.state === state).sort((a, b) => b.updated - a.updated)
       return slice(rows).map((one) => this.pullJson(one))
     }
+    if (parts[3] === 'pulls' && parts[4] === 'comments' && parts.length === 6) {
+      for (const pull of this.pulls) {
+        const comment = pull.reviewComments?.find(one => one.id === Number(parts[5]))
+        if (comment) return { id: comment.id, pull_request_review_id: comment.review, body: comment.body, created_at: iso(comment.created), updated_at: iso(comment.updated),
+          user: comment.user ?? { ...this.user, type: 'User' }, html_url: `https://github.com/${this.repo}/pull/${pull.number}#discussion_r${comment.id}` }
+      }
+      throw new Error(`missing review comment ${path}`)
+    }
     if (parts[3] === 'pulls' && parts.length === 5) {
       const one = this.pulls.find((row) => row.number === Number(parts[4]))
       if (!one) throw new Error(`missing pull ${path}`)
       return this.pullJson(one)
+    }
+    if (parts[3] === 'pulls' && parts[5] === 'comments' && parts.length === 6) {
+      const one = this.pulls.find((row) => row.number === Number(parts[4]))
+      const since = Date.parse(url.searchParams.get('since') ?? iso(0))
+      return slice((one?.reviewComments ?? []).filter(comment => comment.updated >= since).sort((a, b) => a.updated - b.updated || a.id - b.id)).map(comment => ({
+        id: comment.id, node_id: `PRRC_${comment.id}`, pull_request_review_id: comment.review, body: comment.body, created_at: iso(comment.created), updated_at: iso(comment.updated),
+        user: comment.user ?? { ...this.user, type: 'User' }, path: 'src/widget.ts',
+        html_url: `https://github.com/${this.repo}/pull/${parts[4]}#discussion_r${comment.id}`,
+      }))
     }
     if (parts[3] === 'pulls' && parts[5] === 'reviews' && parts[7] === 'comments') {
       const one = this.pulls.find((row) => row.number === Number(parts[4]))
@@ -197,7 +214,10 @@ export class FakeForge {
       }))
     }
     if (parts[3] === 'pulls' && parts[5] === 'reviews') {
-      if (parts[6]) return this.pulls.find((row) => row.number === Number(parts[4]))?.reviews?.find((one) => one.id === Number(parts[6]))
+      if (parts[6]) {
+        const one = this.pulls.find((row) => row.number === Number(parts[4]))?.reviews?.find((review) => review.id === Number(parts[6]))
+        return one && { html_url: `https://github.com/${this.repo}/pull/${parts[4]}#pullrequestreview-${one.id}`, ...one }
+      }
       return slice((this.pulls.find((row) => row.number === Number(parts[4]))?.reviews ?? [])
         .map((one) => ({ html_url: `https://github.com/${this.repo}/pull/${parts[4]}#pullrequestreview-${one.id}`, ...one })))
     }
