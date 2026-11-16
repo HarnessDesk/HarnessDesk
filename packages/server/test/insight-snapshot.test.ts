@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { PersistentInsight } from '../src/ledger/insight-persistent.js'
+import { PersistentInsight, sourceKey } from '../src/ledger/insight-persistent.js'
 import { InsightSnapshot } from '../src/ledger/insight-snapshot.js'
 import type { UsageSample } from '../src/ledger/insight.js'
 import { tempDir } from './scratch.js'
@@ -23,6 +23,73 @@ const fixture = () => {
   const found = store.get(target, () => false); assert.ok(found)
   return { dir, store, ref: { target, generation: found.generation } }
 }
+
+for (const mode of ['append', 'rewrite'] as const) test(`a pinned large generation permits a fitting ${mode} replacement and keeps the old reference`, (t) => {
+  const dir = tempDir('hd-insight-replacement-')
+  const target = { runtime: 'fake', path: '/synthetic/source', kind: 'gemini' as const, size: 1, mtime: 1, identity: 'fake' }
+  const before = Array.from({ length: 8 }, (_, i) => sample(`old-${i}`, 's0', i + 1))
+  const seed = new PersistentInsight(dir); assert.ok(seed.acquire())
+  assert.equal(seed.put({ target, offset: 1, tail: [], samples: before, limited: false }), true)
+  const held = seed.get(target, () => false); assert.ok(held); seed.release(); seed.close()
+  const database = new DatabaseSync(join(dir, 'insight-cache-v2.sqlite'))
+  const originalBytes = (database.prepare('SELECT bytes FROM generations WHERE id = ?').get(held.generation) as { bytes: number }).bytes
+  const limit = Math.floor(originalBytes * 1.7)
+  const store = new PersistentInsight(dir, limit); t.after(() => { store.close(); database.close() })
+  assert.ok(store.acquire()); assert.ok(store.get(target, () => false), 'previous generation is pinned')
+  const changed = { ...target, size: 2, mtime: 2 }
+  const after = mode === 'append' ? [sample('added', 's0', 9)] : before.map((one, i) => ({ ...one, key: `new-${i}` }))
+  assert.equal(store.put({ target: changed, offset: 2, tail: [], samples: after, limited: false }, mode === 'append' ? held.generation : undefined), true,
+    'replacement fits alone even while its predecessor is pinned')
+  const current = store.get(changed, () => true); assert.ok(current)
+  assert.equal(current.entry.samples.length, mode === 'append' ? 9 : 8)
+  assert.deepEqual(store.get(target, () => true, held.generation)?.entry.samples.map(one => one.key), before.map(one => one.key))
+  const snapshot = new InsightSnapshot(join(dir, 'insight-cache-v2.sqlite'), [{ target, generation: held.generation }])
+  const old: string[] = []; snapshot.each(one => old.push(one.key)); snapshot.close()
+  assert.deepEqual(old, before.map(one => one.key), 'old snapshot remains authentic and readable')
+  store.release(); assert.ok(store.acquire())
+  const reopened = store.get(changed, () => true); assert.ok(reopened); assert.equal(reopened.entry.offset, 2)
+  assert.equal(reopened.entry.samples.length, mode === 'append' ? 9 : 8)
+  const extra = { ...target, path: '/synthetic/extra', identity: 'extra' }
+  store.put({ target: extra, offset: 1, tail: [], samples: [], limited: false })
+  assert.equal(database.prepare('SELECT id FROM generations WHERE id = ?').get(held.generation), undefined, 'later publication reclaims the unpinned superseded generation')
+})
+
+test('an unpinned replaced generation is credited once while another source is evicted', (t) => {
+  const dir = tempDir('hd-insight-replace-evict-')
+  const target = (name: string) => ({ runtime: 'fake', path: `/synthetic/${name}`, kind: 'gemini' as const, size: 1, mtime: 1, identity: name })
+  const first = target('source-a'), other = target('source-b'), samples = Array.from({ length: 8 }, (_, i) => sample(`sample-${i}`, 's0', i + 1))
+  const entry = (source: typeof first) => ({ target: source, offset: 1, tail: [], samples, limited: false })
+  const seed = new PersistentInsight(dir); assert.ok(seed.acquire()); assert.ok(seed.put(entry(first))); assert.ok(seed.put(entry(other))); seed.release(); seed.close()
+  const db = new DatabaseSync(join(dir, 'insight-cache-v2.sqlite')); t.after(() => db.close())
+  const old = db.prepare('SELECT g.id, g.bytes FROM generations g JOIN published p ON p.generation = g.id WHERE g.source = ?').get(sourceKey(first)) as { id: string; bytes: number }
+  const store = new PersistentInsight(dir, Math.floor(old.bytes * 1.75)); t.after(() => store.close()); assert.ok(store.acquire())
+  assert.equal(store.put({ ...entry(first), target: { ...first, size: 2, mtime: 2 }, offset: 2 }), true)
+  assert.equal(store.get(other, () => false), null, 'unrelated source must be evicted to fit')
+  assert.ok(store.get(first, () => true, old.id), 'the credited predecessor is not also evicted')
+  const published = db.prepare('SELECT SUM(g.bytes) AS bytes FROM generations g JOIN published p ON p.generation = g.id').get() as { bytes: number }
+  assert.ok(published.bytes <= Math.floor(old.bytes * 1.75), 'published sources stay within budget')
+})
+
+test('replacement cannot evict another pinned source or repeatedly credit older pinned generations', (t) => {
+  const dir = tempDir('hd-insight-replace-pins-')
+  const target = (name: string) => ({ runtime: 'fake', path: `/synthetic/${name}`, kind: 'gemini' as const, size: 1, mtime: 1, identity: name })
+  const first = target('source-a'), other = target('source-b'), samples = Array.from({ length: 8 }, (_, i) => sample(`sample-${i}`, 's0', i + 1))
+  const entry = (source: typeof first) => ({ target: source, offset: 1, tail: [], samples, limited: false })
+  const seed = new PersistentInsight(dir); assert.ok(seed.acquire()); assert.ok(seed.put(entry(first))); assert.ok(seed.put(entry(other))); seed.release(); seed.close()
+  const db = new DatabaseSync(join(dir, 'insight-cache-v2.sqlite')); t.after(() => db.close())
+  const bytes = (db.prepare('SELECT bytes FROM generations WHERE source = ?').get(sourceKey(first)) as { bytes: number }).bytes
+  const limit = Math.floor(bytes * 1.75), store = new PersistentInsight(dir, limit); t.after(() => store.close()); assert.ok(store.acquire())
+  assert.ok(store.get(other, () => false), 'unrelated generation is pinned')
+  const changed = { ...first, size: 2, mtime: 2 }
+  assert.equal(store.put({ ...entry(first), target: changed, offset: 2 }), false, 'other pinned source still counts')
+  assert.ok(store.get(first, () => false)); assert.ok(store.get(other, () => false))
+  store.release(); assert.ok(store.acquire())
+  assert.ok(store.get(first, () => false), 'old generation is pinned')
+  assert.equal(store.put({ ...entry(first), target: changed, offset: 2 }), true)
+  const newer = { ...first, size: 3, mtime: 3 }
+  assert.equal(store.put({ ...entry(first), target: newer, offset: 3 }), false, 'older pinned generation is not credited again')
+  assert.equal(store.get(changed, () => true)?.entry.offset, 2)
+})
 
 test('snapshot authenticates unique groups before expanding duplicate source references', (t) => {
   const { dir, store, ref } = fixture(); t.after(() => store.close())
