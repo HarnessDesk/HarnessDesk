@@ -82,7 +82,7 @@ export const mentionReviewCoverageOf = (value: unknown): MentionReviewCoverage |
   if (entries.length > FACT_LIMIT) return null
   let count = 0, subscriberCount = 0
   for (const [number, raw] of entries) {
-    if (!/^[1-9][0-9]{0,15}$/.test(number) || !isMap(raw) || !Number.isSafeInteger(raw['through']) || (raw['through'] as number) < 0 || !isMap(raw['seen'])) return null
+    if (!/^[1-9][0-9]{0,15}$/.test(number) || !Number.isSafeInteger(Number(number)) || !isMap(raw) || !Number.isSafeInteger(raw['through']) || (raw['through'] as number) < 0 || !isMap(raw['seen'])) return null
     if (raw['since'] !== undefined && (!Number.isSafeInteger(raw['since']) || (raw['since'] as number) < 0)) return null
     const subscribers = raw['subscribers']
     if (subscribers !== undefined) {
@@ -127,7 +127,7 @@ export const requestCoverageOf = (value: unknown): RequestCoverage | null => {
   const entries = Object.entries(value['seen'])
   if (entries.length > SEEN_LIMIT) return null
   for (const [key, at] of entries) {
-    if (!/^[clprtu][1-9][0-9]{0,15}$/.test(key) || !Number.isSafeInteger(at) || (at as number) < 0) return null
+    if (!/^[clprtu][1-9][0-9]{0,15}$/.test(key) || (key.startsWith('u') && !Number.isSafeInteger(Number(key.slice(1)))) || !Number.isSafeInteger(at) || (at as number) < 0) return null
   }
   return { seen: Object.fromEntries(entries) as Record<string, number>, ...(through === undefined ? {} : { through: through as number }) }
 }
