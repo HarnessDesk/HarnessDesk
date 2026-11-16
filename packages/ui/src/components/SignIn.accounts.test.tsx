@@ -184,6 +184,7 @@ it('says an agent nobody has asked yet is not checked, and keeps its own ways in
 
   const card = detail()
   expect(card.textContent).toContain('Not checked yet')
+  expect(card.textContent).not.toContain('first conversation')
   expect(card.textContent).not.toContain('needs no account here')
   expect(card.querySelector('[aria-label="Ways to connect"]')?.textContent).toContain('Log in with Google')
   const rail = container.querySelector('nav')

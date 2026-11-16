@@ -744,6 +744,25 @@ it("an agent nobody has asked yet is not called signed out or accountless", asyn
   expect(document.body.textContent).not.toContain('No account needed')
 })
 
+it('offers declared unchecked sign-in methods without claiming a conversation is required', async () => {
+  const delta = runtime({ id: 'delta', name: 'Delta', capabilities: NO_CAPABILITIES, presentation: { name: 'Delta' } })
+  const onSignIn = vi.fn()
+  await mountList({ runtimes: [...ROSTER.runtimes, delta], accountsByRuntime: { ...ROSTER.accountsByRuntime, delta: { accounts: [], signInMethods: [{ id: 'login', label: 'Log in', flow: 'browser' }], unchecked: true } } }, onSignIn)
+  await act(async () => line('Delta').click())
+  const action = button('Sign in')
+  expect(action).toBeTruthy()
+  expect(document.body.textContent).not.toContain('first conversation')
+  await act(async () => action!.click())
+  expect(onSignIn).toHaveBeenCalledWith('delta')
+})
+
+it('does not offer unchecked sign-in without a driveable method', async () => {
+  const delta = runtime({ id: 'delta', name: 'Delta', capabilities: NO_CAPABILITIES, presentation: { name: 'Delta' } })
+  await mountList({ runtimes: [...ROSTER.runtimes, delta], accountsByRuntime: { ...ROSTER.accountsByRuntime, delta: { accounts: [], signInMethods: [{ id: 'external', label: 'Outside', flow: 'external' }], unchecked: true } } })
+  await act(async () => line('Delta').click())
+  expect(button('Sign in')).toBeUndefined()
+})
+
 it("an unanswered agent's page says so only when nothing else answers for it", async () => {
   const unanswered = 'Its accounts show once it answers.'
   // An agent that needs no account has nothing to answer.

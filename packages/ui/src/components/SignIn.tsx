@@ -746,7 +746,7 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
           stay below in case it is not signed in (#1759). */}
       {status?.unchecked && !account && !pending ? (
         <Note className={own.noteFlush}>
-          {info.slot?.forgetUnknown ? 'Not checked yet.' : `Not checked yet. ${info.presentation.name} says whether it is signed in when its first conversation opens.`}
+          {info.slot?.forgetUnknown ? 'Not checked yet.' : 'Not checked yet. Its account status is not known yet.'}
         </Note>
       ) : null}
 
