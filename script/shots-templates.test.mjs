@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import * as templateRig from './shots/template-rig.mjs'
 import { GhFindingForge } from '../packages/server/dist/src/findings/forge.js'
@@ -27,6 +28,32 @@ test('contest journey cases refuse missing, unknown, repeated or unrelated mode 
     ['--contest', '--contest-mode', 'skipped', '--contest-mode', 'declared'],
     ['--contest-mode', 'skipped'],
   ]) assert.throws(() => templateRig.templateJourneyCases(args), /contest-mode/)
+})
+
+test('invalid selector commands refuse before creating output or launching a browser', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'hd-template-command-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const hook = join(root, 'launch-sentinel.mjs')
+  writeFileSync(hook, `import { writeFileSync } from 'node:fs'\nimport { chromium } from ${JSON.stringify(import.meta.resolve('@playwright/test'))}\nchromium.launch = async () => { writeFileSync(process.env.HD_LAUNCH_MARKER, 'browser launch attempted'); throw new Error('browser launch sentinel') }\n`)
+  const invalid = [
+    ['--contest', '--contest-mode'],
+    ['--contest', '--contest-mode', 'other'],
+    ['--contest', '--contest-mode', 'skipped', '--contest-mode', 'declared'],
+    ['--contest-mode', 'skipped'],
+  ]
+  for (const [index, args] of invalid.entries()) {
+    const home = join(root, `home-${index}`), out = join(root, `output-${index}`), marker = join(root, `launch-${index}`)
+    mkdirSync(home)
+    const child = spawnSync(process.execPath, ['--import', hook, fileURLToPath(new URL('./shots/templates.mjs', import.meta.url)), '--out', out, ...args], {
+      env: { HOME: home, TMPDIR: home, PATH: '/usr/bin:/bin', HD_LAUNCH_MARKER: marker }, encoding: 'utf8', timeout: 10_000,
+    })
+    assert.equal(child.error, undefined, `child ${index} starts`)
+    assert.equal(child.signal, null, `child ${index} exits normally`)
+    assert.notEqual(child.status, 0, `child ${index} refuses invalid input`)
+    assert.equal(existsSync(out), false, `child ${index} leaves output uncreated`)
+    assert.equal(existsSync(marker), false, `child ${index} never attempts browser launch`)
+    assert.match(child.stderr, /contest-mode/, `child ${index} identifies the selector`)
+  }
 })
 
 test('template journeys assert the persistent New Team and its explicit dry run before a real start', () => {
