@@ -950,9 +950,9 @@ export class AcpRuntime implements AgentRuntime {
   readonly #resumeEventFence = new ResumeEventFence()
   readonly #resumeOwners = new Map<SessionId, ResumeOwner>()
   readonly #resumeOwnerListeners = new Set<(owner: object) => void>()
-  #forgetResumeOwners(connection?: AcpConnection): void {
-    for (const [id, owner] of this.#resumeOwners) {
-      if (connection && owner.track?.connection !== connection) continue
+  #forgetResumeOwners(connection?: AcpConnection, owners = [...this.#resumeOwners.entries()]): void {
+    for (const [id, owner] of owners) {
+      if (this.#resumeOwners.get(id) !== owner || connection && owner.track?.connection !== connection) continue
       this.#resumeOwners.delete(id)
       this.#resumeEventFence.forget(id, owner.token)
       owner.died()
@@ -1690,8 +1690,10 @@ export class AcpRuntime implements AgentRuntime {
     this.#idleInfo = this.info
     // Publish both the state and the entire cleanup barrier before yielding.
     // Host callers then join start(), which waits for this stop to finish.
+    const owners = [...this.#resumeOwners.entries()]
     const stopping = Promise.resolve().then(async () => {
       await this.#stopConnections()
+      this.#forgetResumeOwners(undefined, owners)
       for (const session of this.#sessions.values()) session.released()
       this.#sessions.clear()
       this.#transientReads.clear()

@@ -309,12 +309,13 @@ export class CodexRuntime implements AgentRuntime {
     const result = this.#opened(() => this.#resumeSession(id, options, track))
     return { result, retire: async state => { track.abandoned = true; track.published = state.published; await owner.death } }
   }
-  #forgetResumeOwners(): void {
-    for (const owner of this.#resumeOwners.values()) {
+  #forgetResumeOwners(owners = [...this.#resumeOwners.entries()]): void {
+    for (const [id, owner] of owners) {
+      if (this.#resumeOwners.get(id) !== owner) continue
+      this.#resumeOwners.delete(id)
       owner.died()
       for (const listener of this.#resumeOwnerListeners) listener(owner.token)
     }
-    this.#resumeOwners.clear()
   }
 
   readonly #closingSessions = new Map<string, Promise<void>>()
@@ -660,7 +661,9 @@ export class CodexRuntime implements AgentRuntime {
     this.#idleStopped = true
     this.#identityEpoch++
     this.#identityActionEpoch++
+    const owners = [...this.#resumeOwners.entries()]
     await this.#server.stop()
+    this.#forgetResumeOwners(owners)
     return true
   }
 

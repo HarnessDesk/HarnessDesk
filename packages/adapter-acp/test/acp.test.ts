@@ -3438,3 +3438,46 @@ test('retirement preserves events from an already published ACP handle', async t
   await tape.until(event => event.type === 'item/delta' && event.sessionId === id && event.delta.kind === 'assistantText')
   await runtime.dispose(); await retirement
 })
+
+test('idle stop retires the exact abandoned ACP resume owner and a new connection reopens the same session', async t => {
+  const { mkdtemp, rm, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const dir = await mkdtemp(join(tmpdir(), 'acp-idle-retired-open-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const gate = join(dir, 'continue')
+  const { runtime, opened } = await storedAgent(t, root => ({ target: { cwd: root, turns: [['old']] } }), { FAKE_ACP_LOAD_GATE: gate, FAKE_ACP_LOAD_GATE_POLL: '1' }, true)
+  const sibling = await runtime.createSession({ cwd: dir }), id = sessionId('target')
+  const owner = runtime.resumeOwner(id), deaths: object[] = []
+  runtime.onResumeOwnerDied(value => deaths.push(value))
+  const attempt = runtime.beginResumeAttempt(id, {}, owner)
+  const refused = assert.rejects(attempt.result, /given up|retired/)
+  for (let n = 0; n < 500 && !opened().some(one => one.method === 'session/load' && one.sessionId === 'target'); n++) await new Promise(resolve => setTimeout(resolve, 10))
+  assert.ok(opened().some(one => one.method === 'session/load' && one.sessionId === 'target'))
+  const retirement = attempt.retire({ published: false })
+  await writeFile(gate, 'go'); await refused
+  assert.equal(await runtime.stopForIdle(), false, 'a live sibling prevents idle stop')
+  await sibling.send([{ type: 'text', text: 'still available' }])
+  await sibling.close()
+  const before = runtime.resourceProcessIds()
+  assert.equal(await runtime.stopForIdle(), true)
+  assert.ok(deaths.includes(owner), 'successful idle stop reports the exact dead owner')
+  await retirement
+  await runtime.start()
+  const next = runtime.resumeOwner(id)
+  assert.notEqual(next, owner)
+  const reopened = await runtime.beginResumeAttempt(id, {}, next).result
+  assert.equal(reopened.id, id)
+  assert.ok(runtime.resourceProcessIds().some(pid => !before.includes(pid)), 'the reopen uses a new connection process')
+})
+
+test('ACP idle-stop death notifications cannot retire a replacement owner created reentrantly', async t => {
+  const { runtime } = await storedAgent(t, () => ({}), {}, true)
+  const id = sessionId('idle-replacement'), owner = runtime.resumeOwner(id), deaths: object[] = []
+  let replacement: object | undefined
+  runtime.onResumeOwnerDied(value => { deaths.push(value); if (value === owner) replacement = runtime.resumeOwner(id) })
+  assert.equal(await runtime.stopForIdle(), true)
+  assert.ok(replacement)
+  assert.notEqual(replacement, owner)
+  assert.deepEqual(deaths, [owner])
+  assert.equal(runtime.resumeOwner(id), replacement)
+})

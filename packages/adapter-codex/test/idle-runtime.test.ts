@@ -756,3 +756,54 @@ for (const maxRestarts of [5, 0]) test(`Codex owner death is reported after app-
   await until(() => deaths.includes(owner))
   assert.notEqual(d.runtime.resumeOwner(id), owner)
 })
+
+test('idle stop retires the exact abandoned Codex resume owner and a new process reopens the same thread', async t => {
+  const hold = join(tmpdir(), `hd-resume-idle-owner-${process.pid}.hold`)
+  t.after(() => rm(hold, { force: true }))
+  const d = await rig(t, 'hold', { FAKE_CODEX_HOLD_THREAD_OPEN: hold })
+  const old = await d.runtime.createSession({ cwd: d.dir }), sibling = await d.runtime.createSession({ cwd: d.dir })
+  await old.close(); await writeFile(hold, '')
+  const owner = d.runtime.resumeOwner(old.id), deaths: object[] = []
+  d.runtime.onResumeOwnerDied(value => deaths.push(value))
+  const attempt = d.runtime.beginResumeAttempt(old.id, { cwd: d.dir }, owner)
+  const refused = assert.rejects(attempt.result, /given up|retired/)
+  await until(() => d.events.some(event => event.type === 'notice' && event.message === 'THREAD_OPEN_HELD'))
+  const retirement = attempt.retire({ published: false })
+  await rm(hold); await refused
+  assert.equal(await d.runtime.stopForIdle(), false, 'a live sibling prevents idle stop')
+  assert.equal(d.runtime.session(sibling.id), sibling)
+  await sibling.close()
+  await until(() => d.runtime.canStopForIdle())
+  const [oldPid] = await d.servers()
+  assert.equal(await d.runtime.stopForIdle(), true)
+  assert.ok(deaths.includes(owner), 'successful idle stop reports the exact dead owner')
+  await retirement
+  await d.runtime.start()
+  const next = d.runtime.resumeOwner(old.id)
+  assert.notEqual(next, owner)
+  const reopened = await d.runtime.beginResumeAttempt(old.id, { cwd: d.dir }, next).result
+  assert.equal(reopened.id, old.id)
+  const pids = await d.servers()
+  assert.ok(pids.at(-1) !== oldPid, 'the reopen uses a new process')
+})
+
+test('Codex idle-stop death notifications cannot retire a replacement owner created reentrantly', async t => {
+  const d = await rig(t), id = sessionId('idle-replacement'), owner = d.runtime.resumeOwner(id), deaths: object[] = []
+  let replacement: object | undefined
+  d.runtime.onResumeOwnerDied(value => { deaths.push(value); if (value === owner) replacement = d.runtime.resumeOwner(id) })
+  assert.equal(await d.runtime.stopForIdle(), true)
+  assert.ok(replacement)
+  assert.notEqual(replacement, owner)
+  assert.deepEqual(deaths, [owner])
+  assert.equal(d.runtime.resumeOwner(id), replacement)
+})
+
+test('Codex idle-stop snapshot failure does not report owner death', async t => {
+  const d = await rig(t), id = sessionId('idle-failed'), owner = d.runtime.resumeOwner(id), deaths: object[] = []
+  d.runtime.onResumeOwnerDied(value => deaths.push(value))
+  t.mock.method(d.runtime, 'listModels', async () => { throw new Error('synthetic snapshot failure') })
+  await assert.rejects(d.runtime.stopForIdle(), /synthetic snapshot failure/)
+  assert.deepEqual(deaths, [])
+  assert.equal(d.runtime.resumeOwner(id), owner)
+  assert.equal(d.runtime.health().state, 'ready')
+})
