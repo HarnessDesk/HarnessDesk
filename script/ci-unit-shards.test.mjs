@@ -328,9 +328,11 @@ test('changes computes one unit plan and supplies every shard the same mode, fil
   // The runner pick shares selection; no second prerequisite job queues.
   assert.match(once, /^    needs: changes$/m)
   assert.doesNotMatch(once, /needs: (?!changes$)|if:|matrix:/m)
-  for (const command of ['pnpm --filter @harnessdesk/ui run typecheck', 'pnpm --filter @harnessdesk/desktop run test']) {
-    assert.ok(once.includes(command))
-    assert.equal(workflow.split(command).length - 1, 1)
+  for (const command of ['pnpm --filter @harnessdesk/ui run typecheck', 'pnpm --filter @harnessdesk/desktop run test',
+    'xvfb-run -a pnpm --filter @harnessdesk/desktop run test:cookie']) {
+    const line = `run: ${command}`
+    assert.equal(once.split('\n').filter(one => one.trim() === line).length, 1, command)
+    assert.equal(workflow.split('\n').filter(one => one.trim() === line).length, 1, command)
   }
   assert.match(once, /timeout-minutes: 15/)
 })
