@@ -519,10 +519,14 @@ export class LeadContextStore {
       await this.#withholdStored()
       if (!this.#turns.length) {
         const fresh = this.#unstored()
-        if (fresh.length) await this.#append({ base: 0, extend: [], turns: fresh, measured: null })
+        if (fresh.length) {
+          parseLeadContextTurns(leadMergedTurns(fresh))
+          await this.#append({ base: 0, extend: [], turns: fresh, measured: null })
+        }
       }
       const unstored = this.#unstored()
       const stored = [...leadPairedTurns(this.#turns)], messages = [...leadMergedTurns([...stored, ...unstored])]
+      parseLeadContextTurns(messages)
       const base = leadContextMarkOf(stored), stable = leadContextMarkOf(messages)
       return { messages, epoch: this.#epoch, persons: personIds(unstored), ...(base ? { base } : {}), ...(stable ? { stable } : {}) }
     })
@@ -558,18 +562,32 @@ export class LeadContextStore {
       // what is left over is the instructions, tools and framing every request carries.
       const tokens = input.usage ? input.usage.input + input.usage.cacheRead + input.usage.cacheWrite : null
       const bytes = input.usage?.bytes ?? leadContextBytes(this.#turns)
-      if (tokens !== null) this.#overhead = Math.max(0, tokens - leadEstimatedTokens(bytes))
       // A step that kept no turns (a quiet desk wake) reports only what its request measured.
-      if (!input.extend.length && !input.turns.length) { if (tokens !== null) this.#measured = { tokens, bytes }; return }
+      if (!input.extend.length && !input.turns.length) { if (tokens !== null) { this.#overhead = Math.max(0, tokens - leadEstimatedTokens(bytes)); this.#measured = { tokens, bytes } } return }
       const base = input.epoch === this.#epoch ? input.base : this.#turns.length
-      await this.#append({ base, extend: input.extend, turns: input.turns, measured: tokens === null ? null : { tokens, bytes } })
+      await this.#append({ base, extend: input.extend, turns: input.turns, measured: tokens === null ? null : { tokens, bytes } },
+        tokens === null ? undefined : Math.max(0, tokens - leadEstimatedTokens(bytes)))
     })
   }
-  async #append(record: Omit<RecordLine, 'type'>): Promise<void> {
+  async #append(record: Omit<RecordLine, 'type'>, overhead?: number): Promise<void> {
     record = { ...record, turns: leadMergedTurns(record.turns) }
-    this.#turns = this.#applied(this.#turns, record)
-    if (record.measured) this.#measured = record.measured
+    // Refuse records that reopening cannot parse, before changing durable or in-memory context.
+    this.#parseRecord({ type: 'record', ...record })
+    const applied = this.#applied(this.#turns, record)
+    // Validate each resulting turn with its preceding assistant when it contains tool results.
+    for (let i = 0; i < applied.length; i++) {
+      const turn = applied[i]!
+      const hasResults = turn.role === 'user' && turn.content.some(block => block.type === 'tool_result')
+      parseLeadContextTurns(hasResults && i > 0 ? [applied[i - 1]!, turn] : [turn])
+    }
     const line = `${JSON.stringify({ type: 'record', ...record } satisfies RecordLine)}\n`
+    if (this.#fileBytes + Buffer.byteLength(line) > LEAD_CONTEXT.diskBytes) {
+      const known = this.#known
+      try { parseLeadContextTurns(this.#bounded(applied)) } finally { this.#known = known }
+    }
+    this.#turns = applied
+    if (overhead !== undefined) this.#overhead = overhead
+    if (record.measured) this.#measured = record.measured
     if (this.#fileBytes + Buffer.byteLength(line) > LEAD_CONTEXT.diskBytes) { const measured = this.#measured; await this.#snapshot(FILE); this.#measured = measured; return }
     await appendFile(this.#path(FILE), line, { mode: 0o600 })
     this.#fileBytes += Buffer.byteLength(line)
