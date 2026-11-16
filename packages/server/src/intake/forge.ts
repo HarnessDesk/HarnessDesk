@@ -57,26 +57,49 @@ export interface SourceCursor {
   readonly mentionReviews?: MentionReviewCoverage
 }
 
+/** A Host-derived subscription snapshot; never read from forge content. */
+export interface MentionSubscriber {
+  readonly id: string
+  readonly trigger: string
+  readonly since: number
+  readonly incarnation: string
+}
+export interface MentionPull {
+  readonly number: number
+  readonly since: number
+  readonly subscriber?: MentionSubscriber
+}
+
 export interface MentionReviewCoverage {
   readonly next: number
-  readonly pulls: Readonly<Record<string, { readonly through: number; readonly seen: Readonly<Record<string, number>>; readonly since?: number }>>
+  readonly pulls: Readonly<Record<string, { readonly through: number; readonly seen: Readonly<Record<string, number>>; readonly since?: number; readonly subscribers?: Readonly<Record<string, number>> }>>
 }
 
 export const mentionReviewCoverageOf = (value: unknown): MentionReviewCoverage | null => {
   if (!isMap(value) || !Number.isSafeInteger(value['next']) || (value['next'] as number) < 0 || !isMap(value['pulls'])) return null
-  const pulls: Record<string, { through: number; seen: Record<string, number>; since?: number }> = {}
+  const pulls: Record<string, { through: number; seen: Record<string, number>; since?: number; subscribers?: Record<string, number> }> = {}
   const entries = Object.entries(value['pulls'])
   if (entries.length > FACT_LIMIT) return null
-  let count = 0
+  let count = 0, subscriberCount = 0
   for (const [number, raw] of entries) {
     if (!/^[1-9][0-9]{0,15}$/.test(number) || !isMap(raw) || !Number.isSafeInteger(raw['through']) || (raw['through'] as number) < 0 || !isMap(raw['seen'])) return null
     if (raw['since'] !== undefined && (!Number.isSafeInteger(raw['since']) || (raw['since'] as number) < 0)) return null
+    const subscribers = raw['subscribers']
+    if (subscribers !== undefined) {
+      if (!isMap(subscribers)) return null
+      const saved = Object.entries(subscribers)
+      if ((subscriberCount += saved.length) > FACT_LIMIT) return null
+      for (const [key, through] of saved) {
+        if (key.length > 512 || !Number.isSafeInteger(through) || (through as number) < 0) return null
+        try { const token: unknown = JSON.parse(key); if (!Array.isArray(token) || token.length !== 4 || typeof token[0] !== 'string' || typeof token[1] !== 'string' || !Number.isSafeInteger(token[2]) || token[2] < 0 || typeof token[3] !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(token[3])) return null } catch { return null }
+      }
+    }
     const seen: Record<string, number> = {}
     for (const [key, at] of Object.entries(raw['seen'])) {
       if (!/^[rc][1-9][0-9]{0,15}$/.test(key) || !Number.isSafeInteger(at) || (at as number) < 0 || ++count > SEEN_LIMIT) return null
       seen[key] = at as number
     }
-    pulls[number] = { through: raw['through'] as number, seen, ...(raw['since'] === undefined ? {} : { since: raw['since'] as number }) }
+    pulls[number] = { through: raw['through'] as number, seen, ...(raw['since'] === undefined ? {} : { since: raw['since'] as number }), ...(subscribers === undefined ? {} : { subscribers: subscribers as Record<string, number> }) }
   }
   return { next: value['next'] as number, pulls }
 }
@@ -206,6 +229,8 @@ export interface PullObservation {
 
 export interface PollBatch {
   readonly facts: readonly TriggerFact[]
+  /** Internal route for a historical offer; never sourced from the forge. */
+  readonly mentionRoutes?: ReadonlyMap<TriggerFact, MentionSubscriber>
   readonly observations?: readonly PullObservation[]
   readonly next: SourceCursor
   readonly complete: boolean
@@ -628,7 +653,7 @@ export class ForgeSource {
    */
   async poll(project: string, cursor: SourceCursor, signal: AbortSignal, options: {
     readonly permissions?: boolean; readonly watches?: readonly PullWatch[]; readonly requests?: RequestReading
-    readonly mentionPulls?: readonly { readonly number: number; readonly since: number }[]
+    readonly mentionPulls?: readonly MentionPull[]
   } = {}): Promise<PollBatch> {
     if (cursor.source === 'pull-request') return this.#pulls(project, cursor, signal, options.watches ?? [], options.requests ?? null)
     if (cursor.source === 'issue') return this.#issues(project, cursor, signal, options.permissions === true, options.requests ?? null)
@@ -1471,7 +1496,7 @@ export class ForgeSource {
    * comment is new once: its id above the highest one read. Whether it
    * addresses anyone is the gate's question, never this reader's.
    */
-  async #mentions(project: string, cursor: SourceCursor, signal: AbortSignal, linked: readonly { readonly number: number; readonly since: number }[]): Promise<PollBatch> {
+  async #mentions(project: string, cursor: SourceCursor, signal: AbortSignal, linked: readonly MentionPull[]): Promise<PollBatch> {
     const repository = this.#repo(cursor)
     const deadline = Date.now() + this.#timeoutMs
     const mark = Number(cursor.subjects[MENTION_MARK]?.event ?? '0')
@@ -1502,7 +1527,7 @@ export class ForgeSource {
       throw error
     }
     if (!complete) return this.#gap(cursor, burst)
-    let reviews: { facts: TriggerFact[]; coverage: MentionReviewCoverage; retrying: boolean } | null
+    let reviews: { facts: TriggerFact[]; routes: Map<TriggerFact, MentionSubscriber>; coverage: MentionReviewCoverage; retrying: boolean } | null
     try { reviews = await this.#mentionReviewFacts(project, repository, cursor, linked, deadline, signal) }
     catch (error) {
       // A separate review read must not prevent already-covered issue
@@ -1516,27 +1541,29 @@ export class ForgeSource {
       ...cursor, observedThrough: through, continuation: null, subjects: { [MENTION_MARK]: { head: null, event: String(highest) } },
       ...(reviews ? { mentionReviews: reviews.coverage } : {}),
     }, [])
-    return batch.complete && reviews?.retrying ? { ...batch, problem: 'Some linked pull request reviews could not be read and will be retried.' } : batch
+    return batch.complete && reviews ? { ...batch, mentionRoutes: reviews.routes, ...(reviews.retrying ? { problem: 'Some linked pull request reviews could not be read and will be retried.' } : {}) } : batch
   }
 
   /** Read only linked PRs, with independent per-PR watermarks and bounded overlap. */
   async #mentionReviewFacts(project: string, repository: string, cursor: SourceCursor,
-    linked: readonly { readonly number: number; readonly since: number }[], deadline: number, signal: AbortSignal,
-  ): Promise<{ facts: TriggerFact[]; coverage: MentionReviewCoverage; retrying: boolean } | null> {
+    linked: readonly MentionPull[], deadline: number, signal: AbortSignal,
+  ): Promise<{ facts: TriggerFact[]; routes: Map<TriggerFact, MentionSubscriber>; coverage: MentionReviewCoverage; retrying: boolean } | null> {
+    const subscribers = new Map<number, MentionSubscriber[]>()
     const sinceByPull = new Map<number, number>()
     for (const one of linked) {
       if (!Number.isSafeInteger(one.number) || one.number < 1 || !Number.isSafeInteger(one.since) || one.since < 0) continue
       sinceByPull.set(one.number, Math.min(sinceByPull.get(one.number) ?? one.since, one.since))
+      if (one.subscriber) subscribers.set(one.number, [...(subscribers.get(one.number) ?? []), one.subscriber])
     }
     if (sinceByPull.size > FACT_LIMIT) return null
     const numbers = [...sinceByPull.keys()].sort((a, b) => a - b), next = cursor.mentionReviews?.next ?? 0
     const ordered = [...numbers.filter(n => n >= next), ...numbers.filter(n => n < next)]
-    const pulls: Record<string, { through: number; seen: Record<string, number>; since?: number }> = {}
-    for (const n of numbers) {
+    const pulls: Record<string, { through: number; seen: Record<string, number>; since?: number; subscribers?: Record<string, number> }> = {}
+    for (const n of new Set([...numbers, ...Object.keys(cursor.mentionReviews?.pulls ?? {}).map(Number)])) {
       const previous = cursor.mentionReviews?.pulls[String(n)]
-      if (previous) pulls[String(n)] = { through: previous.through, seen: { ...previous.seen }, ...(previous.since === undefined ? {} : { since: previous.since }) }
+      if (previous) pulls[String(n)] = { through: previous.through, seen: { ...previous.seen }, ...(previous.since === undefined ? {} : { since: previous.since }), ...(previous.subscribers === undefined ? {} : { subscribers: { ...previous.subscribers } }) }
     }
-    const facts: TriggerFact[] = [], now = this.#now()
+    const facts: TriggerFact[] = [], routes = new Map<TriggerFact, MentionSubscriber>(), offered = new Set<string>(), now = this.#now()
     let opened = 0, completed = 0, firstFailure: unknown
     for (const number of ordered.slice(0, SETTLE_LIMIT)) {
       const start = facts.length, openedBefore = opened
@@ -1546,14 +1573,30 @@ export class ForgeSource {
       // coverage as starting at the source baseline: never invent a rewind
       // that could re-offer an already-consumed review.
       const coveredSince = previous ? previous.since ?? cursor.baseline : baseline
-      const rewind = previous !== undefined && baseline < coveredSince
+      const rewind = previous !== undefined && baseline < coveredSince && !subscribers.has(number)
       const floor = Math.max(baseline, (previous?.through ?? baseline) - OVERLAP_MS)
-      const readFloor = rewind ? baseline : floor
+      const current = subscribers.get(number) ?? []
+      const token = (one: MentionSubscriber) => JSON.stringify([one.id, one.trigger, one.since, one.incarnation])
+      // Legacy coverage cannot prove which subscribers were previously served.
+      const known = previous?.subscribers ?? Object.fromEntries(previous ? current.map(one => [token(one), previous.through]) : [])
+      const fresh = previous ? current.filter(one => known[token(one)] === undefined) : []
+      const nextSubscribers = { ...known }
+      for (const one of current) nextSubscribers[token(one)] = Math.max(nextSubscribers[token(one)] ?? one.since, now)
+      if (Object.keys(nextSubscribers).length > FACT_LIMIT) return null
+      const readFloor = Math.min(rewind ? baseline : floor, ...fresh.map(one => Math.max(cursor.baseline, one.since)))
+      const historical = (at: number) => fresh.filter(one => {
+        const alreadyCovered = Object.entries(known).some(([key, through]) => { const saved = JSON.parse(key) as [string, string, number, string]; return saved[1] === one.trigger && at > saved[2] && at <= through })
+        return at > Math.max(cursor.baseline, one.since) && at <= (previous?.through ?? 0) && !alreadyCovered
+      }).filter((one, index, eligible) => eligible.findIndex(other => other.trigger === one.trigger) === index)
+      const add = (fact: TriggerFact, normal: boolean, targets: MentionSubscriber[]) => {
+        if (normal) facts.push(fact)
+        for (const target of targets) { const key = JSON.stringify([fact.event, token(target)]); if (offered.has(key)) continue; offered.add(key); const copy = { ...fact, trigger: target.trigger }; facts.push(copy); routes.set(copy, target) }
+      }
       const eligible = (at: number): boolean => at > baseline && (at >= floor || rewind && at <= coveredSince)
       const seen = { ...previous?.seen }
       const pull = this.#pull(await this.#get(project, `repos/${repository}/pulls/${number}`, deadline, signal))
       if (pull.number !== number || pull.baseRepo !== repository) throw unreadable()
-      if (pull.state !== 'open') { pulls[String(number)] = { through: Math.max(previous?.through ?? 0, now), since: Math.min(baseline, coveredSince), seen: {} }; completed++; continue }
+      if (pull.state !== 'open') { pulls[String(number)] = { through: Math.max(previous?.through ?? 0, now), since: Math.min(baseline, coveredSince), seen: {}, subscribers: nextSubscribers }; completed++; continue }
       const reviews = await this.#all(project, `repos/${repository}/pulls/${number}/reviews`, deadline, signal)
       if (reviews === null) throw unreadable()
       const published = new Map<number, { at: number; author: number | null; desk: boolean }>()
@@ -1567,10 +1610,13 @@ export class ForgeSource {
         const author = user && Number.isSafeInteger(user['id']) ? user['id'] as number : null
         const fact = mentionReviewFact(project, repository, number, raw, id, at, 'review')
         published.set(id, { at, author, desk: fact.desk === true || await this.#posted(fact) })
-        if (!eligible(at) || seen[`r${id}`] !== undefined) continue
-        seen[`r${id}`] = at; freshReviews.push(id)
+        const targets = historical(at)
+        const normal = eligible(at) && seen[`r${id}`] === undefined
+        if (!normal && targets.length === 0) continue
+        if (normal) seen[`r${id}`] = at
+        freshReviews.push(id)
         if (++opened > ISSUE_LIMIT) return null
-        facts.push(fact)
+        add(fact, normal, normal ? [] : targets)
       }
       const inline = await this.#all(project, `repos/${repository}/pulls/${number}/comments?sort=updated&direction=asc&since=${new Date(readFloor).toISOString()}`, deadline, signal)
       if (inline === null) throw unreadable()
@@ -1588,13 +1634,15 @@ export class ForgeSource {
         const parent = published.get(review)
         if (parent === undefined) continue
         const at = Math.max(time(raw['created_at']), parent.at)
-        if (!eligible(at) || seen[`c${id}`] !== undefined) continue
-        seen[`c${id}`] = at
+        const targets = historical(at)
+        const normal = eligible(at) && seen[`c${id}`] === undefined
+        if (!normal && targets.length === 0) continue
+        if (normal) seen[`c${id}`] = at
         const fact = mentionReviewFact(project, repository, number, raw, id, at, 'inline')
         const author = isMap(raw['user']) ? raw['user']['id'] : null
-        facts.push(parent.desk && parent.author !== null && author === parent.author ? { ...fact, desk: true } : fact)
+        add(parent.desk && parent.author !== null && author === parent.author ? { ...fact, desk: true } : fact, normal, normal ? [] : targets)
       }
-      pulls[String(number)] = { through: Math.max(previous?.through ?? 0, now), since: Math.min(baseline, coveredSince), seen: Object.fromEntries(Object.entries(seen).filter(([, at]) => at >= Math.max(baseline, now - OVERLAP_MS))) }
+      pulls[String(number)] = { through: Math.max(previous?.through ?? 0, now), since: Math.min(baseline, coveredSince), subscribers: nextSubscribers, seen: Object.fromEntries(Object.entries(seen).filter(([, at]) => at >= Math.max(baseline, now - OVERLAP_MS))) }
       completed++
       } catch (error) {
         if (signal.aborted) throw error
@@ -1607,7 +1655,7 @@ export class ForgeSource {
     if (firstFailure && completed === 0 && ordered.length <= SETTLE_LIMIT) throw firstFailure
     const coverage = { next: ordered.length > SETTLE_LIMIT ? ordered[SETTLE_LIMIT]! : 0, pulls }
     if (!mentionReviewCoverageOf(coverage)) return null
-    return { facts, coverage, retrying: firstFailure !== undefined }
+    return { facts, routes, coverage, retrying: firstFailure !== undefined }
   }
 }
 

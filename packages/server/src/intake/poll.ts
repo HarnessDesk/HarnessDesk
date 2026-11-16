@@ -7,7 +7,7 @@ import { Serial } from '../goals/assignments.js'
 import { atomicJson } from '../goals/store.js'
 import type { ArmedTrigger } from './consent.js'
 import { acceptsFact } from './definition.js'
-import { mentionReviewCoverageOf, pullStatesOf, requestCoverageOf, ForgeReadError, type ForgeSource, type PollBatch, type SourceCursor, type PullWatch } from './forge.js'
+import { mentionReviewCoverageOf, pullStatesOf, requestCoverageOf, ForgeReadError, type ForgeSource, type PollBatch, type SourceCursor, type PullWatch, type MentionPull, type MentionSubscriber } from './forge.js'
 import { dueSlots, scheduleInventory } from './schedule.js'
 
 /**
@@ -73,7 +73,7 @@ export interface IntakeSources {
 }
 
 /** The forge for pull requests and issues, the wall clock for schedules. */
-export const intakeSources = (forge: ForgeSource, linkedPulls?: (project: string, repository: string) => Promise<readonly { number: number; since: number }[]>): IntakeSources => ({
+export const intakeSources = (forge: ForgeSource, linkedPulls?: (project: string, repository: string) => Promise<readonly MentionPull[]>): IntakeSources => ({
   inventory: async (group, signal, now) => {
     if (group.source === 'schedule') return scheduleInventory(now)
     if (group.repository === null) throw new ForgeReadError('unreadable', 'This source has no forge repository.')
@@ -151,13 +151,14 @@ export class SourceCursors {
     let handle
     try {
       handle = await open(this.#file, 'r')
-    } catch {
-      return {}
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
+      throw new Error('The intake cursor file could not be read safely.')
     }
     let raw: string
     try {
       const info = await handle.stat()
-      if (!info.isFile() || info.size > CURSOR_LIMIT) return {}
+      if (!info.isFile() || info.size > CURSOR_LIMIT) throw new Error('The intake cursor file could not be read safely.')
       raw = await handle.readFile('utf8')
     } finally {
       await handle.close()
@@ -166,13 +167,14 @@ export class SourceCursors {
     try {
       parsed = JSON.parse(raw)
     } catch {
-      return {}
+      throw new Error('The intake cursor file is malformed.')
     }
-    if (!isMap(parsed) || parsed['version'] !== 1 || !isMap(parsed['cursors'])) return {}
+    if (!isMap(parsed) || parsed['version'] !== 1 || !isMap(parsed['cursors'])) throw new Error('The intake cursor file is malformed.')
     const out: Record<string, SourceCursor> = {}
     for (const [key, value] of Object.entries(parsed['cursors'])) {
       const cursor = cursorOf(value)
       if (cursor) out[key] = cursor
+      else throw new Error('Intake cursor coverage is unreadable; the source will not be rebaselined.')
     }
     return out
   }
@@ -235,7 +237,7 @@ export interface IntakeMonitorOptions {
    * duplicate answer. `batch` is the same object for every fact of one read,
    * so what an answer reads about an arm is read once per read, not per fact.
    */
-  readonly offer: (arm: ArmedTrigger, fact: TriggerFact, batch: object) => Promise<void>
+  readonly offer: (arm: ArmedTrigger, fact: TriggerFact, batch: object, route?: MentionSubscriber) => Promise<void>
   readonly wall: () => number
   readonly monotonic: () => number
   readonly timers?: { every(fn: () => void, ms: number): unknown; clear(handle: unknown): void }
@@ -425,11 +427,17 @@ export class IntakeMonitor {
       const current = (await this.#options.armed()).filter((arm) => groupOf(arm).key === group.key && before.has(arm.id))
       const once = {}
       for (const fact of batch.facts) {
+        if (fact.source === 'mention' && fact.trigger !== null && !batch.mentionRoutes?.has(fact)) throw new Error('A targeted mention route was lost.')
+        const routed = batch.mentionRoutes?.get(fact)
+        if (routed && (fact.source !== 'mention' || fact.trigger !== routed.trigger)) throw new Error('A targeted mention route is inconsistent.')
+        if (routed && !current.some(arm => arm.id === routed.trigger)) throw new Error('A targeted mention arm changed while its source was read.')
         for (const arm of current) {
+          const route = batch.mentionRoutes?.get(fact)
+          if (route && route.trigger !== arm.id) continue
           if (!accepts(arm, fact)) continue
           if (signal.aborted) return
           try {
-            await this.#options.offer(arm, fact, once)
+            await this.#options.offer(arm, fact, once, route)
           } catch (error) {
             // No answer yet: the cursor stays, and this read is offered again once it can be answered.
             throw new UnansweredError(error instanceof Error ? error.message : String(error))

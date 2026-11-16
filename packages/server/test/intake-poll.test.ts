@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
 import type { TriggerFact } from '@harnessdesk/protocol'
 
 import type { ArmedTrigger } from '../src/intake/consent.js'
-import { ForgeSource } from '../src/intake/forge.js'
+import { ForgeSource, type MentionPull, type MentionSubscriber } from '../src/intake/forge.js'
 import { IntakeMonitor, intakeSources, SourceCursors } from '../src/intake/poll.js'
 import { armOf, Clocks, FakeForge, FakeTimers, Gate, settle, sha, iso } from './fixtures/intake-forge.js'
 import { tempDir } from './scratch.js'
@@ -26,6 +26,7 @@ interface Rig {
   timers: FakeTimers
   arms: ArmedTrigger[]
   offers: [string, string, string][]
+  routes: (MentionSubscriber | undefined)[]
   offerFails: ((fact: TriggerFact) => boolean) | null
   /** Holds each offer until opened: admission in flight. */
   offerGate: Gate | null
@@ -36,27 +37,29 @@ interface Rig {
   monitor: IntakeMonitor
 }
 
-const rig = (options: { home?: string; write?: (file: string, value: unknown) => Promise<void> } = {}): Rig => {
+const rig = (options: { home?: string; write?: (file: string, value: unknown) => Promise<void>; linked?: () => Promise<readonly MentionPull[]>; loseRoutes?: () => boolean } = {}): Rig => {
   const forge = new FakeForge()
   const clocks = new Clocks(ARMED)
   const timers = new FakeTimers()
   const home = options.home ?? tempDir('hd-intake-poll-')
   const cursors = new SourceCursors(home, options.write ? { write: options.write } : {})
   const state: Rig = {
-    forge, clocks, timers, arms: [], offers: [], offerFails: null, offerGate: null, offerHeld: new Gate(), cursors, home,
+    forge, clocks, timers, arms: [], offers: [], routes: [], offerFails: null, offerGate: null, offerHeld: new Gate(), cursors, home,
     monitor: undefined as unknown as IntakeMonitor,
   }
+  const source = intakeSources(new ForgeSource({ run: forge.runner, now: () => clocks.wall }), options.linked)
   state.monitor = new IntakeMonitor({
     armed: async () => state.arms,
-    sources: intakeSources(new ForgeSource({ run: forge.runner, now: () => clocks.wall })),
+    sources: { ...source, poll: async (...args) => { const batch = await source.poll(...args); return options.loseRoutes?.() ? { ...batch, mentionRoutes: undefined } : batch } },
     cursors,
-    offer: async (arm, fact) => {
+    offer: async (arm, fact, _batch, route) => {
       if (state.offerGate) {
         state.offerHeld.open()
         await state.offerGate.opened
       }
       if (state.offerFails?.(fact)) throw new Error('admission could not record it')
       state.offers.push([arm.id, fact.action, fact.subject])
+      state.routes.push(route)
     },
     wall: () => clocks.wall,
     monotonic: () => clocks.mono,
@@ -388,7 +391,72 @@ test('mention review cursors retain per-PR baseline across reload and accept old
   const legacy = { ...original, mentionReviews: { next: 0, pulls: { '5': { through: 5000, seen: { r101: 4000 } } } } }
   await new SourceCursors(home).commit(key, legacy)
   assert.deepEqual(await new SourceCursors(home).read(key), legacy)
+  const subscriber = JSON.stringify(['thread', 'ask', 2000, '12345678-1234-1234-1234-123456789abc'])
+  const current = { ...original, mentionReviews: { next: 0, pulls: { '5': { through: 5000, since: 2000, seen: {}, subscribers: { [subscriber]: 5000 } } } } }
+  await new SourceCursors(home).commit(key, current)
+  assert.deepEqual(await new SourceCursors(home).read(key), current, 'subscriber tombstones survive reload')
+  const corrupt = { ...original, mentionReviews: { next: 0, pulls: { '5': { through: 5000, seen: {}, subscribers: { 'not a subscriber': 5000 } } } } }
+  await new SourceCursors(home).commit(key, corrupt)
+  await assert.rejects(new SourceCursors(home).read(key), /will not be rebaselined/)
   const invalid = { ...original, mentionReviews: { next: 0, pulls: { '5': { through: 5000, since: -1, seen: {} } } } }
-  await new SourceCursors(home).commit(key, invalid)
-  assert.equal(await new SourceCursors(home).read(key), null, 'a corrupt boundary does not authorize a read')
+  const invalidHome = tempDir('hd-mention-review-invalid-')
+  await new SourceCursors(invalidHome).commit(key, invalid)
+  await assert.rejects(new SourceCursors(invalidHome).read(key), /will not be rebaselined/, 'a corrupt boundary cannot trigger a fresh baseline')
+})
+
+
+test('a failed targeted offer retries its exact subscriber after monitor restart', async () => {
+  const a = { id: 'thread-a', trigger: 'ask', since: ARMED + MINUTE, incarnation: '11111111-1111-1111-1111-111111111111' }
+  const b = { id: 'thread-b', trigger: 'triage', since: ARMED + 2 * MINUTE, incarnation: '22222222-2222-2222-2222-222222222222' }
+  let linked = [a]
+  const links = async () => linked.map(subscriber => ({ number: 5, since: subscriber.since, subscriber }))
+  const mention = (id: string): ArmedTrigger => {
+    const base = armOf(id, { source: 'issue' })
+    return { ...base, definition: { ...base.definition, on: { kind: 'mention', events: ['commented'] } } }
+  }
+  let loseRoutes = false
+  const r = rig({ linked: links, loseRoutes: () => loseRoutes }); r.arms = [mention('ask'), mention('triage')]
+  await r.monitor.baseline(r.arms[0]!)
+  const at = ARMED + 3 * MINUTE
+  const pull = { number: 5, head: sha('c'), state: 'open' as const, created: ARMED, updated: at,
+    reviews: [{ id: 901, commit_id: sha('c'), body: '@triager follow up', state: 'COMMENTED', submitted_at: iso(at), user: { id: 7, login: 'jane-doe' } }], reviewComments: [] }
+  r.forge.pulls.push(pull)
+  r.clocks.advance(10 * MINUTE); await r.monitor.tick(r.clocks.wall)
+  const before = await cursorFile(r.home)
+  linked = [a, b]; r.offerFails = () => true
+  r.clocks.advance(10 * MINUTE); await r.monitor.tick(r.clocks.wall)
+  assert.equal(await cursorFile(r.home), before, 'failed offer cannot commit subscriber coverage')
+  r.offerFails = null; loseRoutes = true
+  const previousOffers = r.offers.length
+  r.clocks.advance(2 * MINUTE); await r.monitor.tick(r.clocks.wall)
+  assert.equal(r.offers.length, previousOffers, 'lost internal route never falls back to broadcast')
+  assert.equal(await cursorFile(r.home), before)
+  await r.monitor.close()
+  const restarted = rig({ home: r.home, linked: links }); restarted.arms = [mention('ask'), mention('triage')]
+  restarted.forge.pulls.push(pull)
+  restarted.clocks.advance(22 * MINUTE); await restarted.monitor.tick(restarted.clocks.wall)
+  assert.deepEqual(restarted.offers.map(one => one[0]), ['triage'])
+  assert.deepEqual(restarted.routes, [b])
+  assert.notEqual(await cursorFile(r.home), before)
+  await restarted.monitor.close()
+})
+
+
+test('a malformed cursor file is preserved and never treated as a fresh source', async () => {
+  const home = tempDir('hd-intake-bad-cursor-'), file = join(home, 'triggers-cursors.json'), corrupt = '{broken'
+  await writeFile(file, corrupt)
+  const cursors = new SourceCursors(home)
+  await assert.rejects(cursors.read('fixture'), /cursor/i)
+  await assert.rejects(cursors.commit('fixture', { version: 1, source: 'mention', repository: 'acme/widgets', baseline: 1, observedThrough: 1, continuation: null, subjects: {} }), /cursor/i)
+  assert.equal(await readFile(file, 'utf8'), corrupt)
+})
+
+test('malformed legacy and non-object cursor entries do not become fresh baselines', async () => {
+  for (const value of [null, { version: 1, source: 'mention', repository: 'acme/widgets', baseline: -1, observedThrough: 'bad', continuation: null, subjects: {} }]) {
+    const home = tempDir('hd-intake-invalid-entry-'), file = join(home, 'triggers-cursors.json')
+    const original = JSON.stringify({ version: 1, cursors: { fixture: value } })
+    await writeFile(file, original)
+    await assert.rejects(new SourceCursors(home).read('fixture'), /will not be rebaselined/)
+    assert.equal(await readFile(file, 'utf8'), original)
+  }
 })
