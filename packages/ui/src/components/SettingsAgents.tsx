@@ -53,7 +53,7 @@ import { shortPath } from '../lib/paths'
 import { withCount } from '../lib/with-count'
 import { Prose } from './Prose'
 import { trackedUsage, useFirstNote } from '@harnessdesk/protocol'
-import { bindingLane, isBlocked, remainingOf } from '../lib/usage'
+import { bindingLane, describeLane, describeLaneReset, isBlocked, remainingOf } from '../lib/usage'
 import { usageAccount } from '../lib/usage-alerts'
 import { Card as UsageCard } from './usage/shared'
 import { firstInPool, inPoolOrder, isPaced, movedInPool, WHEN_OUT, WHEN_OUT_LABEL, type WhenOut } from '../lib/account-pool'
@@ -443,7 +443,7 @@ const HealthBlock = ({ health }: { health: Unavailable }) => {
  * lane and is not the account's figure. Rounded the way `describeLane`
  * rounds, so this and the Dashboard cannot disagree about the same account.
  */
-const accountStanding = (entry: RuntimeInfo, account: Account, snapshot: AppSnapshot) => {
+const accountStanding = (entry: RuntimeInfo, account: Account, snapshot: AppSnapshot, now: number) => {
   const key = accountKey(entry.id, account)
   const own = snapshot.usage.filter((report) => report.runtime === entry.id)
   // A report that names no matching account is this account's only when the
@@ -458,6 +458,7 @@ const accountStanding = (entry: RuntimeInfo, account: Account, snapshot: AppSnap
     report,
     blocked: report ? isBlocked(report) : false,
     left: remaining === null ? null : Math.round(remaining),
+    reset: binding && report ? describeLaneReset(describeLane(binding, now, report.lanes)) : '',
   }
 }
 
@@ -474,6 +475,7 @@ const AgentRow = ({
   siblings,
   state,
   query,
+  now,
   onOpen,
   onSignIn,
 }: {
@@ -483,6 +485,7 @@ const AgentRow = ({
   state: Readiness
   /** The page's search, lowercased; its hit leads the account line. */
   query: string
+  now: number
   onOpen: () => void
   onSignIn: (runtime: RuntimeId) => void
 }) => {
@@ -527,7 +530,7 @@ const AgentRow = ({
             </DescLine>
           )
         }
-        const { key, blocked, left } = accountStanding(entry, account, snapshot)
+        const { key, blocked, left, reset } = accountStanding(entry, account, snapshot, now)
         const name = accountName(account, snapshot.accountPrefs[key], entry.presentation.name, snapshot.hideAccountAddresses)
         const identity = shownIdentity(account, snapshot)
         const hit = query !== '' && `${name} ${identity ?? ''}`.toLowerCase().includes(query)
@@ -545,6 +548,7 @@ const AgentRow = ({
             ) : left !== null ? (
               <Text role="meta" ink="muted" numeric>{left}% left</Text>
             ) : null}
+            {reset && <Text role="meta" ink="muted">{reset}</Text>}
           </DescLine>
         )
       })}
@@ -606,6 +610,7 @@ const AgentAccounts = ({
   info,
   siblings,
   state,
+  now,
   onOpenAccount,
   onSignIn,
 }: {
@@ -619,6 +624,7 @@ const AgentAccounts = ({
   siblings: readonly RuntimeInfo[]
   /** Whether a turn sent to this agent would start — see `agentReadiness`. */
   state: Readiness
+  now: number
   onOpenAccount: (runtime: RuntimeId, key: string) => void
   onSignIn: (runtime: RuntimeId) => void
 }) => {
@@ -823,7 +829,7 @@ const AgentAccounts = ({
               />
             )
           }
-          const { key, blocked, left, report } = accountStanding(entry, account, snapshot)
+          const { key, blocked, left, report, reset } = accountStanding(entry, account, snapshot, now)
           const useFirst = report ? useFirstNote(report, Date.now()) : null
           const name = accountName(account, snapshot.accountPrefs[key], entry.presentation.name, snapshot.hideAccountAddresses)
           const identity = shownIdentity(account, snapshot)
@@ -872,6 +878,7 @@ const AgentAccounts = ({
                       people who see it, and the meters this comes from fill
                       with what is left. */}
                   {left !== null && <Text role="muted" ink="muted" numeric >{left}% left</Text>}
+                  {reset && <Text role="muted" ink="muted">{reset}</Text>}
                 </>
               }
             />
@@ -2082,12 +2089,14 @@ const AgentUsage = ({ siblings }: { siblings: readonly RuntimeInfo[] }) => {
 
 const AgentDetail = ({
   info,
+  now,
   onBack,
   onOpenAccount,
   onSignIn,
   onBrowseHistory,
 }: {
   info: RuntimeInfo
+  now: number
   onBack: () => void
   onOpenAccount: (runtime: RuntimeId, key: string) => void
   onSignIn: (runtime: RuntimeId) => void
@@ -2184,6 +2193,7 @@ const AgentDetail = ({
         info={siblings[0] ?? info}
         siblings={siblings}
         state={agentReadiness(siblings, snapshot)}
+        now={now}
         onOpenAccount={onOpenAccount}
         onSignIn={onSignIn}
       />
@@ -2290,6 +2300,16 @@ export const RuntimesSection = ({
   const snapshot = useSnapshot()
   const setView=onView
   const [query, setQuery] = useState('')
+  const [now, setNow] = useState(() => Date.now())
+  const clockActive = destinationActive && (view.kind === 'list' || view.kind === 'agent')
+
+  // Match the Dashboard clock while account reset readings are visible.
+  useEffect(() => {
+    if (!clockActive) return
+    setNow(Date.now())
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000)
+    return () => window.clearInterval(timer)
+  }, [clockActive])
 
   useEffect(() => {
     if (!destinationActive) return
@@ -2347,7 +2367,7 @@ export const RuntimesSection = ({
     const info = snapshot.runtimes.find((entry) => entry.id === view.runtime)
     if (info) {
       return (
-        <AgentDetail key={info.id} info={info} onBack={back} onOpenAccount={openAccount} onSignIn={onSignIn} onBrowseHistory={onBrowseHistory} />
+        <AgentDetail key={info.id} info={info} now={now} onBack={back} onOpenAccount={openAccount} onSignIn={onSignIn} onBrowseHistory={onBrowseHistory} />
       )
     }
   }
@@ -2437,6 +2457,7 @@ export const RuntimesSection = ({
                   siblings={siblings}
                   state={state}
                   query={needle}
+                  now={now}
                   onOpen={() => setView({ kind: 'agent', runtime: info.id })}
                   onSignIn={onSignIn}
                 />
