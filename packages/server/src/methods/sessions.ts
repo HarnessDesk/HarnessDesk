@@ -100,15 +100,21 @@ const closeSession = async (ctx: HostContext, params: { runtime: RuntimeId; sess
 }
 
 /** Archive authority and worktree cleanup are shared by the row and Team wrap. */
-export const archiveConversation = async (ctx: HostContext, params: { runtime: RuntimeId; sessionId: SessionId; archived: boolean }) => {
+export const archiveConversation = async (ctx: HostContext, params: { runtime: RuntimeId; sessionId: SessionId; archived: boolean }, check: () => void = () => {}) => {
+  check()
   const runtime = ctx.runtimes.resolve(params)
   const id = makeSessionId(params.sessionId)
   if (runtime.historyAuthorityKnown?.() === false) await ctx.runtimes.ensureStarted(runtime)
-  const remembered = await ctx.sessionWorktrees.remember(runtime.info.id, id, true).then(() => true, () => false)
-  const restored = params.archived ? {} : await ctx.sessionWorktrees.prepare(runtime.info.id, id)
+  check()
+  const remembered = await ctx.sessionWorktrees.remember(runtime.info.id, id, true, check).then(() => true, () => false)
+  check()
+  const restored = params.archived ? {} : await ctx.sessionWorktrees.prepare(runtime.info.id, id, check)
+  check()
   if (runtime.info.capabilities.archiveHistory) await runtime.archiveSession(id, params.archived)
   else await ctx.archive.set(runtime.info.id, id, params.archived)
+  check()
   if (params.archived && runtime.info.capabilities.resume) await ctx.sessions.releaseQuiet({ runtime: runtime.info.id, sessionId: id })
+  check()
   ctx.sessionIndex.setArchived(runtime.info.id, id, params.archived)
   const warning = params.archived ? await ctx.sessionWorktrees.cleanup(runtime.info.id, id, !remembered) : restored.warning
   return warning ? { warning } : null
@@ -228,7 +234,7 @@ export const sessionMethods = {
         const standing = ctx.evidence.seats.latestOf(runtime.info.id, params.sessionId)?.standing
         if (frozen?.runtimeServers !== undefined) options = { ...options, runtimeServers: frozen.runtimeServers }
         if (standing?.kind === 'ceiling') options = { ...options, requestedCeiling: standing.level }
-        const restored = await ctx.sessionWorktrees.prepare(runtime.info.id, coordinatedId)
+        const restored = await ctx.sessionWorktrees.prepare(runtime.info.id, coordinatedId, check)
         check()
         return restored.cwd ? { ...options, cwd: restored.cwd, knownCwd: restored.cwd } : options
       }, async (live, authority) => {

@@ -911,15 +911,18 @@ export class TranscriptStore {
   }
 
   /** Persist only after enrich; omitted work turns, items, search and context leave together. */
-  async refresh(session: Session, source: SessionSource | null, observedBase?: DurableTranscriptBase): Promise<{ saved: true; base: DurableTranscriptBase } | { saved: false; base: DurableTranscriptBase }> {
+  async refresh(session: Session, source: SessionSource | null, observedBase?: DurableTranscriptBase, check: () => void = () => {}): Promise<{ saved: true; base: DurableTranscriptBase } | { saved: false; base: DurableTranscriptBase }> {
     await this.#settle(session.runtime, session.id)
+    check()
     const key = keyOf(session.runtime, session.id)
     if (this.#protectedWrites.has(key)) throw new TranscriptSaveRefusedError('Transcript has protected changes that could not be saved')
     const retained = new Set(session.turns.map(turn => String(turn.id)))
     const contexts = (this.#insight.get(key) ?? []).filter(context => retained.has(context.turn))
     const base = observedBase ?? (session.partialHistory ? undefined : this.observeBase(session, true))
     let prepared: string | undefined
-    if (!base || !await this.#write(session, [], { source, expectedBase: base, prepared: identity => { prepared = identity } }) || !prepared || !this.#matchesStoredRow(session, prepared)) {
+    const written = base ? await this.#write(session, [], { source, expectedBase: base, current: () => { check(); return true }, prepared: identity => { prepared = identity } }) : false
+    check()
+    if (!base || !written || !prepared || !this.#matchesStoredRow(session, prepared)) {
       this.#notifyProtected(session)
       const timer = setTimeout(() => {}, 0); timer.unref()
       const held = { timer, session, insight: this.#insight.get(key) ?? [] }
@@ -928,6 +931,7 @@ export class TranscriptStore {
       if (base && this.#baseStillMatches(session, base)) return { saved: false, base }
       throw new TranscriptSaveRefusedError('Transcript refresh could not be verified; changes are protected')
     }
+    check()
     if (contexts.length) this.#insight.set(key, contexts)
     else this.#insight.delete(key)
     return { saved: true, base: { kind: 'body', identity: prepared } }

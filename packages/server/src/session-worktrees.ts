@@ -25,11 +25,12 @@ export class SessionWorktrees {
 
   async settled(): Promise<void> { await this.#tail }
 
-  remember(runtime: RuntimeId, id: SessionId, refresh = false): Promise<void> {
-    return this.#serial(() => this.#remember(runtime, id, refresh))
+  remember(runtime: RuntimeId, id: SessionId, refresh = false, check: () => void = () => {}): Promise<void> {
+    return this.#serial(() => this.#remember(runtime, id, refresh, check))
   }
 
-  async #remember(runtime: RuntimeId, id: SessionId, refresh = false): Promise<void> {
+  async #remember(runtime: RuntimeId, id: SessionId, refresh = false, check: () => void = () => {}): Promise<void> {
+    check()
     const row = this.index.get(runtime, id)
     if (!row || this.index.isRemoved(runtime, id)) return
     const previous = this.index.worktree(runtime, id)
@@ -38,9 +39,11 @@ export class SessionWorktrees {
     const inside = relative(join(this.stateDir, 'worktrees'), resolve(row.cwd))
     if (!inside || inside === '..' || inside.startsWith(`..${sep}`) || resolve(inside) === inside) return
     const root = await repositoryRoot(row.cwd)
+    check()
     if (!root) return
     const entry = (await list(root, this.stateDir)).find(tree => tree.managed &&
       (samePath(tree.path, row.cwd) || row.cwd.startsWith(tree.path + sep)))
+    check()
     if (entry) this.index.rememberWorktree({ runtime, id, root, path: entry.path, branch: entry.branch, state: 'present' })
   }
 
@@ -152,20 +155,28 @@ export class SessionWorktrees {
     })
   }
 
-  prepare(runtime: RuntimeId, id: SessionId): Promise<{ cwd?: string; warning?: string }> {
+  prepare(runtime: RuntimeId, id: SessionId, check: () => void = () => {}): Promise<{ cwd?: string; warning?: string }> {
     return this.#serial(async () => {
+      check()
       const record = this.index.worktree(runtime, id)
       if (!record) return {}
       if (record.state !== 'removed') return {}
-      if (await access(record.path).then(() => true, () => false)) {
+      const exists = await access(record.path).then(() => true, () => false)
+      check()
+      if (exists) {
         const entry = (await list(record.root, this.stateDir)).find(tree => tree.managed && samePath(tree.path, record.path) && tree.branch === record.branch)
+        check()
         if (!entry) throw new Error('The managed worktree path is occupied. Review it before reopening.')
       } else if (!record.branch || !await branchExists(record.root, record.branch)) {
+        check()
         this.index.setCwd(runtime, id, record.root)
         return { cwd: record.root, warning: 'The worktree branch is gone; this conversation opens in the main checkout.' }
       } else {
+        check()
         await restore(record.root, record.path, record.branch, this.stateDir)
+        check()
       }
+      check()
       this.index.worktreeState(record.path, 'present')
       const old = this.index.get(runtime, id)?.cwd ?? record.path
       const cwd = samePath(old, record.path) || old.startsWith(record.path + sep) ? old : record.path

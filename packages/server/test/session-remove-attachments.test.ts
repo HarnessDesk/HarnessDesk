@@ -375,3 +375,65 @@ test('a runtime close while owned cleanup is pending revokes the opener without 
     await rejected
   } finally { release(); await rejected }
 })
+
+test('a dead resume owner cannot let a successor overtake pending Host worktree preparation', async t => {
+  const { desk, session, params } = await seated(t)
+  await desk.client.call('session/remove', { ...params, removed: true })
+  await desk.client.call('session/remove', { ...params, removed: false })
+  const { SessionWorktrees } = await import('../src/session-worktrees.js')
+  const original = SessionWorktrees.prototype.prepare
+  let entered!: () => void, release!: () => void, finished!: () => void, calls = 0
+  const began = new Promise<void>(resolve => { entered = resolve }), gate = new Promise<void>(resolve => { release = resolve }), drained = new Promise<void>(resolve => { finished = resolve })
+  t.mock.method(SessionWorktrees.prototype, 'prepare', async function (this: InstanceType<typeof SessionWorktrees>, ...args: Parameters<typeof original>) {
+    if (++calls === 3) { entered(); await gate; try { return await original.apply(this, args) } finally { finished() } }
+    return original.apply(this, args)
+  })
+  const first = desk.harness.host.call('session/resume', params)
+  const outcome = first.then(() => 'resolved', () => 'rejected')
+  try {
+    await began
+    desk.harness.host.registry.detachAll(session.runtime, session.id)
+    desk.runtime.dieResumeOwner(session.id)
+    assert.equal(await outcome, 'rejected')
+    desk.runtime.sessions.delete(session.id)
+    const before = desk.runtime.resumes
+    const successor = desk.harness.host.call('session/resume', params)
+    const successorResult = successor.then(() => 'opened', () => 'refused')
+    await new Promise(resolve => setTimeout(resolve, 200))
+    assert.equal(calls, 3, 'new owner must not enter Host preparation before old work settles')
+    assert.equal(desk.runtime.resumes, before, 'new owner must not overtake pending Host preparation')
+    release()
+    await successorResult
+    await drained
+    await new Promise(resolve => setImmediate(resolve))
+    const resumed = await desk.harness.host.call('session/resume', params) as Session
+    assert.equal(resumed.id, session.id, 'a fresh owner can open after Host work settles')
+  } finally { release(); await outcome }
+})
+
+test('a dead owner cannot let a successor overtake pending reopen completion', async t => {
+  const { desk, session, params } = await seated(t)
+  await desk.client.call('session/remove', { ...params, removed: true })
+  await desk.client.call('session/remove', { ...params, removed: false })
+  const { SessionIndexRepos } = await import('../src/session-index-repos.js')
+  const original = SessionIndexRepos.prototype.refreshMissing
+  let entered!: () => void, release!: () => void, finished!: () => void, calls = 0
+  const began = new Promise<void>(resolve => { entered = resolve }), gate = new Promise<void>(resolve => { release = resolve }), drained = new Promise<void>(resolve => { finished = resolve })
+  t.mock.method(SessionIndexRepos.prototype, 'refreshMissing', async function (this: InstanceType<typeof SessionIndexRepos>, ...args: Parameters<typeof original>) {
+    if (++calls === 1) { entered(); await gate; try { return await original.apply(this, args) } finally { finished() } }
+    return original.apply(this, args)
+  })
+  const first = desk.harness.host.call('session/resume', params), outcome = first.then(() => 'resolved', () => 'rejected')
+  try {
+    await began
+    desk.harness.host.registry.detachAll(session.runtime, session.id)
+    desk.runtime.dieResumeOwner(session.id)
+    assert.equal(await outcome, 'rejected')
+    desk.runtime.sessions.delete(session.id)
+    const before = desk.runtime.resumes
+    const successor = desk.harness.host.call('session/resume', params).then(() => 'opened', () => 'refused')
+    await new Promise(resolve => setTimeout(resolve, 200))
+    assert.equal(desk.runtime.resumes, before, 'new owner must wait for old completion')
+    release(); await successor; await drained
+  } finally { release(); await outcome }
+})

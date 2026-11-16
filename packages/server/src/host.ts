@@ -8469,36 +8469,46 @@ export class Host {
    * that is live here already (it opened on its filter), or whose Seat never
    * carried one: the ordinary read serves those.
    */
-  async #scopedRead(runtime: AgentRuntime, id: SessionId, allowReopen = true): Promise<Session | null> {
+  async #scopedRead(runtime: AgentRuntime, id: SessionId, allowReopen = true, check: () => void = () => {}): Promise<Session | null> {
+    check()
     if (this.registry.get(runtime.info.id, id)?.live) return null
     // Being reopened right now, on its filter: the reopen's own read of what
     // it just opened is an ordinary one (the runtime holds it live, filtered).
     if (this.#reattaching.has(`${runtime.info.id}\u0000${id}`)) return null
     const seat = this.#evidence.seats.latestKeptOf(runtime.info.id, id)
     if (!seat) return null
-    if (!(await this.#carriesFilter(seat, 'read'))) return null
+    const carries = await this.#carriesFilter(seat, 'read')
+    check()
+    if (!carries) return null
     const kept = await this.#transcripts.recover(runtime.info.id, id)
+    check()
     // A phone read or reply preload must not reopen a filtered conversation just to recover its body.
     if (!allowReopen) {
       if (kept) return { ...kept, deskCopy: true }
       throw new Error('This conversation has no retained transcript. Open it on the desk to read it.')
     }
     const source = await this.#sourceState(runtime, id)
+    check()
     if (kept && (!source || source.kind !== 'changed')) return { ...kept, ...(source ? { deskCopy: source.kind === 'gone' } : {}) }
     try {
       const live = await this.#liveFor(runtime.info.id, id)
+      check()
       const raw = await runtime.readSession(live.id)
-      const advancedWithoutUsage = await this.#gateReplayRead(runtime, raw)
+      check()
+      const advancedWithoutUsage = await this.#gateReplayRead(runtime, raw, check)
+      check()
       const replayed = this.registry.get(runtime.info.id, live.id)
       if (replayed?.transcriptIncomplete) return this.#pendingTranscriptView(replayed)
       this.#admitFirstReadBase(raw)
       const enriched = await this.#transcripts.enrichForRefresh(raw)
+      check()
       this.#clearAdvancedReplayUsage(runtime.info.id, live.id, advancedWithoutUsage)
-      if (source) return this.#cacheRead(enriched.session, source.source, enriched.base)
+      if (source) return this.#cacheRead(enriched.session, source.source, enriched.base, check)
       const stable = this.#preserveReadRecency(enriched.session)
       this.#transcripts.rememberReadBase(stable, enriched.base)
       return stable
     } catch (error) {
+      check()
       if (this.#transcripts.hasProtectedChanges(runtime.info.id, id)) throw error
       if (kept && source) return { ...kept, deskCopy: true }
       throw error
@@ -9346,11 +9356,22 @@ export class Host {
     }
   }
 
+  /** Host work may outlive an adapter generation, including after owner death. */
+  readonly #hostReopenWork = new Map<string, { callers: number; work: number; current: () => boolean }>()
+
   #coordinatedReopen<U>(runtime: AgentRuntime, id: SessionId, optionsOf: (check: () => void) => Promise<Partial<import('@harnessdesk/protocol').SessionOptions>>,
     complete: (live: AgentSession, authority: OpenAuthority) => Promise<U>): Promise<U> {
     if (!runtime.resumeOwner || !runtime.beginResumeAttempt) return Promise.reject(new OpenUnavailableError())
     const observedOwner = runtime.resumeOwner(id)
-    return this.registry.coordinatedAdmission(runtime.info.id, id, observedOwner, (authority, bindOwner, admission) => {
+    const hostKey = String(sessionKey(runtime.info.id, id))
+    let held = this.#hostReopenWork.get(hostKey)
+    if (held && !held.current()) return Promise.reject(new OpenUnavailableError())
+    if (!held) { held = { callers: 0, work: 0, current: () => true }; this.#hostReopenWork.set(hostKey, held) }
+    const fence = held
+    const release = () => { if (!fence.callers && !fence.work && this.#hostReopenWork.get(hostKey) === fence) this.#hostReopenWork.delete(hostKey) }
+    fence.callers++
+    const answer = this.registry.coordinatedAdmission(runtime.info.id, id, observedOwner, (authority, bindOwner, admission) => {
+      fence.current = authority.current
       let owner: object | undefined
       const openedAtStart = this.registry.opens(runtime.info.id, id).opened
       let attempt: import('@harnessdesk/protocol').RuntimeResumeAttempt | undefined
@@ -9413,15 +9434,24 @@ export class Host {
       },
       selected => { if (!owner) throw new OpenUnavailableError(); attempt = runtime.beginResumeAttempt!(id, selected, owner); return attempt },
     )
+      fence.work++
       return {
-        result: preparedAttempt.result.finally(() => { if (!withheld) unsubscribe?.() }),
+        result: preparedAttempt.result.finally(() => { if (!withheld) unsubscribe?.(); fence.work--; release() }),
         retire: async state => {
-          await preparedAttempt.retire(state)
-          if (withheld) await death
-          unsubscribe?.()
+          fence.work++
+          try {
+            await preparedAttempt.retire(state)
+            if (withheld) await death
+            unsubscribe?.()
+          } finally { fence.work--; release() }
         },
       }
-    }, complete)
+    }, async (live, authority) => {
+      fence.work++
+      try { return await complete(live, authority) }
+      finally { fence.work--; release() }
+    })
+    return answer.finally(() => { fence.callers--; release() })
   }
 
   async #reattach(runtime: AgentRuntime, id: SessionId, route?: ResolvedModelRoute): Promise<AgentSession> {
@@ -9460,7 +9490,7 @@ export class Host {
     // skill and server its approval was there to keep out.
     const reopened = await this.#reopenAttachments(runtime, id)
     check()
-    const restored = await this.#sessionWorktrees.prepare(runtime.info.id, id)
+    const restored = await this.#sessionWorktrees.prepare(runtime.info.id, id, check)
     check()
     try {
       const environment = await this.#context.laneEnvironment.forSession(String(runtime.info.id), String(id))
@@ -9524,7 +9554,7 @@ export class Host {
     const alreadyAttached = this.registry.get(runtime.info.id, id)?.live === live
     // The same fold `session/resume` does: the transcript from the read, the
     // settings and options from the handle, which is the only place they are.
-    const transcript = await this.#read(runtime, live.id)
+    const transcript = await this.#read(runtime, live.id, check)
     check()
     const session: Session = { ...transcript, settings: live.settings(), options: live.options() }
     const removed = this.#sessionIndex.isRemoved(runtime.info.id, id)
@@ -9641,13 +9671,16 @@ export class Host {
     }
   }
 
-  async #read(runtime: AgentRuntime, id: SessionId): Promise<Session> {
+  async #read(runtime: AgentRuntime, id: SessionId, check: () => void = () => {}): Promise<Session> {
+    check()
     const finishRead = this.#beginTranscriptOperation(runtime.info.id, id)
     const finishHistoryRead = this.#beginHistoryRead(runtime.info.id, id)
     try {
       const indexed = this.#sessionIndex.get(runtime.info.id, id)
-      if (indexed?.archived) await archiveConversation(this.#context, { runtime: runtime.info.id, sessionId: id, archived: false })
-      const restored = await this.#sessionWorktrees.prepare(runtime.info.id, id)
+      if (indexed?.archived) await archiveConversation(this.#context, { runtime: runtime.info.id, sessionId: id, archived: false }, check)
+      check()
+      const restored = await this.#sessionWorktrees.prepare(runtime.info.id, id, check)
+      check()
       const pending = this.registry.get(runtime.info.id, id)
       if (pending) this.#clearSettledHistoryPending(pending)
       let read: Session
@@ -9656,9 +9689,11 @@ export class Host {
       } else if (pending && this.#recoveredTranscriptBases.has(pending.bodyGeneration)) {
         this.#saveRecoveredTranscript(pending)
         await this.#recoveredTranscriptBases.get(pending.bodyGeneration)?.saving
+        check()
         if (this.registry.get(runtime.info.id, id) !== pending) throw new Error('The conversation changed while its history was being recovered.')
         read = this.#recoveredTranscriptBases.has(pending.bodyGeneration) ? this.#historyPendingView(pending) : { ...pending.session }
-      } else read = await this.#readTranscript(runtime, id)
+      } else read = await this.#readTranscript(runtime, id, true, undefined, check)
+      check()
       const cwd = restored.cwd || indexed?.cwd || read.cwd
       const session = this.#preserveReadRecency({ ...read, cwd, ...(restored.warning ? { worktreeWarning: restored.warning } : {}) })
       if (read.historyPending) {
@@ -9675,7 +9710,8 @@ export class Host {
       if (!this.#sessionIndex.isRemoved(runtime.info.id, id) && !this.#recoveredTranscriptBases.has(this.registry.get(runtime.info.id, id)?.bodyGeneration ?? '') && !runtime.info.capabilities.sourceTranscript &&
         (this.#sessionIndex.isImported(runtime.info.id, id) || !this.registry.get(runtime.info.id, id)?.live)) {
         const owner = this.#readBaseOwner(session)
-        const result = await this.#transcripts.refresh(session, null, this.#transcripts.readBase(read))
+        const result = await this.#transcripts.refresh(session, null, this.#transcripts.readBase(read), check)
+        check()
         if (!result.saved) return this.#holdProtectedRead(session, result.base)
         else {
           const verified = result.base
@@ -9699,14 +9735,16 @@ export class Host {
     return timing ? { ...session, ...(held?.itemsLoaded ? { createdAt: held.createdAt } : {}), updatedAt: timing.updatedAt } : session
   }
 
-  async #cacheRead(session: Session, source: SessionSource | null, base?: import('./transcripts.js').DurableTranscriptBase): Promise<Session> {
+  async #cacheRead(session: Session, source: SessionSource | null, base?: import('./transcripts.js').DurableTranscriptBase, check: () => void = () => {}): Promise<Session> {
+    check()
     const stable = this.#preserveReadRecency(session)
     this.#recordSessionIndex(stable, true)
     // A successful explicit read admits a removed row only after returning to
     // session/read; do not write through its tombstone before that decision.
     if (this.#sessionIndex.isRemoved(stable.runtime, stable.id)) return stable
     const owner = this.#readBaseOwner(stable)
-    const result = await this.#transcripts.refresh(stable, source, base)
+    const result = await this.#transcripts.refresh(stable, source, base, check)
+    check()
     if (!result.saved) this.#protectedReadBases.set(stable, result.base)
     else {
       const verified = result.base
@@ -9741,7 +9779,8 @@ export class Host {
     this.#transcripts.bindBase(owner.record.session, owner.record.bodyGeneration, base)
   }
 
-  async #readTranscript(runtime: AgentRuntime, id: SessionId, allowReopen = true, admitCwd?: DispatchAdmission<string>): Promise<Session> {
+  async #readTranscript(runtime: AgentRuntime, id: SessionId, allowReopen = true, admitCwd?: DispatchAdmission<string>, check: () => void = () => {}): Promise<Session> {
+    check()
     const finishRead = this.#beginTranscriptOperation(runtime.info.id, id)
     const finishHistoryRead = this.#beginHistoryRead(runtime.info.id, id)
     try {
@@ -9752,8 +9791,9 @@ export class Host {
       }
       if (pending) this.#clearSettledHistoryPending(pending)
       try {
-        return await this.#readTranscriptUntracked(runtime, id, allowReopen, admitCwd)
+        return await this.#readTranscriptUntracked(runtime, id, allowReopen, admitCwd, check)
       } catch (error) {
+        check()
         // Only a refused persistence operation permits this projection. Runtime,
         // scope and programming errors retain their original meaning.
         const record = this.registry.get(runtime.info.id, id)
@@ -9768,7 +9808,7 @@ export class Host {
   }
 
   /** Check a silent read against the exact retained body before it can be saved. */
-  async #gateReplayRead(runtime: AgentRuntime, raw: Session): Promise<{ record: SessionRecord; revision: number; epoch: number } | undefined> {
+  async #gateReplayRead(runtime: AgentRuntime, raw: Session, check: () => void = () => {}): Promise<{ record: SessionRecord; revision: number; epoch: number } | undefined> {
     const held = this.registry.get(runtime.info.id, raw.id)
     if (!held || held.transcriptIncomplete || held.running.size > 0) return undefined
     const revision = held.bodyRevision, epoch = held.bodyAuthorityEpoch
@@ -9780,6 +9820,7 @@ export class Host {
     // A newer independently readable SQLite body can legitimately supersede
     // the old released descriptor (for example after a source refresh).
     const durable = !verified && descriptor ? await this.#transcripts.recover(runtime.info.id, raw.id).catch(() => null) : null
+    check()
     if (this.registry.get(runtime.info.id, raw.id) !== held || held.bodyRevision !== revision || held.bodyAuthorityEpoch !== epoch) {
       throw Object.assign(new Error('Conversation history changed while it was being read.'), { wireCode: 'historyUnavailable' })
     }
@@ -9800,7 +9841,8 @@ export class Host {
     }
   }
 
-  async #readTranscriptUntracked(runtime: AgentRuntime, id: SessionId, allowReopen = true, admitCwd?: DispatchAdmission<string>): Promise<Session> {
+  async #readTranscriptUntracked(runtime: AgentRuntime, id: SessionId, allowReopen = true, admitCwd?: DispatchAdmission<string>, check: () => void = () => {}): Promise<Session> {
+    check()
     const held = this.registry.get(runtime.info.id, id)
     if (held && this.#recoveredTranscriptBases.has(held.bodyGeneration)) {
       if (admitCwd) throw Object.assign(new Error('The chat project location cannot be verified while its history is unsaved.'), { wireCode: 'historyUnavailable' })
@@ -9818,20 +9860,26 @@ export class Host {
         await readKeptTranscriptFile(join(this.#state.directory, 'transcripts'), runtime.info.id, id)
       if (kept) return { ...kept, deskCopy: true }
     }
-    const scoped = await this.#scopedRead(runtime, id, allowReopen)
+    check()
+    const scoped = await this.#scopedRead(runtime, id, allowReopen, check)
+    check()
     if (scoped) {
       if (admitCwd) throw new Error('The chat project location cannot be verified from its retained transcript.')
       return scoped
     }
     const source = await this.#sourceState(runtime, id)
+    check()
     if (!admitCwd && source && source.kind !== 'changed') {
       const cached = await this.#transcripts.recover(runtime.info.id, id)
       if (cached) return { ...held?.session, ...cached, deskCopy: source.kind === 'gone' }
     }
     try {
-      await this.#prepareReopenTranscript(runtime.info.id, id)
+      await this.#prepareReopenTranscript(runtime.info.id, id, check)
+      check()
       const raw = await runtime.readSession(id)
-      const advancedWithoutUsage = await this.#gateReplayRead(runtime, raw)
+      check()
+      const advancedWithoutUsage = await this.#gateReplayRead(runtime, raw, check)
+      check()
       const replayed = this.registry.get(runtime.info.id, id)
       if (replayed?.transcriptIncomplete) {
         if (admitCwd) throw Object.assign(new Error('The chat project location cannot be verified while its history is unsaved.'), { wireCode: 'historyUnavailable' })
@@ -9840,8 +9888,10 @@ export class Host {
       // The index owns the desk's display location, not proof of a runtime
       // transcript's scope. Check the body being returned before replacing cwd.
       await admitCwd?.(raw.cwd)
+      check()
       this.#admitFirstReadBase(raw)
       const enriched = await this.#transcripts.enrichForRefresh(raw)
+      check()
       // A silent read must not let the registry carry an older usage value
       // forward. Clear only that fact after enrichment, under the same owner
       // fence. Synthesizing a session event here would enqueue a body write
@@ -9852,17 +9902,18 @@ export class Host {
       if (this.#sessionIndex.fillMissingMetadata(session)) this.#sessionIndexRepos.read(session.cwd)
       session.cwd = this.#sessionIndex.get(runtime.info.id, id)?.cwd || session.cwd
       // Read the fingerprint before replay, so a concurrent append always forces another refresh.
-      if (source) return this.#cacheRead(session, source.source, enriched.base)
+      if (source) return this.#cacheRead(session, source.source, enriched.base, check)
       else if (runtime.info.capabilities.sourceTranscript && runtime.sourceOf) {
         // Startup can negotiate this capability inside readSession. A stat
         // taken now could include an append the replay missed, so leave it
         // unstamped until a subsequent read captures metadata before replay.
-        return this.#cacheRead(session, null, enriched.base)
+        return this.#cacheRead(session, null, enriched.base, check)
       }
       const stable = this.#preserveReadRecency(session)
       this.#transcripts.rememberReadBase(stable, enriched.base)
       return stable
     } catch (error) {
+      check()
       if (this.#transcripts.hasProtectedChanges(runtime.info.id, id)) throw error
       // A retained display copy cannot prove the current raw location, and a
       // scope refusal must never fall back to bytes from that same old index.

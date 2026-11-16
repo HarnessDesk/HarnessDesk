@@ -612,3 +612,20 @@ for (const ownership of ['shared', 'unknown'] as const) test(`failed pick restor
     await assert.rejects(rig.host.call('session/resume', params), /earlier open/)
   } finally { release(); await rig.close() }
 })
+
+test('revoking a reopen during archive preparation prevents a later unarchive effect', async () => {
+  const { archiveConversation } = await import('../src/methods/sessions.js')
+  let release!: () => void, entered!: () => void, current = true, effects = 0
+  const gate = new Promise<void>(resolve => { release = resolve }), began = new Promise<void>(resolve => { entered = resolve })
+  const runtime = { info: { id: runtimeId('fake'), capabilities: { archiveHistory: false } } }
+  const ctx = {
+    runtimes: { resolve: () => runtime },
+    sessionWorktrees: { remember: async () => { entered(); await gate }, prepare: async () => ({}) },
+    archive: { set: async () => { effects++ } },
+    sessionIndex: { setArchived: () => { effects++ } },
+  } as unknown as import('../src/methods/context.js').HostContext
+  const operation = archiveConversation(ctx, { runtime: runtimeId('fake'), sessionId: sessionId('old'), archived: false }, () => { if (!current) throw new Error('revoked') })
+  const refused = assert.rejects(operation, /revoked/)
+  try { await began; current = false; release(); await refused; assert.equal(effects, 0) }
+  finally { release(); await refused }
+})
