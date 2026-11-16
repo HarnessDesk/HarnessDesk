@@ -1603,6 +1603,12 @@ const handlers = {
   'session/resume': async (id, params) => {
     if (!RESUME_ONLY) return send({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } })
     recordOpen('session/resume', params.sessionId, params.cwd, params?._meta)
+    const firstGate = process.env.FAKE_ACP_FIRST_RESUME_GATE
+    const heldFirst = !!firstGate && !existsSync(`${firstGate}.entered`)
+    if (heldFirst) {
+      writeFileSync(`${firstGate}.entered`, 'entered')
+      while (existsSync(firstGate)) await new Promise(resolve => setTimeout(resolve, 10))
+    }
     // FAKE_ACP_RESUME_DELAY_MS holds the answer, for a reopen that takes too long.
     if (process.env.FAKE_ACP_RESUME_DELAY_MS) await new Promise((resolve) => setTimeout(resolve, Number(process.env.FAKE_ACP_RESUME_DELAY_MS)))
     const entry = readStore()[params.sessionId]
@@ -1624,6 +1630,7 @@ const handlers = {
     if (process.env.FAKE_ACP_DELEGATION_REPLAY) staleDelegations(state.id)
     // No replay: resume restores the context and says nothing about it.
     reply(id, { configOptions: configOptionsOf(state) })
+    if (heldFirst) writeFileSync(`${firstGate}.replied`, 'replied')
     if (process.env.FAKE_ACP_DELEGATION_REPLAY) setTimeout(() => staleDelegations(state.id), 20)
   },
   'session/load': async (id, params) => {

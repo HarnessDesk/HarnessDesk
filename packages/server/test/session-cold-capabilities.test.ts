@@ -58,10 +58,18 @@ const laneContext = (supported: boolean) => {
       forSession: async (owner: string, conversation: string) => laneEnvironmentFor(runtime, environmentForSession(owner, conversation, [lane], [seat])),
     },
     evidence: { seats: { latestKeptOf: () => null, latestOf: () => seat } },
-    registry: { forReopen: () => undefined, opening: () => () => {}, upsert: (session: Session, live: AgentSession) => ({ session, live }) },
+    registry: { forReopen: () => undefined, get: () => ({ session: transcript }), opening: () => () => {}, upsert: (session: Session, live: AgentSession) => ({ session, live }) },
     sessionIndex: { refreshMissingFolder: async () => {}, reopen: () => {}, record: () => {} },
     sessionWorktrees: { prepare: async () => ({}) },
     sessions: {
+      coordinatedResume: async (agent: AgentRuntime, session: typeof id, optionsOf: (check: () => void) => Promise<Partial<import('@harnessdesk/protocol').SessionOptions>>, complete: (live: AgentSession, authority: { current(): boolean }) => Promise<Session>) => {
+        await ensureStarted()
+        const options = await optionsOf(() => {})
+        const environment = await laneEnvironmentFor(agent, environmentForSession(String(agent.info.id), String(session), [lane], [seat]))
+        const owner = agent.resumeOwner!(session)
+        const live = await agent.beginResumeAttempt!(session, { ...options, ...(environment ? { environment } : {}) }, owner).result
+        return complete(live, { current: () => true })
+      },
       attach: async () => transcript,
       read: async () => transcript,
       noteReconciled: () => {},

@@ -12,6 +12,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { SessionRegistry } from '../src/registry.js'
+import { OpenUnavailableError } from '../src/open-coordinator.js'
 
 /**
  * What the host keeps against what a runtime's store says.
@@ -391,4 +392,40 @@ test('distinct session owners under one runtime retire independently and retain 
   await next; assert.deepEqual(registry.opens(RUNTIME, ID), { opened: 2, pending: 0 })
   const handle = {}; otherDone(handle); assert.equal(await other, handle)
   oldDone({}); await oldResult
+})
+
+test('unbound admissions watch only their own observer; binding replaces that watch', async () => {
+  const registry = new SessionRegistry(), oldOwner = {}, newOwner = {}, otherOwner = {}, second = sessionId('observer-other')
+  let release!: (value: object) => void
+  const gate = new Promise<object>(resolve => { release = resolve })
+  const pending = registry.coordinatedAdmission(RUNTIME, ID, oldOwner, (_authority, _bindOwner) => {
+    return { result: gate, retire: async () => {} }
+  })
+  let releaseOther!: (value: object) => void
+  const otherGate = new Promise<object>(resolve => { releaseOther = resolve })
+  const other = registry.coordinatedAdmission(RUNTIME, second, otherOwner, () => ({ result: otherGate, retire: async () => {} }))
+  assert.equal(registry.opens(RUNTIME, ID).pending, 1)
+  const refused = assert.rejects(pending, OpenUnavailableError)
+  registry.coordinatedOwnerDied(RUNTIME, oldOwner)
+  await refused
+  assert.equal(registry.opens(RUNTIME, second).pending, 1, 'unrelated observer remains admitted')
+  release({})
+  releaseOther({})
+  await other
+  let releaseNext!: (value: object) => void
+  const nextGate = new Promise<object>(resolve => { releaseNext = resolve })
+  let bindNext!: (owner: object) => void
+  const bound = registry.coordinatedAdmission(RUNTIME, ID, newOwner, (_authority, bindOwner) => {
+    bindNext = bindOwner
+    return { result: nextGate, retire: async () => {} }
+  })
+  registry.coordinatedOwnerDied(RUNTIME, oldOwner)
+  assert.equal(registry.opens(RUNTIME, ID).pending, 1, 'delayed old death cannot revoke a new observer')
+  bindNext(newOwner)
+  registry.coordinatedOwnerDied(RUNTIME, oldOwner)
+  assert.equal(registry.opens(RUNTIME, ID).pending, 1, 'old observer cannot revoke a bound new generation')
+  const boundRefused = assert.rejects(bound, OpenUnavailableError)
+  registry.coordinatedOwnerDied(RUNTIME, newOwner)
+  await boundRefused
+  releaseNext({})
 })

@@ -61,8 +61,8 @@ for (const seated of [true, false]) {
     await host.call('session/options/set', { ...params, optionId: 'mode', value: 'terse' })
     await host.call('session/close', params)
     const calls: Array<Partial<SessionOptions> | undefined> = []
-    const resume = runtime.resumeSession.bind(runtime)
-    runtime.resumeSession = async (id, options) => { calls.push(options); return resume(id, options) }
+    const begin = runtime.beginResumeAttempt.bind(runtime)
+    runtime.beginResumeAttempt = (id, options, owner) => { calls.push(options); return begin(id, options, owner) }
     if (!seated) {
       // No caller's folder may replace a Seat's durable checkout.
       await assert.rejects(host.call('session/resume', { ...params, options: { cwd: dir, knownCwd: cwd } }),

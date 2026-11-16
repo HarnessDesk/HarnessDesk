@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
-import { membersOf, type GoalView, type IdleRuntimeRead, type RuntimeHealth, type SeatRecord, type WireNotification } from '@harnessdesk/protocol'
+import { localSessionClose, membersOf, type GoalView, type IdleRuntimeRead, type RuntimeHealth, type SeatRecord, type WireNotification } from '@harnessdesk/protocol'
 
 import { Host, Logger, StateStore } from '../src/index.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
@@ -809,6 +809,83 @@ test('a send arriving during release waits, then resumes instead of using the cl
   assert.ok(d.record.live)
 })
 
+for (const kind of ['untagged', 'wrong-handle', 'explicit'] as const) {
+  test(`a ${kind} close during quiet release revokes the waiting send`, async t => {
+    const d = await seated(t), live = d.record.live!
+    let release!: () => void, closing = false
+    const barrier = new Promise<void>(resolve => { release = resolve })
+    const close = live.close.bind(live)
+    live.close = async () => { closing = true; await barrier; await close() }
+    t.after(() => release())
+    await d.finish()
+    await until(() => closing)
+    const resumes = d.runtime.resumes
+    const params = { runtime: d.runtime.info.id, sessionId: d.record.session.id }
+    const sending = d.host.call('turn/send', { ...params, input: [{ type: 'text', text: 'Wait for release' }] })
+    const refused = assert.rejects(sending, /earlier open/)
+    await until(() => d.host.registry.opens(params.runtime, params.sessionId).pending === 1)
+    if (kind === 'explicit') {
+      const closeCall = d.host.call('session/close', params)
+      await refused
+      release()
+      await closeCall
+    } else {
+      const event = { type: 'session/closed' as const, sessionId: params.sessionId }
+      if (kind === 'wrong-handle') {
+        const other = await d.runtime.createSession({ cwd: d.record.session.cwd })
+        d.runtime.emit(localSessionClose(event, other))
+      } else d.runtime.emit(event)
+      await refused
+      release()
+    }
+    await pause(20)
+    assert.equal(d.runtime.resumes, resumes, 'a revoked admission never starts the adapter')
+  })
+}
+
+test('old owner death during quiet release revokes the prebinding admission', async t => {
+  const d = await seated(t), live = d.record.live!
+  let release!: () => void, closing = false
+  const barrier = new Promise<void>(resolve => { release = resolve })
+  const close = live.close.bind(live)
+  live.close = async () => { closing = true; await barrier; await close() }
+  t.after(() => release())
+  const params = { runtime: d.runtime.info.id, sessionId: d.record.session.id }
+  d.runtime.resumeOwner(params.sessionId)
+  await d.finish()
+  await until(() => closing)
+  const sending = d.host.call('turn/send', { ...params, input: [{ type: 'text', text: 'Continue' }] })
+  const outcome = sending.then(() => 'resolved', () => 'rejected')
+  try {
+    await until(() => d.host.registry.opens(params.runtime, params.sessionId).pending === 1)
+    d.runtime.dieResumeOwner(params.sessionId)
+    assert.equal(await Promise.race([outcome, pause(100).then(() => 'pending')]), 'rejected')
+  } finally { release(); await outcome }
+})
+
+test('a late old-handle close after a new attempt begins revokes that attempt', async t => {
+  const d = await seated(t), old = d.record.live!
+  let releaseClose!: () => void, releaseOpen!: () => void, closing = false, began = false
+  const closeGate = new Promise<void>(resolve => { releaseClose = resolve })
+  d.runtime.resumeAttemptGate = new Promise<void>(resolve => { releaseOpen = resolve })
+  t.after(() => { releaseClose(); releaseOpen() })
+  const close = old.close.bind(old)
+  old.close = async () => { closing = true; await closeGate; await close() }
+  const begin = d.runtime.beginResumeAttempt.bind(d.runtime)
+  d.runtime.beginResumeAttempt = (...args: Parameters<typeof begin>) => { began = true; return begin(...args) }
+  await d.finish()
+  await until(() => closing)
+  const params = { runtime: d.runtime.info.id, sessionId: d.record.session.id }
+  const sending = d.host.call('turn/send', { ...params, input: [{ type: 'text', text: 'Continue' }] })
+  const refused = assert.rejects(sending, /earlier open/)
+  await until(() => d.host.registry.opens(params.runtime, params.sessionId).pending === 1)
+  releaseClose()
+  await until(() => began)
+  d.runtime.emit(localSessionClose({ type: 'session/closed', sessionId: params.sessionId }, old))
+  await refused
+  releaseOpen()
+})
+
 test('a Team message waiting for acceptance keeps a finished Seat live', async (t) => {
   const d = await seated(t)
   const session = d.runtime.sessions.get(d.record.session.id)!
@@ -1207,4 +1284,28 @@ test('resource polling reports unsupported measurement and never wakes an idle r
   assert.equal(costs[0]?.residentBytes, null)
   assert.equal(costs[0]?.canRecycle, false)
   assert.equal(runtime.starts, 1)
+})
+
+test('an owner-death callback from a removed runtime cannot cancel its replacement admission', async t => {
+  const old = new IdleRuntime({ id: 'replacement-test' as never })
+  let stale!: (owner: object) => void
+  old.onResumeOwnerDied = listener => { stale = listener; return () => {} }
+  const { host, stateDir } = await makeHost(old, 60_000, 60_000)
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  t.after(async () => { release(); await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  await host.start()
+  await host.unregister(old.info.id)
+  const current = new IdleRuntime({ id: old.info.id })
+  current.startBarrier = gate
+  host.register(current)
+  const id = 'replacement-session' as never
+  const opening = host.call('session/resume', { runtime: current.info.id, sessionId: id })
+  const outcome = opening.then(() => 'resolved', () => 'rejected')
+  try {
+    await until(() => host.registry.opens(current.info.id, id).pending === 1)
+    stale({})
+    await pause(20)
+    assert.equal(host.registry.opens(current.info.id, id).pending, 1, 'retired runtime cannot revoke replacement')
+  } finally { release(); await outcome }
 })

@@ -1051,6 +1051,14 @@ export interface SessionSource {
   readonly size: number
 }
 
+/** Local-only provenance for a close event emitted directly by this handle. */
+const localCloseOrigins = new WeakMap<object, AgentSession>()
+export const localSessionClose = <T extends AgentEvent>(event: T, handle: AgentSession): T => {
+  localCloseOrigins.set(event, handle)
+  return event
+}
+export const localSessionCloseOrigin = (event: AgentEvent): AgentSession | undefined => localCloseOrigins.get(event)
+
 /** Internal ownership of one resume attempt; never sent over the renderer wire. */
 export interface RuntimeResumeAttempt {
   readonly result: Promise<AgentSession>

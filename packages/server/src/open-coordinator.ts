@@ -58,6 +58,10 @@ export class OpenCoordinator {
     if (!entry) { entry = { pending: new Set(), flight: null, quarantine: null }; map.set(id, entry) }
     return entry
   }
+  retained(owner: object, id: string): boolean {
+    const entry = this.#entries.get(owner)?.get(id)
+    return !!(entry?.flight || entry?.quarantine)
+  }
   counts(owner: object, id: string, lifetime: object = owner): { opened: number; pending: number } {
     return { opened: this.#opened.get(lifetime)?.get(id) ?? 0, pending: this.#entries.get(owner)?.get(id)?.pending.size ?? 0 }
   }

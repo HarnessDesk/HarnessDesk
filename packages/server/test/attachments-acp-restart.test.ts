@@ -139,17 +139,17 @@ test('a turn a reconnect started survives a session/resume that arrives while th
   const opens = join(tempDir('hd-acp-race-opens-'), 'opens.ndjson')
   const { again, client, session, seat, runtime } = await deskAt(t, '1.0.0', { opens })
   // Hold the one reopen in the agent until both callers have asked for it.
-  const real = runtime.resumeSession.bind(runtime)
+  const real = runtime.beginResumeAttempt.bind(runtime)
   let entered = 0
   let release!: () => void
   const gate = new Promise<void>((resolve) => { release = resolve })
   let firstEntered!: () => void
   const firstIn = new Promise<void>((resolve) => { firstEntered = resolve })
-  runtime.resumeSession = async (...args: Parameters<typeof real>) => {
+  runtime.beginResumeAttempt = (...args: Parameters<typeof real>) => {
     entered += 1
     firstEntered()
-    await gate
-    return real(...args)
+    const attempt = real(...args)
+    return { ...attempt, result: (async () => { await gate; return attempt.result })() }
   }
   const id = String(session.id)
   // A reconnect: the next message to the conversation reopens it (through the host's shared reopen).
@@ -158,7 +158,7 @@ test('a turn a reconnect started survives a session/resume that arrives while th
   // The person opens the same conversation while that reopen is in flight.
   const resumed = client.call('session/resume', { runtime: 'rig-agent', sessionId: id })
   // Released once the second caller has either joined the reopen in flight or started a second one.
-  for (let turns = 0; entered < 2 && again.host.reopenWaiters('rig-agent', id) < 1; turns += 1) {
+  for (let turns = 0; entered < 2 && again.host.registry.opens('rig-agent' as never, session.id).pending < 2; turns += 1) {
     if (turns > 10_000) throw new Error('the second caller never arrived')
     await new Promise((resolve) => setImmediate(resolve))
   }

@@ -3,6 +3,7 @@ import { DeskFeatures } from './features.js'
 import { startPhoneLink, type RunningPhoneLink, type PhoneLinkOptions } from './phone-link.js'
 import type { DispatchAdmission } from './dispatch-admission.js'
 import { isDeepStrictEqual } from 'node:util'
+import { localSessionCloseOrigin } from '@harnessdesk/protocol'
 import { firstAsk, leadMessageWords, isLeadMessageSource, leadDisplayName, leadMessageKey, splitContextContent, wrapContext, type LeadChatControlList, type LeadChatHolder } from '@harnessdesk/protocol'
 import { canonicalTranscriptBody, LEAD_MEMORY_KIND_LABELS, PendingTranscript, type LeadMemoryView, type LeadWorkBoard } from '@harnessdesk/protocol'
 import { DescriptorCache, PendingSessionOverlay, recoveryDescriptor } from './recovery-descriptor.js'
@@ -907,6 +908,9 @@ export class Host {
   readonly #conversationQuietSince = new Map<string, { since: number; changedAt: number }>()
   readonly #seatQuietSince = new Map<string, { since: number; changedAt: number }>()
   readonly #restingSessions = new Map<string, Promise<void>>()
+  readonly #restingHandles = new Map<string, AgentSession>()
+  readonly #admissionRests = new Map<string, { promise: Promise<void>; handle: AgentSession; authority: OpenAuthority }>()
+  readonly #admissionStarts = new Map<string, { promise: Promise<void>; admission: object }>()
   readonly #seatHeldCards: SeatHeldCards
   #idleReaper: ReturnType<typeof setInterval> | null = null
   /** The asks still to come after a program that would not answer: see `#scheduleRetries`. */
@@ -3074,7 +3078,7 @@ export class Host {
     this.#runtimeSubscriptions.set(id, [
       runtime.subscribe((event) => { if (this.ownsRuntime(runtime)) this.#onEvent(id, event, runtime) }),
       runtime.onHealthChange((health) => { if (this.ownsRuntime(runtime)) this.#onHealthChange(id, health) }),
-      ...(runtime.onResumeOwnerDied ? [runtime.onResumeOwnerDied(owner => this.registry.coordinatedOwnerDied(id, owner))] : []),
+      ...(runtime.onResumeOwnerDied ? [runtime.onResumeOwnerDied(owner => { if (this.ownsRuntime(runtime)) this.registry.coordinatedOwnerDied(id, owner) })] : []),
       // A capability the agent only reveals by refusing it. Optional, so a
       // runtime whose description is settled at construction says nothing.
       ...(runtime.onInfoChange
@@ -3846,13 +3850,14 @@ export class Host {
         }
       })
       this.#restingSessions.set(key, resting)
+      this.#restingHandles.set(key, live)
       try {
         await resting
       } catch (error) {
         this.#seatQuietSince.delete(key)
         this.#logger.warn('a finished Seat could not release its conversation', { runtime: runtime.info.id, error: String(error) })
       } finally {
-        if (this.#restingSessions.get(key) === resting) this.#restingSessions.delete(key)
+        if (this.#restingSessions.get(key) === resting) { this.#restingSessions.delete(key); this.#restingHandles.delete(key) }
       }
     }
   }
@@ -3961,11 +3966,12 @@ export class Host {
       }
     })
     this.#restingSessions.set(key, resting)
+    this.#restingHandles.set(key, live)
     try { await resting } catch (error) {
       this.#conversationQuietSince.delete(key)
       this.#logger.warn('a quiet conversation could not release its handle', { runtime: record.runtime, error: String(error) })
     } finally {
-      if (this.#restingSessions.get(key) === resting) this.#restingSessions.delete(key)
+      if (this.#restingSessions.get(key) === resting) { this.#restingSessions.delete(key); this.#restingHandles.delete(key) }
     }
   }
 
@@ -9039,7 +9045,7 @@ export class Host {
     this.#seatQuietSince.delete(key)
     const agent = this.#runtime({ runtime })
     const held = this.registry.get(runtime, id)
-    if (held?.live && this.registry.opens(runtime, id).pending === 0) return held.live
+    if (held?.live && !this.#restingSessions.has(key) && this.registry.opens(runtime, id).pending === 0) return held.live
     if (agent.resumeOwner && agent.beginResumeAttempt) {
       const promise = this.#coordinatedReopen(agent, id, async check => {
         await this.#restingSessions.get(key)
@@ -9337,8 +9343,9 @@ export class Host {
   #coordinatedReopen<U>(runtime: AgentRuntime, id: SessionId, optionsOf: (check: () => void) => Promise<Partial<import('@harnessdesk/protocol').SessionOptions>>,
     complete: (live: AgentSession, authority: OpenAuthority) => Promise<U>): Promise<U> {
     if (!runtime.resumeOwner || !runtime.beginResumeAttempt) return Promise.reject(new OpenUnavailableError())
-    const owner = runtime.resumeOwner(id)
-    return this.registry.coordinatedOpen(runtime.info.id, id, owner, authority => {
+    const observedOwner = runtime.resumeOwner(id)
+    return this.registry.coordinatedAdmission(runtime.info.id, id, observedOwner, (authority, bindOwner, admission) => {
+      let owner: object | undefined
       const openedAtStart = this.registry.opens(runtime.info.id, id).opened
       let attempt: import('@harnessdesk/protocol').RuntimeResumeAttempt | undefined
       const ownsHandle = (live: AgentSession) => attempt?.ownsHandle?.(live) === true
@@ -9352,19 +9359,50 @@ export class Host {
       })
       const preparedAttempt = ownedResumePreparation<AgentSession, Partial<import('@harnessdesk/protocol').SessionOptions>, AgentSession>(
       async (start, check) => {
+        const rest = this.#restingSessions.get(key), restHandle = this.#restingHandles.get(key)
+        if (rest && restHandle) {
+          const waiting = { promise: rest, handle: restHandle, authority }
+          this.#admissionRests.set(key, waiting)
+          try { await rest } finally { if (this.#admissionRests.get(key) === waiting) this.#admissionRests.delete(key) }
+          check()
+        }
+        await this.#waitForRuntimeStop(runtime)
+        check()
+        if (runtime.health().state !== 'ready') {
+          const starting = this.#beginRuntimeStart(runtime, false)
+          const waiting = { promise: starting, admission }
+          this.#admissionStarts.set(key, waiting)
+          try { await starting } finally { if (this.#admissionStarts.get(key) === waiting) this.#admissionStarts.delete(key) }
+          check()
+        }
+        owner = runtime.resumeOwner!(id)
+        bindOwner(owner)
+        check()
         const options = await optionsOf(check)
         check()
         const existing = this.registry.get(runtime.info.id, id)?.live
         if (existing) {
           const live = await start(options)
           check()
-          return this.#publishReattach(runtime, id, { live, reopened: null, priorLive: true }, authority, openedAtStart, ownsHandle, () => { withheld = true; this.#withheldResumeEvents.set(key, owner) })
+          return this.#publishReattach(runtime, id, { live, reopened: null, priorLive: true }, authority, openedAtStart, ownsHandle, () => { withheld = true; this.#withheldResumeEvents.set(key, owner!) })
         }
-        const prepared = await this.#prepareReattach(runtime, id, options.route, start, check, options)
+        const prepared = await this.#prepareReattach(runtime, id, options.route, start, check, options, async (live, error, priorLive) => {
+          const current = this.registry.get(runtime.info.id, id)?.live
+          if (priorLive || current && current !== live || this.registry.opens(runtime.info.id, id).opened !== openedAtStart || !ownsHandle(live) || !authority.exclusive()) {
+            withheld = true
+            this.#withheldResumeEvents.set(key, owner!)
+            if (!priorLive && current === live) { const record = this.registry.get(runtime.info.id, id); if (record) { record.live = null; record.detached = true } }
+            return
+          }
+          authority.closeFailure(new Error(this.#cannotReopen(runtime, error)))
+          await live.close().catch((closeError: unknown) => this.#logger.warn('a handle the reopen could not finish with did not close', {
+            runtime: runtime.info.id, session: String(id), error: String(closeError),
+          }))
+        })
         check()
-        return this.#publishReattach(runtime, id, prepared, authority, openedAtStart, ownsHandle, () => { withheld = true; this.#withheldResumeEvents.set(key, owner) })
+        return this.#publishReattach(runtime, id, prepared, authority, openedAtStart, ownsHandle, () => { withheld = true; this.#withheldResumeEvents.set(key, owner!) })
       },
-      selected => { attempt = runtime.beginResumeAttempt!(id, selected, owner); return attempt },
+      selected => { if (!owner) throw new OpenUnavailableError(); attempt = runtime.beginResumeAttempt!(id, selected, owner); return attempt },
     )
       return {
         result: preparedAttempt.result.finally(() => { if (!withheld) unsubscribe?.() }),
@@ -9385,7 +9423,8 @@ export class Host {
   /** Prepare the same frozen inputs and adapter handle before publishing the reopened conversation. */
   async #prepareReattach(runtime: AgentRuntime, id: SessionId, route?: ResolvedModelRoute,
     start?: (options: Partial<import('@harnessdesk/protocol').SessionOptions>) => Promise<AgentSession>,
-    check: () => void = () => {}, options: Partial<import('@harnessdesk/protocol').SessionOptions> = {}): Promise<{ live: AgentSession; reopened: ReopenedSeat | null; priorLive: boolean }> {
+    check: () => void = () => {}, options: Partial<import('@harnessdesk/protocol').SessionOptions> = {},
+    cleanup?: (live: AgentSession, error: unknown, priorLive: boolean) => Promise<void>): Promise<{ live: AgentSession; reopened: ReopenedSeat | null; priorLive: boolean }> {
     const priorLive = !!this.registry.get(runtime.info.id, id)?.live
     check()
     if (this.#coldRuntimes.has(String(runtime.info.id)) || this.#startingRuntimes.has(String(runtime.info.id))) await this.#ensureStarted(runtime)
@@ -9441,7 +9480,8 @@ export class Host {
       // outlive it: every later open would be handed the same stale handle.
       let current = true
       try { check() } catch { current = false }
-      if (live && current && !start) {
+      if (live && current && cleanup) await cleanup(live, error, priorLive)
+      else if (live && current && !start) {
         await live.close().catch((closeError: unknown) => this.#logger.warn('a handle the reopen could not finish with did not close', {
           runtime: runtime.info.id, session: String(id), error: String(closeError),
         }))
@@ -9584,7 +9624,10 @@ export class Host {
       if (!remaining) {
         const deferred = this.#deferredRegistryMutations.get(key)
         this.#deferredRegistryMutations.delete(key)
-        if (deferred && this.registry.get(runtime, id) === deferred.record) this.#recordRegistryMutation(deferred.record, deferred.previous)
+        if (deferred && this.registry.get(runtime, id) === deferred.record && deferred.previous.turns.some(turn =>
+          turn.status === 'inProgress' && deferred.record.session.turns.some(next => next.id === turn.id && next.status !== 'inProgress'))) {
+          this.#recordRegistryMutation(deferred.record, deferred.previous)
+        }
       }
     }
   }
@@ -11617,7 +11660,10 @@ export class Host {
     const foldKey = eventSession ? String(sessionKey(runtime, eventSession)) : null
     if (foldKey) this.#runtimeFolds.set(foldKey, (this.#runtimeFolds.get(foldKey) ?? 0) + 1)
     let record: SessionRecord | undefined
-    try { record = this.registry.apply(runtime, event) } finally {
+    const restKey = event.type === 'session/closed' ? String(sessionKey(runtime, event.sessionId)) : null
+    const waitingRest = restKey ? this.#admissionRests.get(restKey) : undefined
+    const expectedClose = !!(waitingRest && waitingRest.authority.current() && this.#restingSessions.get(restKey!) === waitingRest.promise && localSessionCloseOrigin(event) === waitingRest.handle)
+    try { record = this.registry.apply(runtime, event, expectedClose) } finally {
       for (const id of temporarilyWatched) priorRecord?.watched.delete(id)
       if (foldKey) {
         const remaining = this.#runtimeFolds.get(foldKey)! - 1
@@ -12863,7 +12909,12 @@ export class Host {
     if (health.state !== 'ready' && health.state !== 'idle') {
       this.#invalidateDelegations(runtime)
       this.#settleHeld(runtime)
-      for (const record of this.registry.detachAll(runtime)) this.#pushQueue(record)
+      const preserve = new Set<object>()
+      if (health.state === 'starting') {
+        const current = this.#startingRuntimes.get(id)
+        for (const waiting of this.#admissionStarts.values()) if (current && waiting.promise === current) preserve.add(waiting.admission)
+      }
+      for (const record of this.registry.detachAll(runtime, undefined, preserve)) this.#pushQueue(record)
       this.#recordDetachedTranscripts(runtime)
       this.#terminals.detachAll(runtime)
       // Same reason as `unregister`: these sessions went down without a

@@ -448,7 +448,7 @@ const CANCEL_SETTLE_MS = 5_000
 const REOPEN_DEADLINE_MS = 15_000
 
 /** What a stop's reopen is opening on, so a reopen given up on can end it. */
-interface ReopenTrack { connection?: AcpConnection; abandoned?: boolean; owner?: object; id?: SessionId; replay?: AcpSession; published?: boolean }
+interface ReopenTrack { connection?: AcpConnection; abandoned?: boolean; effectStarted?: boolean; owner?: object; id?: SessionId; replay?: AcpSession; published?: boolean }
 type ResumeOwner = { readonly token: object; readonly death: Promise<void>; readonly died: () => void; track?: ReopenTrack }
 
 /**
@@ -990,6 +990,11 @@ export class AcpRuntime implements AgentRuntime {
       track.published = state.published
       if (state.published) this.#resumeEventFence.forget(id, token)
       else this.#trackOwnedReplay(track)
+      await result.catch(() => {})
+      if (!track.effectStarted) {
+        if (owner.track === track) owner.track = undefined
+        return
+      }
       // The shared peer can keep sending same-ID updates after its response. Only its actual death proves retirement.
       await owner.death
     } }
@@ -3442,8 +3447,10 @@ export class AcpRuntime implements AgentRuntime {
     if (forking) this.#pendingForks.set(connection, (this.#pendingForks.get(connection) ?? 0) + 1)
     try {
       if (track?.abandoned) throw new Error('The reopen was given up.')
+      if (track) track.effectStarted = true
       const result = await connection.request<T>(method, extend({ ...params, mcpServers: servers }))
-      if (track?.abandoned) throw new Error('The reopen was given up.')
+      // A cancelled stop/reopen must finish so its existing late-discard path can close it.
+      if (track?.abandoned && track.owner) throw new Error('The reopen was given up.')
       return this.#opened(claim(result), authGeneration)
     } catch (error) {
       const message = describeAcp(error)
@@ -3837,6 +3844,7 @@ export class AcpRuntime implements AgentRuntime {
     // Replacing a live handle to acquire its guard preserves its frozen filter.
     const attachments = unguarded ? this.#attachmentInputs.get(id) ?? options.attachments : options.attachments
     if (live) {
+      if (track) track.effectStarted = true
       await live.close()
       check()
     }

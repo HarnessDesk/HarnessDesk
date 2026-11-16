@@ -1,5 +1,6 @@
 import {
   findOption,
+  localSessionClose,
   itemId,
   refuseOptionValue,
   runtimeId,
@@ -1103,6 +1104,6 @@ export class FakeSession implements AgentSession {
   }
 
   async close(): Promise<void> {
-    this.host.emit({ type: 'session/closed', sessionId: this.id })
+    this.host.emit(localSessionClose({ type: 'session/closed', sessionId: this.id }, this))
   }
 }

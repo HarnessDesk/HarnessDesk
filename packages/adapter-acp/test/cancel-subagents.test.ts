@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
@@ -242,6 +242,28 @@ test('a reopen that does not finish in time detaches the conversation, and its l
   const deadline = Date.now() + 4_000
   while ((await lines(r.files.sequence)).at(-1) !== `session/close ${id}` && Date.now() < deadline) await pause(20)
   assert.deepEqual((await lines(r.files.sequence)).slice(-3), [`session/close ${id}`, `session/resume ${id}`, `session/close ${id}`])
+})
+
+test('a late stop-reopen does not close a newer holder', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-acp-late-holder-'))
+  const gate = join(dir, 'resume-gate')
+  await writeFile(gate, 'hold')
+  t.after(async () => { await rm(dir, { recursive: true, force: true }) })
+  const r = await rig(t, { flag: true, resumeOnly: true, env: { FAKE_ACP_FIRST_RESUME_GATE: gate }, config: { stopReopenTimings: { reopenMs: 200 } } })
+  const { session } = await startSubagent(r)
+  await session.interrupt()
+  assert.ok(existsSync(`${gate}.entered`))
+  const newer = await r.runtime.resumeSession(session.id, { knownCwd: session.settings().cwd })
+  assert.notEqual(newer, session)
+  const before = (await lines(r.files.sequence)).filter(line => line === `session/close ${session.id}`).length
+  await unlink(gate)
+  const deadline = Date.now() + 5_000
+  while (!existsSync(`${gate}.replied`) && Date.now() < deadline) await pause(10)
+  assert.ok(existsSync(`${gate}.replied`), 'old response was sent')
+  await r.runtime.listSessions({})
+  const after = (await lines(r.files.sequence)).filter(line => line === `session/close ${session.id}`).length
+  assert.equal(after, before, 'late old completion must not close the newer holder')
+  assert.equal(await r.runtime.resumeSession(session.id), newer)
 })
 
 test('a question asked while the stop waits is withdrawn, and none is put to the person during the reopen', async (t) => {
