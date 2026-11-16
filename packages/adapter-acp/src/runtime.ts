@@ -1176,7 +1176,15 @@ export class AcpRuntime implements AgentRuntime {
       if (!this.#isProbe(id)) this.emit({ type: 'session/detached', sessionId: id })
     }
     // Keep the connection until its process group has been reaped.
-    void connection.stop().finally(() => { this.#workers.delete(connection); this.#forgetResumeOwners(connection) })
+    void this.#stopWorker(connection).catch(error => this.#config.logger?.warn?.('a worker could not stop', { agent: this.#config.id, error: describeAcp(error) }))
+  }
+
+  /** Retire only the owners held by this exact dedicated worker after it stops. */
+  async #stopWorker(connection: AcpConnection): Promise<void> {
+    const owners = [...this.#resumeOwners.entries()].filter(([, owner]) => owner.track?.connection === connection)
+    await connection.stop()
+    this.#workers.delete(connection)
+    this.#forgetResumeOwners(connection, owners)
   }
 
   #stoppingConnections: Promise<void> | null = null
@@ -2762,8 +2770,7 @@ export class AcpRuntime implements AgentRuntime {
         await connection.request('session/close', { sessionId: id }, 3_000)
       } else {
         this.#sessionConnections.delete(id)
-        await connection.stop()
-        this.#workers.delete(connection)
+        await this.#stopWorker(connection)
       }
       session.closeFinished()
       const environment = this.#environments.get(id)
@@ -2795,8 +2802,7 @@ export class AcpRuntime implements AgentRuntime {
       // that answers later is closed again rather than left behind.
       opening.abandoned = true
       if (opening.connection && opening.connection !== this.#connection && this.#workers.has(opening.connection)) {
-        void opening.connection.stop()
-        this.#workers.delete(opening.connection)
+        void this.#stopWorker(opening.connection).catch(error => this.#config.logger?.warn?.('a worker could not stop', { agent: this.#config.id, error: describeAcp(error) }))
       }
       void work.then(() => this.#discardReopened(id, this.connectionFor(id), session), () => {})
       const message = `${this.#config.name} could not reopen this conversation after it was stopped: ${describeAcp(error)}`
@@ -2853,8 +2859,7 @@ export class AcpRuntime implements AgentRuntime {
       return
     }
     if (this.#sessionConnections.get(id) === connection) this.#sessionConnections.delete(id)
-    void connection.stop()
-    this.#workers.delete(connection)
+    void this.#stopWorker(connection).catch(error => this.#config.logger?.warn?.('a worker could not stop', { agent: this.#config.id, error: describeAcp(error) }))
   }
 
   /** Release only this handle; the agent owns the stored conversation. */
@@ -2877,8 +2882,7 @@ export class AcpRuntime implements AgentRuntime {
             if (connection === this.#connection && !this.#isProbe(session.id) && !this.#transientReads.has(session.id)) this.#sharedReleasePending = true
           }
         } else {
-          await connection.stop()
-          this.#workers.delete(connection)
+          await this.#stopWorker(connection)
         }
       } catch (error) {
         this.#config.logger?.warn?.('the agent refused to close a session', {
@@ -2893,8 +2897,7 @@ export class AcpRuntime implements AgentRuntime {
       // Two siblings can close concurrently, each initially seeing the other.
       // The last released mapping also owns reaping their shared worker.
       if (connection !== this.#connection && !this.#pendingForks.has(connection) && ![...this.#sessionConnections.values()].includes(connection)) {
-        await connection.stop()
-        this.#workers.delete(connection)
+        await this.#stopWorker(connection)
       }
       this.#tasks?.forget(session.id)
       if (this.#tasks && !this.#isProbe(session.id)) {
@@ -3417,8 +3420,7 @@ export class AcpRuntime implements AgentRuntime {
         if (!(await connection.start()) || this.#disposed) throw shutDown(this.#config.name)
         await this.#initializeConnection(connection)
       } catch (error) {
-        await connection.stop()
-        this.#workers.delete(connection)
+        await this.#stopWorker(connection)
         throw error
       }
     }
@@ -3497,13 +3499,11 @@ export class AcpRuntime implements AgentRuntime {
         if (remaining > 0) this.#pendingForks.set(connection, remaining)
         else this.#pendingForks.delete(connection)
         if (connection !== this.#connection && remaining === 0 && ![...this.#sessionConnections.values()].includes(connection)) {
-          await connection.stop()
-          this.#workers.delete(connection)
+          await this.#stopWorker(connection)
         }
       }
       if (!opened && ownsWorker) {
-        await connection.stop()
-        this.#workers.delete(connection)
+        await this.#stopWorker(connection)
         if (method !== 'session/fork' && typeof existingId === 'string' && this.#sessionConnections.get(makeSessionId(existingId)) === connection) {
           this.#sessionConnections.delete(makeSessionId(existingId))
         }

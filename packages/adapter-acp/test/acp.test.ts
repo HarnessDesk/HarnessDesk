@@ -3529,3 +3529,29 @@ test('secret reload retires the exact ACP owner and preserves a replacement', as
   const handle = await attempt.result
   assert.equal(attempt.ownsHandle?.(handle), true)
 })
+
+for (const published of [false, true]) test(`closing a dedicated ACP worker retires its ${published ? 'published' : 'unpublished'} resume owner`, async t => {
+  const { runtime } = await storedAgent(t, root => ({ target: { cwd: root }, sibling: { cwd: root } }), { FAKE_ACP_NO_CLOSE: '1' })
+  const id = sessionId('target'), siblingId = sessionId('sibling')
+  const siblingOwner = runtime.resumeOwner(siblingId)
+  const sibling = await runtime.beginResumeAttempt(siblingId, {}, siblingOwner).result
+  const owner = runtime.resumeOwner(id), deaths: object[] = []
+  let replacement: object | undefined
+  runtime.onResumeOwnerDied(dead => { deaths.push(dead); if (dead === owner) replacement = runtime.resumeOwner(id) })
+  const attempt = runtime.beginResumeAttempt(id, {}, owner)
+  const handle = await attempt.result
+  assert.equal(attempt.ownsHandle?.(handle), true)
+  const retirement = attempt.retire({ published })
+  await handle.close()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([retirement, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('dedicated owner did not retire')), 1000) })])
+  } finally { clearTimeout(timer) }
+  assert.deepEqual(deaths, [owner])
+  assert.ok(replacement)
+  assert.equal(runtime.resumeOwner(id), replacement)
+  assert.equal(runtime.resumeOwner(siblingId), siblingOwner)
+  await sibling.send([{ type: 'text', text: 'sibling remains available' }])
+  const fresh = await runtime.beginResumeAttempt(id, {}, replacement).result
+  assert.equal(fresh.id, id)
+})
