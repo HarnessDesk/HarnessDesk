@@ -8,6 +8,15 @@ import test from 'node:test'
 
 const source = fileURLToPath(new URL('./browser-cookie-persistence.mjs', import.meta.url))
 const present = pid => { try { process.kill(-pid, 0); return true } catch (error) { if (error.code === 'ESRCH') return false; throw error } }
+const nodeFixture = (original, child) => {
+  // The synthetic executable is Node, not Electron: only Electron accepts
+  // --no-sandbox. Production still passes its normal Linux argument.
+  const args = "...(process.platform === 'linux' ? ['--no-sandbox'] : []), fixture"
+  assert.ok(original.includes(args), 'the Electron argument site must still match')
+  return original.replace("import electron from 'electron'", 'const electron = process.execPath')
+    .replace("const fixture = fileURLToPath(new URL('./fixtures/browser-cookie-child.mjs', import.meta.url))", `const fixture = ${JSON.stringify(child)}`)
+    .replace(args, 'fixture')
+}
 
 test('an exited phase reaps its surviving owned helper before removing the profile and still fails', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-cookie-owned-test-'))
@@ -21,8 +30,7 @@ test('an exited phase reaps its surviving owned helper before removing the profi
   await writeFile(helper, `import {existsSync,writeFileSync} from 'node:fs';process.on('SIGTERM',()=>{writeFileSync(${JSON.stringify(shutdown)},JSON.stringify({profileExists:existsSync(process.env.HD_COOKIE_PROFILE)}));process.exit(0)});setInterval(()=>{},1000)\n`)
   await writeFile(child, `import {spawn} from 'node:child_process';import {writeFileSync} from 'node:fs';const h=spawn(process.execPath,[${JSON.stringify(helper)}],{stdio:'ignore',env:process.env});writeFileSync(${JSON.stringify(marker)},JSON.stringify({group:process.pid,helper:h.pid,profile:process.env.HD_COOKIE_PROFILE}));setTimeout(()=>process.exit(0),200)\n`)
   const original = await readFile(source, 'utf8')
-  const altered = original.replace("import electron from 'electron'", 'const electron = process.execPath')
-    .replace("const fixture = fileURLToPath(new URL('./fixtures/browser-cookie-child.mjs', import.meta.url))", `const fixture = ${JSON.stringify(child)}`)
+  const altered = nodeFixture(original, child)
   assert.notEqual(altered, original)
   await writeFile(wrapper, altered)
   const processUnderTest = spawn(process.execPath, [wrapper], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, TMPDIR: dir } })
@@ -50,8 +58,7 @@ test('when owned group retirement cannot be proven, cleanup fails and keeps the 
   await writeFile(child, `import {spawn} from 'node:child_process';import {writeFileSync} from 'node:fs';const h=spawn(process.execPath,[${JSON.stringify(helper)}],{stdio:'ignore',env:process.env});writeFileSync(${JSON.stringify(marker)},JSON.stringify({group:process.pid,helper:h.pid,profile:process.env.HD_COOKIE_PROFILE}));setTimeout(()=>process.exit(0),200)\n`)
   await writeFile(preload, `const kill=process.kill.bind(process);process.kill=(pid,signal)=>{if(pid<0&&(signal==='SIGTERM'||signal==='SIGKILL')){const e=new Error('synthetic signal denial');e.code='EPERM';throw e}return kill(pid,signal)}\n`)
   const original = await readFile(source, 'utf8')
-  const altered = original.replace("import electron from 'electron'", 'const electron = process.execPath')
-    .replace("const fixture = fileURLToPath(new URL('./fixtures/browser-cookie-child.mjs', import.meta.url))", `const fixture = ${JSON.stringify(child)}`)
+  const altered = nodeFixture(original, child)
   await writeFile(wrapper, altered)
   const running = spawn(process.execPath, [wrapper], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, TMPDIR: dir, NODE_OPTIONS: `--import=${preload}` } })
   let output = ''; running.stdout.on('data', c => { output += c }); running.stderr.on('data', c => { output += c })
@@ -74,8 +81,7 @@ test('an owned helper ignoring TERM is killed, while the original leak still fai
   await writeFile(helper, "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)\n")
   await writeFile(child, `import {spawn} from 'node:child_process';import {writeFileSync} from 'node:fs';const h=spawn(process.execPath,[${JSON.stringify(helper)}],{stdio:'ignore',env:process.env});writeFileSync(${JSON.stringify(marker)},JSON.stringify({group:process.pid,helper:h.pid,profile:process.env.HD_COOKIE_PROFILE}));setTimeout(()=>process.exit(0),200)\n`)
   const original = await readFile(source, 'utf8')
-  await writeFile(wrapper, original.replace("import electron from 'electron'", 'const electron = process.execPath')
-    .replace("const fixture = fileURLToPath(new URL('./fixtures/browser-cookie-child.mjs', import.meta.url))", `const fixture = ${JSON.stringify(child)}`))
+  await writeFile(wrapper, nodeFixture(original, child))
   const running = spawn(process.execPath, [wrapper], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, TMPDIR: dir } })
   let output = ''; running.stdout.on('data', c => { output += c }); running.stderr.on('data', c => { output += c })
   const result = await new Promise((resolve, reject) => { running.once('error', reject); running.once('close', (code, signal) => resolve({ code, signal })) })
