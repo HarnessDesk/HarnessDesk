@@ -29,7 +29,14 @@
       "bytes": 100229,
       "width": 1280,
       "height": 813
+    },
+    {
+      "path": "after/uncertain.png",
+      "sha256": "b554e7f9a9bddfc792cd62a7d5fc53bb453d438a439ce67a544e6108c04648c8",
+      "bytes": 98284,
+      "width": 1280,
+      "height": 813
     }
   ],
-  "evidence": "Synthetic Electron rig with fake peer; raw frames unmodified. Parent visually inspected all four. Turn placement and ledger retention are supported by Store and fresh disk reads, not the PNGs alone. Delegated worker copied and hash-checked images; its viewer could not inspect private pixels."
+  "evidence": "Synthetic Electron rig with fake peer; raw frames unmodified. Parent visually inspected all four. Turn placement and ledger retention are supported by Store and fresh disk reads, not the PNGs alone. Delegated worker copied and hash-checked images; its viewer could not inspect private pixels. Additional canonical-writer seeded restore control retained its reservation and showed uncertainty without observed automatic provider effects; parent inspected its fifth frame."
 }
