@@ -153,21 +153,39 @@ test('timely outcomes retain errors, validate before dispatch, and clear caller 
   const live = runtime.sessions.get(session.id)!, original = live.setOption.bind(live)
   let calls = 0
   live.setOption = async (id, value) => { calls++; if (value === 'fake-2') throw new Error('native refusal'); return original(id, value) }
-  const realSetTimeout = globalThis.setTimeout
-  const captured: NodeJS.Timeout[] = []
+  const realSetTimeout = globalThis.setTimeout, realClearTimeout = globalThis.clearTimeout
+  const captured: { timer: NodeJS.Timeout; referenced: boolean }[] = []
+  const cleared = new Set<unknown>()
   globalThis.setTimeout = ((handler: (...args: never[]) => void, delay?: number, ...args: never[]) => {
     const timer = realSetTimeout(handler, delay, ...args)
-    if (delay === 5_000 && new Error().stack?.includes('setOptionForCaller')) captured.push(timer)
+    if (delay === 5_000) captured.push({ timer, referenced: timer.hasRef() })
     return timer
   }) as unknown as typeof setTimeout
+  globalThis.clearTimeout = ((timer: Parameters<typeof clearTimeout>[0]) => {
+    cleared.add(timer)
+    realClearTimeout(timer)
+  }) as typeof clearTimeout
+  const checkedTimer = (baseline: number) => {
+    assert.equal(captured.length, baseline + 1, 'this call armed exactly one five-second timer')
+    const { timer, referenced } = captured[baseline]!
+    assert.equal(referenced, true, 'the caller timer keeps the process alive while waiting')
+    assert.ok(cleared.has(timer), 'the completed caller cleared its own timer')
+  }
   try {
+    let baseline = captured.length
     assert.equal(await client.call('session/options/set', { ...params, optionId: 'model', value: 'fake-1' }), null)
+    checkedTimer(baseline)
+    baseline = captured.length
     await assert.rejects(client.call('session/options/set', { ...params, optionId: 'model', value: 'fake-2' }), /native refusal/)
+    checkedTimer(baseline)
+    baseline = captured.length
     await assert.rejects(client.call('session/options/set', { ...params, optionId: 'model', value: 'invalid' }))
+    checkedTimer(baseline)
     assert.equal(calls, 2, 'validation did not invoke the setter')
-    assert.equal(captured.length, 3)
-    assert.ok(captured.every(timer => (timer as unknown as { _destroyed: boolean })._destroyed), 'every completed caller timer is cleared')
-  } finally { globalThis.setTimeout = realSetTimeout }
+  } finally {
+    globalThis.setTimeout = realSetTimeout
+    globalThis.clearTimeout = realClearTimeout
+  }
 })
 
 test('a late rejection is observed while other sessions and callers remain usable', { timeout: 15_000 }, async t => {
