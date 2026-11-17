@@ -9402,7 +9402,14 @@ export class Host {
   }
 
   /** Host work may outlive an adapter generation, including after owner death. */
-  readonly #hostReopenWork = new Map<string, { callers: number; work: number; current: () => boolean }>()
+  readonly #hostReopenWork = new Map<string, { callers: number; work: number; current: () => boolean; owner?: object; approvals: Map<string, Approval> }>()
+
+  /** Questions raised during load belong to that exact pending adapter owner. */
+  #pendingReopenApprovals(runtime: RuntimeId, id: SessionId, source?: AgentRuntime): Map<string, Approval> | undefined {
+    const pending = this.#hostReopenWork.get(String(sessionKey(runtime, id)))
+    const adapter = source ?? this.#runtimes.get(runtime)
+    return pending?.owner && pending.current() && adapter?.resumeOwner?.(id) === pending.owner ? pending.approvals : undefined
+  }
 
   #coordinatedReopen<U>(runtime: AgentRuntime, id: SessionId, optionsOf: (check: () => void) => Promise<Partial<import('@harnessdesk/protocol').SessionOptions>>,
     complete: (live: AgentSession, authority: OpenAuthority) => Promise<U>): Promise<U> {
@@ -9413,7 +9420,7 @@ export class Host {
     if (held && !held.current()) return Promise.reject(new OpenUnavailableError())
     const live = this.registry.get(runtime.info.id, id)?.live
     if (live && this.#unfinalizedReopens.has(live) && !held) return Promise.reject(new OpenUnavailableError())
-    if (!held) { held = { callers: 0, work: 0, current: () => true }; this.#hostReopenWork.set(hostKey, held) }
+    if (!held) { held = { callers: 0, work: 0, current: () => true, approvals: new Map() }; this.#hostReopenWork.set(hostKey, held) }
     const fence = held
     const release = () => { if (!fence.callers && !fence.work && this.#hostReopenWork.get(hostKey) === fence) this.#hostReopenWork.delete(hostKey) }
     fence.callers++
@@ -9428,6 +9435,7 @@ export class Host {
       const key = String(sessionKey(runtime.info.id, id))
       const unsubscribe = runtime.onResumeOwnerDied?.(dead => {
         if (dead !== owner) return
+        fence.approvals.clear()
         if (this.#withheldResumeEvents.get(key) === owner) this.#withheldResumeEvents.delete(key)
         died()
       })
@@ -9479,12 +9487,18 @@ export class Host {
         check()
         return this.#publishReattach(runtime, id, prepared, authority, openedAtStart, ownsHandle, () => { withheld = true; this.#withheldResumeEvents.set(key, owner!) })
       },
-      selected => { if (!owner) throw new OpenUnavailableError(); attempt = runtime.beginResumeAttempt!(id, selected, owner); return attempt },
+      selected => {
+        if (!owner) throw new OpenUnavailableError()
+        fence.owner = owner
+        attempt = runtime.beginResumeAttempt!(id, selected, owner)
+        return attempt
+      },
     )
       fence.work++
       return {
         result: preparedAttempt.result.finally(() => { if (!withheld) unsubscribe?.(); fence.work--; release() }),
         retire: async state => {
+          fence.approvals.clear()
           fence.work++
           try {
             await preparedAttempt.retire(state)
@@ -9623,18 +9637,22 @@ export class Host {
     this.#recordSessionIndex(record.session, true)
     if (reopened && !removed) await this.#finishReopen(runtime, live, reopened, authority, priorLive, openedAtStart, ownsHandle, withhold)
     check()
-    if (needsReceipt) {
-      this.#unfinalizedReopens.delete(live)
-      const pending = this.#unfinalizedApprovals.get(live)
-      this.#unfinalizedApprovals.delete(live)
-      for (const approvalId of pending ?? []) {
-        check()
-        if (this.registry.get(runtime.info.id, id)?.live !== live) break
-        const approval = this.registry.get(runtime.info.id, id)?.approvals.get(approvalId)
-        if (approval) this.#foldEvent(runtime.info.id, { type: 'approval/requested', approval })
-      }
-    }
     if (reopened) this.registry.recordAttachmentSeat(runtime.info.id, live.id, reopened.seat.id)
+    if (needsReceipt) this.#unfinalizedReopens.delete(live)
+    // Loading can ask before upsert, including while a removed conversation is
+    // still hidden. Neither policy nor a human may answer until finalization.
+    const pending = this.#pendingReopenApprovals(runtime.info.id, id, runtime) ?? new Map<string, Approval>()
+    for (const approvalId of this.#unfinalizedApprovals.get(live) ?? []) {
+      const approval = record.approvals.get(approvalId)
+      if (approval) pending.set(approvalId, approval)
+    }
+    this.#unfinalizedApprovals.delete(live)
+    for (const [approvalId, approval] of pending) {
+      check()
+      if (this.registry.get(runtime.info.id, id)?.live !== live) break
+      pending.delete(approvalId)
+      this.#foldEvent(runtime.info.id, { type: 'approval/requested', approval })
+    }
     if (!alreadyAttached) this.#loadoutHandles.delete(live)
     this.#observeLoadout(runtime, id, record.session.cwd)
     this.#logger.info('reopened a conversation whose agent had restarted', {
@@ -11360,6 +11378,12 @@ export class Host {
     if (this.#disposed) return
     const id = event.type === 'session/started' ? event.session.id : event.type === 'approval/requested' ? event.approval.sessionId : 'sessionId' in event ? event.sessionId : undefined
     if (source && id && event.type !== 'session/closed' && event.type !== 'session/detached' && this.#withheldResumeEvents.has(String(sessionKey(runtime, id)))) return
+    if (id && event.type === 'approval/requested' && !this.registry.get(runtime, id)?.live) {
+      const pending = this.#pendingReopenApprovals(runtime, id, source)
+      if (pending) { pending.set(String(event.approval.id), event.approval); return }
+    }
+    if (event.type === 'approval/resolved') this.#pendingReopenApprovals(runtime, event.sessionId, source)?.delete(String(event.approvalId))
+    if (id && (event.type === 'session/closed' || event.type === 'session/detached')) this.#pendingReopenApprovals(runtime, id, source)?.clear()
     if (id && this.#sessionIndex.isRemoved(runtime, id)) return
     const held = id ? this.registry.get(runtime, id) : undefined
     // Loading history can announce the adapter's open time. Only announcements
@@ -11621,7 +11645,7 @@ export class Host {
         pending.add(String(event.approval.id))
         this.#unfinalizedApprovals.set(live, pending)
         this.registry.apply(runtime, event)
-      }
+      } else this.#pendingReopenApprovals(runtime, event.approval.sessionId, source)?.set(String(event.approval.id), event.approval)
       return
     }
     if (event.type === 'approval/requested') {

@@ -391,6 +391,54 @@ test('a filtered resume cannot use tools before its handle is published', async 
   } finally { release(); await opening.catch(() => {}) }
 })
 
+for (const undoFirst of [false, true]) for (const mode of ['policy', 'human', 'resolved'] as const) test(`a pre-publication ${mode} approval ${undoFirst ? 'after Undo' : 'during Undo'} settles after reopen finalization`, { timeout: 20_000 }, async t => {
+  const { desk, session, params } = await seated(t)
+  if (mode === 'policy') await desk.client.call('app/state/set', { patch: { permissionPolicy: [{ id: 'r5', name: 'Allow', match: { type: 'command' }, action: 'approve' }] } })
+  await desk.client.call('session/remove', { ...params, removed: true })
+  if (undoFirst) await desk.client.call('session/remove', { ...params, removed: false })
+  let entered!: () => void, release!: () => void
+  const began = new Promise<void>(resolve => { entered = resolve }), gate = new Promise<void>(resolve => { release = resolve })
+  const resume = desk.runtime.resumeSession.bind(desk.runtime)
+  desk.runtime.resumeSession = async (...args: Parameters<typeof resume>) => {
+    const live = await resume(...args)
+    entered(); await gate
+    return live
+  }
+  const opening = desk.harness.host.call('session/resume', params)
+  let active: ReturnType<typeof desk.runtime.sessions.get>
+  const id = approvalId(`r5-before-${mode}`)
+  try {
+    await began
+    const live = desk.runtime.sessions.get(session.id)!
+    active = live
+    assert.equal(desk.harness.host.registry.get(session.runtime, session.id)?.live ?? null, null)
+    await live.send([{ type: 'text', text: 'Synthetic resumed active turn' }])
+    const respond = t.mock.method(live, 'respondToApproval')
+    const answer = live.askApproval(id)
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(respond.mock.callCount(), 0, 'no grant before the handle and receipt are finalized')
+    if (mode === 'resolved') await live.respondToApproval(id, { type: 'cancel' })
+    release(); await opening
+    await new Promise(resolve => setImmediate(resolve))
+    if (mode === 'resolved') {
+      assert.equal(respond.mock.callCount(), 1, 'finalization does not answer a resolved request twice')
+      assert.equal(desk.harness.host.registry.get(session.runtime, session.id)?.approvals.has(String(id)), false, 'resolved question does not reappear')
+      assert.deepEqual(await answer, { type: 'cancel' })
+    } else if (mode === 'policy') {
+      assert.equal(respond.mock.callCount(), 1, 'the retained request receives its policy decision once')
+      assert.deepEqual(await answer, { type: 'option', optionId: 'opt-0' })
+    } else {
+      assert.ok(desk.harness.host.registry.get(session.runtime, session.id)?.approvals.has(String(id)), 'the retained human question becomes visible')
+      await desk.harness.host.call('approval/respond', { ...params, approvalId: id, decision: { type: 'option', optionId: 'opt-1' } })
+      assert.deepEqual(await answer, { type: 'option', optionId: 'opt-1' })
+    }
+  } finally {
+    release(); await opening.catch(() => {})
+    await active?.respondToApproval(id, { type: 'cancel' }).catch(() => {})
+    active?.finish()
+  }
+})
+
 test('closing a conversation during receipt finalization revokes the pending reopen', async t => {
   const { desk, session, params, seat } = await seated(t)
   await desk.client.call('session/remove', { ...params, removed: true })
