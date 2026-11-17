@@ -1,0 +1,90 @@
+[
+  {
+    "destination": "before/history-6353efb.png",
+    "sourceCommit": "6353efb1c5e216a47059ea9e523d5ca564a2211e",
+    "caption": "Before development baseline: stopped marker incorrectly closes the later turn",
+    "sha256": "8ecebcbc94179e9de1d7155661f411fa8f1b8bcd30f504ff3a3fcfad816111ea",
+    "bytes": 82263,
+    "dimensions": [
+      1280,
+      813
+    ]
+  },
+  {
+    "destination": "after/history-33332d5.png",
+    "sourceCommit": "33332d57929c867d91f370dd7c4f93b01ea0ab4a",
+    "caption": "After: stopped marker closes its original source turn",
+    "sha256": "1c33f69884dd8574d4e93041e0272bb51ef3d2f7fc8ea9b0362bfec28d57d404",
+    "bytes": 86705,
+    "dimensions": [
+      1280,
+      813
+    ]
+  },
+  {
+    "destination": "before/capacity-6353efb.png",
+    "sourceCommit": "6353efb1c5e216a47059ea9e523d5ca564a2211e",
+    "caption": "Before development baseline: another carry-on decision opens at protected capacity",
+    "sha256": "63e28733b6106274e2813ab28c065de621eb176dd747c78a6067f0bf637f6ccd",
+    "bytes": 96132,
+    "dimensions": [
+      1280,
+      813
+    ]
+  },
+  {
+    "destination": "after/capacity-33332d5.png",
+    "sourceCommit": "33332d57929c867d91f370dd7c4f93b01ea0ab4a",
+    "caption": "After: Inbox explains the capacity pause; existing markers are kept",
+    "sha256": "676922b6a2a3909f5f030a2644db184ff2d5eeda9060c012512c4684fed853a2",
+    "bytes": 100400,
+    "dimensions": [
+      1280,
+      813
+    ]
+  },
+  {
+    "destination": "after/switched-33332d5.png",
+    "sourceCommit": "33332d57929c867d91f370dd7c4f93b01ea0ab4a",
+    "caption": "After: switch marker opens the actual accepted continuation turn",
+    "sha256": "e435daac4f19f34447ca619daec6471cfdb847da5777e7895fcf08c39418a994",
+    "bytes": 90247,
+    "dimensions": [
+      1280,
+      813
+    ]
+  },
+  {
+    "destination": "before/owner-opens-589a449.png",
+    "sourceCommit": "589a4493ea1661dafe669c96f9a786bad5fed191",
+    "caption": "Prior PR candidate: opening the target before its reply leaves no uncertainty prompt",
+    "sha256": "38595e120298bf634d6e7525315226a5c6e872040c1f407865b79471e39714b9",
+    "bytes": 87460,
+    "dimensions": [
+      1280,
+      813
+    ]
+  },
+  {
+    "destination": "after/owner-opens-33332d5.png",
+    "sourceCommit": "33332d57929c867d91f370dd7c4f93b01ea0ab4a",
+    "caption": "After: opening the target before its reply shows unconfirmed sending and preserves the marker",
+    "sha256": "40f9ec50fd306f277df068806e87f53198fdf0953fc81664c2968e5ad3674b52",
+    "bytes": 100081,
+    "dimensions": [
+      1280,
+      813
+    ]
+  },
+  {
+    "destination": "after/cancelled-33332d5.png",
+    "sourceCommit": "33332d57929c867d91f370dd7c4f93b01ea0ab4a",
+    "caption": "Seeded display only: removed packet outcome uses factual historical wording",
+    "sha256": "95fe7021833ea7806261c358dec7123af988b2b3954cc301696d75a0eef8e261",
+    "bytes": 95282,
+    "dimensions": [
+      1280,
+      813
+    ]
+  }
+]
