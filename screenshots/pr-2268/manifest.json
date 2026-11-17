@@ -1,0 +1,59 @@
+{
+  "source_commit": "f717d26ca40223ab8ae65e54dad6ff0a5bc84439",
+  "source_run": "2030-f717-app-v3",
+  "scope": "Two held synthetic screenshots only; no late.png included.",
+  "frames": [
+    {
+      "file": "before/held.png",
+      "bytes": 116055,
+      "sha256": "b19fe8f8f67222d4a9aa35ceaf3323007f8365267e3b02d65906363a711e8fb4",
+      "dimensions": {
+        "width": 1280,
+        "height": 813
+      },
+      "matches_result_json": true,
+      "held_check": {
+        "elapsed": 6269,
+        "done": false,
+        "warn": false,
+        "visible": "Workspace write",
+        "checked": true
+      },
+      "late_call": [
+        {
+          "at": 1385.5,
+          "done": true,
+          "ok": true,
+          "elapsed": 6355.100000008941
+        }
+      ]
+    },
+    {
+      "file": "after/held.png",
+      "bytes": 125151,
+      "sha256": "d58bbc0ce290127629255844702c43d02e03c1ee329dac39da26f24ef0355c03",
+      "dimensions": {
+        "width": 1280,
+        "height": 813
+      },
+      "matches_result_json": true,
+      "held_check": {
+        "elapsed": 6221,
+        "done": true,
+        "warn": true,
+        "visible": "Workspace write",
+        "checked": true
+      },
+      "late_call": [
+        {
+          "at": 1430.9000000059605,
+          "done": true,
+          "ok": false,
+          "message": "The agent did not confirm this setting change in time. It may still take effect. Check the current setting before trying again.",
+          "elapsed": 5002.0999999940395
+        }
+      ]
+    }
+  ],
+  "interpretation": "Controlled fakepeer; these frames show the UI outcome and do not establish original provider-cause proof."
+}
