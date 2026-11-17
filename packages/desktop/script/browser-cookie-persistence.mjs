@@ -78,7 +78,6 @@ const phase = (name, url) => new Promise((resolve, reject) => {
   }, 30_000)
   child.once('error', error => { spawnError = error })
   child.once('close', async (code, signal) => {
-    if (child.pid) observeGroup(child.pid, `${name}-leader-close`)
     clearTimeout(timer)
     clearTimeout(watchdog)
     try {
@@ -87,6 +86,7 @@ const phase = (name, url) => new Promise((resolve, reject) => {
       assert.ok(child.stdout.destroyed && child.stderr.destroyed, `${name} left an owned output pipe open`)
       assert.equal(timedOut, false, `${name} timed out`)
       if (child.pid && groupPresent(child.pid)) {
+        observeGroup(child.pid, `${name}-leader-close-group-present`)
         const leak = new Error(`${name} left an owned process group`)
         try { await retireGroup(child.pid) } catch (error) { throw new AggregateError([leak, error], `${name} cleanup failed; profile retained`) }
         throw leak
