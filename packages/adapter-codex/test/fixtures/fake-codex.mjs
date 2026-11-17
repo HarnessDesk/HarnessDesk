@@ -1789,6 +1789,24 @@ rl.on('line', (line) => {
         send({ id, error: { code: -32600, message: problem } })
         return
       }
+      // A synthetic test may hold one selected response and its real notification.
+      const control = process.env.HD2030_CONTROL
+      if (control && existsSync(join(control, 'target.json'))) {
+        const target = JSON.parse(readFileSync(join(control, 'target.json'), 'utf8'))
+        const marker = join(control, `held-${target.round}.json`)
+        if (params.threadId === target.threadId && params.permissions === target.value && !existsSync(marker)) {
+          const captured = threadSettings()
+          writeFileSync(marker, JSON.stringify({ pid: process.pid, threadId: params.threadId, value: target.value }))
+          const timer = setInterval(() => {
+            if (!existsSync(join(control, `release-${target.round}`))) return
+            clearInterval(timer)
+            notify('thread/settings/updated', { threadId: params.threadId, threadSettings: captured })
+            send({ id, result: {} })
+            writeFileSync(join(control, `released-${target.round}.json`), '{}')
+          }, 10)
+          return
+        }
+      }
       // A `cwd` change here is this thread's own from now on — a later
       // thread/read for it must answer with what this update actually set,
       // not whatever it was given at thread/start.

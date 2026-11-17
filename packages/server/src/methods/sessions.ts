@@ -12,6 +12,7 @@ import {
   SessionGoneError,
   type AgentRuntime,
   type AgentSession,
+  type OptionValue,
   type Session,
   type RuntimeId,
   type SessionId,
@@ -28,6 +29,50 @@ import { laneEnvironmentFor } from '../goals/lane-environment.js'
 import { assertAbsoluteCwd } from '../workspace.js'
 import type { HostContext, MethodsUnder } from './context.js'
 import { checkOption } from './runtimes.js'
+
+const OPTION_CALLER_WAIT_MS = 5_000
+
+/** Bound only the public caller; the shared open and dispatched RPC continue. */
+const setOptionForCaller = (acquire: () => Promise<AgentSession>, optionId: string, value: OptionValue): Promise<null> => {
+  const deadline = performance.now() + OPTION_CALLER_WAIT_MS
+  let expired = false, dispatched = false
+  return new Promise<null>((resolve, reject) => {
+    let settled = false
+    const finish = (answer: () => void) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      answer()
+    }
+    const expire = () => {
+      expired = true
+      const message = dispatched
+        ? 'The agent did not confirm this setting change in time. It may still take effect. Check the current setting before trying again.'
+        : 'The session did not open in time. This setting change was not sent.'
+      finish(() => reject(new Error(message)))
+    }
+    const timer = setTimeout(expire, OPTION_CALLER_WAIT_MS)
+    const overdue = () => {
+      if (expired) return true
+      if (performance.now() < deadline) return false
+      expire()
+      return true
+    }
+    void (async () => {
+      const live = await acquire()
+      if (overdue()) return
+      checkOption(live.options(), optionId, value)
+      if (overdue()) return
+      // The phase changes immediately before dispatch, without an async gap.
+      dispatched = true
+      await live.setOption(optionId, value)
+      if (!overdue()) finish(() => resolve(null))
+    })().catch(error => {
+      // Observe failures even after the caller has stopped waiting.
+      if (!overdue()) finish(() => reject(error))
+    })
+  })
+}
 
 const unavailableNoticeFolders = new WeakMap<HostContext, Set<string>>()
 
@@ -461,10 +506,7 @@ export const sessionMethods = {
   },
 
   'session/options/set': async (ctx, params) => {
-    const live = await ctx.sessions.live(params)
-    checkOption(live.options(), params.optionId, params.value)
-    await live.setOption(params.optionId, params.value)
-    return null
+    return setOptionForCaller(() => ctx.sessions.live(params), params.optionId, params.value)
   },
 
   'session/goal': async (ctx, params) => {
