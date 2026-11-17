@@ -1672,6 +1672,17 @@ const handlers = {
       return fail(id, 'Internal error', { details: 'the transcript could not be read' })
     }
     const state = newSession(entry.sessionId, entry.cwd)
+    if (process.env.FAKE_ACP_LOAD_APPROVAL_FILE) {
+      const output = process.env.FAKE_ACP_LOAD_APPROVAL_FILE
+      appendFileSync(output, 'requested\n')
+      // The load reply remains independent of the outstanding permission.
+      void request('session/request_permission', {
+        sessionId: state.id,
+        toolCall: { toolCallId: 'load-permission', title: 'Synthetic load command', kind: 'execute' },
+        options: [{ optionId: 'yes', name: 'Allow once', kind: 'allow_once' }, { optionId: 'no', name: 'Reject', kind: 'reject_once' }],
+      }).then(({ outcome }) => appendFileSync(output, `answered ${JSON.stringify(outcome)}\n`),
+        () => appendFileSync(output, 'failed\n'))
+    }
     state.greyed = GREY_ON_LOAD
     // A load is handed the servers a session/new is: dumped the same way.
     if (process.env.FAKE_ACP_DUMP_SERVERS) {
@@ -1697,6 +1708,8 @@ const handlers = {
     // FAKE_ACP_LOAD_DELEGATIONS replays a list from the stored history: `d1`
     // as it was last recorded, running.
     if (process.env.FAKE_ACP_LOAD_DELEGATIONS) staleDelegations(state.id)
+    const replyGate = process.env.FAKE_ACP_LOAD_REPLY_GATE
+    if (replyGate) while (!existsSync(replyGate)) await new Promise(resolve => setTimeout(resolve, 10))
     reply(id, {
       sessionId: state.id,
       ...(CONFIG_MODEL_ONLY || GROUPED_MODELS ? {} : { models: {
