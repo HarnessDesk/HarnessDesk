@@ -111,7 +111,8 @@ test('retiring a pre-load ACP approval does not answer a replacement owner', asy
   const options = { logger: new Logger('test', { console: false }), state: new StateStore(join(dir, 'state.json')),
     catalogRefreshMs: 0, idleStopMs: 25, sessionRestMs: 25 }
   const host = new Host(options)
-  t.after(async () => { writeFileSync(gate, ''); await host.dispose(); await rm(dir, { recursive: true, force: true }) })
+  let replacementHost: Host | undefined
+  t.after(async () => { writeFileSync(gate, ''); await replacementHost?.dispose(); await host.dispose(); await rm(dir, { recursive: true, force: true }) })
   let requests = 0; runtime.subscribe(event => { if (event.type === 'approval/requested') requests++ })
   host.register(runtime); await host.start()
   const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: dir } }) as { id: string }
@@ -130,7 +131,7 @@ test('retiring a pre-load ACP approval does not answer a replacement owner', asy
   const runtime2 = new AcpRuntime({ id: 'fixture', name: 'Fixture', command: process.execPath, args: [PEER],
     env: { FAKE_ACP_STORE: join(dir, 'store.json'), FAKE_ACP_LOAD_APPROVAL_FILE: output, FAKE_ACP_LOAD_REPLY_GATE: gate } })
   const host2 = new Host({ ...options, state: new StateStore(join(dir, 'state.json')), sessionRestMs: 0 })
-  t.after(() => host2.dispose())
+  replacementHost = host2
   let replacementRequests = 0; runtime2.subscribe(event => { if (event.type === 'approval/requested') replacementRequests++ })
   host2.register(runtime2); await host2.start()
   const replacement = host2.call('session/resume', params)
