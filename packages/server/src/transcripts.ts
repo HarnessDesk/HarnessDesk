@@ -576,7 +576,7 @@ export class TranscriptStore {
     return identity && this.#matchesStoredRow(session, identity) ? { kind: 'body', identity } : undefined
   }
 
-  async #write(session: Session, insight: readonly TurnInsightContext[] = [], refresh?: { source?: SessionSource | null; preserveSource?: boolean; preserveExactBody?: string; preserveStored?: Stored; expectedBase?: DurableTranscriptBase; current?: () => boolean; prepared?: (identity: string) => void }): Promise<boolean> {
+  async #write(session: Session, insight: readonly TurnInsightContext[] = [], refresh?: { source?: SessionSource | null; preserveSource?: boolean; preserveExactBody?: string; preserveStored?: Stored; expectedBase?: DurableTranscriptBase; current?: () => boolean; prepared?: (identity: string) => void; committed?: (identity: string) => void }): Promise<boolean> {
     const key = keyOf(session.runtime, session.id)
     if (this.#protectedWrites.has(key) && !refresh?.expectedBase) return false
     const previous = this.#writes.get(key) ?? Promise.resolve()
@@ -618,6 +618,7 @@ export class TranscriptStore {
         const writtenIdentity = durableStateIdentity(stored, source)
         refresh?.prepared?.(writtenIdentity)
         this.#database.write(stored, session.runtime, session.id, { reconcile: reconcile || !!refresh, source, preserveExactBody: refresh?.preserveExactBody, expectedBase: refresh?.expectedBase })
+        refresh?.committed?.(writtenIdentity)
         // Exact verification of the same semantic row is not a cache change.
         if (!refresh?.preserveStored || refresh.expectedBase?.kind !== 'body' || refresh.expectedBase.identity !== writtenIdentity) {
           this.onDurableChange(session.runtime, session.id)
@@ -833,16 +834,39 @@ export class TranscriptStore {
     }
     clearTimeout(pending.timer); this.#pending.delete(key); this.#retryHeld.set(key, pending); this.#protectedWrites.add(key)
     const current = () => this.#authorities.get(key) === authority && this.generationCurrent(session.runtime, session.id, generation, session, pending.revision, pending.authorityEpoch, allowPartial)
-    let prepared: string | undefined
-    const saved = await this.#write(session, pending.insight, { expectedBase: authority.base, current, ...(partial ? { preserveStored: partial } : {}), prepared: identity => { prepared = identity } })
-    if (saved && current() && prepared && this.#matchesStoredRow(session, prepared)) {
+    let prepared: string | undefined, committed: string | undefined
+    const saved = await this.#write(session, pending.insight, { expectedBase: authority.base, current, ...(partial ? { preserveStored: partial } : {}),
+      prepared: identity => { prepared = identity }, committed: identity => {
+        if (current() && this.#retryHeld.get(key) === pending && !this.#protectedNotified.has(key) &&
+            !this.#generationConflicts.has(key) && this.#matchesStoredRow(session, identity)) committed = identity
+      } })
+    const next = this.#pending.get(key)
+    // The old snapshot was current at the verified commit. A later event may
+    // advance it while the write promise resolves; only that same owner's
+    // current queued snapshot can continue from the still-exact committed row.
+    const followed = !!committed && committed === prepared && this.#authorities.get(key) === authority &&
+      this.#retryHeld.get(key) === pending && !this.#protectedNotified.has(key) && !this.#generationConflicts.has(key) &&
+      !!next && next.generation === generation && next.authorityEpoch === pending.authorityEpoch &&
+      this.generationCurrent(session.runtime, session.id, generation, next.session, next.revision, next.authorityEpoch, false)
+    if (saved && this.#retryHeld.get(key) === pending && !this.#protectedNotified.has(key) && !this.#generationConflicts.has(key) &&
+        (current() || followed) && prepared && this.#matchesStoredRow(session, prepared)) {
       const base: DurableTranscriptBase = { kind: 'body', identity: prepared }
       authority.base = base
       this.baseAdvanced(session.runtime, session.id, generation, base)
+      // The callback can replace the owner or quarantine a conflicting body.
+      // Do not clear or report settlement for state acquired during it.
+      const queued = this.#pending.get(key)
+      if (this.#authorities.get(key) !== authority || this.#retryHeld.get(key) !== pending ||
+          this.#protectedNotified.has(key) || this.#generationConflicts.has(key) || (next && !queued) ||
+          (queued && (queued.generation !== generation || queued.authorityEpoch !== pending.authorityEpoch ||
+            !this.generationCurrent(session.runtime, session.id, generation, queued.session, queued.revision, queued.authorityEpoch, false))) ||
+          (!queued && !current())) {
+        this.#notifyProtected(session)
+        return
+      }
       this.#retryHeld.delete(key); this.#protectedWrites.delete(key)
       this.#protectedNotified.delete(key)
-      const next = this.#pending.get(key)
-      if (next) this.record(next.session, { insight: next.insight, generation: next.generation, revision: next.revision, authorityEpoch: next.authorityEpoch })
+      if (queued) this.record(queued.session, { insight: queued.insight, generation: queued.generation, revision: queued.revision, authorityEpoch: queued.authorityEpoch })
       this.onProtectionSettled(session.runtime, session.id)
       return
     }

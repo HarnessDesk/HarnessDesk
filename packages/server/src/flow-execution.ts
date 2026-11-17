@@ -4840,21 +4840,21 @@ export class FlowExecutions {
    * order; the old one is closed with `limit`, so a review guard asks only the
    * Seat that is working now.
    */
-  async replaceSeat(runtime: string, sessionId: string, target: { readonly runtime: string; readonly mode: 'sameThread' | 'handoff'; readonly model?: string }): Promise<SeatRecord | { readonly refused: string }> {
+  async replaceSeat(runtime: string, sessionId: string, target: { readonly runtime: string; readonly mode: 'sameThread' | 'handoff'; readonly model?: string }): Promise<SeatRecord | { readonly refused: string; readonly beforeEffect?: true }> {
     const found = this.#carried(runtime, sessionId)
-    if (!found) return { refused: 'This seat no longer belongs to a running run.' }
-    if (!this.#port.replaceSeat) return { refused: 'This desk cannot replace a seat.' }
+    if (!found) return { refused: 'This seat no longer belongs to a running run.', beforeEffect: true }
+    if (!this.#port.replaceSeat) return { refused: 'This desk cannot replace a seat.', beforeEffect: true }
     return this.#queue.within(found.run.id, async () => {
       const current = this.#carried(runtime, sessionId)
-      if (!current || current.run.id !== found.run.id) return { refused: 'This seat no longer belongs to a running run.' }
+      if (!current || current.run.id !== found.run.id) return { refused: 'This seat no longer belongs to a running run.', beforeEffect: true }
       const { operation, seat, round, role } = current
       const id = current.run.id
-      if (await this.#overBudget(id)) return { refused: 'Run budget reached' }
+      if (await this.#overBudget(id)) return { refused: 'Run budget reached', beforeEffect: true }
       const refused = await this.#refuseTarget(current.run, seat, role, target.runtime)
-      if (refused) return { refused }
+      if (refused) return { refused, beforeEffect: true }
       // The independence reads awaited: spend that landed meanwhile still refuses, right before anything moves.
-      if (this.#stopRequests.has(id) || this.#get(id).state !== 'running') return { refused: 'This seat no longer belongs to a running run.' }
-      if (await this.#overBudget(id)) return { refused: 'Run budget reached' }
+      if (this.#stopRequests.has(id) || this.#get(id).state !== 'running') return { refused: 'This seat no longer belongs to a running run.', beforeEffect: true }
+      if (await this.#overBudget(id)) return { refused: 'Run budget reached', beforeEffect: true }
       const from = String(seat.id)
       // Journaled before the port moves the claim: a restart in between finishes it from the claim (`resume`).
       const journaled = this.#get(id)

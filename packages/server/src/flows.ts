@@ -1252,8 +1252,8 @@ export class Flows implements TeamFlows {
   }
 
   /** A replacement Seat for the card this conversation holds, on `target`. */
-  replaceSeat(runtime: string, sessionId: string, target: { readonly runtime: string; readonly mode: 'sameThread' | 'handoff'; readonly model?: string }): Promise<SeatRecord | { readonly refused: string }> {
-    return this.#executions?.replaceSeat(runtime, sessionId, target) ?? Promise.resolve({ refused: 'This seat no longer belongs to a running run.' })
+  replaceSeat(runtime: string, sessionId: string, target: { readonly runtime: string; readonly mode: 'sameThread' | 'handoff'; readonly model?: string }): Promise<SeatRecord | { readonly refused: string; readonly beforeEffect?: true }> {
+    return this.#executions?.replaceSeat(runtime, sessionId, target) ?? Promise.resolve({ refused: 'This seat no longer belongs to a running run.', beforeEffect: true })
   }
 
   /**
