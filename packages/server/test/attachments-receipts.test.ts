@@ -117,3 +117,40 @@ test('the reader stops at the first line that does not parse: nothing after a da
   const history = await receipts.history('seat-1' as never)
   assert.deepEqual(history.map((one) => one.epoch), [0])
 })
+
+test('receipt rename settles before readers and successors choose the next epoch', async () => {
+  const folder = tempDir('hd-receipt-settlement-')
+  const receipts = new AttachmentReceipts(folder)
+  await receipts.append(epoch({ epoch: 0 }))
+  const { createRequire, syncBuiltinESMExports } = await import('node:module')
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as typeof import('node:fs/promises')
+  const original = fsp.rename
+  let entered!: () => void, release!: () => void
+  const atRename = new Promise<void>(resolve => { entered = resolve })
+  const gate = new Promise<void>(resolve => { release = resolve })
+  fsp.rename = (async (...args: Parameters<typeof original>) => {
+    if (String(args[1]).endsWith('seat-1.ndjson')) { entered(); await gate }
+    return original(...args)
+  }) as typeof original
+  syncBuiltinESMExports()
+  let current = true
+  try {
+    const old = receipts.append(epoch({ epoch: 1 }), () => { if (!current) throw new Error('revoked') })
+    await atRename
+    current = false
+    let readSettled = false
+    const read = receipts.read('seat-1' as never).then(value => { readSettled = true; return value })
+    const history = receipts.history('seat-1' as never)
+    const all = receipts.allHistories()
+    await receipts.append(epoch({ seat: 'seat-other' as never, epoch: 0 }))
+    await new Promise<void>(resolve => setImmediate(resolve))
+    assert.equal(readSettled, false, 'read must not expose a prior epoch during a pending rename')
+    release()
+    await old
+    assert.equal((await read)?.epoch, 1)
+    assert.equal((await history).at(-1)?.epoch, 1)
+    assert.equal((await all).filter(one => one.seat === ('seat-1' as never)).at(-1)?.epoch, 1)
+    await receipts.appendNext('seat-1' as never, next => epoch({ epoch: next }))
+    assert.deepEqual((await receipts.history('seat-1' as never)).map(one => one.epoch), [0, 1, 2])
+  } finally { release(); fsp.rename = original; syncBuiltinESMExports() }
+})

@@ -563,3 +563,47 @@ test('a newer usage event during a silent advanced read is not cleared', async t
   const db = new TranscriptDatabase(join(dir, 'sessions.sqlite'))
   try { assert.deepEqual(db.read(next.info.id, sid)!.usage, fresh, 'the later event reaches durable storage') } finally { db.close() }
 })
+
+test('a revoked reopen cannot publish a late adapter transcript after owner death', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-stale-reopen-read-'))
+  const runtime = new FakeRuntime()
+  const host = new Host({ logger: silent, state: new StateStore(join(dir, 'state.json')), builtinAgents: dir, catalogRefreshMs: 0, idleStopMs: 0, sessionRestMs: 0 })
+  host.register(runtime); await host.start()
+  t.after(async () => { await host.dispose(); await rm(dir, { recursive: true, force: true }) })
+  const created = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: dir } }) as Session
+  const params = { runtime: runtime.info.id, sessionId: created.id }
+  await host.call('session/close', params)
+  let entered!: () => void, release!: () => void, finished!: () => void
+  const began = new Promise<void>(resolve => { entered = resolve }), gate = new Promise<void>(resolve => { release = resolve }), drained = new Promise<void>(resolve => { finished = resolve })
+  const read = runtime.readSession.bind(runtime)
+  let staleEnrich = 0
+  const enrich = TranscriptStore.prototype.enrichForRefresh
+  t.mock.method(TranscriptStore.prototype, 'enrichForRefresh', async function (this: TranscriptStore, input: Session) {
+    if (input.title === 'stale synthetic title') staleEnrich++
+    return enrich.call(this, input)
+  })
+  let readCalls = 0
+  t.mock.method(runtime, 'readSession', async (id: Parameters<FakeRuntime['readSession']>[0]) => {
+    const answer = await read(id)
+    if (++readCalls !== 1) return answer
+    entered(); await gate
+    try { return { ...answer, title: 'stale synthetic title', turns: [turn('late-turn', [message('late-item', 'stale synthetic body', 'assistant')])], itemsLoaded: true } } finally { finished() }
+  })
+  const opening = host.call('session/resume', params)
+  const outcome = opening.then(() => 'resolved', () => 'rejected')
+  try {
+    await Promise.race([began, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('adapter read was not reached')), 3000))])
+    host.registry.detachAll(created.runtime, created.id)
+    runtime.dieResumeOwner(created.id)
+    assert.equal(await outcome, 'rejected')
+    const ordinary = await host.call('session/read', params) as Session
+    assert.equal(ordinary.id, created.id, 'an independently owned ordinary read remains usable')
+    release(); await drained
+    await new Promise(resolve => setTimeout(resolve, 200))
+    assert.equal(staleEnrich, 0, 'revoked read must not enter transcript enrichment')
+    const held = host.registry.get(created.runtime, created.id)
+    assert.notEqual(held?.session.title, 'stale synthetic title')
+    assert.ok(!JSON.stringify(held?.session).includes('stale synthetic body'))
+    assert.equal(held?.live ?? null, null)
+  } finally { release(); await outcome }
+})

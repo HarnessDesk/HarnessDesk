@@ -105,6 +105,11 @@ export class CeilingGate {
     return { admitted: false, refusal }
   }
 
+  closedFor(scope: ScopeQuery): string | null {
+    return scope.runtime === undefined || scope.sessionId === undefined ? null :
+      this.port.closedOf?.(String(scope.runtime), String(scope.sessionId)) ?? null
+  }
+
   async admit(call: GatedCall): Promise<Admission> {
     const { runtime, sessionId } = call.scope
     if (runtime === undefined || sessionId === undefined) return { admitted: true }
@@ -137,6 +142,8 @@ export class CeilingGate {
     if (call.quiet) return { admitted: false, refusal: words.waiting }
     this.port.say(root.runtime, root.sessionId, words.waiting)
     const answer = await this.port.askPerson(root.runtime, root.sessionId, words.question)
+    const closedAfterAnswer = this.closedFor(call.scope)
+    if (closedAfterAnswer) return this.#refused(call, closedAfterAnswer)
     if (answer === 'allowed') {
       this.port.say(root.runtime, root.sessionId, words.allowed)
       return { admitted: true }
@@ -172,6 +179,8 @@ export class GatedRegistry implements CapabilityRegistry {
         const admitted = await gate.admit(call)
         if (!admitted.admitted) return { ok: false, error: admitted.refusal }
         return gate.during(call, async () => {
+          const closed = gate.closedFor(scope)
+          if (closed) return { ok: false, error: closed }
           const result = await this.inner.invokeTool(id, args, scope)
           if (!result.ok) await gate.recordRefusal(call, result.error)
           return result

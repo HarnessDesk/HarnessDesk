@@ -2301,6 +2301,9 @@ const storedAgent = async (
   t: TestContext,
   stored: (dir: string) => Readonly<Record<string, StoredConversation>>,
   env: Readonly<Record<string, string>> = {},
+  sharedSessionProcess = false,
+  withSecret = false,
+  withTools = false,
 ): Promise<{ runtime: AcpRuntime; opened: () => Opened[] }> => {
   const { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
@@ -2326,6 +2329,9 @@ const storedAgent = async (
     command: process.execPath,
     args: [FAKE],
     env: { FAKE_ACP_STORE: store, FAKE_ACP_OPENS: opens, ...env },
+    ...(sharedSessionProcess ? { sharedSessionProcess: true } : {}),
+    ...(withSecret ? { secrets: [{ env: 'HD_FAKE_ONLY_KEY', label: 'Fake key', optional: true }] } : {}),
+    ...(withTools ? { toolServer: { name: 'harnessdesk', command: process.execPath, args: ['--version'], env: {} } } : {}),
   })
   // The agent goes before the folder it writes in.
   t.after(async () => {
@@ -3402,4 +3408,231 @@ test('an agent without status metadata does not acquire a model report from its 
   } finally {
     await runtime.dispose()
   }
+})
+
+test('retired ACP resume discards a gated replay without touching a sibling', async t => {
+  const { mkdtemp, rm, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const dir = await mkdtemp(join(tmpdir(), 'acp-retired-open-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const gate = join(dir, 'continue')
+  const { runtime, opened } = await storedAgent(t, root => ({ target: { cwd: root, turns: [['old']] }, sibling: { cwd: root } }), { FAKE_ACP_LOAD_GATE: gate, FAKE_ACP_LOAD_GATE_POLL: '1' }, true)
+  const events: AgentEvent[] = []
+  runtime.subscribe(event => events.push(event))
+  const sibling = await runtime.createSession({ cwd: dir })
+  const owner = runtime.resumeOwner(sessionId('target'))
+  const attempt = runtime.beginResumeAttempt(sessionId('target'), {}, owner)
+  const rejected = assert.rejects(attempt.result, /given up|retired/)
+  for (let n = 0; n < 500 && !opened().some(one => one.method === 'session/load' && one.sessionId === 'target'); n++) await new Promise(resolve => setTimeout(resolve, 10))
+  assert.ok(opened().some(one => one.method === 'session/load' && one.sessionId === 'target'), 'load reached the gated peer')
+  const retirement = attempt.retire({ published: false })
+  await writeFile(gate, 'go'); await rejected
+  assert.equal(events.some(event => event.type === 'session/started' && String(event.session.id) === 'target'), false)
+  // The rejected result has removed the replay from the adapter's session map.
+  // This same-peer response follows the notification in the input stream.
+  await runtime.connectionFor(sessionId('target')).request('_test/push-tasks', { sessionId: 'target' })
+  assert.equal(events.some(event => event.type === 'session/tasks' && String(event.sessionId) === 'target'), false,
+    'late tasks stay fenced after the abandoned replay is removed')
+  await runtime.connectionFor(sibling.id).request('_test/push-tasks', { sessionId: sibling.id })
+  assert.ok(events.some(event => event.type === 'session/tasks' && event.sessionId === sibling.id), 'the sibling still receives tasks')
+  await sibling.send([{ type: 'text', text: 'still available' }])
+  await runtime.dispose(); await retirement
+})
+
+test('retirement preserves events from an already published ACP handle', async t => {
+  const { runtime } = await storedAgent(t, root => ({ target: { cwd: root } }), {}, true)
+  const tape = record(runtime), id = sessionId('target'), owner = runtime.resumeOwner(id)
+  const attempt = runtime.beginResumeAttempt(id, {}, owner)
+  const handle = await attempt.result
+  const retirement = attempt.retire({ published: true })
+  await handle.send([{ type: 'text', text: 'keep working' }])
+  await tape.until(event => event.type === 'item/delta' && event.sessionId === id && event.delta.kind === 'assistantText')
+  await runtime.dispose(); await retirement
+})
+
+test('idle stop retires the exact abandoned ACP resume owner and a new connection reopens the same session', async t => {
+  const { mkdtemp, rm, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const dir = await mkdtemp(join(tmpdir(), 'acp-idle-retired-open-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const gate = join(dir, 'continue')
+  const { runtime, opened } = await storedAgent(t, root => ({ target: { cwd: root, turns: [['old']] } }), { FAKE_ACP_LOAD_GATE: gate, FAKE_ACP_LOAD_GATE_POLL: '1' }, true)
+  const sibling = await runtime.createSession({ cwd: dir }), id = sessionId('target')
+  const owner = runtime.resumeOwner(id), deaths: object[] = []
+  runtime.onResumeOwnerDied(value => deaths.push(value))
+  const attempt = runtime.beginResumeAttempt(id, {}, owner)
+  const refused = assert.rejects(attempt.result, /given up|retired/)
+  for (let n = 0; n < 500 && !opened().some(one => one.method === 'session/load' && one.sessionId === 'target'); n++) await new Promise(resolve => setTimeout(resolve, 10))
+  assert.ok(opened().some(one => one.method === 'session/load' && one.sessionId === 'target'))
+  const retirement = attempt.retire({ published: false })
+  await writeFile(gate, 'go'); await refused
+  assert.equal(await runtime.stopForIdle(), false, 'a live sibling prevents idle stop')
+  await sibling.send([{ type: 'text', text: 'still available' }])
+  await sibling.close()
+  const before = runtime.resourceProcessIds()
+  assert.equal(await runtime.stopForIdle(), true)
+  assert.ok(deaths.includes(owner), 'successful idle stop reports the exact dead owner')
+  await retirement
+  await runtime.start()
+  const next = runtime.resumeOwner(id)
+  assert.notEqual(next, owner)
+  const reopened = await runtime.beginResumeAttempt(id, {}, next).result
+  assert.equal(reopened.id, id)
+  assert.ok(runtime.resourceProcessIds().some(pid => !before.includes(pid)), 'the reopen uses a new connection process')
+})
+
+test('ACP idle-stop death notifications cannot retire a replacement owner created reentrantly', async t => {
+  const { runtime } = await storedAgent(t, () => ({}), {}, true)
+  const id = sessionId('idle-replacement'), owner = runtime.resumeOwner(id), deaths: object[] = []
+  let replacement: object | undefined
+  runtime.onResumeOwnerDied(value => { deaths.push(value); if (value === owner) replacement = runtime.resumeOwner(id) })
+  assert.equal(await runtime.stopForIdle(), true)
+  assert.ok(replacement)
+  assert.notEqual(replacement, owner)
+  assert.deepEqual(deaths, [owner])
+  assert.equal(runtime.resumeOwner(id), replacement)
+})
+
+test('catalog restart retires the exact ACP owner and permits a replacement reopen', async t => {
+  const { runtime } = await storedAgent(t, root => ({ target: { cwd: root } }), {}, true)
+  const id = sessionId('target'), owner = runtime.resumeOwner(id), deaths: object[] = []
+  let replacement: object | undefined
+  runtime.onResumeOwnerDied(value => { deaths.push(value); if (value === owner) replacement = runtime.resumeOwner(id) })
+  assert.deepEqual(await runtime.refreshCatalog(), { refreshed: true })
+  assert.deepEqual(deaths, [owner])
+  assert.ok(replacement)
+  assert.equal(runtime.resumeOwner(id), replacement)
+  const attempt = runtime.beginResumeAttempt(id, {}, replacement)
+  const handle = await attempt.result
+  assert.equal(attempt.ownsHandle?.(handle), true)
+})
+
+test('ACP resume ownership excludes a cached handle', async t => {
+  const { runtime } = await storedAgent(t, root => ({ target: { cwd: root } }), {}, true)
+  const id = sessionId('target')
+  const first = await runtime.resumeSession(id)
+  const attempt = runtime.beginResumeAttempt(id, {}, runtime.resumeOwner(id))
+  const cached = await attempt.result
+  assert.equal(cached, first)
+  assert.equal(attempt.ownsHandle?.(cached), false)
+})
+
+
+test('secret reload retires the exact ACP owner and preserves a replacement', async t => {
+  const { runtime } = await storedAgent(t, root => ({ target: { cwd: root } }), {}, true, true)
+  const id = sessionId('target'), owner = runtime.resumeOwner(id), deaths: object[] = []
+  let replacement: object | undefined
+  runtime.onResumeOwnerDied(value => { deaths.push(value); if (value === owner) replacement = runtime.resumeOwner(id) })
+  assert.equal(await runtime.reloadSecrets(), 'restarted')
+  assert.deepEqual(deaths, [owner])
+  assert.ok(replacement)
+  assert.equal(runtime.resumeOwner(id), replacement)
+  const attempt = runtime.beginResumeAttempt(id, {}, replacement)
+  const handle = await attempt.result
+  assert.equal(attempt.ownsHandle?.(handle), true)
+})
+
+for (const published of [false, true]) test(`closing a dedicated ACP worker retires its ${published ? 'published' : 'unpublished'} resume owner`, async t => {
+  const { runtime } = await storedAgent(t, root => ({ target: { cwd: root }, sibling: { cwd: root } }), { FAKE_ACP_NO_CLOSE: '1' })
+  const id = sessionId('target'), siblingId = sessionId('sibling')
+  const siblingOwner = runtime.resumeOwner(siblingId)
+  const sibling = await runtime.beginResumeAttempt(siblingId, {}, siblingOwner).result
+  const owner = runtime.resumeOwner(id), deaths: object[] = []
+  let replacement: object | undefined
+  runtime.onResumeOwnerDied(dead => { deaths.push(dead); if (dead === owner) replacement = runtime.resumeOwner(id) })
+  const attempt = runtime.beginResumeAttempt(id, {}, owner)
+  const handle = await attempt.result
+  assert.equal(attempt.ownsHandle?.(handle), true)
+  const retirement = attempt.retire({ published })
+  await handle.close()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([retirement, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('dedicated owner did not retire')), 1000) })])
+  } finally { clearTimeout(timer) }
+  assert.deepEqual(deaths, [owner])
+  assert.ok(replacement)
+  assert.equal(runtime.resumeOwner(id), replacement)
+  assert.equal(runtime.resumeOwner(siblingId), siblingOwner)
+  await sibling.send([{ type: 'text', text: 'sibling remains available' }])
+  const fresh = await runtime.beginResumeAttempt(id, {}, replacement).result
+  assert.equal(fresh.id, id)
+})
+
+
+test('an abandoned gated ACP tool refusal cannot retry or change capability', async t => {
+  const { mkdtemp, rm, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const dir = await mkdtemp(join(tmpdir(), 'acp-refusal-retired-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const gate = join(dir, 'continue')
+  const { runtime, opened } = await storedAgent(t, root => ({ target: { cwd: root }, sibling: { cwd: root } }),
+    { FAKE_ACP_LOAD_GATE: gate, FAKE_ACP_LOAD_GATE_POLL: '1', FAKE_ACP_LOAD_REFUSE_TOOLS: '1' }, true, false, true)
+  const sibling = await runtime.createSession({ cwd: dir })
+  const owner = runtime.resumeOwner(sessionId('target'))
+  const attempt = runtime.beginResumeAttempt(sessionId('target'), {}, owner)
+  const rejected = assert.rejects(attempt.result, /given up|retired/)
+  for (let n = 0; n < 500 && !opened().some(one => one.method === 'session/load' && one.sessionId === 'target'); n++) await new Promise(resolve => setTimeout(resolve, 10))
+  assert.ok(opened().some(one => one.method === 'session/load' && one.sessionId === 'target'))
+  const retirement = attempt.retire({ published: false })
+  await writeFile(gate, 'go'); await rejected
+  assert.equal(opened().filter(one => one.method === 'session/load' && one.sessionId === 'target').length, 1, 'no fallback request after abandonment')
+  assert.equal(runtime.info.capabilities.pluginTools, true, 'abandoned refusal does not change capability')
+  await sibling.send([{ type: 'text', text: 'still available' }])
+  await runtime.dispose(); await retirement
+})
+
+test('an active ACP tool refusal still retries without the bridge', async t => {
+  const { runtime, opened } = await storedAgent(t, root => ({ target: { cwd: root } }),
+    { FAKE_ACP_LOAD_REFUSE_TOOLS: '1' }, true, false, true)
+  const live = await runtime.resumeSession(sessionId('target'))
+  assert.equal(live.id, sessionId('target'))
+  assert.equal(opened().filter(one => one.method === 'session/load' && one.sessionId === 'target').length, 2)
+  assert.equal(runtime.info.capabilities.pluginTools, false)
+})
+
+
+test('an abandoned fallback authentication refusal cannot change account state', async t => {
+  const { mkdtemp, rm, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const dir = await mkdtemp(join(tmpdir(), 'acp-fallback-auth-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const gate = join(dir, 'auth-reply')
+  const { runtime, opened } = await storedAgent(t, root => ({ target: { cwd: root } }),
+    { FAKE_ACP_LOAD_REFUSE_TOOLS: '1', FAKE_ACP_FALLBACK_AUTH_GATE: gate }, true, false, true)
+  const attempt = runtime.beginResumeAttempt(sessionId('target'), {}, runtime.resumeOwner(sessionId('target')))
+  const rejected = assert.rejects(attempt.result)
+  for (let n = 0; n < 500 && opened().filter(one => one.method === 'session/load' && one.sessionId === 'target').length < 2; n++) await new Promise(resolve => setTimeout(resolve, 10))
+  assert.equal(opened().filter(one => one.method === 'session/load' && one.sessionId === 'target').length, 2, 'fallback reached the gated peer')
+  const before = await runtime.getAccount()
+  const retirement = attempt.retire({ published: false })
+  await writeFile(gate, 'go'); await rejected
+  assert.deepEqual(await runtime.getAccount(), before)
+  await runtime.dispose(); await retirement
+})
+
+test('a failed dedicated ACP worker stop does not retire its owner', async t => {
+  const { AcpConnection } = await import('@harnessdesk/transport-acp')
+  const { runtime } = await storedAgent(t, root => ({ target: { cwd: root } }), { FAKE_ACP_NO_CLOSE: '1' })
+  const id = sessionId('target'), owner = runtime.resumeOwner(id), deaths: object[] = []
+  runtime.onResumeOwnerDied(value => deaths.push(value))
+  const attempt = runtime.beginResumeAttempt(id, {}, owner)
+  const handle = await attempt.result
+  const retirement = attempt.retire({ published: false })
+  const original = AcpConnection.prototype.stop, worker = runtime.connectionFor(id)
+  const failed = t.mock.method(AcpConnection.prototype, 'stop', function (this: InstanceType<typeof AcpConnection>) {
+    if (this === worker) return Promise.reject(new Error('synthetic stop failure'))
+    return original.call(this)
+  })
+  try {
+    await handle.close().catch(() => {})
+    assert.ok(failed.mock.calls.length > 0, 'the dedicated stop was attempted')
+    assert.deepEqual(deaths, [], 'a rejected stop is not owner death')
+    assert.equal(runtime.resumeOwner(id), owner)
+    assert.throws(() => runtime.beginResumeAttempt(id, {}, owner), /retired/)
+  } finally {
+    failed.mock.restore()
+    await runtime.dispose()
+    await retirement
+  }
+  assert.deepEqual(deaths, [owner], 'successful disposal retires the original owner')
 })

@@ -1051,6 +1051,23 @@ export interface SessionSource {
   readonly size: number
 }
 
+/** Local-only provenance for a close event emitted directly by this handle. */
+const localCloseOrigins = new WeakMap<object, AgentSession>()
+export const localSessionClose = <T extends AgentEvent>(event: T, handle: AgentSession): T => {
+  localCloseOrigins.set(event, handle)
+  return event
+}
+export const localSessionCloseOrigin = (event: AgentEvent): AgentSession | undefined => localCloseOrigins.get(event)
+
+/** Internal ownership of one resume attempt; never sent over the renderer wire. */
+export interface RuntimeResumeAttempt {
+  readonly result: Promise<AgentSession>
+  /** True only when this exact attempt newly owns this delivery and may close it. */
+  readonly ownsHandle?: (handle: AgentSession) => boolean
+  /** Resolve only once this exact attempt cannot affect a future open; preserve a published/shared handle. */
+  readonly retire: (state: { readonly published: boolean }) => Promise<void>
+}
+
 export interface AgentRuntime {
   /** Restore last live observations before starting a process. */
   restoreObservations?(observations: RuntimeObservations): void
@@ -1307,6 +1324,12 @@ export interface AgentRuntime {
   createSession(options: SessionOptions): Promise<AgentSession>
   /** Bring an existing session back into memory so it can take turns again. */
   resumeSession(id: SessionId, options?: Partial<SessionOptions>): Promise<AgentSession>
+  /** Exact per-session owner generation for an attempt. Must not be reused after the owning generation dies. */
+  resumeOwner?(id: SessionId): object
+  /** Start an attempt under that same owner only after the host has installed its coordinator. */
+  beginResumeAttempt?(id: SessionId, options: Partial<SessionOptions>, owner: object): RuntimeResumeAttempt
+  /** Report only confirmed owner death, never a mere timeout or host-side detach. */
+  onResumeOwnerDied?(listener: (owner: object) => void): Unsubscribe
   forkSession(id: SessionId, options?: Partial<SessionOptions>): Promise<AgentSession>
 
   /**

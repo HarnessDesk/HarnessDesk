@@ -4,6 +4,7 @@ import { chmod, link, mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, wr
 import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { test, type TestContext } from 'node:test'
 
 import { SEAT_PREFERENCE_LIMIT, type BackupReport, type EvidenceRecord, type GoalView, type Lane, type MachineSeating, type RuntimeId, type WrapPreview } from '@harnessdesk/protocol'
@@ -19,6 +20,7 @@ import { Host, Logger, StateStore } from '../src/index.js'
 import { migrateDesk } from '../src/goals/migration.js'
 import { GoalStore, restoredLane, type GoalDocument } from '../src/goals/store.js'
 import { TranscriptStore } from '../src/transcripts.js'
+import { DailySessionSnapshots } from '../src/session-snapshots.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { rig as triggerRig } from './fixtures/intake-consent.js'
 import { goal } from './fixtures/goals.js'
@@ -1867,12 +1869,93 @@ test('feature restore applies partial choices through the live host and counts a
   assert.equal((await desk.host.call('phone/state', {})).enabled, false)
 })
 
+test('startup snapshot changes the directory without a backup import', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-startup-race-'))
+  const dispose = disposeHostsThenRemove(t, [dir])
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as typeof import('node:fs/promises')
+  const originalRead = fsp.readdir
+  const originalRename = fsp.rename
+  let release!: () => void, entered!: () => void, published!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const reading = new Promise<void>(resolve => { entered = resolve })
+  const done = new Promise<void>(resolve => { published = resolve })
+  fsp.readdir = (async (...args: Parameters<typeof originalRead>) => {
+    if (args[0] === dir) { entered(); await gate }
+    return originalRead(...args)
+  }) as typeof originalRead
+  fsp.rename = (async (...args: Parameters<typeof originalRename>) => {
+    await originalRename(...args)
+    if (String(args[1]).startsWith(join(dir, 'sessions-'))) published()
+  }) as typeof originalRename
+  syncBuiltinESMExports()
+  try {
+    const { host } = await hostAt(dir); dispose(host)
+    await reading
+    const before = await originalRead(dir)
+    release()
+    await done
+    assert.notDeepEqual(await originalRead(dir), before)
+  } finally {
+    release()
+    fsp.readdir = originalRead
+    fsp.rename = originalRename
+    syncBuiltinESMExports()
+  }
+})
+
+/** Finish the real startup backup before measuring writes made by an import. */
+const seedStartupSnapshot = async (dir: string) => {
+  const { host } = await hostAt(dir)
+  await host.dispose()
+  const snapshots = new DailySessionSnapshots(join(dir, 'sessions.sqlite'))
+  try { await snapshots.runIfDue() }
+  finally { await snapshots.close() }
+  const day = new Date().toISOString().slice(0, 10)
+  const snapshot = new DatabaseSync(join(dir, `sessions-${day}.sqlite`), { readOnly: true })
+  try { assert.equal(snapshot.prepare('PRAGMA integrity_check').get()?.integrity_check, 'ok') }
+  finally { snapshot.close() }
+}
+
+test('a completed startup snapshot leaves the directory unchanged without an import', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-startup-quiet-'))
+  const dispose = disposeHostsThenRemove(t, [dir])
+  await seedStartupSnapshot(dir)
+  await seedStartupSnapshot(dir)
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as typeof import('node:fs/promises')
+  const originalRead = fsp.readdir
+  let entered!: () => void, release!: () => void, checked!: () => void
+  const reading = new Promise<void>(resolve => { entered = resolve })
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const snapshotChecked = new Promise<void>(resolve => { checked = resolve })
+  fsp.readdir = (async (...args: Parameters<typeof originalRead>) => {
+    if (args[0] === dir) { entered(); await gate }
+    const entries = await originalRead(...args)
+    if (args[0] === dir) checked()
+    return entries
+  }) as typeof originalRead
+  syncBuiltinESMExports()
+  try {
+    const { host } = await hostAt(dir); dispose(host)
+    await reading
+    const before = await originalRead(dir)
+    release()
+    await snapshotChecked
+    await new Promise<void>(resolve => setImmediate(resolve))
+    assert.deepEqual(await originalRead(dir), before)
+  } finally {
+    release()
+    fsp.readdir = originalRead
+    syncBuiltinESMExports()
+  }
+})
+
 for (const features of [null, [], {}, { version: 2, choices: {} }, { version: 1, choices: null }, { version: 1, choices: [] },
   { version: 1, choices: { lead: 'false' } }, { version: 1, choices: { mobile: 0 } }, { version: 1, choices: { unknown: true } },
   { version: 1, choices: { lead: false }, pending: {} }, { version: 1, choices: { repair: true } }]) {
   test(`malformed feature sidecar is rejected before any writes: ${JSON.stringify(features)}`, async t => {
     const dir = await mkdtemp(join(tmpdir(), 'hd-backup-feature-invalid-'))
     const dispose = disposeHostsThenRemove(t, [dir])
+    await seedStartupSnapshot(dir)
     const { host, store } = await hostAt(dir); dispose(host)
     const before = await readdir(dir)
     await assert.rejects(host.call('backup/import', { backup: { ...backupWith([]),

@@ -1127,6 +1127,15 @@ const staleDelegations = (sessionId) => notify('_harnessdesk/delegation/changed'
 })
 
 const handlers = {
+  // An explicit peer barrier: emit a session-scoped extension notification
+  // before answering, even if the client has discarded its replay handle.
+  '_test/push-tasks': (id, params) => {
+    send({ jsonrpc: '2.0', method: '_harnessdesk/tasks/changed', params: {
+      sessionId: params.sessionId,
+      tasks: [{ id: 'late-task', kind: 'command', state: 'running', label: 'Synthetic task', stoppable: false }],
+    } })
+    reply(id, {})
+  },
   initialize: async (id, params) => {
     // Hold a real spawned process after its environment was captured, without
     // recording the synthetic key itself. The test releases the gate on disk.
@@ -1603,6 +1612,12 @@ const handlers = {
   'session/resume': async (id, params) => {
     if (!RESUME_ONLY) return send({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } })
     recordOpen('session/resume', params.sessionId, params.cwd, params?._meta)
+    const firstGate = process.env.FAKE_ACP_FIRST_RESUME_GATE
+    const heldFirst = !!firstGate && !existsSync(`${firstGate}.entered`)
+    if (heldFirst) {
+      writeFileSync(`${firstGate}.entered`, 'entered')
+      while (existsSync(firstGate)) await new Promise(resolve => setTimeout(resolve, 10))
+    }
     // FAKE_ACP_RESUME_DELAY_MS holds the answer, for a reopen that takes too long.
     if (process.env.FAKE_ACP_RESUME_DELAY_MS) await new Promise((resolve) => setTimeout(resolve, Number(process.env.FAKE_ACP_RESUME_DELAY_MS)))
     const entry = readStore()[params.sessionId]
@@ -1624,6 +1639,7 @@ const handlers = {
     if (process.env.FAKE_ACP_DELEGATION_REPLAY) staleDelegations(state.id)
     // No replay: resume restores the context and says nothing about it.
     reply(id, { configOptions: configOptionsOf(state) })
+    if (heldFirst) writeFileSync(`${firstGate}.replied`, 'replied')
     if (process.env.FAKE_ACP_DELEGATION_REPLAY) setTimeout(() => staleDelegations(state.id), 20)
   },
   'session/load': async (id, params) => {
@@ -1632,11 +1648,21 @@ const handlers = {
     // A file gate lets a test promote an in-flight read without racing a timer.
     const gate = process.env.FAKE_ACP_LOAD_GATE
     if (gate && !existsSync(gate)) await new Promise(resolve => {
-      const watcher = watch(dirname(gate), () => {
+      if (process.env.FAKE_ACP_LOAD_GATE_POLL === '1') {
+        const interval = setInterval(() => { if (existsSync(gate)) { clearInterval(interval); resolve() } }, 10)
+      } else {
+        const watcher = watch(dirname(gate), () => {
+          if (existsSync(gate)) { watcher.close(); resolve() }
+        })
         if (existsSync(gate)) { watcher.close(); resolve() }
-      })
-      if (existsSync(gate)) { watcher.close(); resolve() }
+      }
     })
+    if (process.env.FAKE_ACP_LOAD_REFUSE_TOOLS === '1' && (params?.mcpServers?.length ?? 0) > 0) return fail(id, 'Invalid params: mcpServers is not supported')
+    const authGate = process.env.FAKE_ACP_FALLBACK_AUTH_GATE
+    if (authGate && (params?.mcpServers?.length ?? 0) === 0) {
+      while (!existsSync(authGate)) await new Promise(resolve => setTimeout(resolve, 10))
+      return fail(id, 'authentication required')
+    }
     // Hold replay so tests can overlap a read or resume with a load already in flight.
     if (process.env.FAKE_ACP_LOAD_DELAY_MS) await new Promise((resolve) => setTimeout(resolve, Number(process.env.FAKE_ACP_LOAD_DELAY_MS)))
     const store = readStore()
@@ -1646,6 +1672,17 @@ const handlers = {
       return fail(id, 'Internal error', { details: 'the transcript could not be read' })
     }
     const state = newSession(entry.sessionId, entry.cwd)
+    if (process.env.FAKE_ACP_LOAD_APPROVAL_FILE) {
+      const output = process.env.FAKE_ACP_LOAD_APPROVAL_FILE
+      appendFileSync(output, 'requested\n')
+      // The load reply remains independent of the outstanding permission.
+      void request('session/request_permission', {
+        sessionId: state.id,
+        toolCall: { toolCallId: 'load-permission', title: 'Synthetic load command', kind: 'execute' },
+        options: [{ optionId: 'yes', name: 'Allow once', kind: 'allow_once' }, { optionId: 'no', name: 'Reject', kind: 'reject_once' }],
+      }).then(({ outcome }) => appendFileSync(output, `answered ${JSON.stringify(outcome)}\n`),
+        () => appendFileSync(output, 'failed\n'))
+    }
     state.greyed = GREY_ON_LOAD
     // A load is handed the servers a session/new is: dumped the same way.
     if (process.env.FAKE_ACP_DUMP_SERVERS) {
@@ -1671,6 +1708,8 @@ const handlers = {
     // FAKE_ACP_LOAD_DELEGATIONS replays a list from the stored history: `d1`
     // as it was last recorded, running.
     if (process.env.FAKE_ACP_LOAD_DELEGATIONS) staleDelegations(state.id)
+    const replyGate = process.env.FAKE_ACP_LOAD_REPLY_GATE
+    if (replyGate) while (!existsSync(replyGate)) await new Promise(resolve => setTimeout(resolve, 10))
     reply(id, {
       sessionId: state.id,
       ...(CONFIG_MODEL_ONLY || GROUPED_MODELS ? {} : { models: {

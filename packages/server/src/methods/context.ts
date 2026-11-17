@@ -1,3 +1,4 @@
+import type { OpenAuthority } from '../open-coordinator.js'
 import type { DispatchAdmission } from '../dispatch-admission.js'
 import type { HarnessDeskAccount } from '../harnessdesk-account.js'
 import type { GitGateway } from '../git-gateway/index.js'
@@ -401,6 +402,8 @@ export interface HostContext {
   }
 
   readonly sessions: {
+    coordinatedResume<U>(runtime: AgentRuntime, id: SessionId, options: (check: () => void) => Promise<Partial<import('@harnessdesk/protocol').SessionOptions>>,
+      complete: (live: AgentSession, authority: OpenAuthority) => Promise<U>): Promise<U>
     /** Refuse new work in a conversation retained by a wrapped Team. */
     assertDispatchable(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }): void
     /** Hold new work against Wrap through reopening and runtime acceptance. */

@@ -89,6 +89,7 @@ export interface McpGatewayPort {
   /** `null` for an unknown or expired caller token — refused outright, never treated as unidentified-and-admitted. */
   callerOf(token: string): GatewayCaller | null
   admit(call: GatedCall): Promise<Admission>
+  closedFor?(scope: GatedCall['scope']): string | null
 }
 
 export const EXPIRED_CALLER_REFUSAL = 'This connection is no longer live. Start a new Seat to reach this server.'
@@ -143,6 +144,7 @@ export class McpToolGateway {
           quiet: true,
         })
         if (!admission.admitted) return []
+        if (this.port.closedFor?.({ runtime: runtimeId(caller.runtime), sessionId: sessionId(caller.sessionId) })) return []
         try {
           const tools = await listTools(one)
           return tools.map((tool) => ({ name: tool.name, server: one.identity.name, description: tool.description, inputSchema: tool.inputSchema }))
@@ -182,6 +184,8 @@ export class McpToolGateway {
       publishes: reaches(server.ceiling, 'publish'),
     })
     if (!admission.admitted) return { ok: false, reason: admission.refusal }
+    const closed = this.port.closedFor?.({ runtime: runtimeId(caller.runtime), sessionId: sessionId(caller.sessionId) })
+    if (closed) return { ok: false, reason: closed }
     const result = await invoke(server)
     return { ok: true, result }
   }

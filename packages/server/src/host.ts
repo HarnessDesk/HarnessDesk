@@ -3,6 +3,7 @@ import { DeskFeatures } from './features.js'
 import { startPhoneLink, type RunningPhoneLink, type PhoneLinkOptions } from './phone-link.js'
 import type { DispatchAdmission } from './dispatch-admission.js'
 import { isDeepStrictEqual } from 'node:util'
+import { localSessionCloseOrigin } from '@harnessdesk/protocol'
 import { firstAsk, leadMessageWords, isLeadMessageSource, leadDisplayName, leadMessageKey, splitContextContent, wrapContext, type LeadChatControlList, type LeadChatHolder } from '@harnessdesk/protocol'
 import { canonicalTranscriptBody, LEAD_MEMORY_KIND_LABELS, PendingTranscript, type LeadMemoryView, type LeadWorkBoard } from '@harnessdesk/protocol'
 import { DescriptorCache, PendingSessionOverlay, recoveryDescriptor } from './recovery-descriptor.js'
@@ -317,6 +318,9 @@ import { LocalFiles, assertAbsolute, confine, describeWorkspace } from './worksp
 import { dispatch, TERMINAL_CHIP, type HostContext } from './methods/index.js'
 import { startGoal } from './methods/flows.js'
 import { seatAgent } from './methods/agents.js'
+import { managedResumeAttempt } from './managed-resume-attempt.js'
+import { OpenUnavailableError, type OpenAuthority } from './open-coordinator.js'
+import { ownedResumePreparation } from './session-resume.js'
 
 /**
  * The host.
@@ -904,6 +908,9 @@ export class Host {
   readonly #conversationQuietSince = new Map<string, { since: number; changedAt: number }>()
   readonly #seatQuietSince = new Map<string, { since: number; changedAt: number }>()
   readonly #restingSessions = new Map<string, Promise<void>>()
+  readonly #restingHandles = new Map<string, AgentSession>()
+  readonly #admissionRests = new Map<string, { promise: Promise<void>; handle: AgentSession; authority: OpenAuthority }>()
+  readonly #admissionStarts = new Map<string, { promise: Promise<void>; admission: object }>()
   readonly #seatHeldCards: SeatHeldCards
   #idleReaper: ReturnType<typeof setInterval> | null = null
   /** The asks still to come after a program that would not answer: see `#scheduleRetries`. */
@@ -1606,15 +1613,18 @@ export class Host {
       preferences: () => this.#state.state.preferences,
       projectOf: async cwd => await this.#boardRootOf(cwd) ?? cwd,
       scope: (runtime, sessionId) => this.#gitSteerScope(runtime, sessionId),
+      available: scope => !!scope.owner && this.registry.get(runtimeId(scope.runtime), makeSessionId(scope.sessionId))?.live === scope.owner && !this.#unfinalizedFor(scope.runtime, scope.sessionId),
       ask: (scope, question, signal) => this.#askHeld(scope.runtime, scope.sessionId, question, this.options.heldWaitMs ?? 10 * 60_000, signal),
       admit: async (scope, tool) => {
         const result = await this.#ceilingGate.admit({ tool, needs: tool === 'pr_merge' ? 'merge' : 'publish', publishes: true,
           scope: { runtime: runtimeId(scope.runtime), sessionId: makeSessionId(scope.sessionId), ...(scope.turn ? { turnId: scope.turn as TurnId } : {}) } })
         if (!result.admitted) throw new Error(result.refusal)
         const allowed = await this.#forge.publicationAllowed({ runtime: scope.runtime, sessionId: scope.sessionId })
+        if (this.#unfinalizedFor(scope.runtime, scope.sessionId)) throw new OpenUnavailableError()
         if (!allowed.ok) throw new Error(allowed.reason)
       },
       invoke: async (scope, name, args) => {
+        if (this.#unfinalizedFor(scope.runtime, scope.sessionId)) throw new OpenUnavailableError()
         const tools = this.#requireExtensions()
         const plugin = tools.plugins().find(entry => entry.identity.id === 'git' && entry.identity.source.kind === 'builtin')
         const tool = tools.list('tool', {}).find(entry => entry.name === name && entry.owner === plugin?.instanceId && entry.namespace === String(plugin.instanceId))
@@ -2993,6 +3003,18 @@ export class Host {
           return surface
         }
         if (typeof member !== 'function') return member
+        if (key === 'beginResumeAttempt') {
+          return (session: SessionId, options: Partial<import('@harnessdesk/protocol').SessionOptions>, owner: object) => managedResumeAttempt(
+            (start, check) => this.#withRuntimeActivity(target, async () => {
+              await this.#restingSessions.get(sessionKey(id, session))
+              check()
+              await this.#ensureStarted(target, check)
+              check()
+              return start()
+            }, session),
+            () => Reflect.apply(member, target, [session, options, owner]) as import('@harnessdesk/protocol').RuntimeResumeAttempt,
+          )
+        }
         if (key === 'listSessions') {
           return async (query?: ListSessionsQuery) => this.#withHostHistory(id, (await listHistory(query))!, query)
         }
@@ -3061,6 +3083,7 @@ export class Host {
     this.#runtimeSubscriptions.set(id, [
       runtime.subscribe((event) => { if (this.ownsRuntime(runtime)) this.#onEvent(id, event, runtime) }),
       runtime.onHealthChange((health) => { if (this.ownsRuntime(runtime)) this.#onHealthChange(id, health) }),
+      ...(runtime.onResumeOwnerDied ? [runtime.onResumeOwnerDied(owner => { if (this.ownsRuntime(runtime)) this.registry.coordinatedOwnerDied(id, owner) })] : []),
       // A capability the agent only reveals by refusing it. Optional, so a
       // runtime whose description is settled at construction says nothing.
       ...(runtime.onInfoChange
@@ -3706,11 +3729,13 @@ export class Host {
     return observation
   }
 
-  async #ensureStarted(runtime: AgentRuntime): Promise<void> {
+  async #ensureStarted(runtime: AgentRuntime, check: () => void = () => {}): Promise<void> {
     if (this.#disposed) throw new Error('The desk is closing.')
     await this.#waitForRuntimeStop(runtime)
+    check()
     if (runtime.health().state === 'ready') return
     await this.#beginRuntimeStart(runtime, false)
+    check()
   }
 
   async #waitForRuntimeStop(runtime: AgentRuntime): Promise<void> {
@@ -3832,13 +3857,14 @@ export class Host {
         }
       })
       this.#restingSessions.set(key, resting)
+      this.#restingHandles.set(key, live)
       try {
         await resting
       } catch (error) {
         this.#seatQuietSince.delete(key)
         this.#logger.warn('a finished Seat could not release its conversation', { runtime: runtime.info.id, error: String(error) })
       } finally {
-        if (this.#restingSessions.get(key) === resting) this.#restingSessions.delete(key)
+        if (this.#restingSessions.get(key) === resting) { this.#restingSessions.delete(key); this.#restingHandles.delete(key) }
       }
     }
   }
@@ -3947,11 +3973,12 @@ export class Host {
       }
     })
     this.#restingSessions.set(key, resting)
+    this.#restingHandles.set(key, live)
     try { await resting } catch (error) {
       this.#conversationQuietSince.delete(key)
       this.#logger.warn('a quiet conversation could not release its handle', { runtime: record.runtime, error: String(error) })
     } finally {
-      if (this.#restingSessions.get(key) === resting) this.#restingSessions.delete(key)
+      if (this.#restingSessions.get(key) === resting) { this.#restingSessions.delete(key); this.#restingHandles.delete(key) }
     }
   }
 
@@ -5441,6 +5468,23 @@ export class Host {
   }
 
   async #call<M extends HostMethodName>(method: M, params: HostParams<M>, context = this.#context): Promise<HostResult<M>> {
+    if (method === 'approval/respond') {
+      const addressed = params as HostParams<'approval/respond'>
+      if (this.#unfinalizedFor(addressed.runtime, addressed.sessionId)) {
+        const decision = addressed.decision
+        const approval = this.registry.get(addressed.runtime, addressed.sessionId)?.approvals.get(String(addressed.approvalId))
+        const safe = decision.type === 'cancel' || decision.type === 'option' && approval && 'options' in approval &&
+          approval.options.some(option => option.id === decision.optionId && option.intent === 'deny')
+        if (!safe) throw Object.assign(new OpenUnavailableError(), { approvalNotDelivered: true })
+        const live = this.registry.get(addressed.runtime, addressed.sessionId)?.live
+        if (live) context = { ...context, sessions: { ...context.sessions, live: async query => {
+          if (query.runtime !== addressed.runtime || query.sessionId !== addressed.sessionId ||
+            this.registry.get(addressed.runtime, addressed.sessionId)?.live !== live ||
+            this.registry.get(addressed.runtime, addressed.sessionId)?.approvals.get(String(addressed.approvalId)) !== approval) throw new OpenUnavailableError()
+          return live
+        } } }
+      }
+    }
     try { this.#noteReach(params) }
     catch (error) {
       if (method === 'approval/respond' && error instanceof Error) Object.assign(error, { approvalNotDelivered: true })
@@ -6447,7 +6491,9 @@ export class Host {
    */
   /** A seat's own recovery when its turn ends: its card handed back, and a release waiting on it answered. */
   #recoverSeat(runtime: RuntimeId, sessionId: string): void {
-    void this.#flows.reArm(runtime, sessionId)
+    void this.#flows.reArm(runtime, sessionId).catch((error: unknown) => {
+      if (!this.#disposed) this.#logger.warn('a Seat could not be re-armed after its turn', { runtime, session: sessionId, error: String(error) })
+    })
     // The same turn-ended signal answers a v2 release still waiting on this
     // Seat, rather than a poll of its own guessing when to ask again (#1027).
     this.#flows.retryRelease(runtime, sessionId)
@@ -7038,6 +7084,7 @@ export class Host {
         forget: (runtime, session) => this.#loadouts.forget(runtime, session),
       },
       sessions: {
+        coordinatedResume: (runtime, id, options, complete) => this.#coordinatedReopen(runtime, id, options, complete),
         assertDispatchable: (params) => this.#assertDispatchable(params),
         dispatch: (params, work) => this.#dispatch(params, work),
         live: (params) => this.#live(params),
@@ -8404,15 +8451,28 @@ export class Host {
    * failure closes the reopened handle rather than leave it running on a
    * filter nobody could record.
    */
-  async #finishReopen(runtime: AgentRuntime, live: AgentSession, reopened: ReopenedSeat): Promise<void> {
+  async #finishReopen(runtime: AgentRuntime, live: AgentSession, reopened: ReopenedSeat, authority?: OpenAuthority, priorLive = false, openedAtStart?: number, ownsHandle?: (live: AgentSession) => boolean, withhold?: () => void): Promise<void> {
+    const check = () => { if (authority && !authority.current()) throw new OpenUnavailableError() }
     try {
       const receipt = await receiptFrom(runtime, live.id, reopened.prepared.input.key, { reopen: reopened.prepared, seatKeys: this.#attachments.keysOf(reopened.seat.id) })
-      await this.#attachments.record(reopened.seat, reopened.prepared, receipt)
+      check()
+      await this.#attachments.record(reopened.seat, reopened.prepared, receipt, check)
+      check()
     } catch (error) {
-      await this.#letGo(runtime.info.id, live.id, live)
-      throw new Error(
+      check()
+      const currentRecord = this.registry.get(runtime.info.id, live.id)
+      if (authority && (priorLive || currentRecord?.live && currentRecord.live !== live || this.registry.opens(runtime.info.id, live.id).opened !== openedAtStart || ownsHandle?.(live) !== true || !authority.exclusive())) {
+        withhold?.()
+        const record = currentRecord
+        if (!priorLive && record?.live === live) { record.live = null; record.detached = true }
+        throw new Error(`This conversation's approved attachments could not be re-applied: ${error instanceof Error ? error.message : String(error)}`)
+      }
+      const failure = new Error(
         `This conversation's approved attachments could not be re-applied, so it was closed: ${error instanceof Error ? error.message : String(error)}`,
       )
+      authority?.closeFailure(failure)
+      await this.#letGo(runtime.info.id, live.id, live)
+      throw failure
     }
   }
 
@@ -8429,36 +8489,46 @@ export class Host {
    * that is live here already (it opened on its filter), or whose Seat never
    * carried one: the ordinary read serves those.
    */
-  async #scopedRead(runtime: AgentRuntime, id: SessionId, allowReopen = true): Promise<Session | null> {
+  async #scopedRead(runtime: AgentRuntime, id: SessionId, allowReopen = true, check: () => void = () => {}): Promise<Session | null> {
+    check()
     if (this.registry.get(runtime.info.id, id)?.live) return null
     // Being reopened right now, on its filter: the reopen's own read of what
     // it just opened is an ordinary one (the runtime holds it live, filtered).
     if (this.#reattaching.has(`${runtime.info.id}\u0000${id}`)) return null
     const seat = this.#evidence.seats.latestKeptOf(runtime.info.id, id)
     if (!seat) return null
-    if (!(await this.#carriesFilter(seat, 'read'))) return null
+    const carries = await this.#carriesFilter(seat, 'read')
+    check()
+    if (!carries) return null
     const kept = await this.#transcripts.recover(runtime.info.id, id)
+    check()
     // A phone read or reply preload must not reopen a filtered conversation just to recover its body.
     if (!allowReopen) {
       if (kept) return { ...kept, deskCopy: true }
       throw new Error('This conversation has no retained transcript. Open it on the desk to read it.')
     }
     const source = await this.#sourceState(runtime, id)
+    check()
     if (kept && (!source || source.kind !== 'changed')) return { ...kept, ...(source ? { deskCopy: source.kind === 'gone' } : {}) }
     try {
       const live = await this.#liveFor(runtime.info.id, id)
+      check()
       const raw = await runtime.readSession(live.id)
-      const advancedWithoutUsage = await this.#gateReplayRead(runtime, raw)
+      check()
+      const advancedWithoutUsage = await this.#gateReplayRead(runtime, raw, check)
+      check()
       const replayed = this.registry.get(runtime.info.id, live.id)
       if (replayed?.transcriptIncomplete) return this.#pendingTranscriptView(replayed)
       this.#admitFirstReadBase(raw)
       const enriched = await this.#transcripts.enrichForRefresh(raw)
+      check()
       this.#clearAdvancedReplayUsage(runtime.info.id, live.id, advancedWithoutUsage)
-      if (source) return this.#cacheRead(enriched.session, source.source, enriched.base)
+      if (source) return this.#cacheRead(enriched.session, source.source, enriched.base, check)
       const stable = this.#preserveReadRecency(enriched.session)
       this.#transcripts.rememberReadBase(stable, enriched.base)
       return stable
     } catch (error) {
+      check()
       if (this.#transcripts.hasProtectedChanges(runtime.info.id, id)) throw error
       if (kept && source) return { ...kept, deskCopy: true }
       throw error
@@ -8502,7 +8572,9 @@ export class Host {
     refused: (call, reason) => this.#forge.refuseTool(call.tool, call.args, { runtime: String(call.scope.runtime), sessionId: String(call.scope.sessionId) }, reason, call.startedAt),
     rootOf: (runtime, sessionId) => this.#rootOf(runtime, sessionId),
     ceilingOf: (runtime, sessionId) => this.#ceilingOf(runtime, sessionId),
-    closedOf: (runtime, sessionId) => this.#closedConsultRefusal(runtime, sessionId),
+    closedOf: (runtime, sessionId) => this.#unfinalizedFor(runtime, sessionId)
+      ? 'This conversation is still completing its reopen.'
+      : this.#closedConsultRefusal(runtime, sessionId),
     causeOf: (runtime, sessionId, turnId) => this.#causeOf(runtime, sessionId, turnId),
     nameOf: (runtime, sessionId) => this.#conversationName(runtime, sessionId),
     say: (runtime, sessionId, text) => void this.#say(runtime, sessionId, text),
@@ -8929,10 +9001,12 @@ export class Host {
   async #gitSteerScope(runtime: string, sessionId: string): Promise<SteerScope | null> {
     const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
     if (!record?.live) return null
+    const owner = record.live
     await this.#shellWorkspace({ runtime: runtimeId(runtime), sessionId: makeSessionId(sessionId) })
+    if (this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.live !== owner || this.#unfinalizedReopens.has(owner)) return null
     const cwd = record.shellCheckout?.cwd
     if (!cwd) return null
-    return { runtime, sessionId, cwd, root: record.shellCheckout!.project, turn: String([...record.running].at(-1) ?? record.session.turns.at(-1)?.id ?? ''), name: this.#runtimes.get(runtimeId(runtime))?.info.presentation.name ?? 'Agent' }
+    return { runtime, sessionId, owner, cwd, root: record.shellCheckout!.project, turn: String([...record.running].at(-1) ?? record.session.turns.at(-1)?.id ?? ''), name: this.#runtimes.get(runtimeId(runtime))?.info.presentation.name ?? 'Agent' }
   }
 
   /** Put a desk decision in the conversation's running or latest turn. */
@@ -9006,12 +9080,46 @@ export class Host {
    * A caller that names a route has the reopen run on it. One that arrives
    * while a reopen is already in flight shares that reopen, route and all.
    */
+  #canAnswer(runtime: RuntimeId, id: SessionId, live: AgentSession): boolean {
+    return this.registry.get(runtime, id)?.live === live && !this.#unfinalizedReopens.has(live)
+  }
+
+  #unfinalizedFor(runtime: string, id: string): boolean {
+    const live = this.registry.get(runtimeId(runtime), makeSessionId(id))?.live
+    const key = String(sessionKey(runtimeId(runtime), makeSessionId(id)))
+    // Withholding a preserved owner clears record.live without stopping its
+    // callers. Its exact-owner death subscription retires this quarantine;
+    // losing the registry reference must not restore access to tools.
+    return this.#withheldResumeEvents.has(key) ||
+      (live ? this.#unfinalizedReopens.has(live) : this.#hostReopenWork.has(key))
+  }
+
+  /** Newly attached filtered handles remain unavailable until their receipt completes. */
+  readonly #unfinalizedReopens = new WeakSet<AgentSession>()
+  readonly #unfinalizedApprovals = new WeakMap<AgentSession, Set<string>>()
+
   async #liveFor(runtime: RuntimeId, id: SessionId, route?: ResolvedModelRoute): Promise<AgentSession> {
     const key = sessionKey(runtime, id)
     this.#seatQuietSince.delete(key)
-    await this.#restingSessions.get(key)
+    const agent = this.#runtime({ runtime })
     const held = this.registry.get(runtime, id)
-    if (held?.live) return held.live
+    if (held?.live && !this.#restingSessions.has(key) && this.registry.opens(runtime, id).pending === 0) {
+      if (this.#unfinalizedReopens.has(held.live)) throw new OpenUnavailableError()
+      return held.live
+    }
+    if (agent.resumeOwner && agent.beginResumeAttempt) {
+      const promise = this.#coordinatedReopen(agent, id, async check => {
+        await this.#restingSessions.get(key)
+        check()
+        return route ? { route } : {}
+      }, async live => live)
+      if (!this.#reattaching.has(key)) {
+        this.#reattaching.set(key, promise)
+        void promise.finally(() => { if (this.#reattaching.get(key) === promise) this.#reattaching.delete(key) }).catch(() => {})
+      }
+      return promise
+    }
+    await this.#restingSessions.get(key)
     // Each caller that needs the conversation opened is an open of its own, the one that joins a reopen in flight
     // too: all of them are handed the one handle.
     const release = this.registry.opening(runtime, id)
@@ -9040,6 +9148,7 @@ export class Host {
   }
 
   /** Conversations being re-opened right now, so concurrent callers share one. */
+  readonly #withheldResumeEvents = new Map<string, object>()
   readonly #reattaching = new Map<string, Promise<AgentSession>>()
   /** How many callers are waiting on a reopen already in flight, per conversation. */
   readonly #reopenWaiters = new Map<string, number>()
@@ -9249,11 +9358,13 @@ export class Host {
    * and the picks are spent either way, so one that fails once cannot fail
    * every reopen after it.
    */
-  async #restoreRestedPicks(runtime: AgentRuntime, live: AgentSession, id: SessionId): Promise<void> {
+  async #restoreRestedPicks(runtime: AgentRuntime, live: AgentSession, id: SessionId, check: () => void = () => {}): Promise<void> {
     const held = this.registry.forReopen(runtime.info.id, id)
     if (!held?.restedOptions) return
+    const picks = held.restedOptions
     try {
-      for (const [optionId, value] of Object.entries(held.restedOptions)) {
+      for (const [optionId, value] of Object.entries(picks)) {
+        check()
         const option = live.options().find(one => one.id === optionId)
         if (!option || option.currentValue === value) continue
         const refusal = refuseOptionValue(option, value)
@@ -9264,18 +9375,20 @@ export class Host {
           continue
         }
         await live.setOption(optionId, value)
+        check()
       }
     } finally {
-      delete held.restedOptions
+      try { check(); if (held.restedOptions === picks) delete held.restedOptions } catch { /* A later opener still owns these picks. */ }
     }
   }
 
-  async #prepareReopenTranscript(runtime: RuntimeId, id: SessionId): Promise<void> {
+  async #prepareReopenTranscript(runtime: RuntimeId, id: SessionId, check: () => void = () => {}): Promise<void> {
     // Rehydrate an existing durable body before the runtime can synchronously
     // announce a replay. This gives that replay the current record and exact
     // observed base, so it cannot replace a richer, unbound startup snapshot.
     if (!this.registry.get(runtime, id) && !this.#sessionIndex.isRemoved(runtime, id)) {
       const kept = await this.#transcripts.recover(runtime, id)
+      check()
       if (kept && !this.registry.get(runtime, id) && !this.#sessionIndex.isRemoved(runtime, id)) {
         const base = this.#transcripts.observeBase(kept, false)
         if (base) {
@@ -9288,8 +9401,134 @@ export class Host {
     }
   }
 
+  /** Host work may outlive an adapter generation, including after owner death. */
+  readonly #hostReopenWork = new Map<string, { callers: number; work: number; current: () => boolean; owner?: object; approvals: Map<string, Approval> }>()
+
+  /** Questions raised during load belong to that exact pending adapter owner. */
+  #pendingReopenApprovals(runtime: RuntimeId, id: SessionId, source?: AgentRuntime): Map<string, Approval> | undefined {
+    const pending = this.#hostReopenWork.get(String(sessionKey(runtime, id)))
+    const adapter = source ?? this.#runtimes.get(runtime)
+    return pending?.owner && pending.current() && adapter?.resumeOwner?.(id) === pending.owner ? pending.approvals : undefined
+  }
+
+  #coordinatedReopen<U>(runtime: AgentRuntime, id: SessionId, optionsOf: (check: () => void) => Promise<Partial<import('@harnessdesk/protocol').SessionOptions>>,
+    complete: (live: AgentSession, authority: OpenAuthority) => Promise<U>): Promise<U> {
+    if (!runtime.resumeOwner || !runtime.beginResumeAttempt) return Promise.reject(new OpenUnavailableError())
+    const observedOwner = runtime.resumeOwner(id)
+    const hostKey = String(sessionKey(runtime.info.id, id))
+    let held = this.#hostReopenWork.get(hostKey)
+    if (held && !held.current()) return Promise.reject(new OpenUnavailableError())
+    const live = this.registry.get(runtime.info.id, id)?.live
+    if (live && this.#unfinalizedReopens.has(live) && !held) return Promise.reject(new OpenUnavailableError())
+    if (!held) { held = { callers: 0, work: 0, current: () => true, approvals: new Map() }; this.#hostReopenWork.set(hostKey, held) }
+    const fence = held
+    const release = () => { if (!fence.callers && !fence.work && this.#hostReopenWork.get(hostKey) === fence) this.#hostReopenWork.delete(hostKey) }
+    fence.callers++
+    const answer = this.registry.coordinatedAdmission(runtime.info.id, id, observedOwner, (authority, bindOwner, admission) => {
+      fence.current = authority.current
+      let owner: object | undefined
+      const openedAtStart = this.registry.opens(runtime.info.id, id).opened
+      let attempt: import('@harnessdesk/protocol').RuntimeResumeAttempt | undefined
+      const ownsHandle = (live: AgentSession) => attempt?.ownsHandle?.(live) === true
+      let withheld = false, died!: () => void
+      const death = new Promise<void>(resolve => { died = resolve })
+      const key = String(sessionKey(runtime.info.id, id))
+      const unsubscribe = runtime.onResumeOwnerDied?.(dead => {
+        if (dead !== owner) return
+        fence.approvals.clear()
+        if (this.#withheldResumeEvents.get(key) === owner) this.#withheldResumeEvents.delete(key)
+        died()
+      })
+      const preparedAttempt = ownedResumePreparation<AgentSession, Partial<import('@harnessdesk/protocol').SessionOptions>, AgentSession>(
+      async (start, check) => {
+        const rest = this.#restingSessions.get(key), restHandle = this.#restingHandles.get(key)
+        if (rest && restHandle) {
+          const waiting = { promise: rest, handle: restHandle, authority }
+          this.#admissionRests.set(key, waiting)
+          try { await rest } finally { if (this.#admissionRests.get(key) === waiting) this.#admissionRests.delete(key) }
+          check()
+        }
+        await this.#waitForRuntimeStop(runtime)
+        check()
+        const health = runtime.health()
+        const runtimeKey = String(runtime.info.id)
+        const mayStart = health.state === 'idle' || this.#coldRuntimes.has(runtimeKey) || this.#startingRuntimes.has(runtimeKey) || this.#directRuntimeStarts.has(runtimeKey)
+        if (health.state !== 'ready' && mayStart) {
+          const starting = this.#beginRuntimeStart(runtime, false)
+          const waiting = { promise: starting, admission }
+          this.#admissionStarts.set(key, waiting)
+          try { await starting } finally { if (this.#admissionStarts.get(key) === waiting) this.#admissionStarts.delete(key) }
+          check()
+        }
+        owner = runtime.resumeOwner!(id)
+        bindOwner(owner)
+        check()
+        const options = await optionsOf(check)
+        check()
+        const existing = this.registry.get(runtime.info.id, id)?.live
+        if (existing) {
+          const live = await start(options)
+          check()
+          return this.#publishReattach(runtime, id, { live, reopened: null, priorLive: true }, authority, openedAtStart, ownsHandle, () => { withheld = true; this.#withheldResumeEvents.set(key, owner!) })
+        }
+        const prepared = await this.#prepareReattach(runtime, id, options.route, start, check, options, async (live, error, priorLive) => {
+          const current = this.registry.get(runtime.info.id, id)?.live
+          if (priorLive || current && current !== live || this.registry.opens(runtime.info.id, id).opened !== openedAtStart || !ownsHandle(live) || !authority.exclusive()) {
+            withheld = true
+            this.#withheldResumeEvents.set(key, owner!)
+            if (!priorLive && current === live) { const record = this.registry.get(runtime.info.id, id); if (record) { record.live = null; record.detached = true } }
+            return
+          }
+          authority.closeFailure(new Error(this.#cannotReopen(runtime, error)))
+          await live.close().catch((closeError: unknown) => this.#logger.warn('a handle the reopen could not finish with did not close', {
+            runtime: runtime.info.id, session: String(id), error: String(closeError),
+          }))
+        })
+        check()
+        return this.#publishReattach(runtime, id, prepared, authority, openedAtStart, ownsHandle, () => { withheld = true; this.#withheldResumeEvents.set(key, owner!) })
+      },
+      selected => {
+        if (!owner) throw new OpenUnavailableError()
+        fence.owner = owner
+        attempt = runtime.beginResumeAttempt!(id, selected, owner)
+        return attempt
+      },
+    )
+      fence.work++
+      return {
+        result: preparedAttempt.result.finally(() => { if (!withheld) unsubscribe?.(); fence.work--; release() }),
+        retire: async state => {
+          fence.approvals.clear()
+          fence.work++
+          try {
+            await preparedAttempt.retire(state)
+            if (withheld) await death
+            unsubscribe?.()
+          } finally { fence.work--; release() }
+        },
+      }
+    }, async (live, authority) => {
+      fence.work++
+      try { return await complete(live, authority) }
+      finally { fence.work--; release() }
+    })
+    return answer.finally(() => { fence.callers--; release() })
+  }
+
   async #reattach(runtime: AgentRuntime, id: SessionId, route?: ResolvedModelRoute): Promise<AgentSession> {
+    const prepared = await this.#prepareReattach(runtime, id, route)
+    return this.#publishReattach(runtime, id, prepared)
+  }
+
+  /** Prepare the same frozen inputs and adapter handle before publishing the reopened conversation. */
+  async #prepareReattach(runtime: AgentRuntime, id: SessionId, route?: ResolvedModelRoute,
+    start?: (options: Partial<import('@harnessdesk/protocol').SessionOptions>) => Promise<AgentSession>,
+    check: () => void = () => {}, options: Partial<import('@harnessdesk/protocol').SessionOptions> = {},
+    cleanup?: (live: AgentSession, error: unknown, priorLive: boolean) => Promise<void>): Promise<{ live: AgentSession; reopened: ReopenedSeat | null; priorLive: boolean }> {
+    const priorLive = !!this.registry.get(runtime.info.id, id)?.live
+    check()
     if (this.#coldRuntimes.has(String(runtime.info.id)) || this.#startingRuntimes.has(String(runtime.info.id))) await this.#ensureStarted(runtime)
+    check()
     const name = runtime.info.presentation.name
     const health = runtime.health()
     if (health.state !== 'ready' && health.state !== 'idle') {
@@ -9304,18 +9543,27 @@ export class Host {
         `${name} cannot reopen a conversation after it restarts, so this one has ended. Start a new one — what you typed is still in the box.`,
       )
     }
-    await this.#prepareReopenTranscript(runtime.info.id, id)
+    await this.#prepareReopenTranscript(runtime.info.id, id, check)
+    check()
     let live: AgentSession | undefined
     // A Seat that froze attachments reopens on that same filter, revalidated
     // — never on the runtime's own defaults, which would load every ambient
     // skill and server its approval was there to keep out.
     const reopened = await this.#reopenAttachments(runtime, id)
-    const restored = await this.#sessionWorktrees.prepare(runtime.info.id, id)
+    check()
+    const restored = await this.#sessionWorktrees.prepare(runtime.info.id, id, check)
+    check()
     try {
       const environment = await this.#context.laneEnvironment.forSession(String(runtime.info.id), String(id))
+      check()
       const frozen = this.#evidence.seats.latestKeptOf(runtime.info.id, String(id))
       const standing = this.#evidence.seats.latestOf(runtime.info.id, String(id))?.standing
-      live = await resumeSeatSession(runtime, id, {
+      const adapter = start ? new Proxy(runtime, { get(target, key) {
+        if (key === 'resumeSession') return (_id: SessionId, selected: Partial<import('@harnessdesk/protocol').SessionOptions>) => start(selected)
+        return Reflect.get(target, key, target)
+      } }) : runtime
+      live = await resumeSeatSession(adapter, id, {
+        ...options,
         ...(restored.cwd ? { cwd: restored.cwd, knownCwd: restored.cwd } : {}),
         ...(route ? { route } : {}),
         ...(frozen?.runtimeServers !== undefined ? { runtimeServers: frozen.runtimeServers } : {}),
@@ -9323,16 +9571,22 @@ export class Host {
         ...(environment ? { environment } : {}),
         ...(reopened ? { attachments: reopened.prepared.input } : {}),
       }, this.#evidence.seats.latestOf(runtime.info.id, String(id))?.checkout.cwd)
-      await this.#restoreRestedPicks(runtime, live, id)
+      check()
+      await this.#restoreRestedPicks(runtime, live, id, check)
+      check()
     } catch (error) {
       // The adapter hands a handle it still holds to the next resume, picks and
       // all, so one this reopen resumed and could not finish with must not
       // outlive it: every later open would be handed the same stale handle.
-      if (live) {
+      let current = true
+      try { check() } catch { current = false }
+      if (live && current && cleanup) await cleanup(live, error, priorLive)
+      else if (live && current && !start) {
         await live.close().catch((closeError: unknown) => this.#logger.warn('a handle the reopen could not finish with did not close', {
           runtime: runtime.info.id, session: String(id), error: String(closeError),
         }))
       }
+      if (!current || error instanceof OpenUnavailableError) throw new OpenUnavailableError()
       if (isSessionBusy(error)) throw await this.#busyElsewhere(runtime, id, error)
       // These typed failures name the runtime process, not the conversation.
       // Keep the code so #teamLive can distinguish a stopped agent from a
@@ -9350,22 +9604,56 @@ export class Host {
           ? new SessionGoneError(sentence)
           : new Error(sentence)
     }
+    return { live, reopened, priorLive }
+  }
+
+  /** Restore and publish the prepared handle using the host's normal transcript and attachment path. */
+  async #publishReattach(runtime: AgentRuntime, id: SessionId, prepared: { live: AgentSession; reopened: ReopenedSeat | null; priorLive: boolean }, authority?: OpenAuthority, openedAtStart?: number, ownsHandle?: (live: AgentSession) => boolean, withhold?: () => void): Promise<AgentSession> {
+    const check = () => { if (authority && !authority.current()) throw new OpenUnavailableError() }
+    check()
+    const { live, reopened, priorLive } = prepared
+    const alreadyAttached = this.registry.get(runtime.info.id, id)?.live === live
     // The same fold `session/resume` does: the transcript from the read, the
     // settings and options from the handle, which is the only place they are.
-    const transcript = await this.#read(runtime, live.id)
+    const transcript = await this.#read(runtime, live.id, check)
+    check()
     const session: Session = { ...transcript, settings: live.settings(), options: live.options() }
     const removed = this.#sessionIndex.isRemoved(runtime.info.id, id)
     if (removed) {
       // Keep the record withheld through every part of the open that can
       // fail, then restore its queue before attaching the resumed handle.
-      if (reopened) await this.#finishReopen(runtime, live, reopened)
+      if (reopened) await this.#finishReopen(runtime, live, reopened, authority, priorLive, openedAtStart, ownsHandle, withhold)
+      check()
       this.#context.sessionIndex.reopen(session)
     }
+    check()
+    const needsReceipt = !!reopened && !removed && !priorLive && !!authority
+    if (needsReceipt) this.#unfinalizedReopens.add(live)
+    authority?.published()
+    const previousLive = this.registry.get(runtime.info.id, id)?.live
+    if (previousLive && previousLive !== live) this.#unfinalizedApprovals.delete(previousLive)
     const record = this.registry.upsert(session, live)
+    this.#context.sessions.noteReconciled(record, transcript)
     this.#recordSessionIndex(record.session, true)
-    if (reopened && !removed) await this.#finishReopen(runtime, live, reopened)
+    if (reopened && !removed) await this.#finishReopen(runtime, live, reopened, authority, priorLive, openedAtStart, ownsHandle, withhold)
+    check()
     if (reopened) this.registry.recordAttachmentSeat(runtime.info.id, live.id, reopened.seat.id)
-    this.#loadoutHandles.delete(live)
+    if (needsReceipt) this.#unfinalizedReopens.delete(live)
+    // Loading can ask before upsert, including while a removed conversation is
+    // still hidden. Neither policy nor a human may answer until finalization.
+    const pending = this.#pendingReopenApprovals(runtime.info.id, id, runtime) ?? new Map<string, Approval>()
+    for (const approvalId of this.#unfinalizedApprovals.get(live) ?? []) {
+      const approval = record.approvals.get(approvalId)
+      if (approval) pending.set(approvalId, approval)
+    }
+    this.#unfinalizedApprovals.delete(live)
+    for (const [approvalId, approval] of pending) {
+      check()
+      if (this.registry.get(runtime.info.id, id)?.live !== live) break
+      pending.delete(approvalId)
+      this.#foldEvent(runtime.info.id, { type: 'approval/requested', approval })
+    }
+    if (!alreadyAttached) this.#loadoutHandles.delete(live)
     this.#observeLoadout(runtime, id, record.session.cwd)
     this.#logger.info('reopened a conversation whose agent had restarted', {
       runtime: runtime.info.id,
@@ -9436,6 +9724,8 @@ export class Host {
     }
   }
 
+  readonly #deferredRegistryMutations = new Map<string, { record: SessionRecord; previous: Session }>()
+
   #beginTranscriptOperation(runtime: RuntimeId, id: SessionId): () => void {
     const key = String(sessionKey(runtime, id))
     this.#transcriptOperations.set(key, (this.#transcriptOperations.get(key) ?? 0) + 1)
@@ -9450,16 +9740,27 @@ export class Host {
         record.invalidateBodyRevision()
         this.#invalidateTranscriptCache(record)
       }
+      if (!remaining) {
+        const deferred = this.#deferredRegistryMutations.get(key)
+        this.#deferredRegistryMutations.delete(key)
+        if (deferred && this.registry.get(runtime, id) === deferred.record && deferred.previous.turns.some(turn =>
+          turn.status === 'inProgress' && deferred.record.session.turns.some(next => next.id === turn.id && next.status !== 'inProgress'))) {
+          this.#recordRegistryMutation(deferred.record, deferred.previous)
+        }
+      }
     }
   }
 
-  async #read(runtime: AgentRuntime, id: SessionId): Promise<Session> {
+  async #read(runtime: AgentRuntime, id: SessionId, check: () => void = () => {}): Promise<Session> {
+    check()
     const finishRead = this.#beginTranscriptOperation(runtime.info.id, id)
     const finishHistoryRead = this.#beginHistoryRead(runtime.info.id, id)
     try {
       const indexed = this.#sessionIndex.get(runtime.info.id, id)
-      if (indexed?.archived) await archiveConversation(this.#context, { runtime: runtime.info.id, sessionId: id, archived: false })
-      const restored = await this.#sessionWorktrees.prepare(runtime.info.id, id)
+      if (indexed?.archived) await archiveConversation(this.#context, { runtime: runtime.info.id, sessionId: id, archived: false }, check)
+      check()
+      const restored = await this.#sessionWorktrees.prepare(runtime.info.id, id, check)
+      check()
       const pending = this.registry.get(runtime.info.id, id)
       if (pending) this.#clearSettledHistoryPending(pending)
       let read: Session
@@ -9468,9 +9769,11 @@ export class Host {
       } else if (pending && this.#recoveredTranscriptBases.has(pending.bodyGeneration)) {
         this.#saveRecoveredTranscript(pending)
         await this.#recoveredTranscriptBases.get(pending.bodyGeneration)?.saving
+        check()
         if (this.registry.get(runtime.info.id, id) !== pending) throw new Error('The conversation changed while its history was being recovered.')
         read = this.#recoveredTranscriptBases.has(pending.bodyGeneration) ? this.#historyPendingView(pending) : { ...pending.session }
-      } else read = await this.#readTranscript(runtime, id)
+      } else read = await this.#readTranscript(runtime, id, true, undefined, check)
+      check()
       const cwd = restored.cwd || indexed?.cwd || read.cwd
       const session = this.#preserveReadRecency({ ...read, cwd, ...(restored.warning ? { worktreeWarning: restored.warning } : {}) })
       if (read.historyPending) {
@@ -9487,7 +9790,8 @@ export class Host {
       if (!this.#sessionIndex.isRemoved(runtime.info.id, id) && !this.#recoveredTranscriptBases.has(this.registry.get(runtime.info.id, id)?.bodyGeneration ?? '') && !runtime.info.capabilities.sourceTranscript &&
         (this.#sessionIndex.isImported(runtime.info.id, id) || !this.registry.get(runtime.info.id, id)?.live)) {
         const owner = this.#readBaseOwner(session)
-        const result = await this.#transcripts.refresh(session, null, this.#transcripts.readBase(read))
+        const result = await this.#transcripts.refresh(session, null, this.#transcripts.readBase(read), check)
+        check()
         if (!result.saved) return this.#holdProtectedRead(session, result.base)
         else {
           const verified = result.base
@@ -9511,14 +9815,16 @@ export class Host {
     return timing ? { ...session, ...(held?.itemsLoaded ? { createdAt: held.createdAt } : {}), updatedAt: timing.updatedAt } : session
   }
 
-  async #cacheRead(session: Session, source: SessionSource | null, base?: import('./transcripts.js').DurableTranscriptBase): Promise<Session> {
+  async #cacheRead(session: Session, source: SessionSource | null, base?: import('./transcripts.js').DurableTranscriptBase, check: () => void = () => {}): Promise<Session> {
+    check()
     const stable = this.#preserveReadRecency(session)
     this.#recordSessionIndex(stable, true)
     // A successful explicit read admits a removed row only after returning to
     // session/read; do not write through its tombstone before that decision.
     if (this.#sessionIndex.isRemoved(stable.runtime, stable.id)) return stable
     const owner = this.#readBaseOwner(stable)
-    const result = await this.#transcripts.refresh(stable, source, base)
+    const result = await this.#transcripts.refresh(stable, source, base, check)
+    check()
     if (!result.saved) this.#protectedReadBases.set(stable, result.base)
     else {
       const verified = result.base
@@ -9553,7 +9859,8 @@ export class Host {
     this.#transcripts.bindBase(owner.record.session, owner.record.bodyGeneration, base)
   }
 
-  async #readTranscript(runtime: AgentRuntime, id: SessionId, allowReopen = true, admitCwd?: DispatchAdmission<string>): Promise<Session> {
+  async #readTranscript(runtime: AgentRuntime, id: SessionId, allowReopen = true, admitCwd?: DispatchAdmission<string>, check: () => void = () => {}): Promise<Session> {
+    check()
     const finishRead = this.#beginTranscriptOperation(runtime.info.id, id)
     const finishHistoryRead = this.#beginHistoryRead(runtime.info.id, id)
     try {
@@ -9564,8 +9871,9 @@ export class Host {
       }
       if (pending) this.#clearSettledHistoryPending(pending)
       try {
-        return await this.#readTranscriptUntracked(runtime, id, allowReopen, admitCwd)
+        return await this.#readTranscriptUntracked(runtime, id, allowReopen, admitCwd, check)
       } catch (error) {
+        check()
         // Only a refused persistence operation permits this projection. Runtime,
         // scope and programming errors retain their original meaning.
         const record = this.registry.get(runtime.info.id, id)
@@ -9580,7 +9888,7 @@ export class Host {
   }
 
   /** Check a silent read against the exact retained body before it can be saved. */
-  async #gateReplayRead(runtime: AgentRuntime, raw: Session): Promise<{ record: SessionRecord; revision: number; epoch: number } | undefined> {
+  async #gateReplayRead(runtime: AgentRuntime, raw: Session, check: () => void = () => {}): Promise<{ record: SessionRecord; revision: number; epoch: number } | undefined> {
     const held = this.registry.get(runtime.info.id, raw.id)
     if (!held || held.transcriptIncomplete || held.running.size > 0) return undefined
     const revision = held.bodyRevision, epoch = held.bodyAuthorityEpoch
@@ -9592,6 +9900,7 @@ export class Host {
     // A newer independently readable SQLite body can legitimately supersede
     // the old released descriptor (for example after a source refresh).
     const durable = !verified && descriptor ? await this.#transcripts.recover(runtime.info.id, raw.id).catch(() => null) : null
+    check()
     if (this.registry.get(runtime.info.id, raw.id) !== held || held.bodyRevision !== revision || held.bodyAuthorityEpoch !== epoch) {
       throw Object.assign(new Error('Conversation history changed while it was being read.'), { wireCode: 'historyUnavailable' })
     }
@@ -9612,7 +9921,8 @@ export class Host {
     }
   }
 
-  async #readTranscriptUntracked(runtime: AgentRuntime, id: SessionId, allowReopen = true, admitCwd?: DispatchAdmission<string>): Promise<Session> {
+  async #readTranscriptUntracked(runtime: AgentRuntime, id: SessionId, allowReopen = true, admitCwd?: DispatchAdmission<string>, check: () => void = () => {}): Promise<Session> {
+    check()
     const held = this.registry.get(runtime.info.id, id)
     if (held && this.#recoveredTranscriptBases.has(held.bodyGeneration)) {
       if (admitCwd) throw Object.assign(new Error('The chat project location cannot be verified while its history is unsaved.'), { wireCode: 'historyUnavailable' })
@@ -9630,20 +9940,26 @@ export class Host {
         await readKeptTranscriptFile(join(this.#state.directory, 'transcripts'), runtime.info.id, id)
       if (kept) return { ...kept, deskCopy: true }
     }
-    const scoped = await this.#scopedRead(runtime, id, allowReopen)
+    check()
+    const scoped = await this.#scopedRead(runtime, id, allowReopen, check)
+    check()
     if (scoped) {
       if (admitCwd) throw new Error('The chat project location cannot be verified from its retained transcript.')
       return scoped
     }
     const source = await this.#sourceState(runtime, id)
+    check()
     if (!admitCwd && source && source.kind !== 'changed') {
       const cached = await this.#transcripts.recover(runtime.info.id, id)
       if (cached) return { ...held?.session, ...cached, deskCopy: source.kind === 'gone' }
     }
     try {
-      await this.#prepareReopenTranscript(runtime.info.id, id)
+      await this.#prepareReopenTranscript(runtime.info.id, id, check)
+      check()
       const raw = await runtime.readSession(id)
-      const advancedWithoutUsage = await this.#gateReplayRead(runtime, raw)
+      check()
+      const advancedWithoutUsage = await this.#gateReplayRead(runtime, raw, check)
+      check()
       const replayed = this.registry.get(runtime.info.id, id)
       if (replayed?.transcriptIncomplete) {
         if (admitCwd) throw Object.assign(new Error('The chat project location cannot be verified while its history is unsaved.'), { wireCode: 'historyUnavailable' })
@@ -9652,8 +9968,10 @@ export class Host {
       // The index owns the desk's display location, not proof of a runtime
       // transcript's scope. Check the body being returned before replacing cwd.
       await admitCwd?.(raw.cwd)
+      check()
       this.#admitFirstReadBase(raw)
       const enriched = await this.#transcripts.enrichForRefresh(raw)
+      check()
       // A silent read must not let the registry carry an older usage value
       // forward. Clear only that fact after enrichment, under the same owner
       // fence. Synthesizing a session event here would enqueue a body write
@@ -9664,17 +9982,18 @@ export class Host {
       if (this.#sessionIndex.fillMissingMetadata(session)) this.#sessionIndexRepos.read(session.cwd)
       session.cwd = this.#sessionIndex.get(runtime.info.id, id)?.cwd || session.cwd
       // Read the fingerprint before replay, so a concurrent append always forces another refresh.
-      if (source) return this.#cacheRead(session, source.source, enriched.base)
+      if (source) return this.#cacheRead(session, source.source, enriched.base, check)
       else if (runtime.info.capabilities.sourceTranscript && runtime.sourceOf) {
         // Startup can negotiate this capability inside readSession. A stat
         // taken now could include an append the replay missed, so leave it
         // unstamped until a subsequent read captures metadata before replay.
-        return this.#cacheRead(session, null, enriched.base)
+        return this.#cacheRead(session, null, enriched.base, check)
       }
       const stable = this.#preserveReadRecency(session)
       this.#transcripts.rememberReadBase(stable, enriched.base)
       return stable
     } catch (error) {
+      check()
       if (this.#transcripts.hasProtectedChanges(runtime.info.id, id)) throw error
       // A retained display copy cannot prove the current raw location, and a
       // scope refusal must never fall back to bytes from that same old index.
@@ -10882,6 +11201,10 @@ export class Host {
   /** Registry-only body changes have no runtime event to schedule their write. */
   #recordRegistryMutation(record: SessionRecord, previous: Session): void {
     const key = recordKey(record), next = record.session
+    if (this.#transcriptOperations.has(key)) {
+      if (!this.#deferredRegistryMutations.has(key)) this.#deferredRegistryMutations.set(key, { record, previous })
+      return
+    }
     const persisted = (value: Session) => ({ turns: value.turns, cwd: value.cwd, title: value.title, preview: value.preview,
       usage: value.usage, createdAt: value.createdAt, updatedAt: value.updatedAt })
     if (this.#disposed || this.registry.get(record.runtime, next.id) !== record || this.#runtimeFolds.has(key) ||
@@ -10960,7 +11283,10 @@ export class Host {
     this.#sessionIndex.admitCreated(runtime.info.id, id)
     const existing = this.registry.get(runtime.info.id, id)
     if (existing) {
-      if (existing.live !== live) this.#loadoutHandles.delete(live)
+      if (existing.live !== live) {
+        if (existing.live) this.#unfinalizedApprovals.delete(existing.live)
+        this.#loadoutHandles.delete(live)
+      }
       existing.live = live
       this.#recordSessionIndex(existing.session, true)
       if (observe) this.#observeLoadout(runtime, id, existing.session.cwd)
@@ -11051,6 +11377,13 @@ export class Host {
   #onEvent(runtime: RuntimeId, event: AgentEvent, source?: AgentRuntime): void {
     if (this.#disposed) return
     const id = event.type === 'session/started' ? event.session.id : event.type === 'approval/requested' ? event.approval.sessionId : 'sessionId' in event ? event.sessionId : undefined
+    if (source && id && event.type !== 'session/closed' && event.type !== 'session/detached' && this.#withheldResumeEvents.has(String(sessionKey(runtime, id)))) return
+    if (id && event.type === 'approval/requested' && !this.registry.get(runtime, id)?.live) {
+      const pending = this.#pendingReopenApprovals(runtime, id, source)
+      if (pending) { pending.set(String(event.approval.id), event.approval); return }
+    }
+    if (event.type === 'approval/resolved') this.#pendingReopenApprovals(runtime, event.sessionId, source)?.delete(String(event.approvalId))
+    if (id && (event.type === 'session/closed' || event.type === 'session/detached')) this.#pendingReopenApprovals(runtime, id, source)?.clear()
     if (id && this.#sessionIndex.isRemoved(runtime, id)) return
     const held = id ? this.registry.get(runtime, id) : undefined
     // Loading history can announce the adapter's open time. Only announcements
@@ -11305,6 +11638,16 @@ export class Host {
   }
 
   #foldEvent(runtime: RuntimeId, event: AgentEvent, initialBase?: import('./transcripts.js').DurableTranscriptBase, source?: AgentRuntime, replayOnlyBody = false): void {
+    if (event.type === 'approval/requested' && this.#unfinalizedFor(runtime, event.approval.sessionId)) {
+      const live = this.registry.get(runtime, event.approval.sessionId)?.live
+      if (live) {
+        const pending = this.#unfinalizedApprovals.get(live) ?? new Set<string>()
+        pending.add(String(event.approval.id))
+        this.#unfinalizedApprovals.set(live, pending)
+        this.registry.apply(runtime, event)
+      } else this.#pendingReopenApprovals(runtime, event.approval.sessionId, source)?.set(String(event.approval.id), event.approval)
+      return
+    }
     if (event.type === 'approval/requested') {
       this.#abandonedApprovals.delete(`${runtime}\u0000${event.approval.sessionId}\u0000${event.approval.id}`)
     } else if (event.type === 'approval/resolved' && this.#abandonedApprovals.has(`${runtime}\u0000${event.sessionId}\u0000${event.approvalId}`)) {
@@ -11370,7 +11713,11 @@ export class Host {
       }
     }
     if (event.type === 'turn/completed') this.#retiredPersonTurns.delete(this.#turnKey(String(runtime), String(event.sessionId), String(event.turn.id)))
-    if (event.type === 'session/closed' || event.type === 'session/detached') this.#clearPersonTurnMarkers(String(runtime), String(event.sessionId))
+    if (event.type === 'session/closed' || event.type === 'session/detached') {
+      const live = this.registry.get(runtime, event.sessionId)?.live
+      if (live) this.#unfinalizedApprovals.delete(live)
+      this.#clearPersonTurnMarkers(String(runtime), String(event.sessionId))
+    }
     // The host's permission policy runs before the backend's own
     // question reaches a human. A matched approval never renders: it is
     // answered here, audited here, and reported as a notice.
@@ -11395,6 +11742,8 @@ export class Host {
       }
     }
     if (event.type === 'approval/resolved') {
+      const live = this.registry.get(runtime, event.sessionId)?.live
+      if (live) this.#unfinalizedApprovals.get(live)?.delete(String(event.approvalId))
       this.#questions.answered(questionKey(String(runtime), String(event.sessionId)), String(event.approvalId))
     }
     // A denial, noticed while the original approval is still in the
@@ -11476,7 +11825,10 @@ export class Host {
     const foldKey = eventSession ? String(sessionKey(runtime, eventSession)) : null
     if (foldKey) this.#runtimeFolds.set(foldKey, (this.#runtimeFolds.get(foldKey) ?? 0) + 1)
     let record: SessionRecord | undefined
-    try { record = this.registry.apply(runtime, event) } finally {
+    const restKey = event.type === 'session/closed' ? String(sessionKey(runtime, event.sessionId)) : null
+    const waitingRest = restKey ? this.#admissionRests.get(restKey) : undefined
+    const expectedClose = !!(waitingRest && waitingRest.authority.current() && this.#restingSessions.get(restKey!) === waitingRest.promise && localSessionCloseOrigin(event) === waitingRest.handle)
+    try { record = this.registry.apply(runtime, event, expectedClose) } finally {
       for (const id of temporarilyWatched) priorRecord?.watched.delete(id)
       if (foldKey) {
         const remaining = this.#runtimeFolds.get(foldKey)! - 1
@@ -11848,14 +12200,15 @@ export class Host {
           const base = approval.cwd ?? record.session.cwd
           const cwd = base && this.gitSteering.commandCwd(command, base)
           if (!scope || !cwd || !await this.gitSteering.sameCheckout(scope.cwd, cwd)) throw new Error('Native git command is outside the conversation checkout.')
+          if (!this.#canAnswer(runtime, approval.sessionId, live)) return
           await live.respondToApproval(approval.id, { type: 'option', optionId: deny.id })
           declined = true
           this.#say(String(runtime), String(approval.sessionId), `Steered ${redactGitCommand(command)} to HarnessDesk — ask the agent to use git_push`)
-          if (scope) await this.gitSteering.steer(scope, command, write, false, undefined, cwd)
+          if (scope && this.#canAnswer(runtime, approval.sessionId, live)) await this.gitSteering.steer(scope, command, write, false, undefined, cwd)
         }).catch(error => {
           this.#logger.warn('Git approval steering failed', { error: String(error) })
           if (declined) this.#say(String(runtime), String(approval.sessionId), 'Git steering could not finish; ask the agent to use git_push.')
-          else {
+          else if (this.#canAnswer(runtime, approval.sessionId, live)) {
             const event: AgentEvent = { type: 'approval/requested', approval }
             this.registry.apply(runtime, event)
             this.#audit.record(runtime, event, () => record.session.cwd)
@@ -11915,8 +12268,9 @@ export class Host {
       // Both async rejections and synchronous throws from the runtime responder
       // are caught and safely degrade to surfacing human approval.
       void Promise.resolve()
-        .then(() => live.respondToApproval(approval.id, { type: 'option', optionId: option.id }))
+        .then(() => this.#canAnswer(runtime, approval.sessionId, live) ? live.respondToApproval(approval.id, { type: 'option', optionId: option.id }) : undefined)
         .catch((error: unknown) => {
+          if (!this.#canAnswer(runtime, approval.sessionId, live)) return
           this.#logger.warn('failed to auto-decide approval by policy, falling back to human approval', {
             runtime,
             approvalId: approval.id,
@@ -11986,10 +12340,12 @@ export class Host {
     const option = approval.options.find((entry) => entry.intent === 'approve')
     const record = this.registry.get(runtime, approval.sessionId)
     if (!option || !record?.live) return false
+    const live = record.live
 
     void Promise.resolve()
       .then(async () => {
-        await record.live!.respondToApproval(approval.id, { type: 'option', optionId: option.id })
+        if (!this.#canAnswer(runtime, approval.sessionId, live)) return
+        await live.respondToApproval(approval.id, { type: 'option', optionId: option.id })
         this.#audit.append({
           at: Date.now(),
           runtime,
@@ -12002,6 +12358,7 @@ export class Host {
         })
       })
       .catch((error: unknown) => {
+        if (!this.#canAnswer(runtime, approval.sessionId, live)) return
         this.#logger.warn('failed to answer a flow board tool permission, falling back to human approval', {
           runtime,
           approvalId: approval.id,
@@ -12722,7 +13079,12 @@ export class Host {
     if (health.state !== 'ready' && health.state !== 'idle') {
       this.#invalidateDelegations(runtime)
       this.#settleHeld(runtime)
-      for (const record of this.registry.detachAll(runtime)) this.#pushQueue(record)
+      const preserve = new Set<object>()
+      if (health.state === 'starting') {
+        const current = this.#startingRuntimes.get(id)
+        for (const waiting of this.#admissionStarts.values()) if (current && waiting.promise === current) preserve.add(waiting.admission)
+      }
+      for (const record of this.registry.detachAll(runtime, undefined, preserve)) this.#pushQueue(record)
       this.#recordDetachedTranscripts(runtime)
       this.#terminals.detachAll(runtime)
       // Same reason as `unregister`: these sessions went down without a

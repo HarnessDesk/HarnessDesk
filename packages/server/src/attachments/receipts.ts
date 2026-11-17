@@ -81,8 +81,20 @@ const seatFile = (seat: SeatId): string => {
   return Buffer.byteLength(encoded) <= 255 ? encoded : `h-${Buffer.from(seat).toString('base64url').slice(0, 200)}.ndjson`
 }
 
+const lineOf = (record: SeatAttachmentsRecord): string => {
+  const perKind = (kind: 'skill' | 'mcp' | 'notes'): number => record.declarations.filter((one) => one.kind === kind).length
+  if (perKind('skill') > MAX_DECLARATIONS_PER_KIND || perKind('mcp') > MAX_DECLARATIONS_PER_KIND) {
+    throw new Error(`A Seat may declare at most ${MAX_DECLARATIONS_PER_KIND} attachments per kind.`)
+  }
+  const line = `${JSON.stringify(record)}\n`
+  if (Buffer.byteLength(line, 'utf8') > MAX_LINE_BYTES) {
+    throw new Error(`This Seat's attachment record is larger than ${MAX_LINE_BYTES / 1024} KiB.`)
+  }
+  return line
+}
+
 export class AttachmentReceipts {
-  #tail: Promise<void> = Promise.resolve()
+  readonly #tails = new Map<string, Promise<void>>()
 
   constructor(private readonly folder: string) {}
 
@@ -92,23 +104,30 @@ export class AttachmentReceipts {
    * line over the byte bound, or a declaration list over the per-kind count
    * — bounds a hostile or malformed caller must never be able to grow past.
    */
-  async append(record: SeatAttachmentsRecord): Promise<void> {
-    const perKind = (kind: 'skill' | 'mcp' | 'notes'): number => record.declarations.filter((one) => one.kind === kind).length
-    if (perKind('skill') > MAX_DECLARATIONS_PER_KIND || perKind('mcp') > MAX_DECLARATIONS_PER_KIND) {
-      throw new Error(`A Seat may declare at most ${MAX_DECLARATIONS_PER_KIND} attachments per kind.`)
-    }
-    const line = `${JSON.stringify(record)}\n`
-    if (Buffer.byteLength(line, 'utf8') > MAX_LINE_BYTES) {
-      throw new Error(`This Seat's attachment record is larger than ${MAX_LINE_BYTES / 1024} KiB.`)
-    }
-    const run = this.#tail.then(async () => {
+  async append(record: SeatAttachmentsRecord, check: () => void = () => {}): Promise<void> {
+    lineOf(record)
+    await this.#append(record.seat, () => record, check)
+  }
+
+  /** Allocate the epoch after earlier writes settle, never from an unqueued read. */
+  async appendNext(seat: SeatId, build: (epoch: number) => SeatAttachmentsRecord, check: () => void = () => {}): Promise<SeatAttachmentsRecord> {
+    return this.#append(seat, build, check)
+  }
+
+  async #append(seat: SeatId, build: (epoch: number) => SeatAttachmentsRecord, check: () => void): Promise<SeatAttachmentsRecord> {
+    const key = seatFile(seat)
+    const run = (this.#tails.get(key) ?? Promise.resolve()).then(async () => {
+      check()
       await mkdir(this.folder, { recursive: true, mode: 0o700 })
-      const path = join(this.folder, seatFile(record.seat))
+      const path = join(this.folder, key)
       const existing = await this.#historyOf(path)
+      check()
       const nextEpoch = existing.length === 0 ? 0 : existing[existing.length - 1]!.epoch + 1
-      if (record.epoch !== nextEpoch) {
+      const record = build(nextEpoch)
+      if (record.seat !== seat || record.epoch !== nextEpoch) {
         throw new Error(`This Seat's attachment epoch must increase by exactly one (expected ${nextEpoch}, got ${record.epoch}).`)
       }
+      const line = lineOf(record)
       // Append via read-whole/rewrite-whole under the folder's own write
       // queue: at Seat-open volumes an NDJSON O_APPEND would also serve, but
       // rewriting through the same atomic temp-then-rename path every other
@@ -124,16 +143,19 @@ export class AttachmentReceipts {
         await handle.close()
       }
       try {
+        // Once dispatched while authorized, this records an actual readback
+        // even if the caller is revoked before the filesystem settles.
+        check()
         await rename(temporary, path)
       } finally {
         await rm(temporary, { force: true })
       }
+      return record
     })
-    this.#tail = run.then(
-      () => undefined,
-      () => undefined,
-    )
-    await run
+    const tail = run.then(() => undefined, () => undefined)
+    this.#tails.set(key, tail)
+    void tail.then(() => { if (this.#tails.get(key) === tail) this.#tails.delete(key) })
+    return run
   }
 
   /** The latest epoch, or `null` when nothing was ever recorded for this Seat. */
@@ -144,6 +166,7 @@ export class AttachmentReceipts {
 
   /** Every epoch, oldest first — history a restored or legacy Seat still shows even though it can mint no live token. */
   async history(seat: SeatId): Promise<readonly SeatAttachmentsRecord[]> {
+    await this.#tails.get(seatFile(seat))
     return this.#historyOf(join(this.folder, seatFile(seat)))
   }
 
@@ -155,6 +178,7 @@ export class AttachmentReceipts {
    * the only identity that matters here.
    */
   async allHistories(): Promise<readonly SeatAttachmentsRecord[]> {
+    await Promise.all(this.#tails.values())
     let names: string[]
     try {
       names = await readdir(this.folder)

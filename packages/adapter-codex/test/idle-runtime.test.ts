@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import type { AgentEvent, AgentRuntime } from '@harnessdesk/protocol'
+import { sessionId, type AgentEvent, type AgentRuntime } from '@harnessdesk/protocol'
 import { CodexRuntime } from '../src/index.js'
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-codex.mjs', import.meta.url))
@@ -717,4 +717,131 @@ test('resource observations track only live control and conversation roots witho
   await d.stop()
   assert.deepEqual(d.runtime.resourceProcessIds(), [])
   assert.equal(d.runtime.health().state, 'idle')
+})
+
+test('retired Codex resume cannot publish a late thread and keeps a sibling alive', async t => {
+  const hold = join(tmpdir(), `hd-resume-retire-${process.pid}.hold`)
+  t.after(() => rm(hold, { force: true }))
+  const d = await rig(t, 'hold', { FAKE_CODEX_HOLD_THREAD_OPEN: hold })
+  const old = await d.runtime.createSession({ cwd: d.dir }), sibling = await d.runtime.createSession({ cwd: d.dir })
+  await old.close(); await writeFile(hold, '')
+  const owner = d.runtime.resumeOwner(old.id)
+  const attempt = d.runtime.beginResumeAttempt(old.id, { cwd: d.dir }, owner)
+  const refused = assert.rejects(attempt.result, /given up|retired/)
+  await until(() => d.events.some(event => event.type === 'notice' && event.message === 'THREAD_OPEN_HELD'))
+  const retirement = attempt.retire({ published: false })
+  await rm(hold); await refused
+  assert.equal(d.runtime.session(old.id), undefined)
+  assert.equal(d.runtime.session(sibling.id), sibling)
+  await d.runtime.dispose(); await retirement
+})
+
+test('retirement preserves events from an already published Codex handle', async t => {
+  const d = await rig(t, 'hold', released), old = await d.runtime.createSession({ cwd: d.dir })
+  await old.close()
+  const owner = d.runtime.resumeOwner(old.id), attempt = d.runtime.beginResumeAttempt(old.id, { cwd: d.dir }, owner)
+  const live = await attempt.result, retirement = attempt.retire({ published: true })
+  await live.send([{ type: 'text', text: 'keep working' }])
+  await until(() => d.events.some(event => event.type === 'turn/started' && event.sessionId === live.id))
+  await d.runtime.dispose(); await retirement
+})
+
+for (const maxRestarts of [5, 0]) test(`Codex owner death is reported after app-server exit with ${maxRestarts} restarts`, async t => {
+  const d = await rig(t, 'hold', released, maxRestarts), id = sessionId('owner-death')
+  const owner = d.runtime.resumeOwner(id), deaths: object[] = []
+  d.runtime.onResumeOwnerDied(value => deaths.push(value))
+  const [pid] = await d.servers()
+  assert.ok(pid)
+  process.kill(pid, 'SIGTERM')
+  await until(() => deaths.includes(owner))
+  assert.notEqual(d.runtime.resumeOwner(id), owner)
+})
+
+test('idle stop retires the exact abandoned Codex resume owner and a new process reopens the same thread', async t => {
+  const hold = join(tmpdir(), `hd-resume-idle-owner-${process.pid}.hold`)
+  t.after(() => rm(hold, { force: true }))
+  const d = await rig(t, 'hold', { FAKE_CODEX_HOLD_THREAD_OPEN: hold })
+  const old = await d.runtime.createSession({ cwd: d.dir }), sibling = await d.runtime.createSession({ cwd: d.dir })
+  await old.close(); await writeFile(hold, '')
+  const owner = d.runtime.resumeOwner(old.id), deaths: object[] = []
+  d.runtime.onResumeOwnerDied(value => deaths.push(value))
+  const attempt = d.runtime.beginResumeAttempt(old.id, { cwd: d.dir }, owner)
+  const refused = assert.rejects(attempt.result, /given up|retired/)
+  await until(() => d.events.some(event => event.type === 'notice' && event.message === 'THREAD_OPEN_HELD'))
+  const retirement = attempt.retire({ published: false })
+  await rm(hold); await refused
+  assert.equal(await d.runtime.stopForIdle(), false, 'a live sibling prevents idle stop')
+  assert.equal(d.runtime.session(sibling.id), sibling)
+  await sibling.close()
+  await until(() => d.runtime.canStopForIdle())
+  const [oldPid] = await d.servers()
+  assert.equal(await d.runtime.stopForIdle(), true)
+  assert.ok(deaths.includes(owner), 'successful idle stop reports the exact dead owner')
+  await retirement
+  await d.runtime.start()
+  const next = d.runtime.resumeOwner(old.id)
+  assert.notEqual(next, owner)
+  const reopened = await d.runtime.beginResumeAttempt(old.id, { cwd: d.dir }, next).result
+  assert.equal(reopened.id, old.id)
+  const pids = await d.servers()
+  assert.ok(pids.at(-1) !== oldPid, 'the reopen uses a new process')
+})
+
+test('Codex idle-stop death notifications cannot retire a replacement owner created reentrantly', async t => {
+  const d = await rig(t), id = sessionId('idle-replacement'), owner = d.runtime.resumeOwner(id), deaths: object[] = []
+  let replacement: object | undefined
+  d.runtime.onResumeOwnerDied(value => { deaths.push(value); if (value === owner) replacement = d.runtime.resumeOwner(id) })
+  assert.equal(await d.runtime.stopForIdle(), true)
+  assert.ok(replacement)
+  assert.notEqual(replacement, owner)
+  assert.deepEqual(deaths, [owner])
+  assert.equal(d.runtime.resumeOwner(id), replacement)
+})
+
+test('Codex idle-stop snapshot failure does not report owner death', async t => {
+  const d = await rig(t), id = sessionId('idle-failed'), owner = d.runtime.resumeOwner(id), deaths: object[] = []
+  d.runtime.onResumeOwnerDied(value => deaths.push(value))
+  t.mock.method(d.runtime, 'listModels', async () => { throw new Error('synthetic snapshot failure') })
+  await assert.rejects(d.runtime.stopForIdle(), /synthetic snapshot failure/)
+  assert.deepEqual(deaths, [])
+  assert.equal(d.runtime.resumeOwner(id), owner)
+  assert.equal(d.runtime.health().state, 'ready')
+})
+
+test('shared Codex resume retires without taking ownership or suppressing its live events', async t => {
+  const d = await rig(t, 'hold', released), live = await d.runtime.createSession({ cwd: d.dir })
+  const owner = d.runtime.resumeOwner(live.id), attempt = d.runtime.beginResumeAttempt(live.id, { cwd: d.dir }, owner)
+  assert.equal(await attempt.result, live)
+  let retired = false
+  void attempt.retire({ published: false }).then(() => { retired = true })
+  await new Promise<void>(resolve => setImmediate(resolve))
+  assert.equal(retired, true, 'a shared, effect-free attempt retires without process death')
+  assert.equal(attempt.ownsHandle?.(live), false)
+  await live.send([{ type: 'text', text: 'still live' }])
+  await until(() => d.events.some(event => event.type === 'turn/started' && event.sessionId === live.id))
+  assert.equal(d.runtime.session(live.id), live)
+})
+
+test('fresh Codex resume attests only the exact new handle', async t => {
+  const d = await rig(t, 'hold', released), old = await d.runtime.createSession({ cwd: d.dir })
+  const sibling = await d.runtime.createSession({ cwd: d.dir })
+  await old.close()
+  const owner = d.runtime.resumeOwner(old.id), attempt = d.runtime.beginResumeAttempt(old.id, { cwd: d.dir }, owner)
+  const live = await attempt.result
+  assert.equal(attempt.ownsHandle?.(live), true)
+  assert.equal(attempt.ownsHandle?.(sibling), false)
+  assert.equal(attempt.ownsHandle?.(old), false)
+})
+
+test('Codex retirement before any peer effect leaves a shared handle live', async t => {
+  const d = await rig(t, 'hold', released), live = await d.runtime.createSession({ cwd: d.dir })
+  const owner = d.runtime.resumeOwner(live.id), attempt = d.runtime.beginResumeAttempt(live.id, { cwd: d.dir }, owner)
+  const rejected = assert.rejects(attempt.result, /given up/)
+  await attempt.retire({ published: false })
+  await rejected
+  const next = d.runtime.beginResumeAttempt(live.id, { cwd: d.dir }, owner)
+  assert.equal(await next.result, live)
+  assert.equal(next.ownsHandle?.(live), false)
+  await live.send([{ type: 'text', text: 'still live' }])
+  await until(() => d.events.some(event => event.type === 'turn/started' && event.sessionId === live.id))
 })

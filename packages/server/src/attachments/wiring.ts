@@ -6,7 +6,7 @@ import { runtimeId, sessionId, type RuntimeId, type SeatId, type SessionId } fro
 import type { Admission, GatedCall } from '../ceilings/gate.js'
 import type { ToolGatewayBackend } from '../tool-gateway.js'
 import { mcpIdentityDigest } from './catalog.js'
-import { McpToolGateway, type GatewayServer } from './gate.js'
+import { EXPIRED_CALLER_REFUSAL, McpToolGateway, type GatewayServer } from './gate.js'
 import type { LiveServer } from './plane.js'
 import { callStdioMcpServer, listStdioMcpServerTools } from './transport.js'
 
@@ -27,7 +27,7 @@ import { callStdioMcpServer, listStdioMcpServerTools } from './transport.js'
 export interface AttachmentGatewayHost {
   readonly attachmentsPlane: { liveServersFor(seat: SeatId): readonly LiveServer[] | null }
   readonly registry: { attachmentSeatOf(runtime: RuntimeId, id: SessionId): SeatId | null }
-  readonly ceilingGate: { admit(call: GatedCall): Promise<Admission> }
+  readonly ceilingGate: { admit(call: GatedCall): Promise<Admission>; closedFor?(scope: GatedCall['scope']): string | null }
   readonly attachmentSignal: AbortSignal
   /**
    * The folder every server a Seat reaches runs in: host-owned and empty,
@@ -81,6 +81,7 @@ export const attachmentGateway = (
       return { seat, runtime: known.runtime, sessionId: known.sessionId }
     },
     admit: (call) => host.gate.admit(call),
+    closedFor: (scope) => host.gate.closedFor?.(scope) ?? null,
   })
 
   /** The exact spec this Seat froze for this server — or nothing, once the Seat is gone or it no longer matches its approval. */
@@ -98,15 +99,30 @@ export const attachmentGateway = (
   }
 
   return {
-    mcpList: (caller) =>
-      gateway.list(caller ?? '', async (server) => {
+    mcpList: (caller) => {
+      const initial = caller ? callerOf(caller) : undefined
+      return gateway.list(caller ?? '', async (server) => {
         const { spec, options } = await where(server)
+        const callerScope = caller ? callerOf(caller) : undefined
+        if (!initial || !callerScope || initial.runtime !== callerScope.runtime || initial.sessionId !== callerScope.sessionId || host.registry.attachmentSeatOf(runtimeId(callerScope.runtime), sessionId(callerScope.sessionId)) !== server.seat) throw new Error(EXPIRED_CALLER_REFUSAL)
+        const closed = host.gate.closedFor?.({ runtime: runtimeId(callerScope.runtime), sessionId: sessionId(callerScope.sessionId) })
+        if (closed) throw new Error(closed)
         return listStdioMcpServerTools(spec, options)
-      }),
-    mcpCall: (caller, server, tool, args) =>
-      gateway.call(caller ?? '', server, tool, async (one) => {
+      })
+    },
+    mcpCall: (caller, server, tool, args) => {
+      const initial = caller ? callerOf(caller) : undefined
+      return gateway.call(caller ?? '', server, tool, async (one) => {
         const { spec, options } = await where(one)
+        const callerScope = caller ? callerOf(caller) : undefined
+        if (!initial || !callerScope || initial.runtime !== callerScope.runtime || initial.sessionId !== callerScope.sessionId || host.registry.attachmentSeatOf(runtimeId(callerScope.runtime), sessionId(callerScope.sessionId)) !== one.seat) throw new Error(EXPIRED_CALLER_REFUSAL)
+        const closed = host.gate.closedFor?.({ runtime: runtimeId(callerScope.runtime), sessionId: sessionId(callerScope.sessionId) })
+        if (closed) throw new Error(closed)
         return callStdioMcpServer(spec, tool, args, options)
-      }),
+      }).catch(error => {
+        if (error instanceof Error && error.message === EXPIRED_CALLER_REFUSAL) return { ok: false as const, reason: EXPIRED_CALLER_REFUSAL }
+        throw error
+      })
+    },
   }
 }

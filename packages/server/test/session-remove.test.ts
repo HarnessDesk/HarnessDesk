@@ -161,11 +161,20 @@ test('a failed direct resume during Undo stays withheld and preserves picks for 
     r.runtime.emit({ type: 'session/closed', sessionId: session.id })
   }
   await r.host.call('session/remove', { ...params, removed: true })
+  let retired!: () => void
+  const retirement = new Promise<void>(resolve => { retired = resolve })
+  const begin = r.runtime.beginResumeAttempt.bind(r.runtime)
+  r.runtime.beginResumeAttempt = (...args: Parameters<typeof begin>) => {
+    const attempt = begin(...args)
+    return { ...attempt, retire: async state => { await attempt.retire(state); retired() } }
+  }
   r.runtime.resumeFailure = new Error('Synthetic resume refusal')
   await assert.rejects(r.host.call('session/resume', params), /Synthetic resume refusal/)
   assert.equal(r.host.registry.get(params.runtime, session.id), undefined)
   assert.ok(!r.host.syncPayload().params.sessions.some(entry => entry.id === session.id))
   assert.ok(r.db.prepare('SELECT removed_at FROM sessions WHERE id=?').get(session.id)?.removed_at)
+  await retirement
+  await new Promise(resolve => setImmediate(resolve))
   r.runtime.resumeFailure = null
   const resumed = await r.host.call('session/resume', params)
   assert.deepEqual(resumed.options?.map(option => [option.id, option.currentValue]), [['model', 'fake-2'], ['tone', 'cheerful'], ['uppercase', false]])

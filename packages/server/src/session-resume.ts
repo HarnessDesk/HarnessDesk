@@ -1,3 +1,4 @@
+import { OpenUnavailableError } from './open-coordinator.js'
 import {
   isFolderGone,
   isSessionGone,
@@ -29,4 +30,24 @@ export const resumeSeatSession = async (
       throw error
     }
   }
+}
+
+/** Keep an exact adapter attempt behind asynchronous host preparation. */
+export const ownedResumePreparation = <T, O, P = T>(
+  prepare: (start: (options: O) => Promise<T>, check: () => void) => Promise<P>,
+  begin: (options: O) => import('./open-coordinator.js').OpenAttempt<T>,
+): import('./open-coordinator.js').OpenAttempt<P> => {
+  let retired = false
+  const attempts: import('./open-coordinator.js').OpenAttempt<T>[] = []
+  const check = () => { if (retired) throw new OpenUnavailableError() }
+  const result = prepare(options => {
+    check()
+    const attempt = begin(options)
+    attempts.push(attempt)
+    return attempt.result
+  }, check).then(value => { check(); return value })
+  return { result, retire: async state => {
+    retired = true
+    await Promise.all([result.then(() => {}, () => {}), ...attempts.map(attempt => attempt.retire(state))])
+  } }
 }

@@ -1,3 +1,4 @@
+import { OpenCoordinator, OpenUnavailableError, type OpenAttempt, type OpenAuthority } from './open-coordinator.js'
 import { randomUUID } from 'node:crypto'
 import type { DispatchAdmission } from './dispatch-admission.js'
 import {
@@ -289,6 +290,44 @@ export class SessionRegistry {
    * hand to several callers at once. Kept past a record's removal, so a count never runs backwards.
    */
   readonly #opens = new Map<SessionKey, { readonly opened: number; readonly pending: number }>()
+  readonly #coordinatedOwners = new Map<SessionKey, { runtime: RuntimeId; owner: object; exactOwner?: object; observer?: object; unboundAdmission?: boolean }>()
+  readonly #coordinated = new OpenCoordinator({ deadlineMs: 120_000, schedule: (callback, ms) => {
+    const timer = setTimeout(callback, ms)
+    return () => clearTimeout(timer)
+  } })
+  /** The caller supplies an exact owner generation, not a reusable runtime object. */
+  coordinatedOpen<T, U = T>(runtime: RuntimeId, id: SessionId, owner: object,
+    start: (authority: OpenAuthority) => OpenAttempt<T>,
+    complete?: (handle: T, authority: OpenAuthority) => Promise<U>): Promise<U> {
+    const key = sessionKey(runtime, id), prior = this.#coordinatedOwners.get(key)
+    if (prior && prior.owner !== owner) return Promise.reject(new OpenUnavailableError())
+    this.#coordinatedOwners.set(key, { runtime, owner })
+    return this.#coordinated.open(owner, key, start, complete, this)
+  }
+  /** Admit callers before preparation; bind the exact adapter owner only at the raw open boundary. */
+  coordinatedAdmission<T, U = T>(runtime: RuntimeId, id: SessionId, observer: object,
+    start: (authority: OpenAuthority, bindOwner: (owner: object) => void, admission: object) => OpenAttempt<T>,
+    complete?: (handle: T, authority: OpenAuthority) => Promise<U>): Promise<U> {
+    const key = sessionKey(runtime, id)
+    let binding = this.#coordinatedOwners.get(key)
+    if (binding && !this.#coordinated.retained(binding.owner, key)) { this.#coordinatedOwners.delete(key); binding = undefined }
+    if (!binding) { binding = { runtime, owner: {}, observer, unboundAdmission: true }; this.#coordinatedOwners.set(key, binding) }
+    const held = binding
+    return this.#coordinated.open(held.owner, key, authority => start(authority, owner => {
+      if (!authority.current() || this.#coordinatedOwners.get(key) !== held) throw new OpenUnavailableError()
+      if (held.exactOwner && held.exactOwner !== owner) throw new OpenUnavailableError()
+      held.exactOwner = owner
+      held.unboundAdmission = false
+      held.observer = undefined
+    }, held.owner), complete, this)
+  }
+  /** The owner must have confirmed the exact generation is dead before calling this. */
+  coordinatedOwnerDied(runtime: RuntimeId, owner: object): void {
+    const held = [...this.#coordinatedOwners].filter(([, binding]) => binding.runtime === runtime && (binding.exactOwner === owner || binding.owner === owner || binding.unboundAdmission && binding.observer === owner))
+    if (!held.length) return
+    for (const [key, binding] of held) { this.#coordinated.runtimeDied(binding.owner); this.#coordinatedOwners.delete(key) }
+  }
+
 
   /**
    * One caller is opening this conversation: counted at once, and outstanding until the release it returns. Each
@@ -296,20 +335,23 @@ export class SessionRegistry {
    */
   opening(runtime: RuntimeId, id: SessionId): () => void {
     const key = sessionKey(runtime, id)
-    const held = this.opens(runtime, id)
+    const held = this.#opens.get(key) ?? { opened: 0, pending: 0 }
     this.#opens.set(key, { opened: held.opened + 1, pending: held.pending + 1 })
     let released = false
     return () => {
       if (released) return
       released = true
-      const now = this.opens(runtime, id)
+      const now = this.#opens.get(key) ?? { opened: 0, pending: 0 }
       this.#opens.set(key, { opened: now.opened, pending: Math.max(0, now.pending - 1) })
     }
   }
 
   /** How many opens this conversation has had, and how many are still under way. */
   opens(runtime: RuntimeId, id: SessionId): { readonly opened: number; readonly pending: number } {
-    return this.#opens.get(sessionKey(runtime, id)) ?? { opened: 0, pending: 0 }
+    const key = sessionKey(runtime, id), legacy = this.#opens.get(key) ?? { opened: 0, pending: 0 }
+    const owner = this.#coordinatedOwners.get(key)?.owner
+    const coordinated = this.#coordinated.counts(owner ?? this, key, this)
+    return { opened: legacy.opened + coordinated.opened, pending: legacy.pending + coordinated.pending }
   }
   readonly #pendingNotices = new PendingConversationNotices()
   /**
@@ -658,8 +700,9 @@ export class SessionRegistry {
    * the event — the host knows, the event does not say. Returns the affected
    * record so callers can react without a second lookup.
    */
-  apply(runtime: RuntimeId, event: AgentEvent): SessionRecord | undefined {
+  apply(runtime: RuntimeId, event: AgentEvent, preservePendingClose = false): SessionRecord | undefined {
     if (event.type === 'session/detached') this.detachAll(runtime, event.sessionId)
+    if (event.type === 'session/closed' && !preservePendingClose) this.cancelPendingOpen(runtime, event.sessionId)
     if (event.type === 'session/started') {
       return this.upsert(event.session, this.get(runtime, event.session.id)?.live ?? null)
     }
@@ -739,13 +782,22 @@ export class SessionRegistry {
     return this.get(runtime, id)?.attachmentSeat ?? null
   }
 
+  /** Revoke a pending reopen before an explicit close can take effect. */
+  cancelPendingOpen(runtime: RuntimeId, id: SessionId): void {
+    const key = sessionKey(runtime, id), binding = this.#coordinatedOwners.get(key)
+    if (binding) this.#coordinated.detach(binding.owner, key)
+  }
+
   /**
    * Drops live handles without discarding transcripts, e.g. on runtime
    * restart. Returns the conversations whose queue was held, which the host
    * has to tell its clients about — a queue that quietly stopped looks to the
    * user like a message that vanished.
    */
-  detachAll(runtime: RuntimeId, session?: SessionId): SessionRecord[] {
+  detachAll(runtime: RuntimeId, session?: SessionId, preserveAdmissions: ReadonlySet<object> = new Set()): SessionRecord[] {
+    for (const [key, binding] of this.#coordinatedOwners) {
+      if (binding.runtime === runtime && (session === undefined || key === sessionKey(runtime, session))) if (!preserveAdmissions.has(binding.owner)) this.#coordinated.detach(binding.owner, key)
+    }
     const held: SessionRecord[] = []
     for (const record of this.#records.values()) {
       if (record.runtime !== runtime || (session !== undefined && record.session.id !== session)) continue

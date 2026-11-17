@@ -990,3 +990,33 @@ test('library/sources/check delegates the optional names to host update checks',
   assert.equal(await dispatch(ctx, 'library/sources/check' as never, { names: ['demo'] } as never), result)
   assert.deepEqual(calls, [[agents, ['demo']]])
 })
+
+for (const heldAt of ['availability', 'problem'] as const) test(`a revoked reopen cannot consume a folder notice during ${heldAt}`, async () => {
+  const root = tempDir('hd-revoked-tool-notice-')
+  const pushed: unknown[] = [], session = { id: sessionId('s1'), runtime: runtimeId('agent'), cwd: root }
+  let entered!: () => void, release!: () => void, current = true, first = true
+  const began = new Promise<void>(resolve => { entered = resolve }), gate = new Promise<void>(resolve => { release = resolve })
+  const runtime = {
+    info: { id: runtimeId('agent'), capabilities: { pluginTools: true }, presentation: { name: 'Agent', pluginToolsUnavailable: 'Tools are unavailable.' } },
+    resumeOwner: () => ({}), beginResumeAttempt: () => ({}),
+    pluginToolsAvailableAt: async () => { if (first && heldAt === 'availability') { entered(); await gate }; return false },
+    pluginToolsProblemAt: async () => { if (first && heldAt === 'problem') { entered(); await gate }; return 'Tools are unavailable.' },
+  } as unknown as AgentRuntime
+  const ctx = contextWith({
+    runtimes: { resolve: () => runtime },
+    registry: { get: () => ({ session }) },
+    sessionIndex: { refreshMissingFolder: async () => {} },
+    loadouts: { observe: () => {} },
+    sessions: { coordinatedResume: async (_runtime: unknown, _id: unknown, _options: unknown, complete: (live: unknown, authority: unknown) => Promise<unknown>) => complete({ id: session.id }, { current: () => current }) },
+    push: (notification: unknown) => pushed.push(notification),
+  })
+  const params = { runtime: runtime.info.id, sessionId: session.id }
+  const pending = dispatch(ctx, 'session/resume', params), rejected = assert.rejects(pending)
+  try {
+    await began; current = false; release(); await rejected
+    assert.equal(pushed.length, 0, 'revoked work must not send or consume the folder notice')
+    current = true; first = false
+    await dispatch(ctx, 'session/resume', params)
+    assert.equal(pushed.length, 1, 'the later valid open still sends the notice')
+  } finally { release(); await rejected }
+})
