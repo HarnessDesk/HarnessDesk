@@ -1,0 +1,87 @@
+{
+  "pr": 2270,
+  "head": "589a4493ea1661dafe669c96f9a786bad5fed191",
+  "captures": [
+    {
+      "path": "before/history-6353efb.png",
+      "sourceCommit": "6353efb1c5e216a47059ea9e523d5ca564a2211e",
+      "caption": "Before development baseline: stopped marker incorrectly closes the later turn",
+      "sha256": "8ecebcbc94179e9de1d7155661f411fa8f1b8bcd30f504ff3a3fcfad816111ea",
+      "bytes": 82263,
+      "width": 1280,
+      "height": 813,
+      "parentVisuallyReviewed": true
+    },
+    {
+      "path": "after/history-589a449.png",
+      "sourceCommit": "589a4493ea1661dafe669c96f9a786bad5fed191",
+      "caption": "After: stopped marker closes its original source turn",
+      "sha256": "1c33f69884dd8574d4e93041e0272bb51ef3d2f7fc8ea9b0362bfec28d57d404",
+      "bytes": 86705,
+      "width": 1280,
+      "height": 813,
+      "parentVisuallyReviewed": true
+    },
+    {
+      "path": "before/capacity-6353efb.png",
+      "sourceCommit": "6353efb1c5e216a47059ea9e523d5ca564a2211e",
+      "caption": "Before development baseline: another carry-on decision opens at protected capacity",
+      "sha256": "63e28733b6106274e2813ab28c065de621eb176dd747c78a6067f0bf637f6ccd",
+      "bytes": 96132,
+      "width": 1280,
+      "height": 813,
+      "parentVisuallyReviewed": true
+    },
+    {
+      "path": "after/capacity-589a449.png",
+      "sourceCommit": "589a4493ea1661dafe669c96f9a786bad5fed191",
+      "caption": "After: Inbox explains the capacity pause; existing markers are kept",
+      "sha256": "5d66c656986f8359fde329d5d50e15904a3fc65da97923fa9163485008e4e58a",
+      "bytes": 100279,
+      "width": 1280,
+      "height": 813,
+      "parentVisuallyReviewed": true
+    },
+    {
+      "path": "before/switched-8d9470.png",
+      "sourceCommit": "8d9470f143177238f4c3e2eb87b864250989a480",
+      "caption": "Prior PR candidate: switch marker opens an unrelated pre-existing turn",
+      "sha256": "646abfda23d75160f6686164a086fce696b3e8ebfbf56e700abf1400536b2c35",
+      "bytes": 90868,
+      "width": 1280,
+      "height": 813,
+      "parentVisuallyReviewed": true
+    },
+    {
+      "path": "after/switched-589a449.png",
+      "sourceCommit": "589a4493ea1661dafe669c96f9a786bad5fed191",
+      "caption": "After: switch marker opens the actual accepted continuation turn",
+      "sha256": "f44a20e10adcbf561611826f96a4c800c873e24d528902463c29f3ff7925be6a",
+      "bytes": 90260,
+      "width": 1280,
+      "height": 813,
+      "parentVisuallyReviewed": true
+    },
+    {
+      "path": "after/uncertain-589a449.png",
+      "sourceCommit": "589a4493ea1661dafe669c96f9a786bad5fed191",
+      "caption": "After seeded restart: protected reservation is visibly unconfirmed",
+      "sha256": "5a3511d0476a4d2f4ecb27f6c4c30280c073c6d18a808d7d7d5a0eea9897973b",
+      "bytes": 98284,
+      "width": 1280,
+      "height": 813,
+      "parentVisuallyReviewed": true
+    },
+    {
+      "path": "after/cancelled-589a449.png",
+      "sourceCommit": "589a4493ea1661dafe669c96f9a786bad5fed191",
+      "caption": "Seeded display only: removed packet outcome uses factual historical wording",
+      "sha256": "8f23e7887328df5268ef913f7393772d33b3cbe05748f1ddd7ffb3215c131e79",
+      "bytes": 95285,
+      "width": 1280,
+      "height": 813,
+      "parentVisuallyReviewed": true
+    }
+  ],
+  "evidence": "Raw synthetic Electron rig frames. Parent visually inspected pixels; delegated worker copied and verified hashes/dimensions without independent pixel inspection. Closing source markers and opening accepted-turn markers follow existing UI phase semantics. The cancellation outcome frame is source-seeded display-only. Source-seeded and fake-peer controls do not establish natural-crash/live-provider/macOS-package behavior."
+}
