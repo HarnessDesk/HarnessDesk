@@ -1,0 +1,35 @@
+{
+  "pr": 2270,
+  "head": "8d9470f143177238f4c3e2eb87b864250989a480",
+  "captures": [
+    {
+      "path": "before/history.png",
+      "sha256": "8ecebcbc94179e9de1d7155661f411fa8f1b8bcd30f504ff3a3fcfad816111ea",
+      "bytes": 82263,
+      "width": 1280,
+      "height": 813
+    },
+    {
+      "path": "after/history.png",
+      "sha256": "1c33f69884dd8574d4e93041e0272bb51ef3d2f7fc8ea9b0362bfec28d57d404",
+      "bytes": 86705,
+      "width": 1280,
+      "height": 813
+    },
+    {
+      "path": "before/capacity.png",
+      "sha256": "63e28733b6106274e2813ab28c065de621eb176dd747c78a6067f0bf637f6ccd",
+      "bytes": 96132,
+      "width": 1280,
+      "height": 813
+    },
+    {
+      "path": "after/capacity.png",
+      "sha256": "5555aae830aa349ecea324164f78f326b7ae814aed321721710f9a0143653a7e",
+      "bytes": 100229,
+      "width": 1280,
+      "height": 813
+    }
+  ],
+  "evidence": "Synthetic Electron rig with fake peer; raw frames unmodified. Parent visually inspected all four. Turn placement and ledger retention are supported by Store and fresh disk reads, not the PNGs alone. Delegated worker copied and hash-checked images; its viewer could not inspect private pixels."
+}
