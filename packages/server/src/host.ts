@@ -6696,6 +6696,7 @@ export class Host {
             ...(accepted ? { dispatchAccepted: (turn: string, live: AgentSession) => {
               const current = this.registry.get(at.runtime, at.sessionId)
               if (dispatchedOn && current?.live === live && this.#carryOnLease(at.runtime, at.sessionId, live) === dispatchedOn) accepted(turn, dispatchedOn)
+              else unconfirmed?.()
             }, retireUnconfirmed: true } : {}),
           })
           // The continue goes as desk context too, under its own label, so the transcript never draws it as the person's.

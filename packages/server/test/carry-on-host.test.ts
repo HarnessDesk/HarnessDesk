@@ -1316,3 +1316,44 @@ test('a person rollback during the next model lookup prevents recovery effects',
   }, 10_000, 'rollback fenced the pending action')
   assert.equal(next.sessions.size, 0, 'no replacement conversation was created after rollback')
 })
+
+for (const replacement of ['different handle', 'same handle, newer open'] as const) test(`an accepted carry-on send on a ${replacement} becomes unconfirmed on the old operation`, { timeout: 15_000 }, async t => {
+  const r = await rig(t, { sibling: false }); await prefer(r, 'switch')
+  let release!: () => void, reached!: () => void
+  const held = new Promise<void>(resolve => { release = resolve }), sent = new Promise<void>(resolve => { reached = resolve })
+  t.after(() => release())
+  const create = r.other.createSession.bind(r.other)
+  r.other.createSession = async options => {
+    const live = await create(options) as FakeSession, send = live.send.bind(live)
+    live.send = async (...args) => { const turn = await send(...args); reached(); await held; return turn }
+    return live
+  }
+  await stuck(r); await sent
+  const id = sessionId('fake-session-1'), original = r.host.registry.get(OTHER, id)?.live
+  assert.ok(original, 'the old owner actually dispatched the continuation')
+  const file = join(r.stateDir, 'carry-on', 'incidents.json')
+  type Row = { incidentId: string; state: string; uncertain?: boolean; reservation?: unknown; note?: string; watch?: { pending?: boolean; turnId?: string }; unwritten?: { id?: string; phase: string; prospective?: boolean; anchor?: { kind: string; turnId?: string }; receipt?: { uncertain?: boolean; operationId: string } }[] }
+  const read = () => (JSON.parse(readFileSync(file, 'utf8')) as { records: Row[] }).records[0]!
+  const before = read(), marker = before.unwritten?.find(one => one.phase === 'arrived')
+  assert.equal(before.state, 'sending'); assert.ok(before.reservation); assert.ok(marker?.prospective && marker.receipt?.operationId)
+  const openedBefore = r.host.registry.opens(OTHER, id).opened
+  if (replacement === 'different handle') r.other.sessions.delete(id)
+  await r.host.call('session/resume', { runtime: OTHER, sessionId: id })
+  const current = r.host.registry.get(OTHER, id)?.live
+  assert.ok(current); assert.equal(current === original, replacement === 'same handle, newer open')
+  assert.ok(r.host.registry.opens(OTHER, id).opened > openedBefore, 'an actual public open changed the lease')
+  release()
+  await r.client.until(() => { const saved = read(); return (saved.state === 'moved' || saved.state === 'asked') && !saved.reservation }, 5_000, 'old action completed its settlement')
+  await r.client.until(() => {
+    const saved = read(), pending = saved.unwritten?.find(one => one.id === marker.id)
+    return saved.state === 'asked' && saved.uncertain === true && pending?.receipt?.uncertain === true
+  }, 5_000, 'old operation visibly unconfirmed after stale acceptance')
+  const after = read(), pending = after.unwritten?.find(one => one.id === marker.id)
+  assert.equal(after.incidentId, before.incidentId)
+  assert.equal(pending?.receipt?.operationId, marker.receipt.operationId)
+  assert.equal(pending?.prospective, true, 'the old receipt cannot bind a turn to the replacement owner')
+  assert.equal(pending?.anchor?.kind, 'continuation')
+  assert.equal(after.watch?.turnId, undefined)
+  assert.match(after.note ?? '', /may already have been sent/)
+  assert.equal(r.sent.filter(one => one.runtime === OTHER && one.text.includes(HANDOFF_PREFIX)).length, 1, 'the old send was not retried')
+})
