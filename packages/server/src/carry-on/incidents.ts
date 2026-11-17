@@ -206,6 +206,10 @@ export interface CarryOnRecord {
   readonly reservation?: { readonly id: string; readonly slots: number; readonly ceilingBytes: number; readonly action: 'move' | 'retry' | 'wait' | 'stop'; readonly stage: 'reserved' | 'effect' | 'awaitingReceipt'; readonly markerIds: readonly string[]; readonly incarnation?: string; readonly baseFileIdentity: string | null; readonly baseVersion: 1 }
 }
 
+/** Records whose outstanding work must survive a collision or eviction. */
+export const protectedCarryOnRecord = (record: CarryOnRecord): boolean =>
+  !!record.unwritten?.length || !!record.reservation || !!record.uncertain || !!record.watch || LIVE_STATES.has(record.state)
+
 /** One failed turn of one conversation, as `CarryOnRecord.handled` fences it. */
 export const carryOnTurnKey = (runtime: string, sessionId: string, turnId: string): string => `${runtime}\u0000${sessionId}\u0000${turnId}`
 /** How many answered turns a record remembers: more than the hops it may take. */
@@ -381,8 +385,6 @@ class CarryOnLedger {
     await this.save(next)
     return next
   }
-  #protect(record: CarryOnRecord): boolean { return !!record.unwritten?.length || !!record.reservation || !!record.uncertain || !!record.watch || LIVE_STATES.has(record.state) }
-
   async load(): Promise<void> {
     if (this.#loaded) return
     const read = await readCarryFile(this.options.file)
@@ -477,7 +479,7 @@ class CarryOnLedger {
       } else if (!old.id || !authority.clearedIds?.includes(old.id) && !(old.prospective && old.receipt?.operationId === authority.cancelOperation && authority.cancelledIds?.includes(old.id))) throw new Error('A protected carry-on marker cannot be removed.')
     }
     const existing = this.#records.get(key)
-    if (replaces !== undefined && replaces !== key && existing && existing.incidentId !== record.incidentId && this.#protect(existing)) {
+    if (replaces !== undefined && replaces !== key && existing && existing.incidentId !== record.incidentId && protectedCarryOnRecord(existing)) {
       throw new CarryOnCapacityError('Carry-on capacity prevents replacing another protected incident.')
     }
     const next = new Map(this.#records)
@@ -485,7 +487,7 @@ class CarryOnLedger {
     next.delete(key); next.set(key, record)
     const evicted: string[] = []
     while (next.size > INCIDENT_LIMIT) {
-      const removable = [...next].find(([candidate, value]) => candidate !== key && !this.#protect(value))
+      const removable = [...next].find(([candidate, value]) => candidate !== key && !protectedCarryOnRecord(value))
       if (!removable) throw new CarryOnCapacityError('Carry-on marker capacity is full.')
       next.delete(removable[0]); evicted.push(removable[0])
     }

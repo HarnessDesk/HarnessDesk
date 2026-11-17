@@ -1708,3 +1708,93 @@ for (const boundary of ['seat facts', 'sending write', 'pre-effect refusal'] as 
   const after = (await disk(r.file)).records[0]!
   assert.equal(after['state'], 'cleared'); assert.equal(after['reservation'], undefined)
 })
+
+for (const owner of ['chat', 'seat'] as const) for (const protection of ['uncertain', 'watch', 'live state'] as const) test(`a ${owner} same-thread move refuses an unrelated destination protected by ${protection} before effects`, async t => {
+  const seat = seatPorts()
+  const r = await rig(t, { owner, ...(owner === 'seat' ? { seat: seat.ports } : {}) })
+  const ledger = new CarryOnIncidents({ file: r.file })
+  const destination: CarryOnRecord = {
+    incidentId: 'other-incident', runtime: 'codex-2', sessionId: 's1', owner: 'chat', state: protection === 'live state' ? 'asked' : 'moved',
+    cause: 'credits', turnId: 'older-turn', agent: 'codex', from: { name: 'Codex' }, resetsAt: null, nextAt: null,
+    openedAt: 1, lastAt: 1, tried: [], hops: 0, alwaysScope: 'desk',
+    ...(protection === 'uncertain' ? { uncertain: true as const } : {}),
+    ...(protection === 'watch' ? { watch: { runtime: 'codex-2', sessionId: 's1', turnId: 'accepted-old' } } : {}),
+  }
+  await ledger.serial(() => ledger.put(destination))
+  const notices: string[] = []
+  const service = r.reopen({ capacityNotice: (_runtime, _id, reason) => { notices.push(reason) } })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT); await service.idle()
+  assert.deepEqual(seat.log, [], 'no Seat replacement follows a protected collision')
+  assert.deepEqual(r.calls, [], 'no source close, target resume, create or send follows a protected collision')
+  const records = (await disk(r.file)).records
+  assert.deepEqual(records.find(one => one['incidentId'] === destination.incidentId), destination, 'unrelated destination history is preserved')
+  const source = records.find(one => one['runtime'] === 'codex' && one['sessionId'] === 's1')!
+  assert.equal(source['state'], 'asked')
+  assert.equal(source['reservation'], undefined, 'the unused action reservation is released')
+  assert.match(String(source['note']), /destination has protected carry-on history/i)
+  assert.ok(notices.length > 0, 'the refusal is visible')
+})
+
+test('a person who sends while an automatic stop reserves capacity prevents the stopped marker', async t => {
+  const r = await rig(t, { choice: 'stop' })
+  const entered = deferred(), release = deferred()
+  const reserve = CarryOnIncidents.prototype.reserve
+  t.mock.method(CarryOnIncidents.prototype, 'reserve', async function (this: CarryOnIncidents, record: CarryOnRecord, slots: 1 | 2, action: 'move' | 'retry' | 'stop' | 'wait') {
+    const reserved = await reserve.call(this, record, slots, action)
+    if (action === 'stop') { entered.resolve(); await release.promise }
+    return reserved
+  })
+  const service = r.reopen(); t.after(() => { release.resolve(); service.close() })
+  const ending = service.ended('codex', 's1', LIMIT)
+  await entered.promise
+  const held = (await disk(r.file)).records[0]!
+  assert.equal((held['reservation'] as { action: string; slots: number }).action, 'stop')
+  assert.equal((held['reservation'] as { action: string; slots: number }).slots, 1, 'the actual reservation was durable')
+  const person = service.personSent('codex', 's1')
+  release.resolve(); await ending; await person; await service.idle()
+  assert.deepEqual(r.marks, [], 'the old stop must not write a marker after the person wins')
+  const after = (await disk(r.file)).records[0]!
+  assert.equal(after['state'], 'cleared')
+  assert.equal(after['reservation'], undefined)
+  assert.equal(after['unwritten'], undefined)
+})
+
+for (const owner of ['chat', 'seat'] as const) test(`a ${owner} same-thread move may replace unrelated unprotected destination history`, async t => {
+  const seat = seatPorts()
+  const r = await rig(t, { owner, ...(owner === 'seat' ? { seat: seat.ports } : {}) })
+  const ledger = new CarryOnIncidents({ file: r.file })
+  await ledger.serial(() => ledger.put({ incidentId: 'old-unprotected', runtime: 'codex-2', sessionId: 's1', owner: 'chat', state: 'stopped',
+    cause: 'credits', turnId: 'old', agent: 'codex', from: { name: 'Codex' }, resetsAt: null, nextAt: null,
+    openedAt: 1, lastAt: 1, tried: [], hops: 0, alwaysScope: 'desk' }))
+  await r.service.ended('codex', 's1', LIMIT); await r.service.idle()
+  assert.ok(r.calls.some(call => call.startsWith('send codex-2 s1')), 'the normal continuation is sent')
+  if (owner === 'seat') assert.ok(seat.log.some(call => call.startsWith('replace ')), 'the normal Seat replacement occurs')
+  const current = (await disk(r.file)).records.find(one => one['runtime'] === 'codex-2' && one['sessionId'] === 's1')!
+  assert.notEqual(current['incidentId'], 'old-unprotected')
+})
+
+test('a person who sends while an automatic wait reserves capacity prevents the waiting marker and timer', async t => {
+  const r = await rig(t, { choice: 'wait', resetsAt: 1_000_000_000 + HOUR })
+  const entered = deferred(), release = deferred()
+  const reserve = CarryOnIncidents.prototype.reserve
+  t.mock.method(CarryOnIncidents.prototype, 'reserve', async function (this: CarryOnIncidents, record: CarryOnRecord, slots: 1 | 2, action: 'move' | 'retry' | 'stop' | 'wait') {
+    const reserved = await reserve.call(this, record, slots, action)
+    if (action === 'wait') { entered.resolve(); await release.promise }
+    return reserved
+  })
+  const service = r.reopen(); t.after(() => { release.resolve(); service.close() })
+  const ending = service.ended('codex', 's1', LIMIT)
+  await entered.promise
+  const held = (await disk(r.file)).records[0]!
+  assert.equal((held['reservation'] as { action: string; slots: number }).action, 'wait')
+  assert.equal((held['reservation'] as { action: string; slots: number }).slots, 1, 'the actual reservation was durable')
+  const person = service.personSent('codex', 's1')
+  release.resolve(); await ending; await person; await service.idle()
+  assert.deepEqual(r.marks, [], 'the old wait must not write a marker after the person wins')
+  assert.equal(r.timers.filter(timer => !timer.cancelled).length, 0, 'no retry timer is armed')
+  const after = (await disk(r.file)).records[0]!
+  assert.equal(after['state'], 'cleared')
+  assert.equal(after['reservation'], undefined)
+  assert.equal(after['unwritten'], undefined)
+})

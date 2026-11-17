@@ -37,6 +37,7 @@ import {
   CarryOnIncidents,
   CarryOnCapacityError,
   markerReceiptCeiling,
+  protectedCarryOnRecord,
   LIVE_STATES,
   HANDLED_LIMIT,
   RETRY_ATTEMPTS,
@@ -924,11 +925,13 @@ export class CarryOnService {
         // A seat says which accounts its run refused: the reason it stayed stopped.
         const note = record.owner === 'seat' ? joinNotes(action.note, this.#skipped(record))! : action.note
         const reserved = await this.#reserve(record, 1, 'stop')
+        if (reserved && !fence()) return this.#settleReserved(reserved, { state: 'cleared', nextAt: null, note: PERSON_FIRST })
         return reserved ? this.#oneMarker(reserved, action.phase, { note }, { state: 'stopped', nextAt: null, note }) : record
       }
       case 'wait': {
         const nextAt = afterReset(action.resetsAt)
         const reserved = await this.#reserve(record, 1, 'wait')
+        if (reserved && !fence()) return this.#settleReserved(reserved, { state: 'cleared', nextAt: null, note: PERSON_FIRST })
         return reserved ? this.#oneMarker(reserved, 'waiting', {}, { state: 'waiting-reset', nextAt, resetsAt: action.resetsAt }) : record
       }
       case 'move':
@@ -988,7 +991,7 @@ export class CarryOnService {
     // Nothing has been touched yet: a message the person sent meanwhile simply wins.
     if (!fence()) return this.#settleReserved(record, { state: 'cleared', nextAt: null, note: PERSON_FIRST })
     const collision = mode === 'sameThread' ? this.#incidents.get(target.runtime, from.sessionId) : undefined
-    if (collision && collision.incidentId !== record.incidentId && (collision.unwritten?.length || collision.reservation)) {
+    if (collision && collision.incidentId !== record.incidentId && protectedCarryOnRecord(collision)) {
       this.#capacity(record)
       return this.#settleReserved(record, { state: 'asked', nextAt: null, note: 'The destination has protected carry-on history.' })
     }
@@ -1122,7 +1125,7 @@ export class CarryOnService {
     const models = await this.ports.models(target.runtime).catch((): readonly ModelInfo[] => [])
     if (!fence()) return this.#settleReserved(record, { state: 'cleared', nextAt: null, note: PERSON_FIRST })
     const collision = mode === 'sameThread' ? this.#incidents.get(target.runtime, from.sessionId) : undefined
-    if (collision && collision.incidentId !== record.incidentId && (collision.unwritten?.length || collision.reservation)) {
+    if (collision && collision.incidentId !== record.incidentId && protectedCarryOnRecord(collision)) {
       this.#capacity(record)
       return this.#settleReserved(record, { state: 'asked', nextAt: null, note: 'The destination has protected carry-on history.' })
     }
