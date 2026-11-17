@@ -6646,6 +6646,18 @@ export class Host {
         const at = key(runtime, sessionId), record = this.registry.get(at.runtime, at.sessionId)
         return record?.live ? this.#carryOnLease(at.runtime, at.sessionId, record.live) : null
       },
+      completedTurn: (runtime, sessionId, turnId, incarnation) => {
+        const at = key(runtime, sessionId), record = this.registry.get(at.runtime, at.sessionId)
+        if (!record?.live || this.#carryOnLease(at.runtime, at.sessionId, record.live) !== incarnation || !record.session.itemsLoaded ||
+            record.session.partialHistory || record.transcriptIncomplete || this.#recoveredTranscriptBases.has(record.bodyGeneration) ||
+            this.#transcripts.hasProtectedChanges(at.runtime, at.sessionId)) return { kind: 'unavailable' }
+        const turns = record.session.turns.filter(turn => String(turn.id) === turnId)
+        if (turns.length > 1) return { kind: 'unavailable' }
+        const turn = turns[0]
+        const seen = this.#seenTurnIds.get(record)
+        if (!turn && (seen === null || seen?.has(turnId))) return { kind: 'unavailable' }
+        return { kind: 'available', ...(turn && turn.status !== 'inProgress' ? { turn: { id: String(turn.id), status: turn.status, error: turn.error ?? null } } : {}) }
+      },
       footprint: (runtime, sessionId) => {
         const at = key(runtime, sessionId)
         const record = this.registry.get(at.runtime, at.sessionId)
@@ -6657,7 +6669,7 @@ export class Host {
         // shows them as something the person typed. The packet is already enveloped; the continue is wrapped here.
         // `stillOurs` rides the dispatch as its admission and is read once more at the effect boundary, after the
         // last await: a person who writes while the host is resolving the handle wins there too.
-        send: async (runtime, sessionId, text, kind, stillOurs, admitted, seat, accepted, unconfirmed) => {
+        send: async (runtime, sessionId, text, kind, stillOurs, admitted, seat, accepted, unconfirmed, removed) => {
           const at = key(runtime, sessionId)
           // Into a Flow's Seat, the run's own gate rides the same admission: its budget is read when the send goes
           // (a queued packet's when it drains), and its stop at the boundary itself (§9.4). A Seat's send with no gate
@@ -6668,17 +6680,19 @@ export class Host {
             return run
           }
           gate()
-          let dispatchedOn: string | null = null
+          let dispatchedOn: string | null = null, started = false
           const admission = Object.assign(async () => { await gate()?.admit() }, {
             assertDispatch: () => { if (!stillOurs()) throw new Error('You sent a message first.'); gate()?.assert() },
             // Past the boundary: carry-on's marker goes in now, never for a send the person overtook. With the turns the
             // conversation already had, so carry-on watches the turn this send starts and nothing before it.
             dispatchStarted: () => {
+              started = true
               const record = this.registry.get(at.runtime, at.sessionId)
               dispatchedOn = record?.live ? this.#carryOnLease(at.runtime, at.sessionId, record.live) : null
               admitted?.((record?.session.turns ?? []).map((turn) => String(turn.id)))
             },
             ...(unconfirmed ? { dispatchUnconfirmed: () => { unconfirmed(); return Promise.resolve() } } : {}),
+            ...(removed ? { queueRemoved: () => { if (!started) removed() } } : {}),
             ...(accepted ? { dispatchAccepted: (turn: string, live: AgentSession) => {
               const current = this.registry.get(at.runtime, at.sessionId)
               if (dispatchedOn && current?.live === live && this.#carryOnLease(at.runtime, at.sessionId, live) === dispatchedOn) accepted(turn, dispatchedOn)
@@ -6893,7 +6907,8 @@ export class Host {
         close: params => this.leadWork.close(params), setReminder: params => this.leadWork.setReminder(params),
         cancelReminder: params => this.leadWork.cancelReminder(params), clearReminder: params => this.leadWork.clearReminder(params) },
       personStopping: chat => { try { return this.#leadWork?.stopping(chat, 'person') ?? (() => {}) } catch { return () => {} } },
-      carryOn: { list: () => this.#carryOn.list(), decide: decision => this.#carryOn.decide(decision) },
+      carryOn: { list: () => this.#carryOn.list(), decide: decision => this.#carryOn.decide(decision),
+        historyChanged: (runtime, sessionId) => this.#carryOn.historyChanged(runtime, sessionId) },
       // Cache only: an allowance question never starts a meter/API refresh or ledger scan.
       // The accounts the Dashboard lists, from the same cache: an allowance question never starts a refresh.
       leadUsageSummary: () => this.#phoneWorkspaceView().usageSummary(this.#trackedUsage(this.#cachedUsage())),

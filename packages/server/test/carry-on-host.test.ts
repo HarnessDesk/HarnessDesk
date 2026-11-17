@@ -119,13 +119,21 @@ test('a sibling over the same store takes the thread over: the stuck account let
   const resume = r.sibling!.resumeSession.bind(r.sibling!)
   r.sibling!.resumeSession = async (id, options) => {
     order.push('resume on the sibling')
-    // Model the shared store with a distinct historical turn ID; the fake's
-    // next locally minted turn then cannot collide with that earlier turn.
-    r.sibling!.stored.set(String(id), shared.map(turn => ({ ...turn, id: turnId(`shared-${turn.id}`) })))
+    // The shared history keeps the original turn and has a later unrelated turn.
+    r.sibling!.stored.set(String(id), [...shared, { id: turnId('later-existing-turn'), status: 'completed', items: [
+      { id: itemId('later-existing-item'), type: 'assistantMessage', text: 'A later unrelated turn.' },
+    ] }])
     const handle = await resume(id, options) as FakeSession
     const snapshot = handle.snapshot.bind(handle)
     Object.defineProperty(handle, 'runtime', { get: () => SIBLING })
     handle.snapshot = () => own(snapshot())
+    handle.send = async input => {
+      const id = turnId('accepted-continuation')
+      r.sibling!.emit({ type: 'turn/started', sessionId: handle.id, turn: { id, items: [], status: 'inProgress' } })
+      r.sibling!.emit({ type: 'item/started', sessionId: handle.id, turnId: id, item: { id: itemId('continuation-input'), type: 'userMessage', content: input } })
+      r.sibling!.onSend?.(handle, input.flatMap(part => part.type === 'text' ? [part.text] : []).join(''))
+      return id
+    }
     return handle
   }
   const session = await stuck(r)
@@ -143,12 +151,14 @@ test('a sibling over the same store takes the thread over: the stuck account let
   assert.ok(!r.sent.some(one => one.text === CONTINUE_TEXT), 'never as a plain line the person seems to have typed')
   assert.deepEqual(order, ['close on the primary', 'resume on the sibling'], 'one live writer per thread')
   assert.equal(r.sibling!.sessions.get(session.id)?.id, session.id, 'the same thread, not a new one')
-  r.sibling!.sessions.get(session.id)!.finish()
+  r.sibling!.emit({ type: 'turn/completed', sessionId: session.id, turn: { id: turnId('accepted-continuation'), status: 'completed', items: [] } })
+  r.sibling!.stored.set(String(session.id), r.host.registry.get(SIBLING, session.id)!.session.turns.map(turn => ({ ...turn, items: turn.items.filter(item => item.type !== 'carryOn') })))
 
   await r.client.until(() => r.client.events.some(event => event.type === 'item/completed' && event.sessionId === session.id && event.item.type === 'carryOn' && event.item.phase === 'switched'), 10_000, 'the exact-turn switched marker')
   const after = (await r.client.call('session/read', { runtime: SIBLING, sessionId: session.id })) as Session
   const switched = markers(after).find(one => one.phase === 'switched')
   assert.ok(switched, 'the marker is part of the conversation')
+  assert.deepEqual(after.turns.filter(turn => turn.items.some(item => item.id === switched.id)).map(turn => turn.id), ['fake-turn-1'], 'the original turn owns the marker despite later turns')
   assert.equal(switched.mode, 'sameThread')
   assert.equal(switched.to?.account, 'account 2', 'named by its ordinal, never an address')
   assert.equal(switched.link, undefined, 'a same-thread switch has nowhere else to point')
@@ -159,8 +169,8 @@ test('a sibling over the same store takes the thread over: the stuck account let
   assert.ok(continued.content.every(part => part.type !== 'text' || part.deskContext?.prefixLength === part.text.length), 'all of it the desk’s')
   assert.equal(splitContextContent(continued.content).text, '', 'nothing of it reads as the person’s bubble')
 
-  await r.client.until(() => changes(r).some(one => one.state === 'moved'), 5_000, 'the moved incident')
-  const incident = changes(r).findLast(one => one.state === 'moved')!
+  await r.client.until(() => changes(r).some(one => one?.state === 'moved'), 5_000, 'the moved incident')
+  const incident = changes(r).findLast(one => one?.state === 'moved')!
   assert.equal(incident.runtime, SIBLING, 'the incident follows the conversation')
   await r.client.until(() => r.client.notifications.some(message => 'method' in message && message.method === 'carryOn/changed' && message.params.key.runtime === SIBLING && message.params.key.sessionId === session.id && message.params.incident === null), 10_000, 'the switched marker to be durably cleared')
   assert.deepEqual(((await r.client.call('carryOn/list', {})) as { incidents: CarryOnIncidentView[] }).incidents, [], 'and nothing is left to answer')
@@ -1128,3 +1138,177 @@ for (const failure of ['read failure', 'wrong durable content'] as const) {
     assert.equal(after.records[0]?.unwritten?.[0]?.id, 'failed-ack-marker')
   })
 }
+
+for (const remove of ['cancel', 'clear'] as const) test(`removing a queued carry-on packet with ${remove} releases its unsent marker intents`, { timeout: 15_000 }, async t => {
+  const r = await rig(t, { sibling: false })
+  await prefer(r, 'switch')
+  const get = r.host.registry.get.bind(r.host.registry)
+  let began = false
+  r.host.registry.get = ((runtime, id) => {
+    const record = get(runtime, id)
+    if (!began && runtime === OTHER && record?.live) {
+      try {
+        const ledger = JSON.parse(readFileSync(join(r.stateDir, 'carry-on', 'incidents.json'), 'utf8')) as { records: { link?: unknown }[] }
+        if (ledger.records.some(one => one.link)) {
+          began = true
+          void r.other.sessions.get(id)!.send([{ type: 'text', text: 'replacement brief' }])
+        }
+      } catch { /* The ledger does not exist until the incident is staged. */ }
+    }
+    return record
+  }) as typeof r.host.registry.get
+  const source = await stuck(r)
+  let target: ReturnType<typeof r.host.registry.get>
+  await r.client.until(() => {
+    target = r.host.registry.get(OTHER, sessionId('fake-session-1'))
+    return !!target?.queue.messages.length && changes(r).some(one => one.state === 'moved')
+  }, 10_000, 'queued handoff and settled move')
+  assert.ok(target)
+  const file = join(r.stateDir, 'carry-on', 'incidents.json')
+  const before = JSON.parse(readFileSync(file, 'utf8')) as { records: { unwritten?: { prospective?: boolean }[] }[] }
+  assert.equal(before.records[0]?.unwritten?.filter(one => one.prospective).length, 2)
+  const id = target.queue.messages[0]!.id
+  if (remove === 'cancel') await r.client.call('turn/queue/cancel', { runtime: OTHER, sessionId: target.session.id, id })
+  else await r.client.call('turn/queue/clear', { runtime: OTHER, sessionId: target.session.id })
+  await r.client.until(() => {
+    const record = JSON.parse(readFileSync(file, 'utf8')) as { records: { state: string; unwritten?: unknown[]; note?: string }[] }
+    return record.records[0]?.state === 'asked' && !record.records[0]?.unwritten?.length && !!record.records[0]?.note?.includes('removed')
+  }, 5_000, 'durable cancellation of the exact unsent marker intents')
+  assert.ok(!r.sent.some(one => one.runtime === OTHER && one.text.includes(HANDOFF_PREFIX)), 'the cancelled packet never reached the target')
+  const record = JSON.parse(readFileSync(file, 'utf8')) as { records: { link?: { runtime: string; sessionId: string } }[] }
+  assert.deepEqual(record.records[0]?.link, { runtime: OTHER, sessionId: target.session.id }, 'the already opened conversation remains recorded')
+  assert.ok(source.id)
+})
+
+for (const outcome of ['completed', 'limit'] as const) test(`a real Host reconciles a continuation ${outcome} event that arrives before its send receipt`, { timeout: 15_000 }, async t => {
+  const r = await rig(t, { sibling: false })
+  await prefer(r, 'switch')
+  let release!: () => void, completed!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  const targetCompleted = new Promise<void>(resolve => { completed = resolve })
+  t.after(() => release())
+  const create = r.other.createSession.bind(r.other)
+  r.other.createSession = async options => {
+    const live = await create(options) as FakeSession
+    await live.send([{ type: 'text', text: 'earlier target turn' }])
+    live.finish()
+    const send = live.send.bind(live)
+    live.send = async (...args) => {
+      const turn = await send(...args)
+      if (outcome === 'limit') live.fail('You have hit your usage limit.', 'credits')
+      else live.finish('continued')
+      completed()
+      await held
+      return turn
+    }
+    return live
+  }
+  const source = await stuck(r)
+  await targetCompleted
+  await r.client.until(() => r.client.events.some(event => event.type === 'turn/completed' && event.sessionId === 'fake-session-1' && event.turn.id === 'fake-turn-2' && event.turn.status === (outcome === 'limit' ? 'failed' : 'completed')),
+    10_000, 'target continuation completed before send returned')
+  const file = join(r.stateDir, 'carry-on', 'incidents.json')
+  const before = JSON.parse(readFileSync(file, 'utf8')) as { records: { incidentId: string; state: string; reservation?: unknown }[] }
+  assert.equal(before.records[0]?.state, 'sending')
+  assert.ok(before.records[0]?.reservation)
+  release()
+  await r.client.until(() => {
+    const data = JSON.parse(readFileSync(file, 'utf8')) as { records: { state: string; watch?: unknown; turnId: string; reservation?: unknown }[] }
+    const record = data.records[0]
+    return outcome === 'limit' ? record?.state === 'stopped' && record.turnId === 'fake-turn-2' : record?.state === 'moved' && !record.watch && !record.reservation
+  }, 10_000, 'exact completion reconciled after receipt')
+  const after = JSON.parse(readFileSync(file, 'utf8')) as { records: { incidentId: string }[] }
+  assert.equal(after.records[0]?.incidentId, before.records[0]?.incidentId, 'the same incident continues')
+  assert.ok(source.id)
+})
+
+test('successful queue draining cannot cancel a carry-on receipt after dispatch starts', { timeout: 15_000 }, async t => {
+  const r = await rig(t, { sibling: false }); await prefer(r, 'switch')
+  const get = r.host.registry.get.bind(r.host.registry)
+  let began = false
+  r.host.registry.get = ((runtime, id) => {
+    const record = get(runtime, id)
+    if (!began && runtime === OTHER && record?.live) {
+      try {
+        const ledger = JSON.parse(readFileSync(join(r.stateDir, 'carry-on', 'incidents.json'), 'utf8')) as { records: { link?: unknown }[] }
+        if (ledger.records.some(one => one.link)) { began = true; void r.other.sessions.get(id)!.send([{ type: 'text', text: 'replacement brief' }]) }
+      } catch { /* Before the incident is staged. */ }
+    }
+    return record
+  }) as typeof r.host.registry.get
+  await stuck(r)
+  let target: ReturnType<typeof r.host.registry.get>
+  await r.client.until(() => { target = r.host.registry.get(OTHER, sessionId('fake-session-1')); return !!target?.queue.messages.length && changes(r).some(one => one.state === 'moved') }, 10_000, 'queued packet')
+  assert.ok(target)
+  r.other.sessions.get(target.session.id)!.finish('brief complete')
+  await r.client.until(() => r.sent.some(one => one.runtime === OTHER && one.text.includes(HANDOFF_PREFIX)), 10_000, 'packet dispatch')
+  const file = join(r.stateDir, 'carry-on', 'incidents.json')
+  await r.client.until(() => {
+    const saved = JSON.parse(readFileSync(file, 'utf8')) as { records: { watch?: { turnId?: string } }[] }
+    return !!saved.records[0]?.watch?.turnId
+  }, 10_000, 'accepted receipt bound')
+  const saved = JSON.parse(readFileSync(file, 'utf8')) as { records: { state: string; note?: string; watch?: { turnId: string }; unwritten?: { phase: string; anchor?: { turnId?: string } }[] }[] }
+  assert.equal(saved.records[0]?.state, 'moved')
+  assert.doesNotMatch(saved.records[0]?.note ?? '', /removed before sending/)
+  assert.equal(saved.records[0]?.unwritten?.find(one => one.phase === 'arrived')?.anchor?.turnId, saved.records[0]?.watch?.turnId)
+})
+
+test('a protected Host transcript makes an early accepted continuation uncertain instead of guessing its outcome', { timeout: 15_000 }, async t => {
+  const r = await rig(t, { sibling: false }); await prefer(r, 'switch')
+  let release!: () => void, completed!: () => void
+  const held = new Promise<void>(resolve => { release = resolve }), targetCompleted = new Promise<void>(resolve => { completed = resolve })
+  t.after(() => release())
+  const create = r.other.createSession.bind(r.other)
+  r.other.createSession = async options => {
+    const live = await create(options) as FakeSession, send = live.send.bind(live)
+    live.send = async (...args) => { const turn = await send(...args); live.finish('done'); completed(); await held; return turn }
+    return live
+  }
+  await stuck(r); await targetCompleted
+  const record = r.host.registry.get(OTHER, sessionId('fake-session-1'))!
+  assert.ok(record.live)
+  const hasProtected = TranscriptStore.prototype.hasProtectedChanges
+  const protectedMock = t.mock.method(TranscriptStore.prototype, 'hasProtectedChanges', function (this: TranscriptStore, runtime: Parameters<TranscriptStore['hasProtectedChanges']>[0], id: Parameters<TranscriptStore['hasProtectedChanges']>[1]) {
+    return runtime === OTHER && id === record.session.id ? true : hasProtected.call(this, runtime, id)
+  })
+  release()
+  const file = join(r.stateDir, 'carry-on', 'incidents.json')
+  try {
+    await r.client.until(() => {
+      const saved = JSON.parse(readFileSync(file, 'utf8')) as { records: { state: string; uncertain?: boolean; unwritten?: unknown[] }[] }
+      return saved.records[0]?.state === 'asked' && saved.records[0]?.uncertain === true && !!saved.records[0]?.unwritten?.length
+    }, 10_000, 'unavailable completion stays uncertain')
+    assert.equal(r.sent.filter(one => one.runtime === OTHER && one.text.includes(HANDOFF_PREFIX)).length, 1)
+  } finally { protectedMock.mock.restore() }
+})
+
+test('a person rollback during the next model lookup prevents recovery effects', { timeout: 15_000 }, async t => {
+  const r = await rig(t, { sibling: false }); await prefer(r, 'switch')
+  await stuck(r)
+  const file = join(r.stateDir, 'carry-on', 'incidents.json')
+  await r.client.until(() => {
+    try {
+      const record = JSON.parse(readFileSync(file, 'utf8')) as { records: { watch?: { turnId?: string } }[] }
+      return !!record.records[0]?.watch?.turnId
+    } catch { return false }
+  }, 10_000, 'first continuation receipt')
+  const nextId = runtimeId('third'), next = new FakeRuntime({ id: nextId, name: 'Third Agent' })
+  let entered!: () => void, release!: (value: Awaited<ReturnType<FakeRuntime['listModels']>>) => void
+  const began = new Promise<void>(resolve => { entered = resolve }), held = new Promise<Awaited<ReturnType<FakeRuntime['listModels']>>>(resolve => { release = resolve })
+  t.after(() => release([]))
+  next.listModels = () => { entered(); return held }
+  r.host.register(next)
+  const targetId = sessionId('fake-session-1'), live = r.other.sessions.get(targetId)!
+  ;(live as FakeSession & { rollback: (turns: number) => Promise<void> }).rollback = async () => {}
+  live.fail('You have hit your usage limit.', 'credits')
+  await began
+  const before = JSON.parse(readFileSync(file, 'utf8')) as { records: { reservation?: unknown }[] }
+  assert.ok(before.records[0]?.reservation, 'the next action reserved capacity before model lookup')
+  await r.host.call('session/rollback', { runtime: OTHER, sessionId: targetId, turns: 1 })
+  release([])
+  await r.client.until(() => {
+    const saved = JSON.parse(readFileSync(file, 'utf8')) as { records: { state: string; reservation?: unknown }[] }
+    return saved.records[0]?.state === 'cleared' && !saved.records[0]?.reservation
+  }, 10_000, 'rollback fenced the pending action')
+  assert.equal(next.sessions.size, 0, 'no replacement conversation was created after rollback')
+})
