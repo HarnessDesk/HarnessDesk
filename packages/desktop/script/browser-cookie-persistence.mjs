@@ -69,7 +69,9 @@ const phase = (name, url) => new Promise((resolve, reject) => {
       if (killError) throw killError
       assert.ok(child.stdout.destroyed && child.stderr.destroyed, `${name} left an owned output pipe open`)
       assert.equal(timedOut, false, `${name} timed out`)
-      if (child.pid && groupPresent(child.pid)) {
+      // Electron helpers can finish just after the leader's pipes close.
+      // Give the owned group a brief, bounded chance to disappear naturally.
+      if (child.pid && !await waitGone(child.pid, 250)) {
         const leak = new Error(`${name} left an owned process group`)
         try { await retireGroup(child.pid) } catch (error) { throw new AggregateError([leak, error], `${name} cleanup failed; profile retained`) }
         throw leak

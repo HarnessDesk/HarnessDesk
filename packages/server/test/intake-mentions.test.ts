@@ -10,6 +10,7 @@ import type { PhoneTriageList, TriggerArmPreview, TriggerDecision, TriggerDecisi
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { commitTriggers, intakeDesk, REVIEW_FLOW, until, type IntakeDesk } from './fixtures/intake-host.js'
 import { Clocks, Gate, sha } from './fixtures/intake-forge.js'
+import { HoldFake } from './fixtures/hold-runtime.js'
 import { tempDir } from './scratch.js'
 import { writeTriggers } from '../src/authoring/model.js'
 import { Logger } from '../src/log.js'
@@ -338,6 +339,143 @@ test('a pull request the work opened links to the thread: comments there join it
   // Closed: a new mention on the issue is a new request, triaged again.
   await say(d, 1, '@dex one more thing')
   assert.equal((await decisions(d)).decisions.length, 2)
+})
+
+for (const kind of ['review', 'inline'] as const) test(`an addressed ${kind} review on a linked pull request resumes the existing thread`, E2E, async t => {
+  const d = await desk(t); await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const [first] = (await history(d)).items
+  d.links.set(first!.goal!, [5])
+  d.forge.pulls.push({ number: 5, head: sha('c'), state: 'open', created: d.clocks.wall, updated: d.clocks.wall })
+  d.clocks.advance(10 * 60_000); await d.host.intakePlane.tick()
+  assert.deepEqual((await decisions(d)).threads[0]!.links.pulls, [5])
+  const at = d.clocks.wall + 1000
+  d.forge.pulls[0]!.reviews = [{ id: 101, commit_id: sha('c'), body: kind === 'review' ? '@dex please add the retry test' : '', state: 'COMMENTED', submitted_at: new Date(at).toISOString(), user: ME }]
+  if (kind === 'inline') d.forge.pulls[0]!.reviewComments = [{ id: 201, review: 101, body: '@dex please add the retry test', created: at, updated: at, user: ME }]
+  d.forge.pulls[0]!.updated = at
+  d.clocks.advance(10 * 60_000); await d.host.intakePlane.tick()
+  const page = await decisions(d), rows = (await history(d)).items
+  assert.equal(page.decisions.length, 1, 'linked reviews do not create another triage')
+  assert.equal(page.threads[0]!.resumes, 1)
+  assert.equal(rows.length, 2)
+  assert.ok(rows.every(row => row.goal === first!.goal), 'the review joins the original Goal')
+  await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).threads[0]!.resumes, 1, 'a repeated poll is idempotent')
+})
+
+test('linked reviews retain the comment authorization, address, self-post and closed-thread rules', E2E, async t => {
+  const d = await desk(t); await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const [first] = (await history(d)).items
+  d.links.set(first!.goal!, [5])
+  d.forge.pulls.push({ number: 5, head: sha('c'), state: 'open', created: d.clocks.wall, updated: d.clocks.wall })
+  d.forge.pulls.push({ number: 6, head: sha('d'), state: 'open', created: d.clocks.wall, updated: d.clocks.wall })
+  d.clocks.advance(10 * 60_000); await d.host.intakePlane.tick()
+  const at = d.clocks.wall + 1000, submitted = new Date(at).toISOString()
+  const review = (id: number, body: string, user: typeof ME) => ({ id, commit_id: sha('c'), body, state: 'COMMENTED', submitted_at: submitted, user })
+  d.forge.pulls[0]!.reviews = [review(101, 'ordinary discussion', ME), review(102, '@dex please fix this', STRANGER),
+    review(103, `${MARKER}\n@dex the desk posted this`, ME), review(104, '@dex posted by the desk', ME), review(105, '@dex add a test', NAMED),
+    review(108, '@dex check the bot change', BOT)]
+  d.forge.pulls[0]!.reviewComments = [
+    { id: 204, review: 104, body: '@dex also the inline note', created: at, updated: at, user: ME },
+    { id: 205, review: 105, body: '@dex another desk post', created: at, updated: at, user: ME },
+  ]
+  d.forge.pulls[1]!.reviews = [review(106, '@dex the wrong pull request', ME)]
+  await d.host.intakePlane.deskPosted({ kind: 'review', action: 'posted', repo: 'acme/widgets', number: 5,
+    url: 'https://github.com/acme/widgets/pull/5#pullrequestreview-104', title: null, state: null, author: null,
+    additions: null, deletions: null, files: null, excerpt: null, via: 'gh', signature: null })
+  await d.host.intakePlane.deskPosted({ kind: 'comment', action: 'posted', repo: 'acme/widgets', number: 5,
+    url: 'https://github.com/acme/widgets/pull/5#discussion_r205', title: null, state: null, author: null,
+    additions: null, deletions: null, files: null, excerpt: null, via: 'gh', signature: null })
+  d.forge.pulls[0]!.updated = at; d.forge.pulls[1]!.updated = at
+  d.clocks.advance(60_000); await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).threads[0]!.resumes, 2, 'only the allowed addressed non-desk person and bot reviews resume')
+  assert.equal((await history(d)).items.length, 3)
+  await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).threads[0]!.resumes, 2, 'repeated polls do not resume twice')
+  d.forge.pulls[0]!.state = 'closed'; d.forge.pulls[0]!.updated = d.clocks.wall + 1000
+  d.forge.pulls[0]!.reviews!.push(review(107, '@dex after close', ME))
+  d.clocks.advance(10 * 60_000); await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).threads[0]!.resumes, 2, 'a review on a closed PR cannot resume work')
+})
+
+test('a draft review is not consumed before it is submitted', E2E, async t => {
+  const d = await desk(t); await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const [first] = (await history(d)).items; d.links.set(first!.goal!, [5])
+  d.forge.pulls.push({ number: 5, head: sha('c'), state: 'open', created: d.clocks.wall, updated: d.clocks.wall })
+  d.clocks.advance(10 * 60_000); await d.host.intakePlane.tick()
+  const draft = d.clocks.wall + 1000
+  d.forge.pulls[0]!.reviews = [{ id: 101, commit_id: sha('c'), body: '@dex please add a test', state: 'PENDING', submitted_at: null, user: ME }]
+  d.forge.pulls[0]!.reviewComments = [{ id: 201, review: 101, body: '@dex also check the retry', created: draft, updated: draft, user: ME }]
+  d.clocks.advance(60_000); await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).threads[0]!.resumes, 0)
+  const submitted = d.clocks.wall + 1000
+  d.forge.pulls[0]!.reviews![0] = { ...d.forge.pulls[0]!.reviews![0]!, state: 'COMMENTED', submitted_at: new Date(submitted).toISOString() }
+  d.forge.pulls[0]!.updated = submitted
+  d.clocks.advance(60_000); await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).threads[0]!.resumes, 2, 'the submitted review and its drafted inline comment are each delivered')
+})
+
+test('linked review progress survives a Host restart without resuming twice', E2E, async t => {
+  const d = await desk(t); await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const [first] = (await history(d)).items; d.links.set(first!.goal!, [5])
+  d.forge.pulls.push({ number: 5, head: sha('c'), state: 'open', created: d.clocks.wall, updated: d.clocks.wall })
+  d.clocks.advance(10 * 60_000); await d.host.intakePlane.tick()
+  const at = d.clocks.wall + 1000
+  d.forge.pulls[0]!.reviews = [{ id: 101, commit_id: sha('c'), body: '@dex please add a test', state: 'COMMENTED', submitted_at: new Date(at).toISOString(), user: ME }]
+  d.forge.pulls[0]!.updated = at
+  d.clocks.advance(60_000); await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).threads[0]!.resumes, 1)
+  await d.host.intakePlane.deskPosted({ kind: 'comment', action: 'posted', repo: 'acme/widgets', number: 5,
+    url: 'https://github.com/acme/widgets/pull/5#discussion_r201', title: null, state: null, author: null,
+    additions: null, deletions: null, files: null, excerpt: null, via: 'gh', signature: null })
+  const pulls = structuredClone(d.forge.pulls)
+  await d.stop()
+  const restored = await desk(t, ASK(), { stateDir: d.stateDir, repo: d.repo, clocks: d.clocks, arm: false })
+  restored.forge.pulls = pulls
+  restored.clocks.advance(60_000); await restored.host.intakePlane.tick()
+  assert.equal((await decisions(restored)).threads[0]!.resumes, 1, 'a replayed review does not resume twice')
+  // The fixture's counter restarts at one; a real runtime mints a fresh ID
+  // rather than reusing the prior process's conversation ID.
+  assert.ok(restored.runtime instanceof HoldFake)
+  restored.runtime.reuseId = 'synthetic-restart-session'
+  const selfAt = restored.clocks.wall + 1000
+  restored.forge.pulls[0]!.reviews!.push({ id: 102, commit_id: sha('c'), body: '', state: 'COMMENTED', submitted_at: new Date(selfAt).toISOString(), user: ME })
+  restored.forge.pulls[0]!.reviewComments = [{ id: 201, review: 102, body: '@dex stop', created: selfAt, updated: selfAt, user: ME }]
+  restored.clocks.advance(60_000); await restored.host.intakePlane.tick()
+  assert.equal((await decisions(restored)).threads[0]!.resumes, 1)
+  assert.equal((await decisions(restored)).threads[0]!.state, 'open', 'a remembered desk inline stop cannot stop its own thread after restart')
+  const next = restored.clocks.wall + 1000
+  restored.forge.pulls[0]!.reviews!.push({ id: 103, commit_id: sha('c'), body: '@dex also check the retry', state: 'COMMENTED', submitted_at: new Date(next).toISOString(), user: ME })
+  restored.forge.pulls[0]!.updated = next
+  restored.clocks.advance(60_000); await restored.host.intakePlane.tick()
+  assert.equal((await decisions(restored)).threads[0]!.resumes, 2, 'later reviews still resume after restart')
+  for (const run of new Set((await history(restored)).items.flatMap(item => item.run ? [item.run] : []))) {
+    await restored.host.flowsPlane.stopRun(run, 'The test is finished.')
+  }
+})
+
+for (const kind of ['review', 'inline'] as const) test(`an addressed ${kind} stop closes the linked work with a durable unconfirmed intent`, E2E, async t => {
+  const d = await desk(t); await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  const [first] = (await history(d)).items; d.links.set(first!.goal!, [5])
+  d.forge.pulls.push({ number: 5, head: sha('c'), state: 'open', created: d.clocks.wall, updated: d.clocks.wall })
+  d.forge.issues.push({ number: 5, state: 'open', created: d.clocks.wall, updated: d.clocks.wall, events: [], comments: [], pullRequest: true })
+  d.clocks.advance(10 * 60_000); await d.host.intakePlane.tick()
+  const at = d.clocks.wall + 1000
+  d.forge.pulls[0]!.reviews = [{ id: 101, commit_id: sha('c'), body: kind === 'review' ? '@dex stop' : '', state: 'COMMENTED', submitted_at: new Date(at).toISOString(), user: ME }]
+  if (kind === 'inline') d.forge.pulls[0]!.reviewComments = [{ id: 201, review: 101, body: '@dex stop', created: at, updated: at, user: ME }]
+  d.forge.pulls[0]!.updated = at
+  d.clocks.advance(60_000); await d.host.intakePlane.tick()
+  const page = await decisions(d), stopped = page.unconfirmedStops?.[0]
+  assert.equal(stopped?.state, 'unconfirmed')
+  assert.equal(stopped?.progress.runsMarkedStopped, 1)
+  assert.equal(page.decisions.some(one => one.decision === 'stop'), false)
+  assert.deepEqual([page.threads[0]!.state, page.threads[0]!.closed?.reason], ['closed', 'stopped'])
+  await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).unconfirmedStops?.length, 1, 'redelivery does not repeat the stop')
 })
 
 test('"@dex stop" from someone allowed stops the thread’s work and closes it, by rule', E2E, async (t) => {
@@ -814,6 +952,29 @@ for (const closedBy of ['issue', 'linked pull request'] as const) test(`#2070 R1
   assert.equal(after.threads.length, 256, 'the history remains bounded')
   assert.ok(!after.threads.some(one => one.firings.includes(firing)), 'normal history trimming evicted the old open thread')
   assert.ok(after.pendingThreads.some(one => one.firings.includes(firing)), 'only pending authority retains the evicted firing')
+  let linkedFirings: string[] = []
+  if (closedBy === 'linked pull request') {
+    const at = restarted.clocks.wall + 1000
+    restarted.forge.pulls[0]!.reviews = [{ id: 9901, commit_id: sha('c'), body: '@dex please add a regression', state: 'COMMENTED', submitted_at: new Date(at).toISOString(), user: ME }]
+    restarted.clocks.advance(60_000)
+    await restarted.host.intakePlane.tick()
+    const updated = await until(async () => {
+      const saved = JSON.parse(await readFile(file, 'utf8')) as { threads: { firings: string[] }[]; pendingThreads: { firings: string[]; resumes: number }[] }
+      return saved.pendingThreads.some(one => one.firings.includes(firing) && one.resumes === 1) ? saved : null
+    }, 'the pending-only review admission is recorded')
+    const anchor = updated.pendingThreads.find(one => one.firings.includes(firing))!
+    assert.ok(anchor.firings.length >= 2, 'the new firing is associated with the retained lifetime')
+    assert.ok(!updated.threads.some(one => one.firings.includes(firing)), 'review discovery does not restore an evicted visible row')
+    const collision = updated.threads.find((one: any) => one.origin?.kind === 'issue' && one.origin.number === 5) as any
+    assert.equal(collision?.resumes, 0, 'the issue with the same number was not resumed by the PR review')
+    await say(restarted, 5, '@dex also check the pull request discussion', ME, true)
+    const discussion = await until(async () => {
+      const saved = JSON.parse(await readFile(file, 'utf8')) as { pendingThreads: { firings: string[]; resumes: number }[] }
+      return saved.pendingThreads.find(one => one.firings.includes(firing) && one.resumes === 2) ?? null
+    }, 'a pull request conversation comment joins the same pending thread')
+    assert.ok(discussion.firings.length >= 3)
+    linkedFirings = discussion.firings
+  }
   if (closedBy === 'issue') {
     // Drop the original decision as if 500 newer ones had filled its public
     // history. The retained thread's own seen IDs still dedupe redelivery.
@@ -845,6 +1006,7 @@ for (const closedBy of ['issue', 'linked pull request'] as const) test(`#2070 R1
   busy = false
   await restarted.host.intakePlane.tick()
   assert.ok(!delivered.includes(`trigger-${firing}`), 'the evicted closed thread must not open a goal')
+  for (const key of linkedFirings) assert.ok(!delivered.includes(`trigger-${key}`), 'closure also fences the review and discussion firings')
   await until(async () => (await decisions(restarted)).decisions.some(one => /firing was refused.*closed/i.test(one.reason)) ? true : null, 'the refusal is recorded')
   await until(async () => {
     const saved = JSON.parse(await readFile(file, 'utf8')) as { pendingThreads: { firings: string[] }[] }
@@ -1015,7 +1177,7 @@ test('#2070: resumed work on an evicted pending thread attaches its new goal and
   const home = tempDir('hd-intake-pending-resume-')
   const first = 'a'.repeat(64), resumed = 'b'.repeat(64)
   const thread = { id: 'w-pending', trigger: 'ask', project: '/fixture', repository: 'acme/widgets',
-    origin: { kind: 'issue' as const, number: 1 }, links: { issues: [1], pulls: [], goals: ['goal-first'] }, state: 'open', closed: null,
+    origin: { kind: 'issue' as const, number: 1 }, links: { issues: [1], pulls: [5], goals: ['goal-first'] }, state: 'open', closed: null,
     resumes: 0, observations: 0, openedAt: 0, firings: [first], pendingFirings: [first], seen: [], workItem: 'work-fixture' }
   await writeFile(join(home, LEDGER), JSON.stringify({ version: 1, decisions: [], threads: [], pendingThreads: [thread], modes: {}, assessed: { day: '', count: 0 } }))
   const pending = new Set([first]), attachments: string[][] = []
@@ -1030,6 +1192,10 @@ test('#2070: resumed work on an evicted pending thread attaches its new goal and
     at: 1000, author: '7', login: 'jane-doe', body: '@dex please fix the docs too', url: 'https://github.com/acme/widgets/issues/1#issuecomment-9001' }
   const triage = new MentionTriage(port)
   await triage.setMode(arm, 'act')
+  await triage.judge(arm, { ...fact, subject: '5', thread: 'pull-request', at: 0,
+    url: 'https://github.com/acme/widgets/pull/5#pullrequestreview-50' }, async () => {
+    assert.fail('a review at or before this thread opened cannot authorize its work')
+  })
   await triage.judge(arm, fact, async () => { pending.add(resumed); return { outcome: 'fired', firing: resumed, goal: 'goal-resumed', reason: null } })
   const saved = JSON.parse(await readFile(join(home, LEDGER), 'utf8'))
   assert.deepEqual(saved.threads, [], 'resuming does not restore evicted display history')
@@ -1710,4 +1876,227 @@ test('#2065: unknown work activity never closes the issue thread', async () => {
     pullRequests: async () => [], closeThread: (close: () => Promise<void>) => close(), now: () => 1000, signal: new AbortController().signal, changed() {}, log() {} } as never)
   await triage.sweep()
   assert.equal((await triage.page('/fixture', 'ask', null)).threads[0]!.state, 'open')
+})
+
+test('baseline comment progress survives a Host restart without leaking cleanup', E2E, async t => {
+  const d = await desk(t); await act(d)
+  await say(d, 1, '@dex please fix the flaky test')
+  await say(d, 1, '@dex please add a test')
+  assert.equal((await decisions(d)).threads[0]!.resumes, 1)
+  const pulls = structuredClone(d.forge.pulls), issues = structuredClone(d.forge.issues)
+  await d.stop()
+  const restored = await desk(t, ASK(), { stateDir: d.stateDir, repo: d.repo, clocks: d.clocks, arm: false })
+  restored.forge.pulls = pulls; restored.forge.issues = issues
+  restored.clocks.advance(60_000); await restored.host.intakePlane.tick()
+  assert.equal((await decisions(restored)).threads[0]!.resumes, 1)
+  assert.ok(restored.runtime instanceof HoldFake)
+  restored.runtime.reuseId = 'synthetic-restart-session'
+  await say(restored, 1, '@dex also check the retry')
+  assert.equal((await decisions(restored)).threads[0]!.resumes, 2)
+  for (const run of new Set((await history(restored)).items.flatMap(item => item.run ? [item.run] : []))) {
+    await restored.host.flowsPlane.stopRun(run, 'The test is finished.')
+  }
+})
+
+test('a review between two linked thread openings resumes the eligible older thread', async () => {
+  const home = tempDir('hd-mention-review-open-order-')
+  const first = 'a'.repeat(64), second = 'b'.repeat(64), resumed = 'c'.repeat(64)
+  const thread = (id: string, openedAt: number, firing: string, issue: number) => ({ id, trigger: 'ask', project: '/fixture', repository: 'acme/widgets',
+    origin: { kind: 'issue' as const, number: issue }, links: { issues: [issue], pulls: [5], goals: [] }, state: 'open', closed: null,
+    resumes: 0, observations: 0, openedAt, firings: [firing], seen: [] })
+  await writeFile(join(home, LEDGER), JSON.stringify({ version: 1, decisions: [], threads: [thread('newer', 3000, first, 1), thread('older', 1000, second, 2)], pendingThreads: [], modes: {}, assessed: { day: '', count: 0 } }))
+  const pending = new Set([first, second])
+  const port = { home, forge: {}, assess: null, leadName: () => 'dex', pendingFirings: () => [...pending], knowsFirings: () => true,
+    observationWindowMs: 300_000, now: () => 4000, signal: new AbortController().signal, changed() {}, log() {} } as any
+  const arm = { project: '/fixture', id: 'ask', definition: parseTriggers(ASK()).definitions[0]!, baseline: 0, armedAt: 0,
+    binding: { project: '/fixture', incarnation: 'fixture', source: 'fixture', closure: 'fixture', account: '7', repository: 'acme/widgets' } }
+  const fact = { source: 'mention' as const, project: '/fixture', repository: 'acme/widgets', subject: '5', event: 'review', action: 'commented' as const,
+    thread: 'pull-request' as const, head: null, fork: false, title: '', trigger: null, at: 2000, author: '7', login: 'jane-doe',
+    body: '@dex please add a test', url: 'https://github.com/acme/widgets/pull/5#pullrequestreview-55' }
+  const triage = new MentionTriage(port)
+  await triage.setMode(arm, 'act')
+  let subject = ''
+  await triage.judge(arm, fact, async (_arm, input) => { subject = input.subject; pending.add(resumed); return { outcome: 'fired', firing: resumed, goal: null, reason: null } })
+  const saved = JSON.parse(await readFile(join(home, LEDGER), 'utf8')) as { threads: { id: string; resumes: number }[] }
+  assert.equal(subject, '2', 'the eligible older origin receives the review')
+  assert.equal(saved.threads.find(one => one.id === 'newer')?.resumes, 0)
+  assert.equal(saved.threads.find(one => one.id === 'older')?.resumes, 1)
+})
+
+for (const kind of ['review', 'inline'] as const) test(`a late-linked older Host thread receives its earlier ${kind} without replaying the newer thread`, E2E, async t => {
+  const d = await desk(t); await act(d)
+  await say(d, 1, '@dex work on the older issue')
+  const olderGoal = (await history(d)).items.find(one => one.subject === '1')?.goal ?? (await history(d)).items[0]!.goal!
+  const oldAt = d.clocks.wall + 1000
+  await say(d, 2, '@dex work on the newer issue')
+  const page = await decisions(d), older = page.threads.find(one => one.origin.number === 1)!, newer = page.threads.find(one => one.origin.number === 2)!
+  const newerGoal = newer.links.goals[0]!
+  assert.ok(oldAt > older.openedAt && oldAt <= newer.openedAt, 'review lies between the thread openings')
+  const recentAt = d.clocks.wall + 1000
+  d.links.set(newerGoal, [5])
+  d.forge.pulls.push({ number: 5, head: sha('c'), state: 'open', created: oldAt, updated: recentAt,
+    reviews: [
+      { id: 101, commit_id: sha('c'), body: kind === 'review' ? '@dex older request' : '', state: 'COMMENTED', submitted_at: new Date(oldAt).toISOString(), user: ME },
+      { id: 102, commit_id: sha('c'), body: '@dex newer request', state: 'COMMENTED', submitted_at: new Date(recentAt).toISOString(), user: ME },
+    ], reviewComments: kind === 'inline' ? [{ id: 201, review: 101, body: '@dex older inline', created: oldAt - 100, updated: oldAt - 100, user: ME }] : [] })
+  d.clocks.advance(10 * 60_000); await d.host.intakePlane.tick()
+  d.clocks.advance(60_000); await d.host.intakePlane.tick()
+  const before = await decisions(d)
+  assert.equal(before.threads.find(one => one.id === newer.id)?.resumes, 1, 'newer thread takes its own later review')
+  assert.equal(before.threads.find(one => one.id === older.id)?.resumes, 0)
+  d.links.set(olderGoal, [5])
+  d.clocks.advance(10 * 60_000); await d.host.intakePlane.tick()
+  d.clocks.advance(60_000); await d.host.intakePlane.tick()
+  const after = await decisions(d)
+  assert.equal(after.threads.find(one => one.id === older.id)?.resumes, 1, 'older linked thread receives its missed review')
+  assert.equal(after.threads.find(one => one.id === newer.id)?.resumes, 1, 'newer review does not replay')
+  d.clocks.advance(60_000); await d.host.intakePlane.tick()
+  const repeat = await decisions(d)
+  assert.equal(repeat.threads.find(one => one.id === older.id)?.resumes, 1)
+  assert.equal(repeat.threads.find(one => one.id === newer.id)?.resumes, 1)
+})
+
+for (const kind of ['review', 'inline'] as const) test(`a later-linked trigger receives its addressed ${kind} even when another thread already follows the pull`, E2E, async t => {
+  const d = await desk(t, TWO)
+  await act(d)
+  const preview = await d.host.call('trigger/preview', { root: d.repo.dir, id: 'triage' }) as TriggerArmPreview
+  await d.host.call('trigger/arm', { root: d.repo.dir, id: 'triage', token: preview.token! })
+  await d.host.call('trigger/mode', { root: d.repo.dir, id: 'triage', mode: 'act' })
+  await say(d, 1, '@fixer fix this')
+  const a = (await decisions(d)).threads[0]!
+  await say(d, 2, '@triager investigate this')
+  const getB = async () => (await d.host.call('trigger/decisions', { root: d.repo.dir, id: 'triage' }) as TriggerDecisionsPage).threads[0]!
+  const b = await getB()
+  d.links.set(a.links.goals[0]!, [5])
+  const at = d.clocks.wall + 1000
+  d.forge.pulls.push({ number: 5, head: sha('c'), state: 'open', created: at, updated: at,
+    reviews: [{ id: 801, commit_id: sha('c'), body: kind === 'review' ? '@triager please follow up' : '', state: 'COMMENTED', submitted_at: new Date(at).toISOString(), user: ME }],
+    reviewComments: kind === 'inline' ? [{ id: 802, review: 801, body: '@triager please follow up', created: at - 100, updated: at - 100, user: ME }] : [] })
+  d.clocks.advance(10 * 60_000); await d.host.intakePlane.tick()
+  d.clocks.advance(60_000); await d.host.intakePlane.tick()
+  assert.equal((await getB()).resumes, 0)
+  const aBefore = (await decisions(d)).threads.find(one => one.id === a.id)!
+  d.links.set(b.links.goals[0]!, [5])
+  d.clocks.advance(10 * 60_000); await d.host.intakePlane.tick()
+  d.clocks.advance(60_000); await d.host.intakePlane.tick()
+  assert.equal((await getB()).resumes, 1, 'new subscriber receives its missed addressed fact')
+  const aAfter = (await decisions(d)).threads.find(one => one.id === a.id)!
+  assert.equal(aAfter.resumes, aBefore.resumes)
+  assert.equal(aAfter.observations, aBefore.observations, 'existing subscriber is not re-offered historical fact')
+})
+
+test('a later-linked second thread of the same trigger does not duplicate an already handled review', E2E, async t => {
+  const d = await desk(t); await act(d)
+  await say(d, 1, '@dex work on the first issue')
+  await say(d, 2, '@dex work on the second issue')
+  const page = await decisions(d)
+  const a = page.threads.find(one => one.origin.number === 1)!, b = page.threads.find(one => one.origin.number === 2)!
+  d.links.set(a.links.goals[0]!, [5])
+  const at = d.clocks.wall + 1000
+  d.forge.pulls.push({ number: 5, head: sha('c'), state: 'open', created: at, updated: at,
+    reviews: [{ id: 811, commit_id: sha('c'), body: '@dex follow up', state: 'COMMENTED', submitted_at: new Date(at).toISOString(), user: ME }], reviewComments: [] })
+  d.clocks.advance(10 * 60_000); await d.host.intakePlane.tick()
+  d.clocks.advance(60_000); await d.host.intakePlane.tick()
+  const before = (await decisions(d)).threads.find(one => one.id === a.id)!
+  assert.equal(before.resumes, 1)
+  d.links.set(b.links.goals[0]!, [5])
+  d.clocks.advance(10 * 60_000); await d.host.intakePlane.tick()
+  d.clocks.advance(60_000); await d.host.intakePlane.tick()
+  const after = await decisions(d)
+  assert.equal(after.threads.find(one => one.id === b.id)?.resumes, 0)
+  assert.equal(after.threads.find(one => one.id === a.id)?.resumes, 1)
+})
+
+test('a late-linked trigger handles an addressed review stop once without stopping the other trigger', E2E, async t => {
+  const d = await desk(t, TWO, { lead: true }); await leadOn(t, d); await act(d)
+  const preview = await d.host.call('trigger/preview', { root: d.repo.dir, id: 'triage' }) as TriggerArmPreview
+  await d.host.call('trigger/arm', { root: d.repo.dir, id: 'triage', token: preview.token! })
+  await d.host.call('trigger/mode', { root: d.repo.dir, id: 'triage', mode: 'act' })
+  await say(d, 1, '@fixer fix the issue')
+  await say(d, 2, '@triager investigate the issue')
+  const a = (await decisions(d)).threads[0]!
+  const getB = async () => await d.host.call('trigger/decisions', { root: d.repo.dir, id: 'triage' }) as TriggerDecisionsPage
+  const b = (await getB()).threads[0]!
+  d.links.set(a.links.goals[0]!, [5])
+  const at = d.clocks.wall + 1000
+  d.forge.pulls.push({ number: 5, head: sha('c'), state: 'open', created: at, updated: at,
+    reviews: [{ id: 821, commit_id: sha('c'), body: '@triager stop', state: 'COMMENTED', submitted_at: new Date(at).toISOString(), user: ME }], reviewComments: [] })
+  d.clocks.advance(10 * 60_000); await d.host.intakePlane.tick()
+  d.clocks.advance(60_000); await d.host.intakePlane.tick()
+  d.links.set(b.links.goals[0]!, [5])
+  d.clocks.advance(10 * 60_000); await d.host.intakePlane.tick()
+  d.clocks.advance(60_000); await d.host.intakePlane.tick()
+  const stopped = await getB()
+  assert.equal(stopped.threads.find(one => one.id === b.id)?.state, 'closed')
+  assert.equal((await decisions(d)).threads.find(one => one.id === a.id)?.state, 'open')
+  const stopCount = (page: TriggerDecisionsPage) => page.decisions.filter(one => one.decision === 'stop').length + (page.unconfirmedStops?.length ?? 0)
+  assert.equal(stopCount(stopped), 1)
+  d.clocks.advance(60_000); await d.host.intakePlane.tick()
+  assert.equal(stopCount(await getB()), 1)
+})
+
+test('a corrupt intake cursor preserves its bytes while the Host remains usable', E2E, async t => {
+  const stateDir = tempDir('hd-intake-cursor-corrupt-host-'), file = join(stateDir, 'triggers-cursors.json'), corrupt = '{broken'
+  await writeFile(file, corrupt)
+  const d = await desk(t, ASK(), { stateDir, arm: false })
+  const preview = await d.host.call('trigger/preview', { root: d.repo.dir, id: 'ask' }) as TriggerArmPreview
+  assert.ok(preview.token, 'workspace and trigger preview remain usable')
+  await assert.rejects(d.host.call('trigger/arm', { root: d.repo.dir, id: 'ask', token: preview.token! }))
+  assert.equal(await readFile(file, 'utf8'), corrupt)
+  await d.stop()
+  assert.equal(await readFile(file, 'utf8'), corrupt, 'shutdown does not overwrite unreadable coverage')
+})
+
+test('a historical route cannot attach to a replacement thread incarnation', async () => {
+  const home = tempDir('hd-mention-route-generation-'), firing = 'a'.repeat(64)
+  const incarnation = '22222222-2222-2222-2222-222222222222'
+  const thread = { id: 'w-same', incarnation, trigger: 'ask', project: '/fixture', repository: 'acme/widgets',
+    origin: { kind: 'issue' as const, number: 1 }, links: { issues: [1], pulls: [5], goals: [] }, state: 'open', closed: null,
+    resumes: 0, observations: 0, openedAt: 1000, firings: [firing], seen: [] }
+  await writeFile(join(home, LEDGER), JSON.stringify({ version: 1, decisions: [], threads: [thread], pendingThreads: [], modes: {}, assessed: { day: '', count: 0 } }))
+  const triage = new MentionTriage({ home, forge: {}, assess: null, leadName: () => 'dex', pendingFirings: () => [firing], knowsFirings: () => true,
+    observationWindowMs: 300_000, now: () => 4000, signal: new AbortController().signal, changed() {}, log() {} } as never)
+  const arm = { project: '/fixture', id: 'ask', definition: parseTriggers(ASK()).definitions[0]!, baseline: 0, armedAt: 0,
+    binding: { project: '/fixture', incarnation: 'fixture', source: 'fixture', closure: 'fixture', account: '7', repository: 'acme/widgets' } }
+  const fact = { source: 'mention' as const, project: '/fixture', repository: 'acme/widgets', subject: '5', event: 'review', action: 'commented' as const,
+    thread: 'pull-request' as const, head: null, fork: false, title: '', trigger: null, at: 2000, author: '7', login: 'jane-doe',
+    body: '@dex please add a test', url: 'https://github.com/acme/widgets/pull/5#pullrequestreview-55' }
+  await triage.setMode(arm, 'act')
+  let offered = 0
+  const admit = async () => { offered++; return { outcome: 'fired' as const, firing: 'c'.repeat(64), goal: null, reason: null } }
+  await assert.rejects(triage.judge(arm, fact, admit, { id: 'w-same', trigger: 'ask', since: 1000, incarnation: '11111111-1111-1111-1111-111111111111' }), /thread changed/ )
+  assert.equal(offered, 0, 'a late route cannot authorize a replacement with the same ID and opening time')
+  await triage.judge(arm, fact, admit, { id: 'w-same', trigger: 'ask', since: 1000, incarnation })
+  assert.equal(offered, 1)
+  assert.equal('incarnation' in (await triage.page('/fixture', 'ask', null)).threads[0]!, false, 'internal incarnation stays out of the public thread')
+})
+
+test('a same-trigger thread linked after an unobserved interval receives that review', E2E, async t => {
+  const d = await desk(t, TWO.replace('handle: fixer\n', 'handle: fixer\n  concurrency: 4\n')); await act(d)
+  const preview = await d.host.call('trigger/preview', { root: d.repo.dir, id: 'triage' }) as TriggerArmPreview
+  await d.host.call('trigger/arm', { root: d.repo.dir, id: 'triage', token: preview.token! })
+  await d.host.call('trigger/mode', { root: d.repo.dir, id: 'triage', mode: 'act' })
+  await say(d, 1, '@fixer fix the first')
+  await say(d, 2, '@fixer fix the second')
+  await say(d, 3, '@triager investigate')
+  const page = await decisions(d), a = page.threads.find(one => one.origin.number === 1)!, b = page.threads.find(one => one.origin.number === 2)!
+  const c = (await d.host.call('trigger/decisions', { root: d.repo.dir, id: 'triage' }) as TriggerDecisionsPage).threads[0]!
+  d.links.set(a.links.goals[0]!, [5]); d.links.set(c.links.goals[0]!, [5])
+  const initialAt = d.clocks.wall + 1000
+  d.forge.pulls.push({ number: 5, head: sha('c'), state: 'open', created: initialAt, updated: initialAt, reviews: [], reviewComments: [] })
+  d.clocks.advance(10 * 60_000); await d.host.intakePlane.tick()
+  await say(d, 1, '@fixer stop')
+  assert.equal((await decisions(d)).threads.find(one => one.id === a.id)?.state, 'closed')
+  d.clocks.advance(10 * 60_000); await d.host.intakePlane.tick()
+  const at = d.clocks.wall + 1000, pull = d.forge.pulls[0]!
+  pull.updated = at
+  pull.reviews = [{ id: 911, commit_id: sha('c'), body: '@fixer please follow up', state: 'COMMENTED', submitted_at: new Date(at).toISOString(), user: ME }]
+  d.clocks.advance(60_000); await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).threads.find(one => one.id === a.id)?.resumes, 0)
+  d.links.set(b.links.goals[0]!, [5])
+  d.clocks.advance(10 * 60_000); await d.host.intakePlane.tick()
+  d.clocks.advance(60_000); await d.host.intakePlane.tick()
+  const after = await decisions(d)
+  assert.equal(after.threads.find(one => one.id === b.id)?.resumes, 1)
+  assert.equal(after.threads.find(one => one.id === a.id)?.resumes, 0)
 })

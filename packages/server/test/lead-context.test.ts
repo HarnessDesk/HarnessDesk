@@ -1129,10 +1129,10 @@ test('a stored conversation read back for a smaller frame keeps the checkpoint a
 })
 
 test('a conversation whose latest turn alone is past the hard line keeps the smallest tail once, then stops compacting and says so', async t => {
-  const s = await bareStore(t, 8_000)
+  const s = await bareStore(t, 4_000)
   await s.feed(6, 800)
-  // One person message larger than the line by itself.
-  await s.feed(1, 26_000, 6)
+  // One parser-valid person message larger than the line by itself.
+  await s.feed(1, 16_000, 6)
   assert.equal(s.store.due(), 'hard')
   assert.equal(await s.store.compact('hard', s.written('None.')), 'applied')
   assert.equal(s.store.facts().full, true)
@@ -1818,4 +1818,157 @@ test('a protection failure while isolating a rejected block commits no partial r
   assert.equal(await readFile(join(home, 'context.jsonl'), 'utf8'), before)
   assert.deepEqual(records, beforeRecords)
   assert.ok(JSON.stringify(store.turns).includes(key))
+})
+
+test('#2126: refuses an unrepresentable journal backlog without changing context', async t => {
+  for (const seeded of [false, true]) {
+    const home = await directory(t)
+    const { journal, records } = await journalOver()
+    if (seeded) await journal.appendMessage('seed', 'Existing conversation.', 'person')
+    const options = { directory: home, journal, model: MODEL, now: () => 1000, nextId: () => 'checkpoint-overflow', window: 200_000 }
+    const store = await LeadContextStore.open(options)
+    for (let n = 0; n < 20; n++) {
+      await journal.appendMessage(`wake-${n}`, `Wake ${n}`, 'schedule', undefined, { kind: 'reminder', reminder: `remind-${n}`, text: `Reminder ${n}` })
+      await journal.appendReply(`Reminder ${n}`, undefined, undefined, undefined, `remind-${n}`)
+    }
+    const ids: string[] = []
+    for (let n = 0; n < 90; n++) ids.push((await journal.appendMessage(`person-${n}`, `Person ${n}`, 'person')).messageId)
+    const path = join(home, 'context.jsonl'), before = await readFile(path, 'utf8'), turns = structuredClone(store.turns)
+    await assert.rejects(store.request(), /lead-messages-invalid/)
+    assert.equal(await readFile(path, 'utf8'), before)
+    assert.deepEqual(store.turns, turns)
+    const reopenedJournal = (await journalOver(records)).journal
+    assert.ok(ids.every(id => reopenedJournal.state.messages.some(message => message.id === id)))
+    const reopened = await LeadContextStore.open({ ...options, journal: reopenedJournal })
+    assert.equal(await readFile(path, 'utf8'), before)
+    await assert.rejects(reopened.request(), /lead-messages-invalid/)
+    assert.equal(await readFile(path, 'utf8'), before)
+  }
+})
+
+test('#2126: record refuses a 65th joined block without changing valid context', async t => {
+  const home = await directory(t), { journal } = await journalOver()
+  const options = { directory: home, journal, model: MODEL, now: () => 1000, nextId: () => 'boundary', window: 200_000 }
+  const store = await LeadContextStore.open(options)
+  await store.record({ epoch: store.epoch, base: 0, extend: [], turns: [{ role: 'user', content: Array.from({ length: 64 }, (_, i) => text(`block ${i}`)) }], usage: null })
+  const path = join(home, 'context.jsonl'), before = await readFile(path, 'utf8'), turns = structuredClone(store.turns)
+  const tokens = store.tokens()
+  await assert.rejects(store.record({ epoch: store.epoch, base: 1, extend: [text('one too many')], turns: [], usage: { input: 9000, cacheRead: 100, cacheWrite: 100 } }), /lead-messages-invalid/)
+  assert.equal(store.tokens(), tokens, 'refused usage does not alter overhead')
+  assert.deepEqual(store.turns, turns)
+  assert.equal(await readFile(path, 'utf8'), before)
+  const reopened = await LeadContextStore.open(options)
+  assert.deepEqual(reopened.turns, turns)
+})
+
+test('#2126: settlement refuses an unrepresentable answered backlog without storing its IDs', async t => {
+  const home = await directory(t), { journal, records } = await journalOver()
+  await journal.appendMessage('seed', 'Seed.', 'person')
+  const options = { directory: home, journal, model: MODEL, now: () => 1000, nextId: () => 'settle-boundary', window: 200_000 }
+  const store = await LeadContextStore.open(options), ids: string[] = []
+  for (let n = 0; n < 33; n++) ids.push((await journal.appendMessage(`person-${n}`, `Person ${n}`, 'person')).messageId)
+  await journal.appendModelReply('Answered.')
+  const path = join(home, 'context.jsonl'), before = await readFile(path, 'utf8'), turns = structuredClone(store.turns)
+  await assert.rejects(store.settle(ids), /lead-messages-invalid/)
+  assert.deepEqual(store.turns, turns)
+  assert.equal(await readFile(path, 'utf8'), before)
+  const reopenedJournal = (await journalOver(records)).journal
+  assert.ok(ids.every(id => reopenedJournal.state.messages.some(message => message.id === id)))
+  const reopened = await LeadContextStore.open({ ...options, journal: reopenedJournal })
+  assert.deepEqual(reopened.turns, turns)
+  assert.equal(await readFile(path, 'utf8'), before)
+})
+
+test('#2126: a pending tool continuation remains representable', async t => {
+  const home = await directory(t), { journal } = await journalOver()
+  const options = { directory: home, journal, model: MODEL, now: () => 1000, nextId: () => 'tool-boundary', window: 200_000 }
+  const store = await LeadContextStore.open(options)
+  await store.record({ epoch: store.epoch, base: 0, extend: [], usage: null, turns: [
+    { role: 'user', content: [text('Read the desk.')] },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'call-1', name: 'chat_list', input: {} }] },
+  ] })
+  const reopened = await LeadContextStore.open(options)
+  assert.deepEqual(reopened.turns, store.turns)
+  assert.deepEqual(lead.parseLeadContextTurns(reopened.turns).pending, ['call-1'])
+  const otherHome = await directory(t)
+  const completeOptions = { ...options, directory: otherHome }
+  const complete = await LeadContextStore.open(completeOptions)
+  await complete.record({ epoch: complete.epoch, base: 0, extend: [], usage: null, turns: [
+    { role: 'user', content: [text('Read the desk.')] },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'call-2', name: 'chat_list', input: {} }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call-2', content: 'Two chats.', is_error: false }] },
+  ] })
+  const completedReopen = await LeadContextStore.open(completeOptions)
+  assert.deepEqual(completedReopen.turns, complete.turns)
+  assert.deepEqual(lead.parseLeadContextTurns(completedReopen.turns).pending, [])
+})
+
+test('#2126: an unrepresentable journal seed cannot write or replace a context snapshot', async t => {
+  for (const existing of [false, true]) {
+    const home = await directory(t), { journal } = await journalOver()
+    const options = { directory: home, journal, model: MODEL, now: () => 1000, nextId: () => 'seed-boundary', window: 200_000 }
+    const path = join(home, 'context.jsonl')
+    let before: string | null = null
+    if (existing) {
+      await LeadContextStore.open(options)
+      const lines = (await readFile(path, 'utf8')).split('\n')
+      lines[0] = JSON.stringify({ ...JSON.parse(lines[0]!), epoch: 99 })
+      before = lines.join('\n')
+      await writeFile(path, before)
+    }
+    for (let n = 0; n < 20; n++) {
+      await journal.appendMessage(`wake-${n}`, `Wake ${n}`, 'schedule', undefined, { kind: 'reminder', reminder: `remind-${n}`, text: `Reminder ${n}` })
+      await journal.appendReply(`Reminder ${n}`, undefined, undefined, undefined, `remind-${n}`)
+    }
+    const ids: string[] = []
+    for (let n = 0; n < 90; n++) ids.push((await journal.appendMessage(`person-${n}`, `Person ${n}`, 'person')).messageId)
+    await assert.rejects(LeadContextStore.open(options), /lead-messages-invalid/)
+    if (before === null) await assert.rejects(readFile(path, 'utf8'), { code: 'ENOENT' })
+    else assert.equal(await readFile(path, 'utf8'), before)
+    assert.ok(ids.every(id => journal.state.messages.some(message => message.id === id)))
+  }
+})
+
+test('#2126: seeding a missing context retains every unanswered wake and reminder past the history window', async t => {
+  const home = await directory(t), disk = await LeadFileJournal.open(home, 'seed-backlog')
+  t.after(() => disk.close())
+  const journal = await lead.createLeadJournal(disk), ids: string[] = []
+  for (let n = 0; n < 65; n++) {
+    ids.push((await journal.appendMessage(`wake-${n}`, `Wake ${n}`, 'schedule', undefined,
+      { kind: 'reminder', reminder: `remind-${n}`, text: `Reminder ${n}` })).messageId)
+    await journal.appendReply(`Reminder line ${n}`, undefined, undefined, undefined, `remind-${n}`)
+  }
+  assert.equal(journal.state.messages.length, 130)
+  assert.equal(journal.state.messages.filter(message => message.role === 'assistant' && message.reminded === undefined).length, 0)
+  const options = { directory: join(home, 'lead'), journal, model: MODEL, now: () => 1000, nextId: () => 'seed-backlog', window: 200_000 }
+  const store = await LeadContextStore.open(options)
+  const check = (turns: readonly lead.MessagesTurn[]) => {
+    const blocks = turns.flatMap(turn => turn.content.filter(block => block.type === 'text').map(block => block.text))
+    let previous = -1
+    for (let n = 0; n < ids.length; n++) {
+      const reference = blocks.findIndex((block, index) => index > previous && block === `${lead.LEAD_WAKE_REFERENCE}${ids[n]}`)
+      assert.ok(reference > previous, `wake ${n} reference missing or out of order`)
+      const reminder = blocks.findIndex((block, index) => index > reference && block === `Reminder line ${n}`)
+      assert.ok(reminder > reference, `reminder ${n} missing or out of order`)
+      previous = reminder
+    }
+    assert.doesNotThrow(() => lead.parseLeadContextTurns(turns))
+  }
+  check((await store.request()).messages)
+  await disk.close()
+  const reopenedDisk = await LeadFileJournal.open(home, 'seed-backlog'); t.after(() => reopenedDisk.close())
+  const reopenedJournal = await lead.createLeadJournal(reopenedDisk)
+  assert.ok(ids.every(id => reopenedJournal.state.messages.some(message => message.id === id)))
+  const reopened = await LeadContextStore.open({ ...options, journal: reopenedJournal })
+  check((await reopened.request()).messages)
+})
+
+test('#2126: seeding preserves the opening stub when the Lead spoke first', async t => {
+  const home = await directory(t), { journal } = await journalOver()
+  await journal.appendReply('The desk spoke first.')
+  const store = await LeadContextStore.open({ directory: home, journal, model: MODEL, now: () => 1000, nextId: () => 'seed-first', window: 200_000 })
+  assert.equal(store.turns[0]?.role, 'user')
+  assert.match(JSON.stringify(store.turns[0]), /Lead spoke first/)
+  assert.equal(store.turns[1]?.role, 'assistant')
+  assert.doesNotThrow(() => lead.parseLeadContextTurns(store.turns))
 })

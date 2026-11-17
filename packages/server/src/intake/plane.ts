@@ -68,11 +68,14 @@ const DESK_POSTS_FILE = 'triggers-desk-posts.json'
 const DESK_POSTS_LIMIT = 5000
 const ISSUE_COMMENT = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/(?:issues|pull)\/[1-9][0-9]{0,15}#issuecomment-([1-9][0-9]{0,18})$/
 const PR_REVIEW = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/pull\/[1-9][0-9]{0,15}#pullrequestreview-([1-9][0-9]{0,18})$/
+const PR_REVIEW_COMMENT = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/pull\/[1-9][0-9]{0,15}#discussion_r([1-9][0-9]{0,18})$/
 const postId = (url: string): { repository: string; id: string } | null => {
   const comment = ISSUE_COMMENT.exec(url)
   if (comment) return { repository: comment[1]!, id: comment[2]! }
   const review = PR_REVIEW.exec(url)
-  return review ? { repository: review[1]!, id: `review:${review[2]}` } : null
+  if (review) return { repository: review[1]!, id: `review:${review[2]}` }
+  const inline = PR_REVIEW_COMMENT.exec(url)
+  return inline ? { repository: inline[1]!, id: `review-comment:${inline[2]}` } : null
 }
 const METER_MS = 30_000
 /** How often open mention threads are followed to their pull requests' end. */
@@ -282,10 +285,10 @@ export class IntakePlane {
       armed: () => this.#consent.armed(),
       watches: () => this.#following?.watches() ?? [],
       deliver: (watch, batch) => this.#following?.deliver(watch, batch) ?? Promise.resolve(),
-      sources: intakeSources(this.#forge),
+      sources: intakeSources(this.#forge, (project, repository) => this.#mentions.linkedPulls(project, repository)),
       cursors: new SourceCursors(port.home),
-      offer: async (arm, fact, batch) => {
-        if (arm.definition.on.kind === 'mention') await this.#judge(arm, fact, batch)
+      offer: async (arm, fact, batch, route) => {
+        if (arm.definition.on.kind === 'mention') await this.#judge(arm, fact, batch, route)
         else await this.#offer(arm, fact, batch)
       },
       wall: () => port.now(),
@@ -676,11 +679,12 @@ export class IntakePlane {
    * nothing for this trigger. What it admits goes through the trigger's own
    * admission, exactly as any other firing.
    */
-  async #judge(arm: ArmedTrigger, fact: TriggerFact, batch?: object): Promise<void> {
+  async #judge(arm: ArmedTrigger, fact: TriggerFact, batch?: object, route?: import('./forge.js').MentionSubscriber): Promise<void> {
     if (this.#closed) throw new Error('The desk is closing.')
     if (this.#prefs.paused) throw new Error(PAUSED)
     if (fact.desk !== true && await this.#postedHere(fact)) fact = { ...fact, desk: true }
-    await this.#mentions.judge(arm, fact, (one, admitted) => this.#offer(one, admitted, batch))
+    if (route) fact = { ...fact, trigger: null }
+    await this.#mentions.judge(arm, fact, (one, admitted) => this.#offer(one, admitted, batch), route)
   }
 
   /**
@@ -708,7 +712,7 @@ export class IntakePlane {
       if (isMap(parsed) && parsed['version'] === 1 && isMap(parsed['comments'])) {
         // Whatever reads is kept; an entry that does not is dropped from memory, never from the file on its own.
         for (const [repository, ids] of Object.entries(parsed['comments'])) {
-          if (REPO.test(repository) && Array.isArray(ids)) posts.set(repository, ids.filter((one): one is string => typeof one === 'string' && /^(?:review:)?[1-9][0-9]{0,18}$/.test(one)).slice(-DESK_POSTS_LIMIT))
+          if (REPO.test(repository) && Array.isArray(ids)) posts.set(repository, ids.filter((one): one is string => typeof one === 'string' && /^(?:review:|review-comment:)?[1-9][0-9]{0,18}$/.test(one)).slice(-DESK_POSTS_LIMIT))
         }
       } else {
         this.#deskPostsUnreadable = 'it is not a record this desk wrote'

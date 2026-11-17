@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 
@@ -13,7 +13,7 @@ import { atomicJson, GOAL_DOCUMENT_LIMIT } from '../goals/store.js'
 import { leadContainsSecret } from '../lead/secrets.js'
 import type { OfferAnswer } from './admission.js'
 import type { ArmedTrigger } from './consent.js'
-import type { MentionThread } from './forge.js'
+import type { MentionThread, MentionPull, MentionSubscriber } from './forge.js'
 import { FIRING_LIMIT } from './store.js'
 
 /**
@@ -151,7 +151,14 @@ const allowedWords = (definition: TriggerDefinition): string => listWords([
   ...(definition.bots ?? []).map((bot) => `the bot ${bot}`),
 ])
 
-const commentId = (url: string): string => /#issuecomment-([1-9][0-9]{0,18})$/.exec(url)?.[1] ?? ''
+const commentId = (url: string): string => {
+  const comment = /#issuecomment-([1-9][0-9]{0,18})$/.exec(url)
+  if (comment) return comment[1]!
+  const review = /#pullrequestreview-([1-9][0-9]{0,18})$/.exec(url)
+  if (review) return `review:${review[1]}`
+  const inline = /#discussion_r([1-9][0-9]{0,18})$/.exec(url)
+  return inline ? `review-comment:${inline[1]}` : ''
+}
 
 /** The excerpt kept and shown: blank when the comment holds a credential, so it is never stored or sent to the phone. */
 const excerptOf = (body: string): string => {
@@ -167,6 +174,7 @@ const bodyDigest = (body: string): string => createHash('sha256').update(body).d
 // ------------------------------------------------------------------ ledger
 
 interface StoredThread extends TriggerWorkThread {
+  readonly incarnation?: string
   /** The issue is closed even when active work keeps the thread followable. */
   readonly issueClosed?: boolean
   /** Admission keys of every firing it took: what the Lead's own pull request is found by. */
@@ -286,7 +294,7 @@ const isStopIntent = (value: unknown): value is StopIntent => {
   if (!isMap(value) || !exactKeys(value, ['version', 'id', 'key', 'bodyDigest', 'threadId', 'thread', 'author', 'excerpt', 'url', 'createdAt', 'state', 'decisionId', 'goals', 'firings', 'queuedTargets', 'runTargets', 'interruptTargets', 'leadRunTargets', 'leadPlanTarget', 'receipts']) ||
     value.version !== 1 || !isMap(value.key) || !exactKeys(value.key, ['project', 'trigger', 'repository', 'comment']) ||
     !boundedText(value.key.project, 4096) || !boundedText(value.key.trigger, 256) || !boundedText(value.key.repository, 512) ||
-    typeof value.key.comment !== 'string' || !/^[1-9][0-9]{0,18}$/.test(value.key.comment) ||
+    typeof value.key.comment !== 'string' || !/^(?:review:|review-comment:)?[1-9][0-9]{0,18}$/.test(value.key.comment) ||
     value.key.repository !== value.key.repository.toLowerCase() || value.id !== stopId(value.key as unknown as StopIntent['key']) || typeof value.bodyDigest !== 'string' || !/^[0-9a-f]{64}$/.test(value.bodyDigest) ||
     !boundedText(value.threadId, 256) || !isMap(value.thread) || !exactKeys(value.thread, ['kind', 'number']) ||
     !['issue', 'pull-request'].includes(String(value.thread.kind)) || !Number.isSafeInteger(value.thread.number) || (value.thread.number as number) < 1 ||
@@ -359,6 +367,7 @@ const ledgerOf = (value: unknown): LedgerFile | null => {
     if (decision && (decision.decision !== 'stop' || decision.project !== stop.key.project || decision.trigger !== stop.key.trigger ||
       decision.repository.toLowerCase() !== stop.key.repository || decision.comment.id !== stop.key.comment)) return null
   }
+  if ([...value['threads'], ...(Array.isArray(value['pendingThreads']) ? value['pendingThreads'] : [])].some(one => isMap(one) && one['incarnation'] !== undefined && (typeof one['incarnation'] !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(one['incarnation'])))) return null
   const isThread = (one: unknown): one is StoredThread =>
     isMap(one) && typeof one['id'] === 'string' && isMap(one['links']) && Array.isArray(one['firings']) && Array.isArray(one['seen']) && isMap(one['origin'])
   if (value['threads'].some(one => isMap(one) && one['issueClosed'] !== undefined && typeof one['issueClosed'] !== 'boolean')) return null
@@ -431,6 +440,7 @@ export interface MentionPort {
     thread(project: string, repository: string, number: number, signal: AbortSignal): Promise<MentionThread>
     pullState(project: string, repository: string, number: number, signal: AbortSignal): Promise<'open' | 'merged' | 'closed'>
     comment(project: string, repository: string, id: number, signal: AbortSignal): Promise<TriggerFact>
+    mentionReview(project: string, repository: string, number: number, identity: string, signal: AbortSignal): Promise<TriggerFact>
   }
   /** The observer model; null when none can be asked on this desk. */
   readonly assess: MentionAssessor | null
@@ -892,6 +902,32 @@ export class MentionTriage {
     })
   }
 
+  /** Only open, already-linked pull requests can resume a mention thread. */
+  async linkedPulls(project: string, repository: string): Promise<readonly MentionPull[]> {
+    return this.#serial.run(async () => {
+      let ledger = await this.#read()
+      const ids = new Map<string, string>()
+      const assign = (thread: StoredThread): StoredThread => {
+        if (thread.incarnation) { ids.set(thread.id, thread.incarnation); return thread }
+        const incarnation = ids.get(thread.id) ?? randomUUID()
+        ids.set(thread.id, incarnation)
+        return { ...thread, incarnation }
+      }
+      if ([...ledger.threads, ...ledger.pendingThreads].some(one => !one.incarnation)) {
+        const threads = ledger.threads.map(assign)
+        const pendingThreads = ledger.pendingThreads.map(one => ({ ...assign(one), pendingFirings: one.pendingFirings }))
+        await this.#write({ ...ledger, threads, pendingThreads })
+        ledger = await this.#read()
+      }
+      const pulls: MentionPull[] = []
+      for (const thread of new Map([...ledger.pendingThreads, ...ledger.threads].map(one => [one.id, one])).values()) {
+        if (thread.state !== 'open' || thread.project !== project || thread.repository !== repository) continue
+        for (const number of thread.links.pulls) pulls.push({ number, since: thread.openedAt, subscriber: { id: thread.id, trigger: thread.trigger, since: thread.openedAt, incarnation: thread.incarnation! } })
+      }
+      return pulls
+    })
+  }
+
   // --------------------------------------------------------------- judge
 
   /**
@@ -900,7 +936,7 @@ export class MentionTriage {
    * throws — so the source keeps it and offers it again — when anything it
    * needs could not be read or admitted now.
    */
-  judge(arm: ArmedTrigger, fact: TriggerFact, admit: Admit): Promise<void> {
+  judge(arm: ArmedTrigger, fact: TriggerFact, admit: Admit, route?: MentionSubscriber): Promise<void> {
     return this.#serial.run(async () => {
       if (fact.desk === true || fact.source !== 'mention' || fact.project !== arm.project) return
       const id = commentId(fact.url ?? '')
@@ -917,14 +953,30 @@ export class MentionTriage {
       const retryingUnconfirmed = addressed && asksToStop(fact.body ?? '', handle)
       const repository = (fact.repository ?? '').toLowerCase()
       const boundRepository = (arm.binding.repository ?? '').toLowerCase()
-      const candidates = [...ledger.threads, ...ledger.pendingThreads].filter((one) => one.project === arm.project && one.trigger === arm.id &&
+      // Older persisted mention facts may predate the explicit thread kind.
+      // Recover it only from a confined URL for this exact repository and ID.
+      let kind = fact.thread
+      if (!kind && fact.url) {
+        try {
+          const url = new URL(fact.url)
+          if (url.origin === 'https://github.com') {
+            const path = url.pathname.toLowerCase()
+            if (path === `/${repository}/issues/${number}`) kind = 'issue'
+            else if (path === `/${repository}/pull/${number}`) kind = 'pull-request'
+          }
+        } catch { /* An invalid legacy URL cannot identify a linked thread. */ }
+      }
+      const review = id.startsWith('review:') || id.startsWith('review-comment:')
+      const candidates = [...ledger.threads, ...ledger.pendingThreads].filter((one) => (!route || (one.id === route.id && one.trigger === route.trigger && one.openedAt === route.since && one.incarnation === route.incarnation && one.state === 'open')) && one.project === arm.project && one.trigger === arm.id &&
         !!repository && typeof one.repository === 'string' && one.repository.toLowerCase() === repository && repository === boundRepository &&
-        (one.links.issues.includes(number) || one.links.pulls.includes(number)))
+        (kind === 'pull-request' ? one.links.pulls.includes(number) : kind === 'issue' && one.links.issues.includes(number)) &&
+        (!review || fact.at > one.openedAt))
       // An active lifecycle takes a new stop first. A closed protected thread
       // remains reachable for an explicit retry when no current work is open.
       const linked = candidates.find(one => one.state === 'open') ?? (retryingUnconfirmed ? candidates.find(one =>
         one.state === 'closed' && ledger.stopIntents.some(stop => stop.threadId === one.id && stop.state !== 'consumed' && stop.key.project === one.project &&
           stop.key.trigger === one.trigger && stop.key.repository === repository)) : undefined)
+      if (route && !linked) throw new Error('A targeted mention thread changed while its source was read.')
       if (linked) {
         if (linked.seen.includes(id)) return
         const allowed = await this.#allowed(arm, fact)
@@ -975,6 +1027,10 @@ export class MentionTriage {
         return
       }
 
+      // Reviews are followed only to resume already-linked work; they do not
+      // open an unrelated new mention thread.
+      if (review) return
+
       // Ordinary discussion on a thread no work follows: not a request, so no decision.
       if (!addressed) return
       const verdict = await this.#gate(arm, fact, handle)
@@ -1012,7 +1068,9 @@ export class MentionTriage {
       const before = snapshot.decisions.find((one) => one.id === decisionId && one.project === arm.project && one.trigger === arm.id)
       if (!before) throw Object.assign(new Error('There is no such decision on this trigger.'), { code: 'HD_TRIGGER_REFUSED' })
       if (before.closedFiring) throw Object.assign(new Error('This records a refused firing; it is not a comment to re-evaluate.'), { code: 'HD_TRIGGER_REFUSED' })
-      const fact = { ...await this.#port.forge.comment(arm.project, before.repository, Number(before.comment.id), this.#port.signal), project: arm.project }
+      const fact = { ...await (before.comment.id.startsWith('review:') || before.comment.id.startsWith('review-comment:')
+        ? this.#port.forge.mentionReview(arm.project, before.repository, before.thread.number, before.comment.id, this.#port.signal)
+        : this.#port.forge.comment(arm.project, before.repository, Number(before.comment.id), this.#port.signal)), project: arm.project }
       if (before.commentDigest !== undefined && bodyDigest(fact.body ?? '') !== before.commentDigest) throw Object.assign(new Error(EDITED), { code: 'HD_TRIGGER_REFUSED' })
       const handle = this.#handle(arm.definition)
       const verdict: Verdict = addressesHandle(fact.body ?? '', handle)
@@ -1233,7 +1291,7 @@ export class MentionTriage {
       origin: { kind, number },
       links: { issues: kind === 'issue' ? [number] : [], pulls: kind === 'pull-request' ? [number] : [], goals: answer.goal ? [answer.goal] : [] },
       state: 'open', closed: null, resumes: 0, observations: 0, openedAt: this.#port.now(),
-      firings: [answer.firing], seen: [comment], ...(fact.url ? { comment: fact.url } : {}),
+      incarnation: randomUUID(), firings: [answer.firing], seen: [comment], ...(fact.url ? { comment: fact.url } : {}),
     }
     const ledger = await this.#read()
     await this.#write({ ...ledger, threads: [...ledger.threads.filter((one) => one.id !== thread.id), thread] })
@@ -1287,6 +1345,6 @@ const publicDecision = (decision: StoredDecision): TriggerDecision => {
 }
 
 const publicThread = (thread: StoredThread): TriggerWorkThread => {
-  const { firings: _firings, seen: _seen, comment: _comment, workItem: _workItem, issueClosed: _issueClosed, ...rest } = thread
+  const { incarnation: _incarnation, firings: _firings, seen: _seen, comment: _comment, workItem: _workItem, issueClosed: _issueClosed, ...rest } = thread
   return rest
 }

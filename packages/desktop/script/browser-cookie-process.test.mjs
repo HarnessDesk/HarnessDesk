@@ -91,3 +91,29 @@ test('an owned helper ignoring TERM is killed, while the original leak still fai
   assert.equal(present(group), false)
   await assert.rejects(access(observed.profile), { code: 'ENOENT' })
 })
+
+test('a naturally exiting owned helper settles without a signal before profile removal', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-cookie-natural-'))
+  const exits = join(dir, 'exits.ndjson'), probes = join(dir, 'probes.ndjson'), signals = join(dir, 'signals.ndjson')
+  const helper = join(dir, 'helper.mjs'), child = join(dir, 'child.mjs'), wrapper = join(dir, 'wrapper.mjs'), preload = join(dir, 'probe.mjs')
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await writeFile(helper, `import {appendFileSync,existsSync} from 'node:fs';const gate=${JSON.stringify(dir)}+'/gate-'+process.env.HD_COOKIE_PHASE;const timer=setInterval(()=>{if(!existsSync(gate))return;clearInterval(timer);appendFileSync(${JSON.stringify(exits)},JSON.stringify({phase:process.env.HD_COOKIE_PHASE,profileExists:existsSync(process.env.HD_COOKIE_PROFILE),profile:process.env.HD_COOKIE_PROFILE})+'\\n');process.exit(0)},5);process.send('ready')\n`)
+  await writeFile(child, `import {spawn} from 'node:child_process';import {writeFileSync} from 'node:fs';writeFileSync(${JSON.stringify(dir)}+'/group-'+process.pid+'.json',JSON.stringify({phase:process.env.HD_COOKIE_PHASE}));const h=spawn(process.execPath,[${JSON.stringify(helper)}],{stdio:['ignore','ignore','ignore','ipc'],env:process.env});h.once('message',()=>process.exit(0))\n`)
+  await writeFile(preload, `import {appendFileSync,existsSync,readFileSync,writeFileSync} from 'node:fs';const original=process.kill.bind(process);process.kill=(pid,signal)=>{if(pid<0&&(signal==='SIGTERM'||signal==='SIGKILL'))appendFileSync(${JSON.stringify(signals)},JSON.stringify({pid,signal})+'\\n');const result=original(pid,signal);if(pid<0&&signal===0){let absent=false;try{original(-pid,0)}catch(error){if(error.code==='ESRCH')absent=true;else throw error}const path=${JSON.stringify(dir)}+'/group-'+(-pid)+'.json';if(absent&&existsSync(path)){const {phase}=JSON.parse(readFileSync(path,'utf8'));const gate=${JSON.stringify(dir)}+'/gate-'+phase;if(!existsSync(gate)){appendFileSync(${JSON.stringify(probes)},JSON.stringify({phase,groupPresent:true,leaderAbsent:true})+'\\n');writeFileSync(gate,'release')}}}return result}\n`)
+  await writeFile(wrapper, nodeFixture(await readFile(source, 'utf8'), child))
+  const running = spawn(process.execPath, [wrapper], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, TMPDIR: dir, NODE_OPTIONS: `--import=${preload}` } })
+  let output = ''; running.stdout.on('data', c => { output += c }); running.stderr.on('data', c => { output += c })
+  const result = await new Promise((resolve, reject) => { running.once('error', reject); running.once('close', (code, signal) => resolve({ code, signal })) })
+  const observed = (await readFile(probes, 'utf8')).trim().split('\n').map(JSON.parse)
+  console.log('Natural-helper real probe evidence:', JSON.stringify(observed))
+  assert.equal(result.code, 0, output)
+  await assert.rejects(access(signals), { code: 'ENOENT' }, 'the natural helper must not be signalled')
+  assert.deepEqual(observed, [
+    { phase: 'write', groupPresent: true, leaderAbsent: true },
+    { phase: 'read', groupPresent: true, leaderAbsent: true },
+  ])
+  const records = (await readFile(exits, 'utf8')).trim().split('\n').map(JSON.parse)
+  assert.deepEqual(records.map(one => one.phase), ['write', 'read'])
+  assert.ok(records.every(one => one.profileExists), 'the profile remains until each helper exits')
+  await assert.rejects(access(records[0].profile), { code: 'ENOENT' })
+})
