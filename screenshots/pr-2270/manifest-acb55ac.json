@@ -1,0 +1,124 @@
+{
+  "frames": [
+    {
+      "destination": "before/history-6353efb.png",
+      "sourceCommit": "6353efb1c5e216a47059ea9e523d5ca564a2211e",
+      "caption": "Before development baseline: stopped marker incorrectly closes the later turn",
+      "sha256": "8ecebcbc94179e9de1d7155661f411fa8f1b8bcd30f504ff3a3fcfad816111ea",
+      "bytes": 82263,
+      "dimensions": [
+        1280,
+        813
+      ],
+      "parentVisuallyReviewed": true
+    },
+    {
+      "destination": "after/history-acb55ac.png",
+      "sourceCommit": "acb55ac96fb3af9e39ef66ff00346c814d093ce4",
+      "caption": "After: stopped marker closes its original source turn",
+      "sha256": "905644d3d5075398a5875f2a857c3c77ace5f29cb905b08a21460766492594f9",
+      "bytes": 86707,
+      "dimensions": [
+        1280,
+        813
+      ],
+      "parentVisuallyReviewed": true
+    },
+    {
+      "destination": "before/capacity-6353efb.png",
+      "sourceCommit": "6353efb1c5e216a47059ea9e523d5ca564a2211e",
+      "caption": "Before development baseline: another carry-on decision opens at protected capacity",
+      "sha256": "63e28733b6106274e2813ab28c065de621eb176dd747c78a6067f0bf637f6ccd",
+      "bytes": 96132,
+      "dimensions": [
+        1280,
+        813
+      ],
+      "parentVisuallyReviewed": true
+    },
+    {
+      "destination": "after/capacity-acb55ac.png",
+      "sourceCommit": "acb55ac96fb3af9e39ef66ff00346c814d093ce4",
+      "caption": "After: Inbox explains the capacity pause; existing markers are kept",
+      "sha256": "679a977cc1045d344d98eb1dcf3e463d723014b8b1c445653ebf9632dbb29854",
+      "bytes": 100357,
+      "dimensions": [
+        1280,
+        813
+      ],
+      "parentVisuallyReviewed": true
+    },
+    {
+      "destination": "after/switched-acb55ac.png",
+      "sourceCommit": "acb55ac96fb3af9e39ef66ff00346c814d093ce4",
+      "caption": "After: switch marker opens the actual accepted continuation turn",
+      "sha256": "92ea9281d928cb82375000ae4b3b2be2695485d15564f9c9b05ac253e606f7be",
+      "bytes": 90275,
+      "dimensions": [
+        1280,
+        813
+      ],
+      "parentVisuallyReviewed": true
+    },
+    {
+      "destination": "before/owner-opens-589a449.png",
+      "sourceCommit": "589a4493ea1661dafe669c96f9a786bad5fed191",
+      "caption": "Prior PR candidate: opening the target before its reply leaves no uncertainty prompt",
+      "sha256": "38595e120298bf634d6e7525315226a5c6e872040c1f407865b79471e39714b9",
+      "bytes": 87460,
+      "dimensions": [
+        1280,
+        813
+      ],
+      "parentVisuallyReviewed": true
+    },
+    {
+      "destination": "after/owner-opens-acb55ac.png",
+      "sourceCommit": "acb55ac96fb3af9e39ef66ff00346c814d093ce4",
+      "caption": "After: opening the target before its reply shows unconfirmed sending and preserves the marker",
+      "sha256": "b0968956e2baef89f2477f2fdf6614311fba59def3c7488d3e432fb7e2880e71",
+      "bytes": 100117,
+      "dimensions": [
+        1280,
+        813
+      ],
+      "parentVisuallyReviewed": true
+    },
+    {
+      "destination": "after/cancelled-acb55ac.png",
+      "sourceCommit": "acb55ac96fb3af9e39ef66ff00346c814d093ce4",
+      "caption": "Seeded display only: removed packet outcome uses factual historical wording",
+      "sha256": "8f23e7887328df5268ef913f7393772d33b3cbe05748f1ddd7ffb3215c131e79",
+      "bytes": 95285,
+      "dimensions": [
+        1280,
+        813
+      ],
+      "parentVisuallyReviewed": true
+    },
+    {
+      "destination": "before/protected-destination-33332d5.png",
+      "sourceCommit": "33332d57929c867d91f370dd7c4f93b01ea0ab4a",
+      "caption": "Prior PR candidate: protected target is resumed and sent to before the record collision refuses rekey",
+      "sha256": "b57e28802bbbf046bcc2e2d3e36d6c174d9d2b7a92eb4d12ea9392cd7ce176b7",
+      "bytes": 87141,
+      "dimensions": [
+        1280,
+        813
+      ],
+      "parentVisuallyReviewed": true
+    },
+    {
+      "destination": "after/protected-destination-acb55ac.png",
+      "sourceCommit": "acb55ac96fb3af9e39ef66ff00346c814d093ce4",
+      "caption": "After: protected destination refuses the switch before either conversation is moved",
+      "sha256": "b73f6f78292893f633ec3643bcd0cadb5dee93ed3a1e3e8e0fcef0fb4f3dc419",
+      "bytes": 101418,
+      "dimensions": [
+        1280,
+        813
+      ],
+      "parentVisuallyReviewed": true
+    }
+  ]
+}
