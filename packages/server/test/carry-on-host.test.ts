@@ -158,7 +158,7 @@ test('a sibling over the same store takes the thread over: the stuck account let
   const after = (await r.client.call('session/read', { runtime: SIBLING, sessionId: session.id })) as Session
   const switched = markers(after).find(one => one.phase === 'switched')
   assert.ok(switched, 'the marker is part of the conversation')
-  assert.deepEqual(after.turns.filter(turn => turn.items.some(item => item.id === switched.id)).map(turn => turn.id), ['fake-turn-1'], 'the original turn owns the marker despite later turns')
+  assert.deepEqual(after.turns.filter(turn => turn.items.some(item => item.id === switched.id)).map(turn => turn.id), ['accepted-continuation'], 'the accepted continuation owns the marker despite the unrelated earlier turn')
   assert.equal(switched.mode, 'sameThread')
   assert.equal(switched.to?.account, 'account 2', 'named by its ordinal, never an address')
   assert.equal(switched.link, undefined, 'a same-thread switch has nowhere else to point')
@@ -174,6 +174,10 @@ test('a sibling over the same store takes the thread over: the stuck account let
   assert.equal(incident.runtime, SIBLING, 'the incident follows the conversation')
   await r.client.until(() => r.client.notifications.some(message => 'method' in message && message.method === 'carryOn/changed' && message.params.key.runtime === SIBLING && message.params.key.sessionId === session.id && message.params.incident === null), 10_000, 'the switched marker to be durably cleared')
   assert.deepEqual(((await r.client.call('carryOn/list', {})) as { incidents: CarryOnIncidentView[] }).incidents, [], 'and nothing is left to answer')
+  r.sibling!.emit({ type: 'turn/started', sessionId: session.id, turn: { id: turnId('unrelated-later-turn'), status: 'inProgress', items: [] } })
+  const later = (await r.client.call('session/read', { runtime: SIBLING, sessionId: session.id })) as Session
+  assert.ok(later.turns.some(turn => turn.id === 'unrelated-later-turn'))
+  assert.deepEqual(later.turns.filter(turn => turn.items.some(item => item.id === switched.id)).map(turn => turn.id), ['accepted-continuation'], 'a later turn does not move the durable marker')
 })
 
 test('another agent is handed the conversation in one capped packet, with a link each way', async t => {

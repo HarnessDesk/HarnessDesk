@@ -1339,24 +1339,29 @@ for (const owner of ['chat', 'seat'] as const) test(`a ${owner} model lookup ove
   assert.equal(restart.list().length, 0)
 })
 
-for (const owner of ['chat', 'seat'] as const) for (const missing of [false, true]) test(`a ${owner} same-thread switch ${missing ? 'retains a missing original turn' : 'anchors to the original turn despite a later turn'}`, async t => {
+for (const owner of ['chat', 'seat'] as const) for (const scenario of ['all turns', 'missing original', 'missing accepted'] as const) test(`a ${owner} same-thread switch anchors to the accepted continuation with ${scenario}`, async t => {
   const seat = seatPorts()
   const r = await rig(t, { owner, ...(owner === 'seat' ? { seat: seat.ports } : {}) })
-  const written: string[] = []
+  const present = new Set(scenario === 'missing original' ? ['t2', 't3'] : scenario === 'missing accepted' ? ['t1', 't2'] : ['t1', 't2', 't3'])
+  const attempted: string[] = [], written: string[] = []
   const service = r.reopen({
-    send: async (_runtime, _id, _text, _kind, _fence, admitted, _seat, accepted) => { admitted?.(missing ? ['t2'] : ['t1', 't2']); accepted?.('t3', 'fixture-owner') },
-    record: (_runtime, _id, _item, turn) => { if (missing && turn === 't1') return false; written.push(turn); return true },
+    send: async (_runtime, _id, _text, _kind, _fence, admitted, _seat, accepted) => { admitted?.(scenario === 'missing original' ? ['t2'] : ['t1', 't2']); accepted?.('t3', 'fixture-owner') },
+    record: (_runtime, _id, _item, turn) => { attempted.push(turn); if (!present.has(turn)) return false; written.push(turn); return true },
   })
   t.after(() => service.close())
   await service.ended('codex', 's1', LIMIT)
   await service.idle()
+  present.add('t4') // A later unrelated turn never changes the accepted target.
+  await service.reachable('codex-2', 's1')
+  await service.idle()
   const saved = (await disk(r.file)).records[0]!
   assert.equal((saved['watch'] as { turnId: string }).turnId, 't3', 'watch uses the accepted continuation ID')
-  if (missing) {
-    assert.deepEqual(written, [], 'a missing source turn cannot be replaced with t2 or t3')
+  assert.ok(attempted.length > 0 && attempted.every(turn => turn === 't3'), `only the accepted continuation is addressed: ${attempted}`)
+  if (scenario === 'missing accepted') {
+    assert.deepEqual(written, [], 'a missing accepted turn cannot be replaced with t1, t2, or t4')
     const pending = saved['unwritten'] as { phase: string; anchor: unknown }[]
-    assert.deepEqual(pending.find(one => one.phase === 'switched')?.anchor, { kind: 'turn', turnId: 't1' })
-  } else assert.deepEqual(written, ['t1'], 'the original source turn owns the switched marker')
+    assert.deepEqual(pending.find(one => one.phase === 'switched')?.anchor, { kind: 'turn', turnId: 't3' })
+  } else assert.deepEqual(written, ['t3'], 'the accepted continuation owns the switched marker')
 })
 
 for (const owner of ['chat', 'seat'] as const) for (const timing of ['before', 'after'] as const) test(`a ${owner} queued handoff removed ${timing} settlement drops only its own prospective markers`, async t => {
