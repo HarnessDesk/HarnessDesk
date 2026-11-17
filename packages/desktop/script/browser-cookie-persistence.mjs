@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
+import { readdirSync, readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -15,6 +16,20 @@ const server = createServer((request, response) => {
   response.end(request.headers.cookie ?? '')
 })
 const fixture = fileURLToPath(new URL('./fixtures/browser-cookie-child.mjs', import.meta.url))
+// Diagnostic-only: inspect owned process group fields, never command lines or environment.
+const observeGroup = (pid, boundary) => {
+  const members = []; let unreadable = 0
+  for (const name of readdirSync('/proc')) {
+    if (!/^[0-9]+$/.test(name)) continue
+    try {
+      const stat = readFileSync(`/proc/${name}/stat`, 'utf8'), end = stat.lastIndexOf(')')
+      if (end < 0) { unreadable++; continue }
+      const fields = stat.slice(end + 2).split(' ')
+      if (Number(fields[2]) === pid) members.push({ pid: Number(name), ppid: Number(fields[1]), pgid: Number(fields[2]), state: fields[0], starttime: fields[19] })
+    } catch { unreadable++ }
+  }
+  console.error('HD_COOKIE_GROUP_DIAGNOSTIC '+JSON.stringify({ boundary, pgid: pid, monotonicNs: process.hrtime.bigint().toString(), members, unreadable }))
+}
 const groupPresent = pid => {
   try { process.kill(-pid, 0); return true } catch (error) { if (error.code === 'ESRCH') return false; throw error }
 }
@@ -29,6 +44,7 @@ const waitGone = async (pid, ms) => {
 const retireGroup = async pid => {
   if (!groupPresent(pid)) { ownedGroups.delete(pid); return }
   for (const [signal, ms] of [['SIGTERM', 2000], ['SIGKILL', 3000]]) {
+    observeGroup(pid, `before-${signal}`)
     try { process.kill(-pid, signal) } catch (error) { if (error.code !== 'ESRCH') throw error }
     if (await waitGone(pid, ms)) { ownedGroups.delete(pid); return }
   }
@@ -62,6 +78,7 @@ const phase = (name, url) => new Promise((resolve, reject) => {
   }, 30_000)
   child.once('error', error => { spawnError = error })
   child.once('close', async (code, signal) => {
+    if (child.pid) observeGroup(child.pid, `${name}-leader-close`)
     clearTimeout(timer)
     clearTimeout(watchdog)
     try {
