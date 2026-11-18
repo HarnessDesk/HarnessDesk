@@ -27,11 +27,13 @@ test('defaults off, durably reserves, and survives reopen without creating credi
   const held = await budget.view()
   assert.ok(held.reservedUsdMicros > 0)
   assert.ok((await readFile(f.file, 'utf8')).includes('first'))
+  await budget.close()
   const reopened = f.open(), state = await reopened.view()
-  assert.equal(state.reservedUsdMicros, held.reservedUsdMicros)
+  assert.equal(state.reservedUsdMicros, 0)
+  assert.equal(state.uncertainUsdMicros, held.reservedUsdMicros)
   assert.equal(await reopened.reserve('first', 1000, 200, model), null)
   await receipt.unknown()
-  await budget.storageIdle()
+  await reopened.close()
 })
 
 test('unknown settlement is idempotent and old pending holds carry over a day', async () => {
@@ -81,8 +83,11 @@ test('settlement remains idempotent across cap changes and reopening', async () 
   assert.equal(state.reservedUsdMicros, 0)
   assert.ok(state.spentUsdMicros > 0 && state.spentUsdMicros <= hold)
   await receipt.unknown()
-  assert.equal((await f.open().view()).spentUsdMicros, state.spentUsdMicros)
   assert.equal(await budget.reserve('other', 1000, 200, model), null)
+  await budget.close()
+  const reopened = f.open()
+  assert.equal((await reopened.view()).spentUsdMicros, state.spentUsdMicros)
+  await reopened.close()
 })
 
 test('unknown models, exhausted caps and failed durable writes never reserve', async () => {
@@ -129,8 +134,9 @@ test('full pending capacity refuses new reservations and retains all evidence', 
   const f = await fixture(), budget = f.open()
   await budget.configure(Number.MAX_SAFE_INTEGER)
   assert.ok(await budget.reserve('seed', 1000, 200, model))
+  await budget.close()
   const data = JSON.parse(await readFile(f.file, 'utf8'))
-  const seed = data.receipts[0]
+  const seed = { ...data.receipts[0], state: 'pending' }
   data.receipts = Array.from({ length: 1024 }, (_, i) => ({ ...seed, id: `pending-${i}` }))
   await writeFile(f.file, JSON.stringify(data))
   const reopened = f.open()
@@ -145,8 +151,87 @@ test('clock rollback after a persisted rollover cannot reopen an earlier allowan
   const current = await budget.reserve('next-day', 1000, 200, model)
   assert.ok(current)
   const day = (await budget.view()).day
+  await budget.close()
   f.advance(-2)
   const reopened = f.open(), state = await reopened.view()
   assert.equal(state.day, day)
-  assert.ok(state.reservedUsdMicros > 0)
+  assert.ok(state.uncertainUsdMicros > 0)
+  await reopened.close()
+})
+
+test('separate processes cannot reserve against the same budget concurrently', async t => {
+  const { spawn } = await import('node:child_process')
+  const { pathToFileURL } = await import('node:url')
+  const { resolve } = await import('node:path')
+  const f = await fixture(), initial = f.open()
+  await initial.configure(1000000)
+  await initial.close()
+  const moduleUrl = pathToFileURL(resolve('packages/server/dist/src/lead/mention-observer-budget.js')).href
+  const script = `const { MentionObserverBudget } = await import(process.argv[1]);
+    const budget = new MentionObserverBudget({ file: process.argv[2] });
+    const receipt = await budget.reserve(process.argv[3], 1000, 200, 'claude-haiku-5-5');
+    process.send({ accepted: !!receipt });
+    process.on('message', async () => { await budget.close(); process.exit(0) });`
+  const child = (id: string) => spawn(process.execPath, ['--input-type=module', '-e', script, moduleUrl, f.file, id], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] })
+  const message = (p: ReturnType<typeof spawn>): Promise<any> => new Promise((resolve, reject) => { p.once('message', resolve); p.once('error', reject); p.once('exit', code => reject(new Error(`child exited ${code}`))) })
+  const first = child('process-a'); t.after(() => { first.kill('SIGKILL') })
+  assert.equal((await message(first)).accepted, true)
+  const second = child('process-b'); t.after(() => { second.kill('SIGKILL') })
+  assert.equal((await message(second)).accepted, false)
+  first.send!('close'); second.send!('close')
+})
+
+test('same-process ownership refuses a second instance until close', async () => {
+  const f = await fixture(), first = f.open(), second = f.open()
+  await first.configure(1000000)
+  assert.ok(await first.reserve('owner', 1000, 200, model))
+  assert.ok((await second.view()).problem)
+  assert.equal(await second.reserve('other', 1000, 200, model), null)
+  const held = (await first.view()).reservedUsdMicros
+  await first.close()
+  const third = f.open(), recovered = await third.view()
+  assert.equal(recovered.reservedUsdMicros, 0)
+  assert.equal(recovered.uncertainUsdMicros, held)
+  assert.equal(await third.reserve('owner', 1000, 200, model), null)
+  await third.close(); await second.close()
+})
+
+test('a crashed process releases ownership and its pending hold becomes uncertain once', async t => {
+  const { spawn } = await import('node:child_process')
+  const { once } = await import('node:events')
+  const { pathToFileURL } = await import('node:url')
+  const { resolve } = await import('node:path')
+  const f = await fixture(), initial = f.open()
+  await initial.configure(1000000); await initial.close()
+  const moduleUrl = pathToFileURL(resolve('packages/server/dist/src/lead/mention-observer-budget.js')).href
+  const script = `const { MentionObserverBudget } = await import(process.argv[1]);
+    const budget = new MentionObserverBudget({ file: process.argv[2] });
+    const receipt = await budget.reserve('crashed', 1000, 200, 'claude-haiku-5-5');
+    const view = await budget.view(); process.send({ accepted: !!receipt, hold: view.reservedUsdMicros });
+    process.on('message', () => {});`
+  const child = spawn(process.execPath, ['--input-type=module', '-e', script, moduleUrl, f.file], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] })
+  t.after(() => { child.kill('SIGKILL') })
+  const [message] = await once(child, 'message') as [{ accepted: boolean; hold: number }]
+  assert.equal(message.accepted, true)
+  const exited = once(child, 'exit'); child.kill('SIGKILL'); await exited
+  const recovered = f.open(), first = await recovered.view()
+  assert.equal(first.reservedUsdMicros, 0)
+  assert.equal(first.uncertainUsdMicros, message.hold)
+  assert.equal(await recovered.reserve('crashed', 1000, 200, model), null)
+  await recovered.close()
+  const reopened = f.open(), again = await reopened.view()
+  assert.equal(again.uncertainUsdMicros, message.hold)
+  assert.equal(again.reservedUsdMicros, 0)
+  await reopened.close()
+})
+
+test('a symlinked coordination file refuses ownership and preserves its target', async () => {
+  const f = await fixture(), target = `${f.file}-target`
+  await writeFile(target, 'preserve')
+  await symlink(target, `${f.file}.lock.sqlite`)
+  const budget = f.open()
+  assert.ok((await budget.view()).problem)
+  await assert.rejects(budget.configure(1000000))
+  assert.equal(await readFile(target, 'utf8'), 'preserve')
+  await budget.close()
 })

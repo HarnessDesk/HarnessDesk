@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import { open } from 'node:fs/promises'
+import { lstat, mkdir, open, realpath } from 'node:fs/promises'
+import { basename, dirname, join, resolve } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { readBoundedJsonResult, writeAtomicJson } from './bounded-json.js'
 import { mentionPriceSchedule, priceMentionUsage, quoteMentionHold, type MentionPriceSchedule } from './mention-observer-pricing.js'
 import type { AssessCharge, AssessUsage } from '../intake/assess.js'
@@ -8,6 +10,7 @@ import type { AssessCharge, AssessUsage } from '../intake/assess.js'
 // 1,024 records, each with a 128-byte ASCII id, at most 1 KiB schedule and
 // bounded numeric/day fields, fit comfortably in 2 MiB. Both limits are
 // checked before each write; pending evidence is never evicted for space.
+const owners = new Set<string>()
 const MAX_RECORDS = 1024
 const MAX_BYTES = 2 * 1024 * 1024
 const MAX_SCHEDULE_BYTES = 1024
@@ -50,6 +53,9 @@ export class MentionObserverBudget {
   #diskDigest: string | null = null
   #queue: Promise<unknown> = Promise.resolve()
   #closed = false
+  #lease: DatabaseSync | null = null
+  #leaseIdentity: { dev: number; ino: number } | null = null
+  #ownerKey: string | null = null
   constructor(options: { file: string; now?: () => number; problem?: (message: string) => void }) {
     this.#file = options.file; this.#now = options.now ?? Date.now; this.#onProblem = options.problem
   }
@@ -65,17 +71,54 @@ export class MentionObserverBudget {
       try { const stat = await handle.stat(); if (!stat.isFile() || stat.size > MAX_BYTES) throw bad(); const bytes = Buffer.alloc(MAX_BYTES + 1); let length = 0; while (length < bytes.length) { const part = await handle.read(bytes, length, bytes.length - length, length); if (part.bytesRead === 0) break; length += part.bytesRead }; if (length > MAX_BYTES) throw bad(); return bytes.subarray(0, length).toString('utf8') } finally { await handle.close() }
     } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null; throw e }
   }
+  async #acquire(): Promise<void> {
+    const requested = resolve(`${this.#file}.lock.sqlite`)
+    await mkdir(dirname(requested), { recursive: true, mode: 0o700 })
+    const file = join(await realpath(dirname(requested)), basename(requested))
+    if (owners.has(file)) throw bad()
+    owners.add(file); this.#ownerKey = file
+    // Never open and close a separate descriptor after acquiring SQLite's
+    // POSIX lock: doing so can release process-wide locks on the same inode.
+    try { const created = await open(file, constants.O_RDWR | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600); await created.close() }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error }
+    const before = await lstat(file)
+    if (!before.isFile() || before.nlink !== 1) throw bad()
+    const lease = new DatabaseSync(file)
+    try {
+      lease.exec('PRAGMA busy_timeout = 0; BEGIN IMMEDIATE')
+      const after = await lstat(file)
+      if (!after.isFile() || after.dev !== before.dev || after.ino !== before.ino || after.nlink !== 1) throw bad()
+      this.#lease = lease; this.#leaseIdentity = { dev: before.dev, ino: before.ino }
+    } catch (error) { try { lease.close() } catch {} ; throw error }
+  }
+  async #checkLease(): Promise<void> {
+    const stat = await lstat(`${this.#file}.lock.sqlite`)
+    if (!this.#lease || !this.#leaseIdentity || !stat.isFile() || stat.nlink !== 1 || stat.dev !== this.#leaseIdentity.dev || stat.ino !== this.#leaseIdentity.ino) throw bad()
+  }
+  #release(): void {
+    if (this.#lease) { try { this.#lease.exec('ROLLBACK') } catch {} ; try { this.#lease.close() } catch {} }
+    this.#lease = null; this.#leaseIdentity = null
+    if (this.#ownerKey) owners.delete(this.#ownerKey)
+    this.#ownerKey = null
+  }
   async #load(): Promise<void> {
-    if (this.#loaded) return
+    if (this.#loaded || this.#closed) return
     this.#loaded = true
     try {
+      await this.#acquire()
       const read = await readBoundedJsonResult(this.#file, MAX_BYTES)
       if (read.kind === 'missing') return
       if (read.kind !== 'value') throw bad()
       const bytes = await this.#readBytes()
       if (bytes === null) throw bad()
       this.#state = parse(JSON.parse(bytes)); this.#diskDigest = digest(bytes)
-    } catch { this.#fail() }
+      // Only this owner can observe these after acquiring the lease: the
+      // former owner is gone, so no pending effect may be resent or refunded.
+      if (this.#state.receipts.some(r => r.state === 'pending')) {
+        for (const r of this.#state.receipts) if (r.state === 'pending') { r.state = 'uncertain'; r.amount = r.hold }
+        await this.#save()
+      }
+    } catch { this.#fail(); this.#release() }
   }
   #roll(): void {
     const now = this.#now()
@@ -108,7 +151,9 @@ export class MentionObserverBudget {
     const serialized = JSON.stringify(this.#state)
     if (Buffer.byteLength(serialized) > MAX_BYTES || this.#state.receipts.length > MAX_RECORDS) { this.#fail(); throw bad() }
     try {
+      await this.#checkLease()
       await writeAtomicJson(this.#file, this.#state, async () => {
+        await this.#checkLease()
         const bytes = await this.#readBytes()
         if ((bytes === null ? null : digest(bytes)) !== this.#diskDigest) throw bad()
       })
@@ -156,5 +201,14 @@ export class MentionObserverBudget {
     await this.#save()
   }) }
   async storageIdle(): Promise<void> { await this.#queue }
-  async close(): Promise<void> { await this.#run(async () => { this.#closed = true }) }
+  async close(): Promise<void> { await this.#run(async () => {
+    if (this.#closed) return
+    this.#closed = true
+    try {
+      if (this.#loaded && !this.#fault && this.#state.receipts.some(r => r.state === 'pending')) {
+        for (const r of this.#state.receipts) if (r.state === 'pending') { r.state = 'uncertain'; r.amount = r.hold }
+        await this.#save()
+      }
+    } finally { this.#release() }
+  }) }
 }
