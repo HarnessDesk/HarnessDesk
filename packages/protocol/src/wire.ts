@@ -874,6 +874,8 @@ export interface HostMethods {
   'lead/card/decide': { params: LeadCardDecision; result: LeadWindowProjection }
   'lead/approval/revoke': { params: { readonly id: string; readonly contractDigest: string }; result: LeadWindowProjection }
   'lead/action/perform': { params: LeadActionInput; result: LeadWindowProjection }
+  'lead/mentionBudget/read': { params: Record<string, never>; result: MentionObserverBudgetView }
+  'lead/mentionBudget/configure': { params: { dailyCapUsdMicros: number }; result: MentionObserverBudgetView }
   'lead/settings/read': { params: Record<string, never>; result: LeadWindowProjection }
   'lead/settings/update': { params: LeadSettingsUpdate; result: LeadWindowProjection | LeadNameReceipt }
   'lead/stop': { params: { readonly expectedRevision: number }; result: LeadWindowProjection }
@@ -3379,3 +3381,15 @@ export const isNotification = (message: HostToClient): message is WireNotificati
 export const isResponse = (message: HostToClient): message is WireResponse =>
   typeof (message as WireResponse).id === 'number' &&
   typeof (message as WireNotification).method !== 'string'
+
+/** Independent daily funding for automatic mention assessments. */
+export interface MentionObserverBudgetView {
+  readonly dailyCapUsdMicros: number
+  readonly enabled: boolean
+  readonly day: string
+  readonly spentUsdMicros: number
+  readonly reservedUsdMicros: number
+  readonly uncertainUsdMicros: number
+  readonly remainingUsdMicros: number
+  readonly problem?: string
+}

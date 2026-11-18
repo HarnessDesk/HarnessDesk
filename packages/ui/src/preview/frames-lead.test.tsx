@@ -165,3 +165,35 @@ it('greets as Dex with one folder step, a quiet row and a rail line when no fold
     expect(box.textContent).toContain('Open a folder, then send a goal. Its plan, workers and spend show here.')
   } finally { act(() => root.unmount()); box.remove() }
 })
+
+it('shows the independent mention assessment budget in Lead settings', async () => {
+  const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
+  const store = createLeadFixtureStore('settings-configured')
+  try {
+    await act(async () => root.render(<StoreProvider store={store}><LeadSettingsSection /></StoreProvider>))
+    expect(box.textContent).toContain('Mention assessments')
+    expect(box.textContent).toContain('Off')
+    const input = box.querySelector<HTMLInputElement>('[aria-label="Mention assessment daily amount"]')!
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '1.25'); input.dispatchEvent(new Event('input', { bubbles: true })) })
+    const save = [...box.querySelectorAll('button')].find(node => node.textContent === 'Save daily budget')!
+    await act(async () => save.click())
+    expect(box.textContent).toContain('$1.250000 per day')
+    await act(async () => [...box.querySelectorAll('button')].find(node => node.textContent === 'Turn off')!.click())
+    expect(box.textContent).toContain('Off')
+  } finally { act(() => root.unmount()); box.remove() }
+})
+
+it('explains an unavailable mention budget on an older desk', async () => {
+  const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
+  const store = createLeadFixtureStore('settings-configured')
+  const original = store.transport.request
+  store.transport.request = (async (method: string, params: unknown) => {
+    if (method === 'lead/mentionBudget/read') throw new Error('unknown method')
+    return (original as (method: string, params: unknown) => Promise<unknown>)(method, params)
+  }) as typeof store.transport.request
+  try {
+    await act(async () => root.render(<StoreProvider store={store}><LeadSettingsSection /></StoreProvider>))
+    expect(box.textContent).toContain('Older desk versions do not provide them')
+    expect(box.querySelector('[aria-label="Mention assessment daily amount"]')).toBeNull()
+  } finally { act(() => root.unmount()); box.remove() }
+})

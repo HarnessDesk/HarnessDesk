@@ -52,7 +52,7 @@ const REASON = 300
 /** At most this many assessments a day on one desk; past it, a request waits for the person. */
 export const ASSESSMENTS_PER_DAY = 200
 
-export const ASSESS_UNAVAILABLE = 'The assessment could not be made, so this waits for you.'
+export const ASSESS_UNAVAILABLE = 'The assessment could not be made, so this waits for you. Check the mention assessment budget and Lead provider settings.'
 export const ASSESS_SECRET = 'This comment looks like it holds a credential, so it was not sent for assessment; it waits for you.'
 export const ASSESS_CAPPED = `More than ${ASSESSMENTS_PER_DAY} requests were assessed today, so this one waits for you.`
 const STOPPED = 'Stopped from the forge: someone allowed asked the work on this thread to stop.'

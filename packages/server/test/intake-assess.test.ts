@@ -84,3 +84,12 @@ test('a refusal before any processing settles at zero; anything else unknown cou
     assert.deepEqual(r.settled, ['unknown'], `${reply instanceof Error ? reply.message : reply.status}: what it cost cannot be known`)
   }
 })
+
+test('preserves provider cache creation TTL counters for pricing', async () => {
+  const reply = JSON.parse(ANSWER)
+  reply.usage.cache_creation_input_tokens = 17
+  reply.usage.cache_creation = { ephemeral_5m_input_tokens: 12, ephemeral_1h_input_tokens: 5 }
+  const r = rig({ status: 200, body: JSON.stringify(reply) })
+  await r.assess(INPUT, new AbortController().signal)
+  assert.deepEqual(r.settled, [{ inputTokens: 120, outputTokens: 30, cacheReadTokens: 0, cacheWriteTokens: 17, cacheWrite5mTokens: 12, cacheWrite1hTokens: 5 }])
+})

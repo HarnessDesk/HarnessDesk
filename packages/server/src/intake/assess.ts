@@ -16,10 +16,9 @@ import { parseAssessment, type MentionAssessor } from './mentions.js'
  * refused or failed request, or an answer that is not exactly that, is no
  * answer — the request waits for the person.
  *
- * Its spend is the Lead's: each request is held against the Lead's spend
- * limit, journaled, before it is sent, and settled at what the provider says
- * it used — or counted whole when that cannot be known. A limit that refuses
- * the hold means the request is not sent, and waits for the person too.
+ * Its independent daily budget holds each request before it is sent. A refused
+ * hold leaves the request for the person; reported usage settles the receipt,
+ * and an unknown outcome retains the authorized hold.
  */
 
 const MAX_RESPONSE = 64 * 1024
@@ -40,9 +39,11 @@ export interface AssessUsage {
   readonly outputTokens: number
   readonly cacheReadTokens: number
   readonly cacheWriteTokens: number
+  readonly cacheWrite5mTokens?: number
+  readonly cacheWrite1hTokens?: number
 }
 
-/** One observer request's hold on the Lead's spend limit. */
+/** One observer request's independent budget hold. */
 export interface AssessCharge {
   /** It used this: the hold is settled at it. */
   settle(usage: AssessUsage): Promise<void>
@@ -50,7 +51,7 @@ export interface AssessCharge {
   unknown(): Promise<void>
 }
 
-/** The Lead's spend limit, which the observer model spends against like the Lead's own requests. */
+/** The independent mention assessment budget. */
 export interface AssessAccount {
   /** Holds the most one request can cost, journaled under its id; null when the limit refuses it, so it is not sent. */
   reserve(requestId: string, inputTokens: number, maxOutputTokens: number): Promise<AssessCharge | null>
@@ -70,7 +71,12 @@ const usageOf = (decoded: unknown): AssessUsage | null => {
   const read = fields['cache_read_input_tokens'] === undefined ? 0 : count(fields['cache_read_input_tokens'])
   const write = fields['cache_creation_input_tokens'] === undefined ? 0 : count(fields['cache_creation_input_tokens'])
   if (input === null || output === null || read === null || write === null) return null
-  return { inputTokens: input, outputTokens: output, cacheReadTokens: read, cacheWriteTokens: write }
+  const creation = fields['cache_creation']
+  const ttl = typeof creation === 'object' && creation !== null ? creation as Record<string, unknown> : null
+  const five = ttl ? count(ttl['ephemeral_5m_input_tokens']) : null
+  const hour = ttl ? count(ttl['ephemeral_1h_input_tokens']) : null
+  return { inputTokens: input, outputTokens: output, cacheReadTokens: read, cacheWriteTokens: write,
+    ...(five !== null ? { cacheWrite5mTokens: five } : {}), ...(hour !== null ? { cacheWrite1hTokens: hour } : {}) }
 }
 
 export const observerAssessor = (options: {

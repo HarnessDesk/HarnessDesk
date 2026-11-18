@@ -187,7 +187,7 @@ import { LeadAdmission, leadPredecessorReadiness } from './lead/admission.js'
 import { LeadBudgets } from './lead/budgets.js'
 import { leadStopReachesRun, personStopOwnedRuns } from './lead/stop.js'
 import { LeadService, type LeadServiceOptions } from './lead/service.js'
-import { leadContractDigest, readLeadEvidence, LeadAssembly, LEAD_PRICES, readRememberedLeadProject, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
+import { leadContractDigest, readLeadEvidence, LeadAssembly, readRememberedLeadProject, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
 import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadPlanRuns, leadResultSummary, leadBudgetProjection, canBeginLeadGoal, leadRequestFenced, leadWorkCards, leadClockLine, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport, type LeadContextRecordInput } from '@harnessdesk/lead'
@@ -308,7 +308,8 @@ import { SESSION_REMOVE_UNDO_MS, SessionIndex } from './session-index.js'
 import { SessionIndexRepos } from './session-index-repos.js'
 import { InsightPlane } from './insight/plane.js'
 import { IntakePlane, type IntakeTimers } from './intake/plane.js'
-import { observerAssessor, type AssessCharge } from './intake/assess.js'
+import { observerAssessor } from './intake/assess.js'
+import { MentionObserverBudget } from './lead/mention-observer-budget.js'
 import type { MentionAssessor, WorkItemsPort } from './intake/mentions.js'
 import { leadProviderTransport } from './lead/provider-transport.js'
 import { NO_WAITS, actorWords, type HostWaits } from './intake/waits.js'
@@ -1222,6 +1223,7 @@ export class Host {
   #ledger: Ledger | null = null
   #plans: PlanStore | null = null
   /** Conversations stuck at a usage limit, carried on by the person's rule. Built in the constructor, restored in `start()`. */
+  readonly #mentionBudget: MentionObserverBudget
   readonly #carryOn: CarryOnService
   /** Conversations whose turn may have ended on a limit, while carry-on decides whether it takes them (§9.3). */
   readonly #carryOnDeciding = new Set<string>()
@@ -1267,6 +1269,7 @@ export class Host {
     this.registry.onDetached((record, previous) => this.#recordRegistryMutation(record, previous))
     this.#logger = options.logger.child('host')
     this.#state = options.state ?? new StateStore()
+    this.#mentionBudget = new MentionObserverBudget({ file: join(this.#state.directory, 'lead', 'mention-observer-budget.json') })
     this.#features = new DeskFeatures(join(this.#state.directory, 'features.json'),
       { lead: options.leadEnabled === true, mobile: options.mobileEnabled === true },
       (feature, enabled) => this.#setFeature(feature, enabled),
@@ -2703,7 +2706,7 @@ export class Host {
           transport: this.options.leadMessagesTransport ?? leadProviderTransport,
           key: async () => this.#features.read().lead && this.#leadEnabled && this.#leadReady && (await this.#credentials.leadStatus('anthropic')).configured ? this.#credentials.resolveLead('anthropic') : null,
           model: LEAD_MESSAGES_DEFAULTS.observerModel,
-          account: { reserve: (requestId, inputTokens, maxOutputTokens) => this.#holdLeadSpend(requestId, inputTokens, maxOutputTokens) },
+          account: { reserve: (requestId, inputTokens, maxOutputTokens) => this.#mentionBudget.reserve(requestId, inputTokens, maxOutputTokens, LEAD_MESSAGES_DEFAULTS.observerModel) },
         }),
         leadName: () => this.#leadJournal?.state.name ?? 'dex',
         pullRequests: options.intake?.mentions?.pullRequests ?? ((repository, goals, firings) => this.#mentionPullRequests(repository, goals, firings)),
@@ -2776,33 +2779,6 @@ export class Host {
     })
     this.#carryOn = this.#buildCarryOn()
     this.#context = this.#buildContext()
-  }
-
-  /**
-   * Holds one observer request against the Lead's spend limit, as a journaled
-   * reserve on the Lead's own budget ledger, priced at the Lead's model — at
-   * least what the smaller observer model costs, so the hold is an upper
-   * bound. No ledger (no Lead goal open), or a limit that refuses it, is null:
-   * nothing is sent, and the request waits for the person.
-   */
-  async #holdLeadSpend(requestId: string, inputTokens: number, maxOutputTokens: number): Promise<AssessCharge | null> {
-    const journal = this.#leadJournal
-    const price = LEAD_PRICES[LEAD_MESSAGES_DEFAULTS.model]
-    if (!journal?.state.budget || !price) return null
-    const now = (): number => Math.max(Date.now(), journal.state.budget?.now ?? 0)
-    try {
-      await journal.updateBudget({ version: 1, type: 'reserve', now: now(), requestId, inputTokens, maxOutputTokens, ...price })
-    } catch {
-      return null
-    }
-    return {
-      settle: async (usage) => { await journal.updateBudget({ version: 1, type: 'settle', now: now(), requestId, ...usage }) },
-      unknown: async () => {
-        await journal.updateBudget({ version: 1, type: 'uncertain', now: now(), requestId })
-        // Counted whole at once: an open uncertain hold would stop the Lead's own spending.
-        await journal.updateBudget({ version: 1, type: 'write-off', now: now(), requestId })
-      },
-    }
   }
 
   /**
@@ -4143,6 +4119,7 @@ export class Host {
     await this.#loadouts.close()
     let transcriptFailure: unknown
     await this.#carryOn.storageIdle()
+    await this.#mentionBudget.close()
     try { await this.#transcripts.flush() } catch (error) { transcriptFailure = error }
     await this.#removalSweepWork
     for (const session of this.#indexPending.values()) this.#recordSessionIndex(session, true)
@@ -6934,6 +6911,8 @@ export class Host {
       leadApprovalRevoke: async params => (await this.#leadWindow()).revokeApproval(params),
       leadActionPerform: async params => (await this.#leadWindow()).perform(params),
       leadCardDecide: async (params) => (await this.#leadWindow()).decide(params),
+      mentionBudgetRead: async () => this.#mentionBudget.view(),
+      mentionBudgetConfigure: async params => { await this.#mentionBudget.configure(params.dailyCapUsdMicros); return this.#mentionBudget.view() },
       leadSettingsRead: async () => (await this.#leadWindow()).readSettings(),
       leadSettingsUpdate: async (params) => (await this.#leadWindow()).updateSettings(params),
       leadStop: async (params) => (await this.#leadWindow()).stop(params),

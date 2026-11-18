@@ -18,6 +18,8 @@ test('repeat history, repeat controls and direct limit raises require their own 
   assert.equal(PHONE_POLICY.methods['lead/thread/read'], 'read')
   assert.equal(PHONE_POLICY.methods['lead/card/decide'], 'answer')
   assert.equal(PHONE_POLICY.methods['lead/settings/update'], undefined)
+  assert.equal(PHONE_POLICY.methods['lead/mentionBudget/read'], undefined)
+  assert.equal(PHONE_POLICY.methods['lead/mentionBudget/configure'], undefined)
   assert.equal(PHONE_POLICY.methods['lead/spendLimit/set'], 'answer')
   // The phone reads the autonomy table and flips a switch; it never edits the rules or a deadline.
   assert.equal(PHONE_POLICY.methods['lead/autonomy/read'], 'read')
@@ -154,7 +156,7 @@ test('a phone cannot reach settings, the window, or anything the table leaves ou
   const s = await rig()
   try {
     const phone = await s.pair()
-    for (const method of ['lead/settings/update', 'phone/allow', 'phone/revoke', 'phone/pairing', 'flow/start-goal', 'session/start', 'host/hello', 'approval/respond', 'evidence/check/run']) {
+    for (const method of ['lead/mentionBudget/read', 'lead/mentionBudget/configure', 'lead/settings/update', 'phone/allow', 'phone/revoke', 'phone/pairing', 'flow/start-goal', 'session/start', 'host/hello', 'approval/respond', 'evidence/check/run']) {
       const reply = await phone.request(method, {})
       assert.equal(reply.error.code, 'notOnPhoneSurface', method)
     }

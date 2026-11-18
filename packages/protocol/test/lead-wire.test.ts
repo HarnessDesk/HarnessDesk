@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { CLIENT_METHODS, LEAD_LIMITS, knownMethods, leadContextUse, parseClientMessage, parseLeadAsk, parseLeadThreadSend } from '../src/index.js'
 
-const names = ['lead/chats/resetControl', 'lead/chats/control', 'lead/chat/takeOver', 'lead/chat/handBack', 'lead/approval/revoke', 'lead/repeat/control', 'lead/budget/raise', 'lead/spendLimit/set', 'lead/wakes/read', 'lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume', 'lead/stop', 'lead/action/perform', 'lead/steer', 'lead/memory/read', 'lead/memory/update', 'lead/memory/view', 'lead/memory/change', 'lead/schedule/read', 'lead/schedule/update', 'lead/context/read', 'lead/context/compact']
+const names = ['lead/mentionBudget/read', 'lead/mentionBudget/configure', 'lead/chats/resetControl', 'lead/chats/control', 'lead/chat/takeOver', 'lead/chat/handBack', 'lead/approval/revoke', 'lead/repeat/control', 'lead/budget/raise', 'lead/spendLimit/set', 'lead/wakes/read', 'lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume', 'lead/stop', 'lead/action/perform', 'lead/steer', 'lead/memory/read', 'lead/memory/update', 'lead/memory/view', 'lead/memory/change', 'lead/schedule/read', 'lead/schedule/update', 'lead/context/read', 'lead/context/compact']
 const chatNames = ['lead/chat/list', 'lead/chat/read', 'lead/chat/start', 'lead/chat/send', 'lead/chat/stop']
 const request = (method: string, params: unknown) => parseClientMessage({ id: 1, method, params })
 
@@ -281,4 +281,12 @@ test('context use is one figure: percent of the window, tokens, and when the con
   assert.equal(leadContextUse({ ...facts, full: true } as never).full, true)
   assert.doesNotThrow(() => request('lead/context/use', {}))
   assert.throws(() => request('lead/context/use', { more: 1 }))
+})
+
+test('mention observer budget is a desktop-only explicit cap', () => {
+  for (const name of ['lead/mentionBudget/read', 'lead/mentionBudget/configure']) assert.equal(Object.hasOwn(CLIENT_METHODS, name), false)
+  assert.doesNotThrow(() => request('lead/mentionBudget/read', {}))
+  assert.doesNotThrow(() => request('lead/mentionBudget/configure', { dailyCapUsdMicros: 1000000 }))
+  for (const value of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1, null]) assert.throws(() => request('lead/mentionBudget/configure', { dailyCapUsdMicros: value }))
+  assert.throws(() => request('lead/mentionBudget/configure', {}))
 })
