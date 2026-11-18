@@ -62,3 +62,30 @@ it('keeps the first brand tint and gives a duplicate the next unused roster tint
   draw(infos)
   assertSeries(infos, [runtimeTint(infos[0]), alternate, ...roster.slice(1).map(runtimeTint)])
 })
+
+it.each(['bars', 'line'] as const)('shows rowless dates as unknown in %s and keeps an observed zero', mode => {
+  const info = roster[0]!
+  const dayAt = (back: number) => new Date(2026, 9, 16 - back).getTime()
+  const ledger: LedgerReport = {
+    days: 5, currency: 'USD', totalCost: 5, totalTokens: 100, provenance: 'listPrice',
+    coverage: { priced: 2, unpriced: 0, unmetered: 0, estimated: 0, daysCovered: 2, daysRequested: 5, earliestDay: dayAt(4), coveredDays: [dayAt(4), dayAt(2)] },
+    rows: [{ key: info.id, label: info.presentation.name, runtime: info.id, tokens: 100, cost: 5, hasUnpriced: false }],
+    daily: [{ day: dayAt(4), runtime: info.id, cost: 5, tokens: 100 }, { day: dayAt(2), runtime: info.id, cost: 0, tokens: 0 }], scannedAt: now,
+  }
+  act(() => root.render(<SpendView ledger={ledger} wideLedger={null} byId={new Map([[info.id, info]])}
+    agentTints={tintsForRoster([info])} scan={null} now={now} range={5} onRangeChange={() => {}}
+    mode={mode} onModeChange={() => {}} onScan={() => {}} pivot="runtime" onPivotChange={() => {}} />))
+  const plot = host.querySelector('[aria-label="Spend per day for the last 5 days"]')!
+  const press = (key: string) => act(() => plot.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })))
+  press('Home')
+  press('ArrowRight')
+  expect(host.querySelector('[aria-live]')?.textContent).toContain('No record yet')
+  expect(host.querySelector('[data-slot="chart-tip"]')?.textContent).toContain('No record yet')
+  expect((plot.children[1]?.firstElementChild as HTMLElement).style.background).toContain('--hd-chart-heat-not-scanned')
+  press('ArrowRight')
+  expect(host.querySelector('[aria-live]')?.textContent).toContain('Nothing spent')
+  expect(host.querySelector('[data-slot="chart-tip"]')?.textContent).toContain('Nothing spent')
+  press('ArrowRight')
+  expect(host.querySelector('[aria-live]')?.textContent).toContain('No record yet')
+  if (mode === 'line') expect(host.querySelectorAll('svg path[stroke="var(--hd-accent)"]')).toHaveLength(2)
+})

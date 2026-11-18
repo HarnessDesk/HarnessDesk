@@ -24,16 +24,7 @@ export interface StackedDay {
   readonly tokens: number
   /** Per-agent cost for this day, in the series order of `StackedSeries.keys`. */
   readonly parts: readonly number[]
-  /**
-   * True when this day is before the ledger's own `coverage.earliestDay`, or
-   * the ledger has no rows at all yet — the same "no record yet" rule
-   * `lib/heat.ts` keeps for the calendar. A day like this carries no honest
-   * total: `total` and `parts` are still 0, but a chart must draw it hatched
-   * rather than as an empty, priced day. That distinction — a real zero
-   * against a day the ledger cannot speak to — is the finding the old chart
-   * missed: it drew both the same way, so a fortnight before an agent was
-   * ever added read exactly like a fortnight of quiet work.
-   */
+  /** A rowless day has no recorded value; its zero totals are placeholders. */
   readonly unknown: boolean
 }
 
@@ -114,13 +105,6 @@ export const stackDailyMetric = (
     .sort((a, b) => b[1] - a[1])
     .map(([runtime]) => runtime)
 
-  // `undefined` means an old report with no coverage field at all — nothing
-  // is known to be unknown, so an old report hatches nothing. `null` means a
-  // report that knows it has no history yet, and every day without a bucket
-  // is unknown. A finite day is the first one on record, and only the days
-  // before it (that carry no spend) are unknown.
-  const earliest = ledger.coverage?.earliestDay
-
   const start = midnight(now)
   const days: StackedDay[] = []
   let peak = 0
@@ -132,7 +116,7 @@ export const stackDailyMetric = (
     const dayTotal = parts.reduce((sum, part) => sum + part, 0)
     if (dayTotal > peak) peak = dayTotal
     total += dayTotal
-    let unknown = !bucket && earliest !== undefined && (earliest === null || day < earliest)
+    let unknown = !bucket
     // A turns day whose every runtime that actually spent that day is
     // turn-unknown has no honest total at all — not "0 turns", which a
     // turn-known day with genuinely nothing done would also read as. Only

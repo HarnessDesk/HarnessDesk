@@ -1123,8 +1123,9 @@ as a third tile.
 selected range sum the same local-day buckets. They carry **so far** because
 the last day is still running, and those partial tiles have no comparison
 percentage. The selected range can still name its separate previous-period
-comparison. Missing scan dates are gaps in both chart modes; an explicitly
-recorded zero remains zero. Partial scan coverage is stated beside the figure.
+comparison. Days without a recorded row are gaps in both chart modes; an explicitly
+recorded zero remains zero. Row dates do not establish scan coverage, so the
+figure names how many days have history rather than calling them scanned.
 
 **Days are stepped by the calendar, never by 86,400,000 ms.** The host buckets
 by *local* midnight, and local midnights are 23 or 25 hours apart across a
@@ -1188,9 +1189,8 @@ each time.** A **zero** is a scanned day the ledger genuinely has nothing
 for — a weekend, a day off — and draws as an empty cell, level 0. **No
 record yet** is a day before the ledger holds any row at all, which is not
 "nothing happened" but "this screen cannot say" — the fixed ledger shape
-(`LedgerDay`) carries no per-day scanned flag, so it is derived the same way
-the money band's own coverage line is: the earliest day with any row at all
-is treated as where scanning starts, and everything before it is hatched
+(`LedgerDay`) carries no per-day scanned flag, so the heatmap uses the
+earliest day with any row as its current boundary, and everything before it is hatched
 rather than left blank. The label says "no record yet" rather than "not
 scanned" for exactly that reason — the host has no scan-horizon field of its
 own yet (`coverage.earliestDay` is a data-side follow-up), so this screen is

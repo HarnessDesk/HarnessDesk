@@ -282,14 +282,14 @@ describe('periodTotals', () => {
   })
 })
 
-describe('stackDaily marking "no record yet"', () => {
-  it('marks every day before coverage.earliestDay as unknown, never as a priced zero', () => {
+describe('stackDaily marking rowless days unknown', () => {
+  it('does not infer known days from coverage.earliestDay', () => {
     const earliest = TODAY - 2 * DAY
     const series = stackDaily(
       report(5, [{ day: TODAY, runtime: CODEX, cost: 4 }], earliest),
       NOON,
     )
-    expect(series.days.map((day) => day.unknown)).toEqual([true, true, false, false, false])
+    expect(series.days.map((day) => day.unknown)).toEqual([true, true, true, true, false])
   })
 
   it('treats a ledger with no rows anywhere as unknown throughout', () => {
@@ -297,12 +297,9 @@ describe('stackDaily marking "no record yet"', () => {
     expect(series.days.map((day) => day.unknown)).toEqual([true, true, true])
   })
 
-  it('is never unknown once coverage.earliestDay is absent, for an old report', () => {
-    // An old report shape predates the field entirely — validated as absent,
-    // not null, and treated the same honest way a ledger with real history
-    // going all the way back would be.
+  it('keeps a rowless day unknown when earliestDay is absent', () => {
     const series = stackDaily(report(2, [{ day: TODAY, runtime: CODEX, cost: 1 }]), NOON)
-    expect(series.days.map((day) => day.unknown)).toEqual([false, false])
+    expect(series.days.map((day) => day.unknown)).toEqual([true, false])
   })
 
   it('never hatches a day that actually carries spend', () => {
@@ -313,7 +310,7 @@ describe('stackDaily marking "no record yet"', () => {
       report(2, [{ day: TODAY - DAY, runtime: CODEX, cost: 1 }], earliest),
       NOON,
     )
-    expect(series.days.map((day) => day.unknown)).toEqual([false, false])
+    expect(series.days.map((day) => day.unknown)).toEqual([false, true])
   })
 })
 
@@ -564,21 +561,22 @@ it('shorter spend figures agree with selected inclusive ranges for 7 and 30 days
   }
 })
 
-it('a host report’s recorded dates do not label a quiet interior day unread', () => {
-  const ledger = report(7, [{ day: TODAY, runtime: runtimeId('fixture'), cost: 5 }, { day: TODAY - 2 * DAY, runtime: runtimeId('fixture'), cost: 0 }], TODAY - 6 * DAY)
-  Object.assign(ledger.coverage, { coveredDays: [TODAY, TODAY - 2 * DAY] })
-  const days = stackDaily(ledger, NOON).days
-  expect(days.at(-2)?.unknown).toBe(false)
-  expect(days.at(-3)?.unknown).toBe(false)
-  expect(days.at(-3)?.total).toBe(0)
+it('keeps rowless interior and later days unknown, even when coveredDays names one', () => {
+  const ledger = report(5, [
+    { day: TODAY - 4 * DAY, runtime: CODEX, cost: 5 },
+    { day: TODAY - 2 * DAY, runtime: CODEX, cost: 0 },
+  ], TODAY - 4 * DAY)
+  Object.assign(ledger.coverage, { coveredDays: [TODAY - 4 * DAY, TODAY - 3 * DAY, TODAY - 2 * DAY] })
+  const series = stackDaily(ledger, NOON)
+  expect(series.days.map(day => day.unknown)).toEqual([false, true, false, true, true])
+  expect(series.days[2]?.total).toBe(0)
+  expect(periodTotals(series, [5])[0]?.daysRead).toBe(2)
+  expect(previousPeriod(series, 2, 0).change).toBeNull()
 })
 
-it('quiet days after the earliest host row remain known without fabricated zero rows', () => {
-  const ledger = report(3, [{day:TODAY-2*DAY,runtime:CODEX,cost:4}], TODAY-2*DAY)
-  Object.assign(ledger.coverage,{coveredDays:[TODAY-2*DAY],daysCovered:1})
-  const series=stackDaily(ledger,NOON)
-  expect(series.days.map(day=>day.unknown)).toEqual([false,false,false])
-  expect(periodTotals(series)[0]?.unknown).toBe(false)
+it('treats rowless days in a legacy report without coverage metadata as unknown', () => {
+  const ledger = report(2, [{ day: TODAY, runtime: CODEX, cost: 1 }])
+  expect(stackDaily(ledger, NOON).days.map(day => day.unknown)).toEqual([true, false])
 })
 
 it('withholds the previous-period percentage when the current window has an unknown day', () => {
