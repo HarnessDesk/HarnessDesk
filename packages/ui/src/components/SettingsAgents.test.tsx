@@ -742,6 +742,7 @@ it("an agent nobody has asked yet is not called signed out or accountless", asyn
   expect(document.body.textContent).toContain('Not checked yet')
   expect(document.body.textContent).not.toContain('Signed out')
   expect(document.body.textContent).not.toContain('No account needed')
+  expect(button('Sign in')).toBeUndefined()
 })
 
 it.each([
