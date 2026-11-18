@@ -65,6 +65,7 @@ export const PHONE_POLICY: PhonePolicy = {
     // There is no destructive lane: run is the same tier as wrapping a Team and its worktrees.
     'workspace/session/delete': 'run',
     'workspace/thread/read': 'read',
+    'workspace/session/opened': 'read',
     'workspace/approval/decide': 'answer',
     // Only a Team whose Lead result the person accepted, and only when nothing on it needs a choice. Run, as stop is:
     // wrapping closes seats, archives the Team's conversations and removes its clean worktrees.

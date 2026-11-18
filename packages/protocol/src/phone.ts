@@ -66,6 +66,7 @@ export type PhoneSessionState = 'running' | 'needs-you' | 'done' | 'archived'
 export type PhoneStartedBy = 'you' | 'lead' | 'team'
 
 export interface PhoneSessionRow {
+  readonly unread?: boolean
   /** This agent moves deleted conversations to the Trash. */
   readonly canDelete: boolean
   /** Opaque and stable: "<agent>:<session>". It carries no path. */
@@ -253,6 +254,8 @@ export interface PhoneWorkTeam {
 }
 
 export interface PhoneWorkItem {
+  /** Shared desk unread state for a session; absent on older desks and Teams. */
+  readonly unread?: boolean
   /** Present for sessions; Teams cannot be deleted here. */
   readonly canDelete?: boolean
   /** A session is "<agent>:<session>", a Team its own id. */

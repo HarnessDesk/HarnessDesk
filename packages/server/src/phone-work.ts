@@ -343,6 +343,11 @@ export class PhoneWork {
     return { runtime, session, key: `${runtime}:${session}` }
   }
 
+  sessionOpened(params: HostParams<'workspace/session/opened'>, handler: (params: HostParams<'session/opened'>) => null): null {
+    const { runtime, session } = this.#target(params.id, true)
+    return handler({ runtime, sessionId: session })
+  }
+
   async sessionRename(params: HostParams<'workspace/session/rename'>, handler: (params: HostParams<'session/setTitle'>) => Promise<HostResult<'session/setTitle'>>) {
     const { runtime, session } = this.#target(params.id)
     return guarded(() => handler({ runtime, sessionId: session, title: params.title }))

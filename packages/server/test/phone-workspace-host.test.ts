@@ -21,6 +21,7 @@ const desk = async (t: TestContext, bulk = false, interrupt = true, startTimes?:
   const index = new SessionIndex(join(root, 'sessions.sqlite'))
   index.upsert(row('priced', { title: `Fix the sign-in for dev@example.com in ${root}/acme-api/src/auth.ts`, updatedAt: 30 }), { archived: false })
   index.upsert(row('free', { title: 'Tidy the settings page', updatedAt: 20 }), { archived: false })
+  index.completed(runtime.info.id, sessionId('free'), 100, 'turn-free')
   index.upsert(row('shelved', { title: 'Old idea', updatedAt: 10 }), { archived: true })
   index.upsert(row('seat', { title: 'A Team seat', updatedAt: 40 }), { archived: false, teamId: 'team-1' })
   index.upsert(row('removed', {}), { archived: false })
@@ -46,6 +47,22 @@ const desk = async (t: TestContext, bulk = false, interrupt = true, startTimes?:
 
 // The phone uses these request names at the host boundary, rather than invoking projection internals.
 const phoneCall = (host: Host, method: string, params: unknown): Promise<any> => host.call(method as never, params as never)
+
+test('phone and desktop share unread while previews leave it alone', async t => {
+  const { host, runtime, root } = await desk(t)
+  const id = `${runtime.info.id}:free`
+  runtime.minted.set('free', join(root, 'acme-api'))
+  const unread = async () => (await phoneCall(host, 'workspace/sessions/list', {})).items.find((item: any) => item.id === id).unread
+  assert.equal(await unread(), true)
+  assert.equal((await phoneCall(host, 'workspace/read', {})).items.find((item: any) => item.id === id)?.unread, true)
+  await host.call('workspace/thread/read', { id })
+  assert.equal(await unread(), true, 'a preview does not open the session')
+  await phoneCall(host, 'workspace/session/opened', { id })
+  assert.equal(await unread(), false)
+  const desktop = await host.call('session/index', {})
+  const row = desktop.data.find(item => item.id === 'free')!
+  assert.ok((row.lastOpenedAt ?? 0) >= (row.lastCompletedAt ?? 0))
+})
 
 test('the phone hears when a session began only from an agent that records starts', async t => {
   const startOf = async (startTimes?: boolean) => {
