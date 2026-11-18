@@ -6,7 +6,7 @@ import { test, type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { CodexRuntime } from '@harnessdesk/adapter-codex'
-import { HANDOFF_PREFIX, runtimeId, type CarryOnIncidentView, type CarryOnItem, type Session } from '@harnessdesk/protocol'
+import { HANDOFF_PREFIX, runtimeId, sessionId, type CarryOnIncidentView, type CarryOnItem, type Session } from '@harnessdesk/protocol'
 
 import { Host, StateStore, serve } from '../src/index.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
@@ -26,6 +26,7 @@ const CODEX = runtimeId('codex')
 const OTHER = runtimeId('other')
 
 interface Rig {
+  readonly host: Host
   readonly client: Client
   readonly other: FakeRuntime
   readonly sent: { session: string; text: string }[]
@@ -40,6 +41,8 @@ const rig = async (t: TestContext): Promise<Rig> => {
   await mkdir(cwd, { recursive: true })
   const codex = new CodexRuntime({ id: CODEX, codexHome, binaryPath: FAKE, env: { FAKE_CODEX_MODE: 'limit' } })
   const other = new FakeRuntime({ id: OTHER, name: 'Other Agent', accountLabel: 'Jane Doe' })
+  const otherRead = other.readSession.bind(other)
+  other.readSession = async id => ({ ...await otherRead(id), runtime: OTHER })
   // Each runtime is an agent of its own: the switch is to another agent, with a handoff.
   const accounts = {
     canAdd: () => false,
@@ -61,7 +64,7 @@ const rig = async (t: TestContext): Promise<Rig> => {
   })
   const sent: Rig['sent'] = []
   other.onSend = (session, text) => { sent.push({ session: String(session.id), text }) }
-  return { client, other, sent, cwd }
+  return { host, client, other, sent, cwd }
 }
 
 /** The desk rule, as Settings › Carry-on writes it. */
@@ -109,6 +112,8 @@ test('a Codex turn that hits its limit is asked about, the card’s Switch moves
 
   await r.client.until(() => r.sent.some(one => one.text.includes(HANDOFF_PREFIX)), 10_000, 'the handoff on the other agent')
   const packet = r.sent.find(one => one.text.includes(HANDOFF_PREFIX))!
+  r.other.sessions.get(packet.session)!.finish()
+  r.other.stored.set(packet.session, r.host.registry.get(OTHER, sessionId(packet.session))!.session.turns.map(turn => ({ ...turn, items: turn.items.filter(item => item.type !== 'carryOn') })))
   assert.match(packet.text, /Fix the failing build on main\./, 'the conversation goes on from what was asked')
   await r.client.until(() => changes(r).some(one => of(session)(one) && one.state === 'moved'), 10_000, 'the moved incident')
   const moved = changes(r).findLast(one => of(session)(one) && one.state === 'moved')!
@@ -116,7 +121,9 @@ test('a Codex turn that hits its limit is asked about, the card’s Switch moves
   assert.equal(moved.link?.runtime, OTHER)
   assert.equal(String(moved.link?.sessionId), packet.session, 'the card links to where it went on')
 
-  // The conversation continues: the other agent has it open, with its first turn, and it points back.
+  // Wait for the actual accepted-turn marker, which is durably recorded asynchronously.
+  await r.client.until(() => r.client.events.some(event => event.type === 'item/completed' && String(event.sessionId) === packet.session && event.item.type === 'carryOn' && event.item.phase === 'arrived'), 10_000, 'the accepted arrival marker')
+  await r.client.until(() => r.client.notifications.some(message => 'method' in message && message.method === 'carryOn/changed' && message.params.key.runtime === CODEX && message.params.key.sessionId === session.id && message.params.incident === null), 10_000, 'the pending markers to be durably cleared')
   const continued = (await r.client.call('session/read', { runtime: OTHER, sessionId: packet.session as never })) as Session
   assert.ok(continued.turns.length >= 1, 'the other agent took a turn')
   assert.deepEqual(markers(continued).find(one => one.phase === 'arrived')?.link, { runtime: CODEX, sessionId: session.id })
@@ -134,13 +141,16 @@ test('“Always do this” saves the rule, and the next limit switches without a
 
   await r.client.call('carryOn/decide', { incidentId: asked.incidentId, choice: 'switch', target: asked.choices.target!.runtime, always: true })
   await r.client.until(() => r.sent.length === 1, 10_000, 'the first handoff')
+  r.other.sessions.get(r.sent[0]!.session)!.finish()
   const state = (await r.client.call('app/state/get', {})) as { carryOn?: { onLimit?: string } }
   assert.equal(state.carryOn?.onLimit, 'switch', 'the answer became the desk rule')
 
   const second = await limited(r, 'Now update the release notes.')
   await r.client.until(() => r.sent.length === 2, 10_000, 'the second handoff')
+  r.other.sessions.get(r.sent[1]!.session)!.finish()
   assert.match(r.sent[1]!.text, /Now update the release notes\./)
   await r.client.until(() => changes(r).some(one => of(second)(one) && one.state === 'moved'), 10_000, 'the second moved incident')
   assert.ok(!changes(r).some(one => of(second)(one) && one.state === 'asked'), 'the second limit was never asked about')
+  await r.client.until(() => r.client.notifications.some(message => 'method' in message && message.method === 'carryOn/changed' && message.params.key.runtime === CODEX && message.params.key.sessionId === second.id && message.params.incident === null), 10_000, 'the pending marker to be durably cleared')
   assert.deepEqual((await list(r)).filter(of(second)), [], 'and nothing waits on the person')
 })

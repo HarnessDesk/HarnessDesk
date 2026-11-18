@@ -42,7 +42,7 @@ test('a reviewer is never carried onto the provider of the work it must be indep
   assert.equal(await rig.flows.refuseSeatTarget(reviewer.runtime, reviewer.sessionId, 'beta-two'), null)
 
   const refused = await rig.flows.replaceSeat(reviewer.runtime, reviewer.sessionId, { runtime: 'alpha-two', mode: 'handoff' })
-  assert.deepEqual(refused, { refused: 'it shares a provider with the work this seat must be independent of' })
+  assert.deepEqual(refused, { refused: 'it shares a provider with the work this seat must be independent of', beforeEffect: true })
   assert.deepEqual(rig.events.filter((one) => one.startsWith('replace:')), [], 'a refused target is never opened')
 })
 
@@ -121,7 +121,7 @@ test('a run at its budget gets no switch', async (t) => {
 
   rig.triggerGate = () => 'Run budget reached'
   assert.deepEqual(await rig.flows.seatCarry(seat.runtime, seat.sessionId), { blind: false, overBudget: true })
-  assert.deepEqual(await rig.flows.replaceSeat(seat.runtime, seat.sessionId, { runtime: 'alpha-two', mode: 'handoff' }), { refused: 'Run budget reached' })
+  assert.deepEqual(await rig.flows.replaceSeat(seat.runtime, seat.sessionId, { runtime: 'alpha-two', mode: 'handoff' }), { refused: 'Run budget reached', beforeEffect: true })
   assert.deepEqual(rig.events.filter((one) => one.startsWith('replace:')), [])
 })
 
@@ -160,7 +160,7 @@ test('spend that lands while a replacement is being checked refuses it before an
   let reads = 0
   // The first read passes; the one after the independence checks finds the budget gone.
   rig.triggerGate = () => (++reads > 1 ? 'Run budget reached' : null)
-  assert.deepEqual(await rig.flows.replaceSeat(seat.runtime, seat.sessionId, { runtime: 'alpha-two', mode: 'handoff' }), { refused: 'Run budget reached' })
+  assert.deepEqual(await rig.flows.replaceSeat(seat.runtime, seat.sessionId, { runtime: 'alpha-two', mode: 'handoff' }), { refused: 'Run budget reached', beforeEffect: true })
   assert.equal(reads, 2)
   assert.deepEqual(rig.events.filter((one) => one.startsWith('replace:')), [])
   assert.equal(rig.executions.stored(run.id)!.replacing, undefined, 'nothing left journaled')

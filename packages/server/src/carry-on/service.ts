@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import {
   CarryOnStaleError,
   itemId,
@@ -34,6 +35,9 @@ import {
 import {
   BACKOFF_MS,
   CarryOnIncidents,
+  CarryOnCapacityError,
+  markerReceiptCeiling,
+  protectedCarryOnRecord,
   LIVE_STATES,
   HANDLED_LIMIT,
   RETRY_ATTEMPTS,
@@ -88,7 +92,7 @@ export interface CarryOnSeatPorts {
   readonly refuse: (runtime: string, sessionId: string, target: string) => Promise<string | null>
   /** Opens the replacement Seat for the same card; the old one is closed with `limit`. */
   readonly replace: (from: { readonly runtime: string; readonly sessionId: string }, to: { readonly runtime: string; readonly mode: CarryOnMode; readonly model?: string }) =>
-    Promise<{ readonly runtime: string; readonly sessionId: string } | { readonly refused: string }>
+    Promise<{ readonly runtime: string; readonly sessionId: string } | { readonly refused: string; readonly beforeEffect?: true }>
   /** Carry-on let this seat go (stopped, or the replacement's first message failed): its own recovery runs now. */
   readonly recover: (runtime: string, sessionId: string) => void
 }
@@ -105,6 +109,7 @@ export interface CarryOnPorts {
   readonly now?: () => number
   readonly schedule?: (run: () => void, delay: number) => () => void
   readonly problem?: (reason: string) => void
+  readonly capacityNotice?: (runtime: string, sessionId: string, reason: string, kind: 'capacity' | 'uncertain') => void
   readonly owner: (runtime: string, sessionId: string) => Promise<CarryOnOwner>
   /** The rule for this agent, already resolved: its own `whenOut`, else the desk's. */
   readonly policy: (agent: string) => { readonly choice: CarryOnChoice; readonly from: CarryOnScope; readonly otherAgents: boolean }
@@ -136,6 +141,11 @@ export interface CarryOnPorts {
    * before and after means nothing but carry-on touched it; null when it is not open.
    */
   readonly footprint: (runtime: string, sessionId: string) => string | null
+  /** The currently attached handle generation, captured before dispatch. */
+  readonly incarnation?: (runtime: string, sessionId: string) => string | null
+  /** Inspect only the exact accepted turn on the same current live incarnation. */
+  readonly completedTurn?: (runtime: string, sessionId: string, turnId: string, incarnation: string) =>
+    { readonly kind: 'available'; readonly turn?: EndedTurn } | { readonly kind: 'unavailable' }
   /**
    * On the host's path, never counted as the person's message. Both kinds go as the desk's own context: a `packet`
    * is already enveloped, and `continue` is the one line that asks the agent to go on, wrapped by the host.
@@ -144,7 +154,12 @@ export interface CarryOnPorts {
     /** Called once the host has admitted the send at its effect boundary, right before it leaves, with the turns the conversation already had. */
     admitted?: (known: readonly string[]) => void,
     /** Into a Team or Flow Seat: the host must find the run's own gate for it, and refuses the send when it cannot. */
-    seat?: boolean) => Promise<void>
+    seat?: boolean,
+    /** The actual send's turn ID, never a queue ID or a guessed next turn. */
+    accepted?: (turnId: string, incarnation: string) => void,
+    unconfirmed?: () => void,
+    /** The queued packet was removed before its dispatch boundary. */
+    removed?: () => void) => Promise<void>
   /**
    * A new conversation on `runtime` in the stuck conversation's own folder, with carry-on's lease on the handle its
    * creation attached, taken at the attachment (null when the host could not say).
@@ -152,7 +167,7 @@ export interface CarryOnPorts {
   readonly create: (runtime: string, from: { readonly runtime: string; readonly sessionId: string }, model?: string) => Promise<{ readonly sessionId: string; readonly handle: string | null }>
   /** The handoff packet, built on the host from the kept transcript. */
   readonly packet: (from: { readonly runtime: string; readonly sessionId: string }, meta: { readonly fromName: string; readonly fromAccount?: string; readonly at: number; readonly blind?: boolean }) => Promise<string>
-  readonly record: (runtime: string, sessionId: string, item: CarryOnItem) => boolean
+  readonly record: (runtime: string, sessionId: string, item: CarryOnItem, turnId: string) => boolean | Promise<boolean>
   readonly publish: (key: CarryOnKey, incident: CarryOnIncidentView | null) => void
   /** "Always do this": the choice written at the level the rule was read from. */
   readonly writeRule: (scope: CarryOnScope, agent: string, choice: 'switch' | 'wait' | 'stop') => Promise<void>
@@ -215,7 +230,9 @@ export class CarryOnService {
   readonly #refusals = new Map<string, ReadonlyMap<string, string>>()
   /** Per seat incident, the candidates whose replacement refused to open: they stay refused for that incident. */
   readonly #unopened = new Map<string, ReadonlyMap<string, string>>()
+  readonly #capacityNotified = new Set<string>()
   #closed = false
+  readonly #markerWrites = new Set<Promise<boolean>>()
   constructor(private readonly ports: CarryOnPorts) {
     this.#incidents = new CarryOnIncidents({
       file: ports.file,
@@ -232,7 +249,7 @@ export class CarryOnService {
 
   #fenceAt(runtime: string, sessionId: string, at: number): Fence {
     const key = carryOnKey(runtime, sessionId)
-    return () => (this.#generations.get(key) ?? 0) === at
+    return () => !this.#closed && (this.#generations.get(key) ?? 0) === at
   }
 
   /** A destination carry-on opened is still only carry-on's: nobody sent into it, nothing runs, nothing else changed it. */
@@ -257,10 +274,19 @@ export class CarryOnService {
     // A seat's question is listed too (its Team notice answers it); a Lead's never is. And one whose marker the
     // conversation could not take yet: until it is written, the card is the only record.
     return this.#incidents.all().filter(record => record.owner !== 'lead' && !record.throttle &&
-      (LIVE_STATES.has(record.state) || record.state !== 'cleared' && !!record.unwritten?.length)).map(record => this.#view(record))
+      (LIVE_STATES.has(record.state) || !!record.unwritten?.length || !!record.reservation)).map(record => this.#view(record))
   }
 
   idle(): Promise<void> { return this.#incidents.idle() }
+
+  /** Drain only storage work; a hung native send must not hold shutdown open. */
+  async storageIdle(): Promise<void> {
+    for (;;) {
+      await Promise.allSettled([...this.#markerWrites])
+      await this.#incidents.storageIdle()
+      if (this.#markerWrites.size === 0) return
+    }
+  }
 
   close(): void {
     this.#closed = true
@@ -360,60 +386,60 @@ export class CarryOnService {
   #publish(record: CarryOnRecord): void {
     if (record.owner === 'lead' || record.throttle) return
     const key = { runtime: runtimeId(record.runtime), sessionId: makeSessionId(record.sessionId) }
-    this.ports.publish(key, record.state === 'cleared' ? null : this.#view(record))
+    this.ports.publish(key, record.state === 'cleared' && !record.unwritten?.length && !record.reservation ? null : this.#view(record))
+  }
+
+  async #markNow(record: CarryOnRecord, at: { readonly runtime: string; readonly sessionId: string }, phase: CarryOnPhase,
+    extra: { readonly to?: CarryOnSide; readonly mode?: CarryOnMode; readonly note?: string; readonly link?: { readonly runtime: string; readonly sessionId: string } } = {}, id = `carry-on-${randomUUID()}`,
+    anchor?: CarryOnUnwritten['anchor'], snapshot?: CarryOnUnwritten['snapshot']): Promise<boolean> {
+    if (!anchor || anchor.kind !== 'turn' || !snapshot) return false
+    try {
+      const { link, ...rest } = extra
+      return await this.ports.record(at.runtime, at.sessionId, {
+        id: itemId(id), type: 'carryOn', phase, cause: snapshot.cause, from: snapshot.from,
+        ...(snapshot.resetsAt !== null && (phase === 'waiting' || phase === 'stopped' || phase === 'exhausted') ? { resetsAt: snapshot.resetsAt } : {}),
+        ...rest, ...(link ? { link: { runtime: runtimeId(link.runtime), sessionId: makeSessionId(link.sessionId) } } : {}),
+      }, anchor.turnId)
+    } catch { return false }
   }
 
   #mark(record: CarryOnRecord, at: { readonly runtime: string; readonly sessionId: string }, phase: CarryOnPhase,
-    extra: { readonly to?: CarryOnSide; readonly mode?: CarryOnMode; readonly note?: string; readonly link?: { readonly runtime: string; readonly sessionId: string } } = {}, id = `carry-on-${randomUUID()}`): boolean {
-    try {
-      const { link, ...rest } = extra
-      return this.ports.record(at.runtime, at.sessionId, {
-        id: itemId(id), type: 'carryOn', phase, cause: record.cause, from: record.from,
-        ...(record.resetsAt !== null && (phase === 'waiting' || phase === 'stopped' || phase === 'exhausted') ? { resetsAt: record.resetsAt } : {}),
-        ...rest, ...(link ? { link: { runtime: runtimeId(link.runtime), sessionId: makeSessionId(link.sessionId) } } : {}),
-      })
-    } catch { /* A marker that cannot be written never stops the move it describes. */ return false }
+    extra: { readonly to?: CarryOnSide; readonly mode?: CarryOnMode; readonly note?: string; readonly link?: { readonly runtime: string; readonly sessionId: string } } = {},
+    id?: string, anchor?: CarryOnUnwritten['anchor'], snapshot?: CarryOnUnwritten['snapshot']): Promise<boolean> {
+    if (this.#closed) return Promise.resolve(false)
+    const write = this.#markNow(record, at, phase, extra, id, anchor, snapshot)
+    this.#markerWrites.add(write)
+    void write.finally(() => this.#markerWrites.delete(write)).catch(() => {})
+    return write
   }
 
-  /** The marker, written now; or, when the conversation cannot take it yet, returned to be kept on the record. */
-  #markOrKeep(record: CarryOnRecord, at: { readonly runtime: string; readonly sessionId: string }, phase: CarryOnPhase,
-    extra: Omit<CarryOnUnwritten, 'id' | 'runtime' | 'sessionId' | 'phase'> = {}): CarryOnUnwritten[] {
-    const id = `carry-on-${randomUUID()}`
-    return this.#mark(record, at, phase, extra, id) ? [] : [{ id, runtime: at.runtime, sessionId: at.sessionId, phase, ...extra }]
-  }
-
-  /** The record's waiting markers with these added, as a patch to settle with. */
-  #keep(record: CarryOnRecord, more: readonly CarryOnUnwritten[]): Partial<CarryOnRecord> {
-    return more.length ? { unwritten: [...(record.unwritten ?? []), ...more].slice(-UNWRITTEN_LIMIT) } : {}
-  }
-
-  /**
-   * The conversation can take markers again: a turn started in it, or it was reopened with its turns. The markers
-   * kept for it are written in order; one that still cannot be waits, with every one after it.
-   */
+  /** Retry only a marker whose exact destination turn is already durable. */
   reachable(runtime: string, sessionId: string): Promise<void> {
     const here = (one: CarryOnUnwritten) => one.runtime === runtime && one.sessionId === sessionId
     if (this.#closed || !this.#incidents.all().some(record => record.unwritten?.some(here))) return Promise.resolve()
     return this.#incidents.serial(async () => {
       for (let record of this.#incidents.all()) {
         if (!record.unwritten?.some(here)) continue
-        // Old ledgers did not carry identities. Save them before the first insert.
         if (record.unwritten.some(one => !one.id)) {
           record = { ...record, unwritten: record.unwritten.map(one => one.id ? one : { ...one, id: `carry-on-${randomUUID()}` }) }
           await this.#put(record)
         }
-        const waiting = record.unwritten!
+        const waiting = record.unwritten!, still: CarryOnUnwritten[] = []
         let blocked = false
-        const still = waiting.filter(one => {
-          if (!here(one) || blocked) return true
-          const { id, runtime: _r, sessionId: _s, phase, ...extra } = one
-          if (this.#mark(record, one, phase, extra, id)) return false
-          blocked = true
-          return true
-        })
+        for (const one of waiting) {
+          if (!here(one) || blocked) { still.push(one); continue }
+          const { id, runtime: _r, sessionId: _s, phase, anchor, prospective, receipt: _receipt, snapshot, ...extra } = one
+          if (!prospective && await this.#mark(record, one, phase, extra, id, anchor, snapshot)) continue
+          blocked = true; still.push(one)
+        }
         if (still.length === waiting.length) continue
         const { unwritten: _, ...rest } = record
-        await this.#put({ ...rest, ...(still.length ? { unwritten: still } : {}), lastAt: this.#now() } as CarryOnRecord)
+        const clearedIds = waiting.filter(one => !still.includes(one)).flatMap(one => one.id ? [one.id] : [])
+        const releaseReservation = !still.length && record.reservation?.slots === 0 ? record.reservation.id : undefined
+        const next = await this.#put({ ...rest, ...(still.length ? { unwritten: still } : {}), ...(releaseReservation ? { reservation: undefined } : {}), lastAt: this.#now() } as CarryOnRecord, undefined, { clearedIds, releaseReservation })
+        if (!LIVE_STATES.has(next.state) && !next.unwritten?.length && !next.reservation) {
+          this.ports.publish({ runtime: runtimeId(next.runtime), sessionId: makeSessionId(next.sessionId) }, null)
+        } else this.#publish(next)
       }
     })
   }
@@ -448,20 +474,202 @@ export class CarryOnService {
 
   // ------------------------------------------------------------ writing
 
-  async #put(record: CarryOnRecord, replaces?: { readonly runtime: string; readonly sessionId: string }): Promise<CarryOnRecord> {
-    await this.#incidents.put(record, replaces)
+  async #put(record: CarryOnRecord, replaces?: { readonly runtime: string; readonly sessionId: string }, authority?: { readonly clearedIds?: readonly string[]; readonly releaseReservation?: string; readonly receiptOperation?: string; readonly bindMarkerId?: string; readonly cancelOperation?: string; readonly cancelledIds?: readonly string[] }): Promise<CarryOnRecord> {
+    if (this.#closed) throw new Error('Carry-on is closed.')
+    await this.#incidents.put(record, replaces, authority)
     if (replaces) this.#cancelTimer(carryOnKey(replaces.runtime, replaces.sessionId))
     return record
   }
 
-  async #settle(record: CarryOnRecord, patch: Partial<CarryOnRecord>, replaces?: { readonly runtime: string; readonly sessionId: string }): Promise<CarryOnRecord> {
-    const next = await this.#put({ ...record, ...patch, lastAt: this.#now() } as CarryOnRecord, replaces)
+  async #settle(record: CarryOnRecord, patch: Partial<CarryOnRecord>, replaces?: { readonly runtime: string; readonly sessionId: string }, authority?: { readonly clearedIds?: readonly string[]; readonly releaseReservation?: string; readonly receiptOperation?: string; readonly bindMarkerId?: string; readonly cancelOperation?: string; readonly cancelledIds?: readonly string[] }): Promise<CarryOnRecord> {
+    const next = await this.#put({ ...record, ...patch, lastAt: this.#now() } as CarryOnRecord, replaces, authority)
     this.#arm(next)
     this.#publish(next)
     // A seat carry-on let go goes back to its own recovery, which waited while the incident was live.
     if (next.owner === 'seat' && next.state === 'stopped' && LIVE_STATES.has(record.state)) this.#recover(next.runtime, next.sessionId)
     if (!LIVE_STATES.has(next.state)) { this.#refusals.delete(next.incidentId); this.#unopened.delete(next.incidentId) }
     return next
+  }
+
+  #notice(record: Pick<CarryOnRecord, 'runtime' | 'sessionId'>, kind: string, reason: string): void {
+    const key = `${carryOnKey(record.runtime, record.sessionId)}\0${kind}`
+    if (this.#capacityNotified.has(key)) return
+    this.#capacityNotified.add(key)
+    if (this.#capacityNotified.size > 512) this.#capacityNotified.delete(this.#capacityNotified.values().next().value!)
+    this.ports.capacityNotice?.(record.runtime, record.sessionId, reason, kind === 'capacity' ? 'capacity' : 'uncertain')
+  }
+
+  #capacity(record: Pick<CarryOnRecord, 'runtime' | 'sessionId'>): void {
+    this.#notice(record, 'capacity', 'Carry-on could not reserve protected space for its transcript markers. Existing markers were kept.')
+  }
+
+  async #reserve(record: CarryOnRecord, slots: 1 | 2, action: 'move' | 'retry' | 'stop' | 'wait'): Promise<CarryOnRecord | null> {
+    if (this.#closed) return null
+    if (record.reservation) {
+      if (!record.uncertain && record.reservation.stage === 'reserved' && record.reservation.slots >= slots) return record
+      this.#capacity(record); return null
+    }
+    try {
+      const next = await this.#incidents.reserve(record, slots, action)
+      this.#capacityNotified.delete(`${carryOnKey(record.runtime, record.sessionId)}\0capacity`)
+      return next
+    } catch (error) {
+      if (!(error instanceof CarryOnCapacityError)) this.ports.problem?.('Carry-on could not preserve its marker reservation.')
+      this.#capacity(record); return null
+    }
+  }
+
+  /** Persist prospective intents before the effect boundary; their IDs come from the reservation. */
+  async #stage(record: CarryOnRecord, entries: readonly Omit<CarryOnUnwritten, 'id' | 'prospective'>[], incarnation?: string): Promise<{ record: CarryOnRecord; markers: CarryOnUnwritten[] }> {
+    const reservation = record.reservation!
+    if (!reservation || reservation.slots < entries.length) throw new CarryOnCapacityError('Carry-on marker reservation is unavailable.')
+    const first = reservation.markerIds.length - reservation.slots
+    const markers = entries.map((one, at): CarryOnUnwritten => {
+      const marker: CarryOnUnwritten = { ...one, id: reservation.markerIds[first + at]!, prospective: true,
+        snapshot: { cause: record.cause, from: { name: record.from.name, ...(record.from.account ? { account: record.from.account } : {}), ...(record.from.model ? { model: record.from.model } : {}) }, resetsAt: record.resetsAt },
+        ...(incarnation ? { receipt: { operationId: reservation.id, incidentId: record.incidentId, incarnation, ceilingBytes: 245_760 } } : {}) }
+      if (!marker.receipt) return marker
+      return { ...marker, receipt: { ...marker.receipt, ceilingBytes: markerReceiptCeiling(marker) } }
+    })
+    const next = await this.#put({ ...record, unwritten: [...(record.unwritten ?? []), ...markers], reservation: {
+      ...reservation, slots: reservation.slots - markers.length, stage: 'effect', ...(incarnation ? { incarnation } : {}),
+    } })
+    return { record: next, markers }
+  }
+
+  /** Release unused slots only after the action is settled and all pending intents are materialized. */
+  async #settleReserved(record: CarryOnRecord, patch: Partial<CarryOnRecord>, replaces?: { readonly runtime: string; readonly sessionId: string }, clearedIds: readonly string[] = [], keep = false): Promise<CarryOnRecord> {
+    const reservation = record.reservation
+    const nextReservation = keep && reservation ? { ...reservation, slots: 0, stage: 'awaitingReceipt' as const } : undefined
+    return this.#settle(record, { ...patch, reservation: nextReservation }, replaces, {
+      clearedIds, ...(!keep && reservation ? { releaseReservation: reservation.id } : {}),
+    })
+  }
+
+  /** Bind only the receipt for this materialized slot, destination and handle incarnation. */
+  #arrivalReceipt(incidentId: string, operationId: string, markerId: string, destination: { runtime: string; sessionId: string }, incarnation: string, knownTurns: () => readonly string[] | undefined, expectedWatch?: CarryOnRecord['watch']): (turn: string, owner: string) => void {
+    return (turn, owner) => {
+      if (this.#closed || owner !== incarnation) return
+      void this.#incidents.serial(async () => {
+        if (this.#closed) return
+        const matches = this.#incidents.all().flatMap(record => (record.unwritten ?? []).filter(one => one.id === markerId &&
+          one.runtime === destination.runtime && one.sessionId === destination.sessionId && one.receipt?.incidentId === incidentId &&
+          one.receipt.operationId === operationId && one.receipt.incarnation === incarnation &&
+          one.anchor?.kind === 'continuation' && one.anchor.operationId === operationId).map(marker => ({ record, marker })))
+        if (matches.length !== 1) return
+        const { record, marker } = matches[0]!
+        const known = knownTurns()
+        if (typeof turn !== 'string' || turn.length === 0 || turn.length > 300 || !known || known.some(id => !id || id.length > 300)) {
+          const pending = record.unwritten!.map(one => one.id === markerId ? { ...one, receipt: { ...one.receipt!, uncertain: true as const } } : one)
+          const current = record.incidentId === incidentId && (record.reservation ? record.reservation.id === operationId : record.watch === expectedWatch)
+          const updated = await this.#put({ ...record, unwritten: pending, ...(current
+            ? { state: 'asked' as const, uncertain: true as const, nextAt: null, note: 'The continuation was sent but its turn could not be identified. Its marker remains protected.' } : {}) }, undefined, { receiptOperation: operationId })
+          if (current) { this.#cancelTimer(carryOnKey(updated.runtime, updated.sessionId)); this.#publish(updated) }
+          this.#notice(updated, `receipt:${operationId}`, 'The continuation was sent but its turn could not be identified. Its marker remains protected.')
+          return
+        }
+        const markers = record.unwritten!.map(one => {
+          if (one.receipt?.operationId !== operationId || one.receipt.incidentId !== incidentId || one.receipt.incarnation !== incarnation) return one
+          const { prospective: _prospective, ...rest } = one
+          if (one.id !== markerId || one.anchor?.kind !== 'continuation') return rest
+          const { kind: _kind, operationId: _operationId, ...unknownAnchor } = one.anchor
+          return { ...rest, anchor: { ...unknownAnchor, kind: 'turn' as const, turnId: turn } }
+        })
+        const watch = record.incidentId === incidentId && (!record.reservation || record.reservation.id === operationId) && record.watch === expectedWatch && record.watch?.pending && record.watch.runtime === destination.runtime && record.watch.sessionId === destination.sessionId
+          ? { ...destination, skip: known.slice(-32), turnId: turn } : record.watch
+        await this.#put({ ...record, unwritten: markers, watch }, undefined, { receiptOperation: operationId, bindMarkerId: markerId })
+        if (watch && watch !== record.watch && !LIVE_STATES.has(record.state) && this.ports.completedTurn) {
+          const completed = this.ports.completedTurn(destination.runtime, destination.sessionId, turn, incarnation)
+          if (completed.kind === 'available' && completed.turn && completed.turn.id === turn && completed.turn.status !== 'inProgress') {
+            void this.ended(destination.runtime, destination.sessionId, completed.turn, { incidentId, watch, incarnation }).catch(() => {})
+          } else if (completed.kind === 'unavailable' || completed.turn && (completed.turn.id !== turn || completed.turn.status === 'inProgress')) {
+            const updated = await this.#put({ ...record, unwritten: markers, watch, state: 'asked', uncertain: true, nextAt: null,
+              note: 'The continuation was accepted, but its outcome could not be checked. Its markers remain protected.' })
+            this.#cancelTimer(carryOnKey(updated.runtime, updated.sessionId)); this.#publish(updated)
+          }
+        }
+        void this.reachable(destination.runtime, destination.sessionId)
+        for (const one of markers) if (one.id !== markerId && one.receipt?.operationId === operationId && one.receipt.incidentId === incidentId) void this.reachable(one.runtime, one.sessionId)
+      }).catch(() => { this.ports.problem?.('A carry-on marker receipt could not be saved; it remains pending.') })
+    }
+  }
+
+  #unconfirmedReceipt(incidentId: string, operationId: string, markerId: string, expectedWatch: CarryOnRecord['watch']): () => void {
+    return () => {
+      if (this.#closed) return
+      void this.#incidents.serial(async () => {
+        if (this.#closed) return
+        const matches = this.#incidents.all().flatMap(record => (record.unwritten ?? []).filter(marker => marker.id === markerId &&
+          marker.receipt?.incidentId === incidentId && marker.receipt.operationId === operationId).map(marker => ({ record, marker })))
+        if (matches.length !== 1) return
+        const { record } = matches[0]!
+        const pending = record.unwritten!.map(marker => marker.id === markerId ? { ...marker, receipt: { ...marker.receipt!, uncertain: true as const } } : marker)
+        const current = record.incidentId === incidentId && (record.reservation ? record.reservation.id === operationId : record.watch === expectedWatch)
+        const updated = await this.#put({ ...record, unwritten: pending, ...(current
+          ? { state: 'asked' as const, uncertain: true as const, nextAt: null, note: 'The continuation may already have been sent; its marker remains protected.' } : {}) }, undefined, { receiptOperation: operationId })
+        if (current) { this.#cancelTimer(carryOnKey(updated.runtime, updated.sessionId)); this.#publish(updated) }
+        this.#notice(updated, `uncertain:${operationId}`, 'A continuation may already have been sent. Its marker remains protected.')
+      }).catch(() => {})
+    }
+  }
+
+  /** A removed queue entry proves only that this operation's packet was never dispatched. */
+  #removedReceipt(incidentId: string, operationId: string, markerId: string, destination: { runtime: string; sessionId: string }, incarnation: string, expectedWatch: CarryOnRecord['watch']): () => void {
+    return () => {
+      if (this.#closed) return
+      void this.#incidents.serial(async () => {
+        if (this.#closed) return
+        const matches = this.#incidents.all().flatMap(record => (record.unwritten ?? []).filter(marker => marker.id === markerId && marker.prospective &&
+          marker.runtime === destination.runtime && marker.sessionId === destination.sessionId && marker.anchor?.kind === 'continuation' &&
+          marker.anchor.operationId === operationId && marker.receipt?.operationId === operationId && marker.receipt.incidentId === incidentId &&
+          marker.receipt.incarnation === incarnation).map(marker => ({ record, marker })))
+        if (matches.length !== 1) return
+        const { record } = matches[0]!
+        const owned = (record.unwritten ?? []).filter(marker => marker.receipt?.operationId === operationId &&
+          marker.receipt.incidentId === incidentId && marker.receipt.incarnation === incarnation)
+        if (!owned.length || owned.some(marker => !marker.id || !marker.prospective)) return
+        const ids = owned.map(marker => marker.id!)
+        const remaining = (record.unwritten ?? []).filter(marker => !ids.includes(marker.id ?? ''))
+        const release = record.reservation?.id === operationId ? operationId : undefined
+        const ownIncident = record.incidentId === incidentId && (record.reservation ? release !== undefined : record.watch === expectedWatch)
+        const watch = ownIncident && record.watch?.runtime === destination.runtime && record.watch.sessionId === destination.sessionId && record.watch.pending
+          ? undefined : record.watch
+        const next = await this.#put({ ...record, unwritten: remaining.length ? remaining : undefined,
+          ...(release ? { reservation: undefined } : {}), ...(ownIncident ? { state: 'asked' as const, uncertain: undefined, nextAt: null, watch,
+            note: 'The queued handoff was removed before sending. A replacement conversation was opened.' } : {}) }, undefined,
+          { cancelOperation: operationId, cancelledIds: ids, ...(release ? { releaseReservation: release } : {}) })
+        if (ownIncident) { this.#cancelTimer(carryOnKey(next.runtime, next.sessionId)); this.#publish(next) }
+      }).catch(() => { this.ports.problem?.('A removed carry-on packet could not be reconciled; its markers remain protected.') })
+    }
+  }
+
+  /** Called only when the synchronous admission fence proves these intents never crossed dispatch. */
+  async #cancelStaged(record: CarryOnRecord): Promise<CarryOnRecord> {
+    const reservation = record.reservation
+    if (!reservation) return record
+    const cancelled = (record.unwritten ?? []).filter(one => one.prospective && one.receipt?.operationId === reservation.id)
+    if (!cancelled.length) return record
+    const ids = cancelled.flatMap(one => one.id ? [one.id] : [])
+    const unwritten = (record.unwritten ?? []).filter(one => !ids.includes(one.id ?? ''))
+    return this.#put({ ...record, unwritten: unwritten.length ? unwritten : undefined,
+      reservation: { ...reservation, slots: reservation.slots + ids.length, stage: 'reserved' } }, undefined,
+      { cancelOperation: reservation.id, cancelledIds: ids })
+  }
+
+  /** Save a source marker before trying its transcript write; retain it if acknowledgement fails. */
+  async #oneMarker(record: CarryOnRecord, phase: CarryOnPhase, extra: Omit<CarryOnUnwritten, 'id' | 'runtime' | 'sessionId' | 'phase' | 'anchor'>,
+    patch: Partial<CarryOnRecord>): Promise<CarryOnRecord> {
+    const reservation = record.reservation!
+    const id = reservation.markerIds[reservation.markerIds.length - reservation.slots]!
+    const anchor = { kind: 'turn' as const, turnId: record.turnId }
+    const marker: CarryOnUnwritten = { id, runtime: record.runtime, sessionId: record.sessionId, phase, ...extra, anchor,
+      snapshot: { cause: record.cause, from: { name: record.from.name, ...(record.from.account ? { account: record.from.account } : {}), ...(record.from.model ? { model: record.from.model } : {}) }, resetsAt: record.resetsAt } }
+    const staged = await this.#put({ ...record, unwritten: [...(record.unwritten ?? []), marker],
+      reservation: { ...reservation, slots: reservation.slots - 1, stage: 'effect' } })
+    const written = await this.#mark(staged, marker, phase, extra, id, anchor, marker.snapshot)
+    const unwritten = written ? staged.unwritten!.filter(one => one.id !== id) : staged.unwritten
+    return this.#settle(staged, { ...patch, unwritten: unwritten?.length ? unwritten : undefined, reservation: undefined }, undefined,
+      { ...(written ? { clearedIds: [id] } : {}), releaseReservation: reservation.id })
   }
 
   #recover(runtime: string, sessionId: string): void {
@@ -479,7 +687,7 @@ export class CarryOnService {
    * release) then waits, and runs through `seat.recover` if the incident is
    * let go — never both at once.
    */
-  async ended(runtime: string, sessionId: string, turn: EndedTurn): Promise<boolean> {
+  async ended(runtime: string, sessionId: string, turn: EndedTurn, expected?: { readonly incidentId: string; readonly watch: NonNullable<CarryOnRecord['watch']>; readonly incarnation: string }): Promise<boolean> {
     if (this.#closed) return false
     const failed = turn.status === 'failed' || !!turn.error
     if (turn.status === 'inProgress') return false
@@ -495,18 +703,32 @@ export class CarryOnService {
       if (failed && this.#incidents.handled(runtime, sessionId, turn.id)) return this.live(runtime, sessionId)
       const own = this.#incidents.get(runtime, sessionId)
       const watched = this.#incidents.watching(runtime, sessionId)
+      if (expected && (watched?.incidentId !== expected.incidentId || watched.watch !== expected.watch ||
+          this.ports.incarnation?.(runtime, sessionId) !== expected.incarnation)) return false
+      if (expected && watched) {
+        const current = this.ports.completedTurn?.(runtime, sessionId, turn.id, expected.incarnation)
+        if (!current || current.kind !== 'available' || !current.turn || !isDeepStrictEqual(current.turn, turn)) {
+          const updated = await this.#put({ ...watched, state: 'asked', uncertain: true, nextAt: null,
+            note: 'The continuation outcome changed while it was being checked. Check the conversation before continuing.' })
+          this.#cancelTimer(carryOnKey(updated.runtime, updated.sessionId)); this.#publish(updated)
+          return true
+        }
+      }
+      // A legacy watch has no accepted-turn receipt, so no later failure can be attributed to it.
+      if (watched?.watch && !watched.throttle && !watched.watch.turnId) return false
       // A throttle's own retry is followed below, by its backoff; a move's continuation here.
       const prior = own && !own.throttle && own.watch?.runtime === runtime && own.watch.sessionId === sessionId ? own : watched?.throttle ? undefined : watched
       if (prior && !LIVE_STATES.has(prior.state)) {
         // A turn before the continuation — a replacement Seat's brief — says nothing about whether the move held.
-        const before = !!prior.watch && (prior.watch.pending === true || !!prior.watch.skip?.includes(turn.id))
+        const before = !!prior.watch && (prior.watch.pending === true || !!prior.watch.skip?.includes(turn.id) || !!prior.watch.turnId && prior.watch.turnId !== turn.id)
+        if (before) return false
         if (!failed || !cause || cause === 'throttle') {
           // The continuing turn went through, or failed for a reason of its own: the move held. A throttle there is
           // that conversation's own, backed off below.
           if (prior.watch && !before) { const { watch: _, ...rest } = prior; await this.#put({ ...rest, lastAt: this.#now() } as CarryOnRecord) }
           if (cause !== 'throttle') return false
         } else {
-          if (prior.turnId === turn.id) return true
+          if (prior.runtime === runtime && prior.sessionId === sessionId && prior.turnId === turn.id) return true
           // The continuation hit a limit too: the same incident goes on, in the conversation that now carries it.
           await this.#reopen(prior, runtime, sessionId, turn.id, cause, meter, fence)
           return true
@@ -526,14 +748,19 @@ export class CarryOnService {
       if (cause === 'throttle') { await this.#throttle(own, runtime, sessionId, turn.id, fence, owner); return true }
       await this.#open(runtime, sessionId, turn.id, cause, meter, fence, owner, own?.throttle ? own : undefined)
       return true
-    })
+    }).catch(error => { if (!(error instanceof CarryOnCapacityError)) throw error; this.#capacity({ runtime, sessionId }); return true })
+  }
+
+  /** Invalidate in-flight decisions when the person changes the conversation's history. */
+  historyChanged(runtime: string, sessionId: string): void {
+    const key = carryOnKey(runtime, sessionId)
+    this.#generations.set(key, (this.#generations.get(key) ?? 0) + 1)
   }
 
   /** The person sent something into the conversation: their message wins over any incident. */
   personSent(runtime: string, sessionId: string): Promise<void> {
     // First and synchronously, incident or not: whatever carry-on is in the middle of sees it at its next step.
-    const key = carryOnKey(runtime, sessionId)
-    this.#generations.set(key, (this.#generations.get(key) ?? 0) + 1)
+    this.historyChanged(runtime, sessionId)
     if (this.#closed) return Promise.resolve()
     const record = this.#incidents.get(runtime, sessionId)
     if (!record || !LIVE_STATES.has(record.state)) return Promise.resolve()
@@ -563,15 +790,17 @@ export class CarryOnService {
         if (!pick || !pick.signedIn || pick.tier >= 3) throw stale(record)
       }
       if (decision.choice === 'wait' && !(record.resetsAt !== null && record.resetsAt > this.#now())) throw stale(record)
+      const action: CarryOnAction = decision.choice === 'stop' ? { kind: 'stop', phase: 'stopped', note: 'stopped at your answer' }
+        : decide(await this.#inputFor(record, decision.choice, record.alwaysScope, otherAgents, decision.target), this.#now())
+      const kind = action.kind === 'move' ? 'move' : action.kind === 'wait' ? 'wait' : action.kind === 'stop' ? 'stop' : undefined
+      const reserved = kind ? await this.#reserve(record, kind === 'move' ? 2 : 1, kind) : record
+      if (!reserved) return this.#view(record)
       if (decision.always) {
         try { await this.ports.writeRule(record.alwaysScope, record.agent, decision.choice) }
         catch { this.ports.problem?.('The carry-on rule could not be saved.') }
       }
       this.#cancelTimer(carryOnKey(record.runtime, record.sessionId))
-      const action: CarryOnAction = decision.choice === 'stop' ? { kind: 'stop', phase: 'stopped', note: 'stopped at your answer' }
-        : decide(await this.#inputFor(record, decision.choice, record.alwaysScope, otherAgents, decision.target), this.#now())
-      // An answer settles an uncertain send: from here the incident is an ordinary one again.
-      const { uncertain: _uncertain, ...answered } = record
+      const { uncertain: _uncertain, ...answered } = reserved
       const next = await this.#act(answered as CarryOnRecord, action, fence)
       return this.#view(next)
     })
@@ -583,7 +812,27 @@ export class CarryOnService {
    */
   async restore(): Promise<void> {
     await this.#incidents.serial(async () => {
-      for (const record of this.#incidents.all()) {
+      for (let record of this.#incidents.all()) {
+        const unresolved = (record.unwritten ?? []).filter(marker => marker.receipt && (marker.prospective || marker.anchor?.kind === 'continuation'))
+        for (const operationId of new Set(unresolved.flatMap(marker => marker.receipt ? [marker.receipt.operationId] : []))) {
+          const markers = record.unwritten!.map(marker => marker.receipt?.operationId === operationId && !marker.receipt.uncertain
+            ? { ...marker, receipt: { ...marker.receipt, uncertain: true as const } } : marker)
+          if (markers.some((marker, at) => marker !== record.unwritten![at])) record = await this.#put({ ...record, unwritten: markers }, undefined, { receiptOperation: operationId })
+        }
+        if (unresolved.some(marker => marker.receipt?.incidentId === record.incidentId) && !record.reservation) {
+          if (!record.uncertain || record.state !== 'asked' || record.nextAt !== null) await this.#settle(record, { state: 'asked', nextAt: null, uncertain: true, note: 'The continuation could not be confirmed after restart. Its markers remain protected.' })
+          continue
+        }
+        if (unresolved.length) this.#notice(record, 'unresolved', 'An earlier continuation could not be confirmed after restart. Its markers remain protected.')
+        if (record.watch && !record.watch.turnId && !record.reservation && !record.throttle) {
+          if (!record.uncertain || record.state !== 'asked' || record.nextAt !== null) await this.#settle(record, { state: 'asked', nextAt: null, uncertain: true, note: 'The continuation could not be identified. Its outcome remains unconfirmed.' })
+          continue
+        }
+        if (record.reservation) {
+          const there = record.to ? ` to ${record.to.account ? `${record.to.name} · ${record.to.account}` : record.to.name}` : ''
+          await this.#settle(record, { state: 'asked', nextAt: null, uncertain: true, note: `The desk restarted while continuing this conversation; the message may already have been sent${there}. Its markers remain protected.`.slice(0, 300) })
+          continue
+        }
         if (record.state === 'sending' || record.state === 'deciding') {
           if (record.throttle) { await this.#put({ ...record, state: 'cleared', throttle: undefined, nextAt: null, lastAt: this.#now() } as CarryOnRecord); continue }
           // A send that may have gone out waits for the person: no timer, now or after a later restart, may send again.
@@ -627,9 +876,12 @@ export class CarryOnService {
     const now = this.#now()
     const resetsAt = meter?.resetsAt ?? this.ports.rank(runtime).resetsAt ?? null
     // Markers an earlier incident here still waits to write go on with this one.
-    const waiting = this.#incidents.get(runtime, sessionId)?.unwritten
-    // Claim first: on disk before anything is sent.
+    const previous = this.#incidents.get(runtime, sessionId)
+    const waiting = previous?.unwritten
+    // Preserve unknown accepted legacy fields; explicitly reset the previous incident's known transient fields.
     const claimed = await this.#put({
+      ...previous, to: undefined, toRuntime: undefined, mode: undefined, link: undefined, watch: undefined,
+      turnStartedAt: undefined, note: undefined, uncertain: undefined, throttle: undefined, backoff: undefined, model: undefined,
       ...(waiting?.length ? { unwritten: waiting } : {}),
       incidentId: randomUUID(), runtime, sessionId, owner, state: 'deciding', cause, turnId, agent,
       from: side(described, runtime, model), ...(model ? { model } : {}),
@@ -672,40 +924,64 @@ export class CarryOnService {
       case 'stop': {
         // A seat says which accounts its run refused: the reason it stayed stopped.
         const note = record.owner === 'seat' ? joinNotes(action.note, this.#skipped(record))! : action.note
-        const kept = this.#markOrKeep(record, at, action.phase, { note })
-        return this.#settle(record, { state: 'stopped', nextAt: null, note, ...this.#keep(record, kept) })
+        const reserved = await this.#reserve(record, 1, 'stop')
+        if (reserved && !fence()) return this.#settleReserved(reserved, { state: 'cleared', nextAt: null, note: PERSON_FIRST })
+        return reserved ? this.#oneMarker(reserved, action.phase, { note }, { state: 'stopped', nextAt: null, note }) : record
       }
       case 'wait': {
         const nextAt = afterReset(action.resetsAt)
-        const kept = this.#markOrKeep(record, at, 'waiting')
-        return this.#settle(record, { state: 'waiting-reset', nextAt, resetsAt: action.resetsAt, ...this.#keep(record, kept) })
+        const reserved = await this.#reserve(record, 1, 'wait')
+        if (reserved && !fence()) return this.#settleReserved(reserved, { state: 'cleared', nextAt: null, note: PERSON_FIRST })
+        return reserved ? this.#oneMarker(reserved, 'waiting', {}, { state: 'waiting-reset', nextAt, resetsAt: action.resetsAt }) : record
       }
       case 'move':
         if (record.hops >= CARRY_ON_HOPS) return this.#act(record, { kind: 'stop', phase: 'exhausted', note: 'no other account or agent has room' }, fence)
         if (!fence()) return this.#settle(record, { state: 'cleared', nextAt: null, note: PERSON_FIRST })
-        return record.owner === 'seat' ? this.#moveSeat(record, action.target, action.mode, fence) : this.#move(record, action.target, action.mode, fence)
+        {
+          const reserved = await this.#reserve(record, 2, 'move')
+          if (!reserved) return record
+          return reserved.owner === 'seat' ? this.#moveSeat(reserved, action.target, action.mode, fence) : this.#move(reserved, action.target, action.mode, fence)
+        }
     }
   }
 
   /** One retry on the same account: at the reset, or when an unanswered card's reset came. */
   async #retry(record: CarryOnRecord, fence: Fence): Promise<void> {
     const at = { runtime: record.runtime, sessionId: record.sessionId }
-    const sending = await this.#settle(record, { state: 'sending', nextAt: null, turnStartedAt: this.#now() })
-    // The claim's own write is an await too: a message sent during it wins before anything is reopened.
-    if (!fence()) { await this.#settle(sending, { state: 'cleared', nextAt: null, throttle: undefined, note: PERSON_FIRST }); return }
+    const reserved = record.throttle ? record : await this.#reserve(record, 1, 'retry')
+    if (!reserved) return
+    let sending = await this.#settle(reserved, { state: 'sending', nextAt: null, turnStartedAt: this.#now() })
+    if (!fence()) { await this.#settleReserved(sending, { state: 'cleared', nextAt: null, throttle: undefined, note: PERSON_FIRST }); return }
+    let admitted = false
     try {
       await this.ports.resume(at.runtime, at.sessionId)
-      // The person wrote while it reopened: theirs is the continuation.
-      if (!fence()) { await this.#settle(sending, { state: 'cleared', nextAt: null, throttle: undefined, note: PERSON_FIRST }); return }
-      // The fence goes into the host's dispatch too, and is read again right before the message leaves.
-      await this.ports.send(at.runtime, at.sessionId, CONTINUE_TEXT, 'continue', fence, undefined, record.owner === 'seat')
+      if (!fence()) { await this.#settleReserved(sending, { state: 'cleared', nextAt: null, throttle: undefined, note: PERSON_FIRST }); return }
+      if (record.throttle) {
+        await this.ports.send(at.runtime, at.sessionId, CONTINUE_TEXT, 'continue', fence, undefined, record.owner === 'seat')
+        await this.#settle(sending, { state: 'cleared', watch: at, throttle: true })
+        return
+      }
+      const reservation = sending.reservation!
+      const incarnation = this.ports.incarnation ? this.ports.incarnation(at.runtime, at.sessionId) : 'fixture-owner'
+      if (!incarnation || incarnation.length > 300) throw new Error('The continuation owner could not be identified.')
+      const staged = await this.#stage(sending, [{ ...at, phase: 'resumed', anchor: { kind: 'continuation', operationId: reservation.id } }], incarnation)
+      sending = staged.record
+      const marker = staged.markers[0]!
+      let known: readonly string[] | undefined
+      const onAdmitted = (turns: readonly string[]) => { admitted = true; known = turns }
+      const watch = { ...at, pending: true as const }
+      const accepted = this.#arrivalReceipt(sending.incidentId, reservation.id, marker.id!, at, incarnation, () => known, watch)
+      const unconfirmed = this.#unconfirmedReceipt(sending.incidentId, reservation.id, marker.id!, watch)
+      await this.ports.send(at.runtime, at.sessionId, CONTINUE_TEXT, 'continue', fence, onAdmitted, record.owner === 'seat', accepted, unconfirmed)
+      await this.#settleReserved(sending, { state: 'cleared', watch, throttle: undefined })
     } catch {
-      if (!fence()) { await this.#settle(sending, { state: 'cleared', nextAt: null, throttle: undefined, note: PERSON_FIRST }); return }
-      await this.#settle(sending, { state: 'asked', note: 'The retry at the reset did not go through.' })
-      return
+      if (!fence() && !admitted) {
+        sending = await this.#cancelStaged(sending)
+        await this.#settleReserved(sending, { state: 'cleared', nextAt: null, throttle: undefined, note: PERSON_FIRST }); return
+      }
+      await this.#settle(sending, { state: 'asked', nextAt: null, uncertain: true,
+        note: admitted ? 'The retry may have been sent; its marker remains protected.' : 'The retry could not be confirmed; its marker remains protected.' })
     }
-    const kept = record.throttle ? [] : this.#markOrKeep(sending, at, 'resumed')
-    await this.#settle(sending, { state: 'cleared', watch: at, throttle: record.throttle, ...this.#keep(sending, kept) })
   }
 
   async #move(record: CarryOnRecord, target: CarryOnCandidate, mode: CarryOnMode, fence: Fence): Promise<CarryOnRecord> {
@@ -713,7 +989,12 @@ export class CarryOnService {
     const destination = this.ports.describe(target.runtime)
     const models = await this.ports.models(target.runtime).catch((): readonly ModelInfo[] => [])
     // Nothing has been touched yet: a message the person sent meanwhile simply wins.
-    if (!fence()) return this.#settle(record, { state: 'cleared', nextAt: null, note: PERSON_FIRST })
+    if (!fence()) return this.#settleReserved(record, { state: 'cleared', nextAt: null, note: PERSON_FIRST })
+    const collision = mode === 'sameThread' ? this.#incidents.get(target.runtime, from.sessionId) : undefined
+    if (collision && collision.incidentId !== record.incidentId && protectedCarryOnRecord(collision)) {
+      this.#capacity(record)
+      return this.#settleReserved(record, { state: 'asked', nextAt: null, note: 'The destination has protected carry-on history.' })
+    }
     const chosen = chooseModel(record.model, models, target.agent === record.agent)
     const to = side(destination, target.name, chosen.model)
     // The account it leaves is tried too, so a continuation that hits a limit never bounces straight back.
@@ -728,19 +1009,22 @@ export class CarryOnService {
      * but carry-on has happened in it — no message, no turn, no other handle. One the person has started using
      * stays open, and the note says where.
      */
+    let dispatched = false
     const yieldTo = async (opened?: Opened): Promise<CarryOnRecord> => {
+      if (this.#closed) return current
+      if (dispatched) return this.#settle(current, { state: 'asked', nextAt: null, uncertain: true, note: 'The continuation may already have been sent; its markers remain protected.' })
+      current = await this.#cancelStaged(current)
       if (opened && this.#untouched(opened)) {
         await this.ports.close(opened.runtime, opened.sessionId, opened.handle).catch(() => {})
         opened = undefined
       }
-      if (!opened) return this.#settle(current, { state: 'cleared', nextAt: null, note: PERSON_FIRST })
+      if (!opened) return this.#settleReserved(current, { state: 'cleared', nextAt: null, note: PERSON_FIRST })
       // Left open: the incident stops, and a marker in the conversation the person is in says where the work went.
       // The marker is the record that outlives a reconnect. One the conversation cannot take yet — its body let go
       // while the person's reopen is still on its way — is kept, and the incident stays listed until it is written.
       const note = `${PERSON_FIRST} The conversation is also open on ${to.account ? `${to.name} · ${to.account}` : to.name}, where it was in use.`.slice(0, 300)
       const link = { runtime: opened.runtime, sessionId: opened.sessionId }
-      const kept = this.#markOrKeep(current, from, 'stopped', { to, note, link })
-      return this.#settle(current, { state: 'stopped', nextAt: null, note, link, ...this.#keep(current, kept) })
+      return this.#oneMarker(current, 'stopped', { to, note, link }, { state: 'stopped', nextAt: null, note, link })
     }
     // Every await above may have let the person in: checked again right before each effect.
     if (!fence()) return yieldTo()
@@ -758,28 +1042,34 @@ export class CarryOnService {
         if (handle !== null) opened = { runtime: target.runtime, sessionId: from.sessionId, handle, untouched, footprint: this.ports.footprint(target.runtime, from.sessionId) }
         if (!fence()) return yieldTo(opened)
       } catch {
-        // The sibling could not reopen it: a handoff to the same account instead, and the marker says so.
-        mode = 'handoff'
-        note = `${to.name} could not reopen the conversation; continued in a new one`
+        // Close or reopen may already have taken effect; retain the reservation rather than start another action.
+        return this.#settle(current, { state: 'asked', nextAt: null, uncertain: true, note: 'The conversation may have moved; its carry-on reservation remains protected.' })
       }
       if (mode === 'sameThread') {
         const moved = { runtime: target.runtime, sessionId: from.sessionId }
-        // Written only once the send is admitted, so a person who wins inside the dispatch never reads that it moved.
-        // On the thread's last turn; a reopen that has not read its turns back yet takes it on the continue turn instead.
+        // Keep a stable prospective intent before the admitted send can write a marker.
         const switched = { to, mode, ...(note ? { note } : {}) }
-        let marked = false
-        const markSwitched = () => { if (!marked) marked = this.#mark(current, moved, 'switched', switched) }
-        if (!fence()) return yieldTo(opened)
-        try { await this.ports.send(moved.runtime, moved.sessionId, CONTINUE_TEXT, 'continue', fence, markSwitched) }
-        catch {
-          // Refused inside the host's dispatch because the person wrote: theirs stands.
-          if (!fence()) return yieldTo(opened)
-          return this.#settle(current, { state: 'asked', note: 'The switch did not go through.' })
+        const reservation = current.reservation!
+        const incarnation = this.ports.incarnation ? this.ports.incarnation(moved.runtime, moved.sessionId) : 'fixture-owner'
+        if (!incarnation || incarnation.length > 300) return this.#settle(current, { state: 'asked', uncertain: true, note: 'The continuation owner could not be identified.' })
+        const staged = await this.#stage(current, [{ ...moved, phase: 'switched', ...switched, anchor: { kind: 'continuation', operationId: reservation.id } }], incarnation)
+        current = staged.record
+        const marker = staged.markers[0]!
+        let known: readonly string[] | undefined
+        const markSwitched = (turns: readonly string[]) => {
+          dispatched = true
+          known = turns
         }
-        markSwitched()
-        // The incident follows the conversation to the account that now holds it, with the marker if it waits.
-        const kept: CarryOnUnwritten[] = marked ? [] : [{ ...moved, phase: 'switched', ...switched }]
-        return this.#settle(current, { state: 'moved', runtime: target.runtime, mode, watch: moved, ...(note ? { note } : {}), ...this.#keep(current, kept) }, from)
+        const watch = { ...moved, pending: true as const }
+        const receipt = this.#arrivalReceipt(current.incidentId, reservation.id, marker.id!, moved, incarnation, () => known, watch)
+        if (!fence()) return yieldTo(opened)
+        try { await this.ports.send(moved.runtime, moved.sessionId, CONTINUE_TEXT, 'continue', fence, markSwitched, false, receipt, this.#unconfirmedReceipt(current.incidentId, reservation.id, marker.id!, watch)) }
+        catch {
+          if (!fence()) return yieldTo(opened)
+          return this.#settle(current, { state: 'asked', uncertain: true, note: 'The switch may have been sent; its marker remains protected.' })
+        }
+        return this.#settleReserved(current, { state: 'moved', runtime: target.runtime, mode, watch, ...(note ? { note } : {}) }, from)
+
       }
     }
     let opened: Opened | undefined
@@ -794,22 +1084,28 @@ export class CarryOnService {
       const link = { runtime: target.runtime, sessionId: created }
       current = await this.#settle(current, { mode: 'handoff', link, ...(note ? { note } : {}) })
       if (!fence()) return yieldTo(opened)
-      // As above: the old conversation says it left only once the packet is admitted.
-      // Each counts only once written: one the conversation could not take yet (the old one's body let go, the new
-      // one's turn not started) is kept, and written when it can be.
+      // Persist both intents before the packet may cross the effect boundary.
       const leaving = { to, mode: 'handoff' as const, link, ...(note ? { note } : {}) }
-      let left = false
-      const markLeft = () => { if (!left) left = this.#mark(current, from, 'left', leaving) }
-      await this.ports.send(link.runtime, link.sessionId, text, 'packet', fence, markLeft)
-      markLeft()
-      const kept: CarryOnUnwritten[] = [
-        ...(left ? [] : [{ ...from, phase: 'left' as const, ...leaving }]),
-        ...this.#markOrKeep(current, link, 'arrived', { to, mode: 'handoff', link: from }),
-      ]
-      return this.#settle(current, { state: 'moved', watch: link, ...this.#keep(current, kept) })
+      const reservation = current.reservation!
+      const incarnation = this.ports.incarnation ? this.ports.incarnation(link.runtime, link.sessionId) : 'fixture-owner'
+      if (!incarnation || incarnation.length > 300) throw new Error('The continuation owner could not be identified.')
+      const staged = await this.#stage(current, [
+        { ...from, phase: 'left', ...leaving, anchor: { kind: 'turn', turnId: record.turnId } },
+        { ...link, phase: 'arrived', to, mode: 'handoff', link: from, anchor: { kind: 'continuation', operationId: reservation.id } },
+      ], incarnation)
+      current = staged.record
+      const [, arrival] = staged.markers as [CarryOnUnwritten, CarryOnUnwritten]
+      let known: readonly string[] | undefined
+      const markLeft = (turns: readonly string[]) => { dispatched = true; known = turns }
+      const watch = { ...link, pending: true as const }
+      const receipt = this.#arrivalReceipt(current.incidentId, reservation.id, arrival.id!, link, incarnation, () => known, watch)
+      await this.ports.send(link.runtime, link.sessionId, text, 'packet', fence, markLeft, false, receipt, this.#unconfirmedReceipt(current.incidentId, reservation.id, arrival.id!, watch), this.#removedReceipt(current.incidentId, reservation.id, arrival.id!, link, incarnation, watch))
+      // Queue admission may precede the actual send; leave both intents prospective until its receipt.
+      return this.#settleReserved(current, { state: 'moved', watch })
+
     } catch {
       if (!fence()) return yieldTo(opened)
-      return this.#settle(current, { state: 'asked', note: 'The handoff did not go through.' })
+      return this.#settle(current, { state: 'asked', nextAt: null, uncertain: true, note: 'The handoff may already have taken effect; its markers remain protected.' })
     }
   }
 
@@ -827,23 +1123,33 @@ export class CarryOnService {
     if (!seat) return this.#act(record, { kind: 'stop', phase: 'stopped', note: 'this desk cannot replace a seat' }, fence)
     const destination = this.ports.describe(target.runtime)
     const models = await this.ports.models(target.runtime).catch((): readonly ModelInfo[] => [])
-    if (!fence()) return this.#settle(record, { state: 'cleared', nextAt: null, note: PERSON_FIRST })
+    if (!fence()) return this.#settleReserved(record, { state: 'cleared', nextAt: null, note: PERSON_FIRST })
+    const collision = mode === 'sameThread' ? this.#incidents.get(target.runtime, from.sessionId) : undefined
+    if (collision && collision.incidentId !== record.incidentId && protectedCarryOnRecord(collision)) {
+      this.#capacity(record)
+      return this.#settleReserved(record, { state: 'asked', nextAt: null, note: 'The destination has protected carry-on history.' })
+    }
     const chosen = chooseModel(record.model, models, target.agent === record.agent)
     const to = side(destination, target.name, chosen.model)
     const tried = [...new Set([...record.tried, record.runtime, target.runtime])].slice(-16)
     let note = joinNotes(chosen.note, this.#skipped(record))
     const blind = (await seat.of(from.runtime, from.sessionId).catch(() => null))?.blind === true
+    if (!fence()) return this.#settleReserved(record, { state: 'cleared', nextAt: null, note: PERSON_FIRST })
     let current = await this.#settle(record, {
       state: 'sending', to, toRuntime: target.runtime, mode, turnStartedAt: this.#now(), tried, hops: record.hops + 1, ...(note ? { note } : {}),
     })
+    if (!fence()) return this.#settleReserved(current, { state: 'cleared', nextAt: null, note: PERSON_FIRST })
     const ask = (how: CarryOnMode) => seat.replace(from, { runtime: target.runtime, mode: how, ...(chosen.model ? { model: chosen.model } : {}) })
       .catch((error: unknown) => ({ refused: error instanceof Error ? error.message : String(error) }))
     let opened = await ask(mode)
+    if ('refused' in opened && !('beforeEffect' in opened && opened.beforeEffect === true)) return this.#settle(current, { state: 'asked', nextAt: null, uncertain: true, note: 'The seat replacement may already have taken effect; its markers remain protected.' })
     if ('refused' in opened && mode === 'sameThread') {
       // The sibling could not reopen it: the same account seats the agent again, and the marker says so.
+      if (!fence()) return this.#settleReserved(current, { state: 'cleared', nextAt: null, note: PERSON_FIRST })
       mode = 'handoff'
       note = joinNotes(note, `${to.name} could not reopen the conversation; continued in a new one`)
       opened = await ask('handoff')
+      if ('refused' in opened && !('beforeEffect' in opened && opened.beforeEffect === true)) return this.#settle(current, { state: 'asked', nextAt: null, uncertain: true, note: 'The seat replacement may already have taken effect; its markers remain protected.' })
     }
     if ('refused' in opened) {
       // Skipped, as if tried, and the next candidate decided: the reason goes on the marker. No hop is spent.
@@ -856,51 +1162,43 @@ export class CarryOnService {
     }
     const moved = { runtime: opened.runtime, sessionId: opened.sessionId }
     try {
-      // As for a chat: each marker is written once its send is admitted, and one the conversation cannot take yet
-      // is kept on the incident and written when it can be.
-      // The watch is armed when the continuation is actually sent, with the turns the Seat already had (its brief):
-      // only the continuation's own end says whether the move held, and a limit there carries the chain on (§9.5).
-      let known: readonly string[] | null = null
-      let settledId: string | null = null
-      const watchOf = () => known ? { ...moved, skip: known.slice(-32) } : { ...moved, pending: true as const }
-      const arm = (turns: readonly string[]) => {
-        if (known) return
-        known = turns
-        if (settledId === null) return
-        const incidentId = settledId
-        void this.#incidents.serial(async () => {
-          const now = this.#incidents.byId(incidentId)
-          if (now?.watch?.pending && now.watch.runtime === moved.runtime && now.watch.sessionId === moved.sessionId) await this.#put({ ...now, watch: watchOf() })
-        }).catch(() => {})
+      const reservation = current.reservation!
+      const incarnation = this.ports.incarnation ? this.ports.incarnation(moved.runtime, moved.sessionId) : 'fixture-owner'
+      if (!incarnation || incarnation.length > 300 || moved.runtime.length > 300 || moved.sessionId.length > 300) {
+        return this.#settle(current, { state: 'asked', uncertain: true, note: 'The replacement was opened but its identity could not be safely recorded.' })
       }
-      const armed = async (record: CarryOnRecord): Promise<CarryOnRecord> => {
-        settledId = record.incidentId
-        return known && record.watch?.pending ? this.#put({ ...record, watch: watchOf() }) : record
-      }
+      let known: readonly string[] | undefined
       if (mode === 'sameThread') {
         const switched = { to, mode, ...(note ? { note } : {}) }
-        let marked = false
-        const markSwitched = () => { if (!marked) marked = this.#mark(current, moved, 'switched', switched) }
-        await this.ports.send(moved.runtime, moved.sessionId, CONTINUE_TEXT, 'continue', fence, (turns) => { markSwitched(); arm(turns) }, true)
-        markSwitched()
-        const kept: CarryOnUnwritten[] = marked ? [] : [{ ...moved, phase: 'switched', ...switched }]
-        return await armed(await this.#settle(current, { state: 'moved', runtime: moved.runtime, sessionId: moved.sessionId, mode, watch: watchOf(), ...(note ? { note } : {}), ...this.#keep(current, kept) }, from))
+        const staged = await this.#stage(current, [{ ...moved, phase: 'switched', ...switched, anchor: { kind: 'continuation', operationId: reservation.id } }], incarnation)
+        current = staged.record
+        const marker = staged.markers[0]!
+        const mark = (turns: readonly string[]) => {
+          known = turns
+        }
+        const watch = { ...moved, pending: true as const }
+        const receipt = this.#arrivalReceipt(current.incidentId, reservation.id, marker.id!, moved, incarnation, () => known, watch)
+        await this.ports.send(moved.runtime, moved.sessionId, CONTINUE_TEXT, 'continue', fence, mark, true, receipt, this.#unconfirmedReceipt(current.incidentId, reservation.id, marker.id!, watch))
+        return this.#settleReserved(current, { state: 'moved', runtime: moved.runtime, sessionId: moved.sessionId, mode, watch, ...(note ? { note } : {}) }, from)
       }
       const text = await this.ports.packet(from, { fromName: record.from.name, ...(record.from.account ? { fromAccount: record.from.account } : {}), at: record.openedAt, ...(blind ? { blind } : {}) })
       current = await this.#settle(current, { mode: 'handoff', link: moved, ...(note ? { note } : {}) })
       const leaving = { to, mode: 'handoff' as const, link: moved, ...(note ? { note } : {}) }
-      let left = false
-      const markLeft = () => { if (!left) left = this.#mark(current, from, 'left', leaving) }
-      await this.ports.send(moved.runtime, moved.sessionId, text, 'packet', fence, (turns) => { markLeft(); arm(turns) }, true)
-      markLeft()
-      const kept: CarryOnUnwritten[] = [
-        ...(left ? [] : [{ ...from, phase: 'left' as const, ...leaving }]),
-        ...this.#markOrKeep(current, moved, 'arrived', { to, mode: 'handoff', link: from }),
-      ]
-      return await armed(await this.#settle(current, { state: 'moved', watch: watchOf(), ...this.#keep(current, kept) }))
+      const staged = await this.#stage(current, [
+        { ...from, phase: 'left', ...leaving, anchor: { kind: 'turn', turnId: record.turnId } },
+        { ...moved, phase: 'arrived', to, mode: 'handoff', link: from, anchor: { kind: 'continuation', operationId: reservation.id } },
+      ], incarnation)
+      current = staged.record
+      const [, arrival] = staged.markers as [CarryOnUnwritten, CarryOnUnwritten]
+      const markLeft = (turns: readonly string[]) => { known = turns }
+      const watch = { ...moved, pending: true as const }
+      const receipt = this.#arrivalReceipt(current.incidentId, reservation.id, arrival.id!, moved, incarnation, () => known, watch)
+      await this.ports.send(moved.runtime, moved.sessionId, text, 'packet', fence, markLeft, true, receipt, this.#unconfirmedReceipt(current.incidentId, reservation.id, arrival.id!, watch), this.#removedReceipt(current.incidentId, reservation.id, arrival.id!, moved, incarnation, watch))
+      return this.#settleReserved(current, { state: 'moved', watch })
+
     } catch {
       // The new Seat holds the card already: its own recovery hands the card to it, rather than the old one.
-      const settled = await this.#settle(current, { state: 'moved', watch: moved, link: moved, note: joinNotes(note, 'the first message to the new seat did not go through') })
+      const settled = await this.#settle(current, { state: 'asked', uncertain: true, nextAt: null, watch: { ...moved, pending: true }, link: moved, note: joinNotes(note, 'the first message may have been sent; its marker remains protected')?.slice(0, 300) })
       this.#recover(moved.runtime, moved.sessionId)
       return settled
     }

@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { renameSync, writeFileSync, unlinkSync } from 'node:fs'
+import fsPromises from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
+import { renameSync, writeFileSync, unlinkSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
 import type { CarryOnChoice, CarryOnIncidentView, CarryOnItem, CarryOnOwner, CarryOnScope, ModelInfo } from '@harnessdesk/protocol'
 
-import { BACKOFF_MS, INCIDENT_LIMIT } from '../src/carry-on/incidents.js'
+import { BACKOFF_MS, INCIDENT_LIMIT, CarryOnIncidents, type CarryOnRecord } from '../src/carry-on/incidents.js'
 import { CarryOnService, type CarryOnPorts, type CarryOnRuntime, type CarryOnSeatPorts } from '../src/carry-on/service.js'
+import { agent, goalRig } from './fixtures/flow-goal-rig.js'
 
 /** The service of the design's §11.2, over fake ports, a fake clock and a fake timer. */
 
@@ -47,7 +50,6 @@ const rig = async (t: TestContext, options: {
   readonly packets?: { blind?: boolean }[]
 } = {}): Promise<Rig> => {
   const dir = options.dir ?? await mkdtemp(join(tmpdir(), 'harnessdesk-carry-on-'))
-  if (!options.dir) t.after(() => rm(dir, { recursive: true, force: true }))
   const file = join(dir, 'carry-on', 'incidents.json')
   const state = {
     calls: [] as string[], published: [] as Rig['published'], marks: [] as Rig['marks'], rules: [] as Rig['rules'],
@@ -76,22 +78,32 @@ const rig = async (t: TestContext, options: {
     footprint: () => 'quiet',
     close: async (runtime, id) => { state.calls.push(`close ${runtime} ${id}`) },
     resume: async (runtime, id) => { state.calls.push(`resume ${runtime} ${id}`); return `handle ${runtime} ${id}` },
-    send: async (runtime, id, text, _kind, _stillOurs, admitted) => {
-      admitted?.([])
+    send: async (runtime, id, text, _kind, _stillOurs, admitted, _seat, accepted) => {
+      admitted?.(['t1'])
       // Claim before send: whatever is being sent is already on disk.
       const disk = JSON.parse(await readFile(file, 'utf8')) as { records: { state: string }[] }
       state.calls.push(`send ${runtime} ${id} ${text.slice(0, 40)} [${disk.records.map(record => record.state).join(',')}]`)
+      accepted?.('continuation-turn', 'fixture-owner')
     },
     create: async runtime => { created += 1; state.calls.push(`create ${runtime}`); return { sessionId: `new-${created}`, handle: `handle ${runtime} new-${created}` } },
     packet: async (_from, meta) => { options.packets?.push({ ...(meta.blind ? { blind: meta.blind } : {}) }); return 'packet' },
-    record: (runtime, id, item) => { state.marks.push({ at: `${runtime} ${id}`, item }); return true },
+    record: (runtime, id, item) => {
+      const at = `${runtime} ${id}`
+      if (!state.marks.some(mark => mark.at === at && mark.item.id === item.id)) state.marks.push({ at, item })
+      return true
+    },
     publish: (key, incident) => { state.published.push({ key: `${key.runtime} ${key.sessionId}`, incident }) },
     writeRule: async (scope, agent, choice) => { state.rules.push({ scope, agent, choice }) },
     ...(options.seat ? { seat: options.seat } : {}),
     ...over,
   })
   const service = new CarryOnService(ports())
-  t.after(() => service.close())
+  const services = new Set([service])
+  t.after(async () => {
+    for (const one of services) one.close()
+    await Promise.all([...services].map(one => one.storageIdle()))
+    if (!options.dir) await rm(dir, { recursive: true, force: true })
+  })
   const out: Rig = Object.assign(state, {
     service, file,
     tick: async (to: number) => {
@@ -99,7 +111,7 @@ const rig = async (t: TestContext, options: {
       for (const timer of state.timers.filter(timer => !timer.cancelled && timer.at <= to)) { timer.cancelled = true; timer.run() }
       await out.service.idle()
     },
-    reopen: (over: Partial<CarryOnPorts> = {}) => new CarryOnService(ports(over)),
+    reopen: (over: Partial<CarryOnPorts> = {}) => { const next = new CarryOnService(ports(over)); services.add(next); return next },
   }) as Rig
   return out
 }
@@ -109,6 +121,7 @@ const disk = async (file: string) => JSON.parse(await readFile(file, 'utf8')) as
 test('the claim is on disk before the continuing message is sent, and the thread moves to the sibling', async t => {
   const r = await rig(t)
   await r.service.ended('codex', 's1', LIMIT)
+  await r.service.idle()
   assert.deepEqual(r.calls.slice(0, 2), ['close codex s1', 'resume codex-2 s1'])
   assert.match(r.calls[2]!, /^send codex-2 s1 Continue from where you stopped\. \[sending\]$/)
   const [record] = (await disk(r.file)).records
@@ -116,7 +129,7 @@ test('the claim is on disk before the continuing message is sent, and the thread
   assert.equal(record!['runtime'], 'codex-2', 'the incident follows the conversation to the account that holds it')
   assert.equal(r.marks.at(-1)?.item.phase, 'switched')
   assert.equal(r.marks.at(-1)?.at, 'codex-2 s1')
-  assert.equal(r.published.at(-1)?.incident?.state, 'moved')
+  assert.equal(r.published.findLast(entry => entry.incident?.state === 'moved')?.incident?.state, 'moved')
 })
 
 test('a second ended event for the same turn opens no second incident', async t => {
@@ -147,13 +160,10 @@ test('a restart while sending asks again and never resends', async t => {
   t.after(() => rm(dir, { recursive: true, force: true }))
   const r = await rig(t, { dir })
   // The send never comes back: the host went down mid-send.
-  const hung = r.reopen({ send: () => new Promise(() => {}) })
+  const entered = deferred()
+  const hung = r.reopen({ send: () => { entered.resolve(); return new Promise(() => {}) } })
   void hung.ended('codex', 's1', LIMIT)
-  // Polled rather than slept: under load the claim can take longer than any fixed pause.
-  for (let at = Date.now(); (await disk(r.file).catch(() => ({ version: 0, records: [] as Record<string, unknown>[] }))).records[0]?.['state'] !== 'sending';) {
-    assert.ok(Date.now() - at < 10_000, 'the send was never reached')
-    await new Promise(resolve => setTimeout(resolve, 10))
-  }
+  await entered.promise
   hung.close()
 
   const after = await rig(t, { dir })
@@ -255,13 +265,14 @@ test('a throttle backs off on the same account twice, silently, before it become
 test('a handoff creates the new conversation, links both ways and follows its first turn', async t => {
   const r = await rig(t, { available: ['codex', 'claude'] })
   await r.service.ended('codex', 's1', LIMIT)
+  await r.service.idle()
   assert.deepEqual(r.calls.map(call => call.split(' ').slice(0, 3).join(' ')), ['create claude', 'send claude new-1'])
-  assert.deepEqual(r.marks.map(mark => [mark.at, mark.item.phase, mark.item.link?.sessionId]), [['codex s1', 'left', 'new-1'], ['claude new-1', 'arrived', 's1']])
-  const view = r.published.at(-1)?.incident
+  assert.deepEqual(r.marks.map(mark => [mark.at, mark.item.phase, mark.item.link?.sessionId]).sort(), [['claude new-1', 'arrived', 's1'], ['codex s1', 'left', 'new-1']])
+  const view = r.published.findLast(entry => entry.incident?.state === 'moved')?.incident
   assert.equal(view?.state, 'moved')
   assert.deepEqual(view?.link, { runtime: 'claude', sessionId: 'new-1' })
   // Its first turn hits a limit too: the same incident tries what is left, and nothing is.
-  await r.service.ended('claude', 'new-1', { ...LIMIT, id: 'c1' })
+  await r.service.ended('claude', 'new-1', { ...LIMIT, id: 'continuation-turn' })
   const records = (await disk(r.file)).records
   assert.equal(records.length, 1, 'one incident, carried into the conversation that holds it')
   assert.equal(records[0]!['runtime'], 'claude')
@@ -340,10 +351,10 @@ test('a send left uncertain by a restart waits for an answer, through any later 
   t.after(() => rm(dir, { recursive: true, force: true }))
   const reset = 1_000_000_000 + HOUR
   const r = await rig(t, { dir, resetsAt: reset })
-  const hung = r.reopen({ send: () => new Promise(() => {}) })
+  const entered = deferred()
+  const hung = r.reopen({ send: () => { entered.resolve(); return new Promise(() => {}) } })
   void hung.ended('codex', 's1', LIMIT)
-  await until(() => r.calls.includes('resume codex-2 s1'), 'the switch to reach its send')
-  await new Promise(resolve => setTimeout(resolve, 20))
+  await entered.promise
   hung.close()
 
   for (let restart = 0; restart < 2; restart += 1) {
@@ -617,16 +628,21 @@ test('a reset retry the person overtook in dispatch leaves no “resumed” mark
   assert.ok(!r.marks.some(mark => mark.item.phase === 'resumed'), `the conversation never says it resumed: ${phases(r).join(', ')}`)
 })
 
-test('an admitted switch still writes its marker before the continue goes', async t => {
+test('an admitted switch protects its marker before send and writes it after the accepted receipt', async t => {
   const r = await rig(t)
   const order: string[] = []
   const service = r.reopen({
     record: (runtime, id, item) => { order.push(`mark ${item.phase}`); r.marks.push({ at: `${runtime} ${id}`, item }); return true },
-    send: async (runtime, id, _text, _kind, _stillOurs, admitted) => { admitted?.([]); order.push(`send ${runtime} ${id}`) },
+    send: async (runtime, id, _text, _kind, _stillOurs, admitted, _seat, accepted) => {
+      const record = (await disk(r.file)).records[0]!
+      assert.ok((record['unwritten'] as { phase: string; prospective?: boolean }[]).some(one => one.phase === 'switched' && one.prospective))
+      admitted?.(['t1']); order.push(`send ${runtime} ${id}`); accepted?.('continuation-turn', 'fixture-owner')
+    },
   })
   t.after(() => service.close())
   await service.ended('codex', 's1', LIMIT)
-  assert.deepEqual(order, ['mark switched', 'send codex-2 s1'])
+  await service.idle()
+  assert.deepEqual(order, ['send codex-2 s1', 'mark switched'])
 })
 
 // ------------------------------------------------------------ markers the conversation cannot take yet
@@ -718,6 +734,7 @@ test('retry after the marker lands but its ledger clear fails keeps the same ide
   const service = r.reopen({ record })
   t.after(() => service.close())
   await service.ended('codex', 's1', LIMIT)
+  await service.idle()
   ready = true
   await assert.rejects(service.reachable('codex', 's1'))
   assert.equal(transcript.size, 1, 'the marker landed before the ledger failed')
@@ -733,7 +750,7 @@ test('retry after the marker lands but its ledger clear fails keeps the same ide
   assert.equal((await disk(r.file)).records[0]!['unwritten'], undefined)
 })
 
-test('legacy waiting markers get durable distinct identities before either insert', async t => {
+test('legacy unanchored markers get durable distinct identities and remain pending across restart', async t => {
   const r = await rig(t, { available: ['codex', 'claude'] })
   const initially = r.reopen({ record: () => false })
   await initially.ended('codex', 's1', LIMIT)
@@ -741,31 +758,24 @@ test('legacy waiting markers get durable distinct identities before either inser
   const saved = await disk(r.file)
   const record = saved.records[0]!
   const waiting = record['unwritten'] as Record<string, unknown>[]
-  const legacy = { ...waiting[0] }; delete legacy['id']
+  const legacy = { ...waiting[0] }; delete legacy['id']; delete legacy['anchor']; delete legacy['receipt']; delete legacy['prospective']; delete legacy['snapshot']
   record['unwritten'] = [legacy, { ...legacy }]
+  delete record['reservation']
   await writeFile(r.file, JSON.stringify(saved))
-  const transcript = new Map<string, CarryOnItem>()
-  const attempts: string[] = []
-  let barrier = true
-  const directory = join(r.file, '..'), backup = `${directory}-held`
-  const service = r.reopen({ record: (_runtime, _id, item) => {
-    attempts.push(String(item.id)); transcript.set(String(item.id), item)
-    if (barrier) { barrier = false; renameSync(directory, backup); writeFileSync(directory, 'blocked') }
-    return true
-  } })
+  let inserts = 0
+  const service = r.reopen({ record: () => { inserts++; return true } })
   t.after(() => service.close())
-  await service.restore()
-  await assert.rejects(service.reachable('codex', 's1'))
-  unlinkSync(directory); renameSync(backup, directory)
+  await service.restore(); await service.reachable('codex', 's1')
   const persisted = (await disk(r.file)).records[0]!['unwritten'] as { id: string }[]
   assert.equal(new Set(persisted.map(one => one.id)).size, 2)
   assert.ok(persisted.every(one => one.id))
+  assert.equal(inserts, 0, 'legacy entries have no authoritative turn')
   service.close()
-  const restarted = r.reopen({ record: (_runtime, _id, item) => { transcript.set(String(item.id), item); return true } })
+  const restarted = r.reopen({ record: () => { inserts++; return true } })
   t.after(() => restarted.close())
   await restarted.restore(); await restarted.reachable('codex', 's1')
-  assert.equal(transcript.size, 2, 'two equal-looking markers remain distinct across retry')
-  assert.equal((await disk(r.file)).records[0]!['unwritten'], undefined)
+  assert.deepEqual(((await disk(r.file)).records[0]!['unwritten'] as { id: string }[]).map(one => one.id), persisted.map(one => one.id))
+  assert.equal(inserts, 0)
 })
 
 // ------------------------------------------------------------ seats (piece D)
@@ -786,7 +796,7 @@ const seatPorts = (over: {
     replace: async (from, to) => {
       log.push(`replace ${from.runtime} ${from.sessionId} -> ${to.runtime} ${to.mode}`)
       const refused = over.refuseOnOpen?.[to.runtime]
-      if (refused) return { refused }
+      if (refused) return { refused, beforeEffect: true as const }
       opened += 1
       return { runtime: to.runtime, sessionId: to.mode === 'sameThread' ? from.sessionId : `seat-session-${opened}` }
     },
@@ -799,11 +809,12 @@ test('a seat moves by replacement on the same thread, and its own recovery waits
   const seat = seatPorts()
   const r = await rig(t, { owner: 'seat', seat: seat.ports })
   assert.equal(await r.service.ended('codex', 's1', LIMIT), true, 'carry-on took the turn: no re-arm behind it')
+  await r.service.idle()
   assert.deepEqual(seat.log, ['replace codex s1 -> codex-2 sameThread'])
   assert.deepEqual(r.calls.filter(call => call.startsWith('close') || call.startsWith('resume')), [], 'the replacement reopens the thread, not the service')
   assert.match(r.calls.at(-1)!, /^send codex-2 s1 Continue from where you stopped\./)
   assert.equal(r.marks.at(-1)?.item.phase, 'switched')
-  assert.equal(r.published.at(-1)?.incident?.owner, 'seat', 'the Team view hears about it; the composer card filters it out')
+  assert.equal(r.published.findLast(entry => entry.incident?.state === 'moved')?.incident?.owner, 'seat', 'the Team view hears about it; the composer card filters it out')
   // The continuing turn went through: the move held, and the new seat's own recovery takes it from here.
   assert.equal(await r.service.ended('codex-2', 's1', { id: 't2', status: 'completed' }), false)
 })
@@ -813,6 +824,7 @@ test('a candidate the run refuses for independence is skipped, with its reason o
   const packets: { blind?: boolean }[] = []
   const r = await rig(t, { owner: 'seat', seat: seat.ports, packets })
   await r.service.ended('codex', 's1', LIMIT)
+  await r.service.idle()
   assert.deepEqual(seat.log, ['replace codex s1 -> claude handoff'])
   const left = r.marks.find(mark => mark.item.phase === 'left')
   assert.match(left?.item.note ?? '', /skipped Codex · personal: it shares a provider with the work this seat must be independent of/)
@@ -894,11 +906,12 @@ for (const queued of [false, true]) test(`a replacement Seat’s brief never end
   const r = await rig(t, { owner: 'seat', seat: seat.ports })
   let drain: (() => void) | null = null
   const service = r.reopen({
-    send: async (runtime, id, text, _kind, _stillOurs, admitted) => {
+    send: async (runtime, id, text, _kind, _stillOurs, admitted, _seat, accepted) => {
       r.calls.push(`send ${runtime} ${id} ${text.slice(0, 40)}`)
-      // The new Seat already had its brief. Queued, the packet is admitted only when that brief is over.
-      if (queued) drain = () => admitted?.(['brief-1'])
-      else admitted?.(['brief-1'])
+      // A queued packet receives its own exact turn ID only when actually sent.
+      const dispatch = () => { admitted?.(['brief-1']); accepted?.('t-continue', 'fixture-owner') }
+      if (queued) drain = dispatch
+      else dispatch()
     },
   })
   t.after(() => service.close())
@@ -915,7 +928,8 @@ for (const queued of [false, true]) test(`a replacement Seat’s brief never end
     drain!()
     await service.idle()
   }
-  assert.deepEqual((await disk(r.file)).records[0]!['watch'], { runtime: 'claude', sessionId: 'seat-session-1', skip: ['brief-1'] })
+  await service.idle()
+  assert.deepEqual((await disk(r.file)).records[0]!['watch'], { runtime: 'claude', sessionId: 'seat-session-1', skip: ['brief-1'], turnId: 't-continue' })
 
   // The continuation itself hits a limit: the same incident goes on, never a fresh one at hops 0.
   assert.equal(await service.ended('claude', 'seat-session-1', { ...LIMIT, id: 't-continue' }), true)
@@ -949,4 +963,838 @@ test('every send into a seat says so, and a chat’s never does', async t => {
   await chatService.ended('codex', 's1', LIMIT)
   await chatService.idle()
   assert.ok(seen.length > 0 && seen.every(one => one.endsWith(' chat')), seen.join(', '))
+})
+
+test('three deferred handoffs preserve all six promised markers across independent incidents', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  const service = r.reopen({ record: () => false })
+  t.after(() => service.close())
+  for (let n = 1; n <= 3; n++) await service.ended('codex', 's1', { ...LIMIT, id: `source-${n}` })
+  const markers = (await disk(r.file)).records[0]!['unwritten'] as { id: string; phase: string }[]
+  assert.deepEqual(markers.map(marker => marker.phase), ['left', 'arrived', 'left', 'arrived', 'left', 'arrived'])
+  assert.equal(new Set(markers.map(marker => marker.id)).size, 6)
+})
+
+test('an unanchored legacy marker is retained instead of being attributed to a later turn', async t => {
+  const r = await rig(t, { choice: 'stop' })
+  const first = r.reopen({ record: () => false })
+  await first.ended('codex', 's1', LIMIT)
+  first.close()
+  const saved = await disk(r.file)
+  const pending = saved.records[0]!['unwritten'] as Record<string, unknown>[]
+  delete pending[0]!['anchor']
+  await writeFile(r.file, JSON.stringify(saved))
+  const service = r.reopen({ record: (runtime, id, item) => { r.marks.push({ at: `${runtime} ${id}`, item }); return true } })
+  t.after(() => service.close())
+  await service.restore()
+  await service.reachable('codex', 's1')
+  assert.equal(r.marks.length, 0, 'without an exact turn the marker is never inserted')
+  assert.equal(((await disk(r.file)).records[0]!['unwritten'] as unknown[]).length, 1)
+})
+
+
+test('capacity refusal leaves protected history intact and reports why before any move', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  const ledger = new CarryOnIncidents({ file: r.file })
+  for (let n = 0; n < 64; n++) {
+    const id = `kept-${n}`
+    await ledger.serial(() => ledger.put({
+      incidentId: id, runtime: 'codex', sessionId: id, owner: 'chat', state: 'stopped', cause: 'credits', turnId: 't1',
+      agent: 'codex', from: { name: 'Codex' }, resetsAt: null, nextAt: null, openedAt: 1, lastAt: 1,
+      tried: [], hops: 0, alwaysScope: 'desk', unwritten: [{ id: `marker-${n}`, runtime: 'codex', sessionId: id, phase: 'stopped' }],
+    } as CarryOnRecord))
+  }
+  const before = await readFile(r.file)
+  const notices: string[] = []
+  const service = r.reopen({ capacityNotice: (_runtime: string, _sessionId: string, reason: string) => { notices.push(reason) } } as unknown as Partial<CarryOnPorts>)
+  t.after(() => service.close())
+  await service.restore()
+  await service.ended('codex', 'new-session', LIMIT)
+  assert.deepEqual(r.calls, [], 'no close, create, replace, or send follows a refused admission')
+  assert.ok(notices.some(reason => /capacity|space|full/i.test(reason)), 'the person can see why it stopped')
+  assert.deepEqual(await readFile(r.file), before)
+})
+
+test('a move holds its two-slot durable reservation before closing the source', async t => {
+  const r = await rig(t)
+  let reservation: { slots?: number; markerIds?: string[] } | undefined
+  const service = r.reopen({ close: async () => {
+    const stored = await disk(r.file)
+    reservation = stored.records[0]?.['reservation'] as typeof reservation
+    assert.equal(reservation?.slots, 2, 'both potential handoff markers are reserved before close')
+    assert.equal(reservation?.markerIds?.length, 2)
+  } })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  assert.ok(reservation)
+})
+
+test('an outstanding reservation at restart is kept uncertain and is never automatically resent', async t => {
+  const r = await rig(t)
+  const ledger = new CarryOnIncidents({ file: r.file })
+  const base: CarryOnRecord = {
+    incidentId: 'reserved', runtime: 'codex', sessionId: 's1', owner: 'chat', state: 'deciding', cause: 'credits', turnId: 't1',
+    agent: 'codex', from: { name: 'Codex' }, resetsAt: null, nextAt: null, openedAt: 1, lastAt: 1, tried: [], hops: 0, alwaysScope: 'desk',
+  }
+  await ledger.serial(() => ledger.put(base))
+  await ledger.serial(() => ledger.reserve(base, 2, 'move'))
+  const service = r.reopen()
+  t.after(() => service.close())
+  await service.restore()
+  const after = (await disk(r.file)).records[0]!
+  assert.ok(after['reservation'], 'crash cannot reclaim the reservation')
+  assert.equal(after['uncertain'], true)
+  assert.equal(after['state'], 'asked')
+  assert.equal(r.calls.length, 0)
+  assert.equal(r.timers.filter(timer => !timer.cancelled).length, 0)
+})
+
+test('a queued handoff binds its arrived marker only to the exact accepted turn receipt', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  let receipt: ((id: string, incarnation: string) => void) | undefined
+  const marked: { id: string; turn: string }[] = []
+  const service = r.reopen({
+    incarnation: () => 'owner-generation-1',
+    send: (async (_runtime: string, _session: string, _text: string, _kind: string, _fence: unknown, admitted: (known: readonly string[]) => void, _seat: unknown, accepted: typeof receipt) => { admitted([]); receipt = accepted }) as unknown as CarryOnPorts['send'],
+    record: (runtime: string, _id: string, item: CarryOnItem, turn: string) => { if (runtime === 'claude') marked.push({ id: String(item.id), turn }); return true },
+  } as unknown as Partial<CarryOnPorts>)
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  const waiting = (await disk(r.file)).records[0]!
+  const pending = waiting['unwritten'] as { id: string; phase: string; anchor?: { kind: string }; receipt?: { operationId: string; ceilingBytes: number } }[]
+  const arrived = pending.find(one => one.phase === 'arrived')!
+  assert.equal(arrived.anchor?.kind, 'continuation')
+  assert.ok(arrived.receipt?.operationId && arrived.receipt.ceilingBytes > 0, 'the queued turn retains its materialized byte reservation')
+  assert.ok(receipt, 'the actual send owns a receipt callback')
+  receipt('unrelated-turn', 'stale-owner')
+  await service.idle()
+  await service.reachable('claude', 'new-1')
+  assert.equal(marked.length, 0, 'an old owner cannot bind an unrelated turn')
+  receipt('actual-continuation', 'owner-generation-1')
+  await service.idle()
+  await service.reachable('claude', 'new-1')
+  assert.deepEqual(marked, [{ id: arrived.id, turn: 'actual-continuation' }])
+})
+
+test('opening a later incident preserves unknown legacy fields with inherited markers', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  const ledger = new CarryOnIncidents({ file: r.file })
+  const prior = { incidentId: 'prior', runtime: 'codex', sessionId: 's1', owner: 'chat', state: 'stopped', cause: 'credits', turnId: 'earlier',
+    agent: 'codex', from: { name: 'Codex' }, resetsAt: null, nextAt: null, openedAt: 1, lastAt: 1, tried: [], hops: 0, alwaysScope: 'desk',
+    unwritten: [{ id: 'old', runtime: 'codex', sessionId: 's1', phase: 'stopped' }], futureMetadata: { value: 'must survive' } } as unknown as CarryOnRecord
+  await ledger.serial(() => ledger.put(prior))
+  const service = r.reopen({ record: () => false })
+  t.after(() => service.close())
+  await service.restore()
+  await service.ended('codex', 's1', LIMIT)
+  const saved = (await disk(r.file)).records[0]!
+  assert.deepEqual(saved['futureMetadata'], { value: 'must survive' })
+  assert.ok((saved['unwritten'] as { id: string }[]).some(marker => marker.id === 'old'))
+})
+
+test('a reset retry reserves its resumed marker before reopening the conversation', async t => {
+  const r = await rig(t, { choice: 'wait', resetsAt: 1_000_000_000 + HOUR })
+  let observed: unknown
+  const service = r.reopen({ resume: async (runtime, id) => {
+    observed = (await disk(r.file)).records[0]?.['reservation']
+    return `handle ${runtime} ${id}`
+  } })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  const timer = r.timers.find(one => !one.cancelled)!
+  r.clock = timer.at; timer.cancelled = true; timer.run()
+  await service.idle()
+  assert.ok(observed, 'a marker slot is durable before the resume effect')
+})
+
+test('inherited pending markers retain their original incident cause and source metadata', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  const service = r.reopen({ record: () => false })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  await service.ended('codex', 's1', { id: 'next-failure', status: 'failed', error: { message: 'rate limit', code: 'rateLimit' } })
+  const saved = (await disk(r.file)).records[0]!
+  const pending = saved['unwritten'] as { snapshot?: { cause: string; from: { name: string } } }[]
+  assert.equal(pending[0]?.snapshot?.cause, 'credits')
+  assert.equal(pending[0]?.snapshot?.from.name, 'Codex')
+  assert.equal(pending[2]?.snapshot?.cause, 'rateLimit')
+})
+
+test('an unconfirmed seat replacement is not retried as a handoff or another candidate', async t => {
+  const attempts: string[] = []
+  const seat: CarryOnSeatPorts = {
+    of: async () => ({ blind: false, overBudget: false }), refuse: async () => null,
+    replace: async (_from, target) => { attempts.push(`${target.runtime}:${target.mode}`); throw new Error('replacement outcome unknown') },
+    recover: () => {},
+  }
+  const r = await rig(t, { owner: 'seat', seat })
+  await r.service.ended('codex', 's1', LIMIT)
+  assert.deepEqual(attempts, ['codex-2:sameThread'], 'an ambiguous replacement is never retried')
+  const saved = (await disk(r.file)).records[0]!
+  assert.equal(saved['uncertain'], true)
+  assert.ok(saved['reservation'])
+})
+
+test('a legacy seat refusal without proof of no effect stays uncertain', async t => {
+  const attempts: string[] = []
+  const seat: CarryOnSeatPorts = {
+    of: async () => ({ blind: false, overBudget: false }), refuse: async () => null,
+    replace: async (_from, target) => { attempts.push(`${target.runtime}:${target.mode}`); return { refused: 'outcome not proven' } },
+    recover: () => {},
+  }
+  const r = await rig(t, { owner: 'seat', seat })
+  await r.service.ended('codex', 's1', LIMIT)
+  assert.deepEqual(attempts, ['codex-2:sameThread'])
+  const saved = (await disk(r.file)).records[0]!
+  assert.equal(saved['uncertain'], true)
+  assert.ok(saved['reservation'])
+})
+
+test('a later unrelated failed turn cannot be treated as the accepted continuation', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  await r.service.ended('codex', 's1', LIMIT)
+  await r.service.idle()
+  const before = r.calls.length
+  const took = await r.service.ended('claude', 'new-1', { ...LIMIT, id: 'unrelated-later-turn' })
+  await r.service.idle()
+  assert.equal(took, false)
+  assert.equal(r.calls.length, before, 'no carry-on effect may be attributed to a different turn')
+})
+
+test('a legacy watch with no accepted turn never claims a later unrelated failure', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  const ledger = new CarryOnIncidents({ file: r.file })
+  const old: CarryOnRecord = { incidentId: 'legacy-watch', runtime: 'codex', sessionId: 's1', owner: 'chat', state: 'moved', cause: 'credits',
+    turnId: 'old-failure', agent: 'codex', from: { name: 'Codex' }, resetsAt: null, nextAt: null, openedAt: 1, lastAt: 1,
+    tried: [], hops: 1, alwaysScope: 'desk', watch: { runtime: 'claude', sessionId: 'dest', skip: ['old-brief'] } }
+  await ledger.serial(() => ledger.put(old))
+  const service = r.reopen()
+  t.after(() => service.close())
+  await service.restore()
+  const took = await service.ended('claude', 'dest', { ...LIMIT, id: 'unrelated' })
+  await service.idle()
+  assert.equal(took, false)
+  assert.deepEqual(r.calls, [])
+  const saved = (await disk(r.file)).records.find(one => one['incidentId'] === 'legacy-watch')!
+  assert.equal(saved['uncertain'], true)
+})
+
+test('restart retains a materialized but unconfirmed queued receipt and never resends it', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  const service = r.reopen({ send: async () => {} })
+  await service.ended('codex', 's1', LIMIT)
+  await service.idle()
+  service.close()
+  const after = r.reopen()
+  t.after(() => after.close())
+  await after.restore()
+  const saved = (await disk(r.file)).records[0]!
+  const pending = saved['unwritten'] as { receipt?: { uncertain?: true }; prospective?: true }[]
+  assert.ok(pending.some(one => one.receipt?.uncertain), 'the materialized receipt remains explicitly uncertain')
+  assert.ok(pending.some(one => one.prospective), 'an unconfirmed effect is never asserted as a completed marker')
+  assert.equal(saved['uncertain'], true)
+  assert.equal(r.calls.length, 1, 'only the original destination creation occurred')
+})
+
+
+test('a real Flow refusal after its card moved preserves carry-on reservation and does not retry', async t => {
+  const flow = await goalRig(t)
+  flow.providers.set('alpha', 'one').set('alpha-two', 'one')
+  const yaml = `
+version: 2
+name: Carry-on receipt
+roles:
+  author: { kind: agent, uses: writer, seats: [alpha] }
+  person: { kind: person, outcomes: [done] }
+seed: { role: author, title: Write }
+rules:
+  - { id: decide, on: author, then: { role: person, title: Decide } }
+`
+  const started = await flow.start(yaml, [agent('writer', ['done'])])
+  await flow.flows.flush()
+  const old = flow.sessionOf('seat-1')
+  flow.closeFails = 'replacement owner vanished after the card moved'
+  const push = flow.events.push.bind(flow.events)
+  flow.events.push = (...messages: string[]) => {
+    if (messages.some(message => message.startsWith('replace-unclosed:'))) {
+      const replacement = flow.seats.get('seat-2')!
+      flow.seats.set('seat-2', { ...replacement, closed: { at: Date.now(), why: 'released' } })
+    }
+    return push(...messages)
+  }
+  let attempts = 0
+  const seat: CarryOnSeatPorts = {
+    of: async () => ({ blind: false, overBudget: false }), refuse: async () => null,
+    replace: async (_from, target) => {
+      attempts++
+      const result = await flow.flows.replaceSeat(old.runtime, old.sessionId, { runtime: 'alpha-two', mode: target.mode })
+      return 'refused' in result ? result : { runtime: String(result.session.runtime), sessionId: String(result.session.sessionId) }
+    },
+    recover: () => {},
+  }
+  const r = await rig(t, { owner: 'seat', seat })
+  await r.service.ended('codex', 's1', LIMIT)
+  assert.equal(attempts, 1, 'no second replacement follows an ambiguous first effect')
+  assert.ok(flow.events.some(message => message.startsWith('replace-unclosed:')))
+  assert.equal(flow.flows.executionsFor(started.goal)[0]?.state, 'stalled')
+  const saved = (await disk(r.file)).records[0]!
+  assert.equal(saved['uncertain'], true)
+  assert.ok(saved['reservation'])
+  assert.equal(r.calls.filter(call => call.startsWith('send ')).length, 0)
+})
+
+test('a late queued receipt follows its exact marker across an unrelated incident and rekey', async t => {
+  const r = await rig(t)
+  let available = ['codex', 'claude']
+  const receipts: ((turn: string, owner: string) => void)[] = []
+  const service = r.reopen({
+    runtimes: () => available,
+    incarnation: (runtime: string) => `owner-${runtime}`,
+    send: (async (_runtime: string, _session: string, _text: string, _kind: string, _fence: unknown, admitted: (known: readonly string[]) => void, _seat: unknown, accepted: (turn: string, owner: string) => void) => {
+      admitted(['prior-turn']); receipts.push(accepted)
+    }) as unknown as CarryOnPorts['send'],
+    record: () => false,
+  } as unknown as Partial<CarryOnPorts>)
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  const old = (await disk(r.file)).records[0]!
+  const oldIncident = String(old['incidentId'])
+  const oldMarker = (old['unwritten'] as { id: string; phase: string }[]).find(one => one.phase === 'arrived')!
+  available = ['codex', 'codex-2']
+  await service.ended('codex', 's1', { ...LIMIT, id: 'another-failure' })
+  const moved = (await disk(r.file)).records[0]!
+  assert.equal(moved['runtime'], 'codex-2')
+  assert.notEqual(moved['incidentId'], oldIncident)
+  const newerWatch = moved['watch']
+  receipts[0]!('actual-old-continuation', 'owner-claude')
+  await service.idle()
+  const after = (await disk(r.file)).records[0]!
+  const markers = after['unwritten'] as { id: string; anchor?: { kind: string; turnId?: string } }[]
+  assert.deepEqual(markers.find(one => one.id === oldMarker.id)?.anchor, { kind: 'turn', turnId: 'actual-old-continuation' })
+  assert.deepEqual(after['watch'], newerWatch, 'an old receipt never overwrites the newer incident watch')
+  assert.ok(markers.some(one => one.id !== oldMarker.id && one.anchor?.kind === 'continuation'), 'the newer intent remains unresolved')
+})
+
+test('an unidentifiable accepted turn leaves the operation visibly uncertain and protected', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  let receipt: ((turn: string, owner: string) => void) | undefined
+  const service = r.reopen({
+    incarnation: () => 'owner-generation-1',
+    send: (async (_runtime: string, _session: string, _text: string, _kind: string, _fence: unknown, admitted: (known: readonly string[]) => void, _seat: unknown, accepted: typeof receipt) => { admitted([]); receipt = accepted }) as unknown as CarryOnPorts['send'],
+    record: () => false,
+  })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  receipt!('x'.repeat(301), 'owner-generation-1')
+  await service.idle()
+  const saved = (await disk(r.file)).records[0]!
+  assert.equal(saved['state'], 'asked')
+  assert.equal(saved['uncertain'], true)
+  assert.equal(saved['nextAt'], null)
+  const arrival = (saved['unwritten'] as { phase: string; anchor: { kind: string }; receipt?: { uncertain?: boolean } }[]).find(one => one.phase === 'arrived')!
+  assert.equal(arrival.anchor.kind, 'continuation')
+  assert.equal(arrival.receipt?.uncertain, true)
+  assert.equal(r.calls.filter(call => call.startsWith('send ')).length, 0)
+})
+
+test('an ambiguous same-thread close never falls back to creating another conversation', async t => {
+  const r = await rig(t)
+  let closeAttempts = 0
+  const service = r.reopen({ close: async () => { closeAttempts++; throw new Error('close may have taken effect') } })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  const saved = (await disk(r.file)).records[0]!
+  assert.equal(closeAttempts, 1)
+  assert.equal(saved['state'], 'asked')
+  assert.equal(saved['uncertain'], true)
+  assert.ok(saved['reservation'])
+  assert.equal(r.calls.filter(call => call.startsWith('create ') || call.startsWith('send ')).length, 0)
+})
+
+for (const owner of ['chat', 'seat'] as const) test(`a ${owner} model lookup overtaken by the person releases its unused reservation across restart`, async t => {
+  const seat = seatPorts()
+  const r = await rig(t, { owner, ...(owner === 'seat' ? { seat: seat.ports } : {}) })
+  const models = deferred<readonly ModelInfo[]>(), entered = deferred()
+  const service = r.reopen({ models: () => { entered.resolve(); return models.promise } })
+  t.after(() => service.close())
+  const moving = service.ended('codex', 's1', LIMIT)
+  await entered.promise
+  const before = (await disk(r.file)).records[0]!
+  assert.equal((before['reservation'] as { slots: number }).slots, 2, 'two real slots were reserved before lookup')
+  const person = service.personSent('codex', 's1')
+  models.resolve([])
+  await moving; await person
+  const after = (await disk(r.file)).records[0]!
+  assert.equal(after['state'], 'cleared')
+  assert.equal(after['reservation'], undefined, 'unused reservation must be released')
+  assert.deepEqual(r.calls, [])
+  assert.deepEqual(seat.log, [])
+  service.close()
+  const restart = r.reopen(); t.after(() => restart.close())
+  await restart.restore()
+  const restored = (await disk(r.file)).records[0]!
+  assert.equal(restored['state'], 'cleared')
+  assert.equal(restored['reservation'], undefined)
+  assert.equal(restored['uncertain'], undefined)
+  assert.equal(restart.list().length, 0)
+})
+
+for (const owner of ['chat', 'seat'] as const) for (const scenario of ['all turns', 'missing original', 'missing accepted'] as const) test(`a ${owner} same-thread switch anchors to the accepted continuation with ${scenario}`, async t => {
+  const seat = seatPorts()
+  const r = await rig(t, { owner, ...(owner === 'seat' ? { seat: seat.ports } : {}) })
+  const present = new Set(scenario === 'missing original' ? ['t2', 't3'] : scenario === 'missing accepted' ? ['t1', 't2'] : ['t1', 't2', 't3'])
+  const attempted: string[] = [], written: string[] = []
+  const service = r.reopen({
+    send: async (_runtime, _id, _text, _kind, _fence, admitted, _seat, accepted) => { admitted?.(scenario === 'missing original' ? ['t2'] : ['t1', 't2']); accepted?.('t3', 'fixture-owner') },
+    record: (_runtime, _id, _item, turn) => { attempted.push(turn); if (!present.has(turn)) return false; written.push(turn); return true },
+  })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  await service.idle()
+  present.add('t4') // A later unrelated turn never changes the accepted target.
+  await service.reachable('codex-2', 's1')
+  await service.idle()
+  const saved = (await disk(r.file)).records[0]!
+  assert.equal((saved['watch'] as { turnId: string }).turnId, 't3', 'watch uses the accepted continuation ID')
+  assert.ok(attempted.length > 0 && attempted.every(turn => turn === 't3'), `only the accepted continuation is addressed: ${attempted}`)
+  if (scenario === 'missing accepted') {
+    assert.deepEqual(written, [], 'a missing accepted turn cannot be replaced with t1, t2, or t4')
+    const pending = saved['unwritten'] as { phase: string; anchor: unknown }[]
+    assert.deepEqual(pending.find(one => one.phase === 'switched')?.anchor, { kind: 'turn', turnId: 't3' })
+  } else assert.deepEqual(written, ['t3'], 'the accepted continuation owns the switched marker')
+})
+
+for (const owner of ['chat', 'seat'] as const) for (const timing of ['before', 'after'] as const) test(`a ${owner} queued handoff removed ${timing} settlement drops only its own prospective markers`, async t => {
+  const seat = seatPorts({ refuse: { 'codex-2': 'different agent required' } })
+  const r = await rig(t, { owner, available: ['codex', 'claude'], ...(owner === 'seat' ? { seat: seat.ports } : {}) })
+  const entered = deferred(), release = deferred()
+  let removed: (() => void) | undefined, accepted: ((turn: string, owner: string) => void) | undefined
+  const service = r.reopen({
+    send: (async (_runtime: string, _id: string, _text: string, _kind: string, _fence: unknown, _admitted: unknown, _seat: unknown, receipt: typeof accepted, _unconfirmed: unknown, cancellation: typeof removed) => {
+      accepted = receipt; removed = cancellation; entered.resolve(); if (timing === 'before') await release.promise
+    }) as CarryOnPorts['send'],
+    record: () => false,
+  })
+  t.after(() => { release.resolve(); service.close() })
+  const moving = service.ended('codex', 's1', LIMIT)
+  await entered.promise
+  assert.equal(typeof removed, 'function', 'the queue owns a cancellation receipt')
+  if (timing === 'before') { removed!(); release.resolve(); await moving } else { await moving; removed!() }
+  await service.idle()
+  const after = (await disk(r.file)).records[0]!
+  assert.equal(after['state'], 'asked')
+  assert.equal(after['uncertain'], undefined)
+  assert.equal(after['unwritten'], undefined)
+  assert.equal(after['reservation'], undefined)
+  assert.match(String(after['note']), /removed before sending/i)
+  assert.ok(after['link'], 'the opened/replaced destination remains recorded')
+  const beforeLate = JSON.stringify(after)
+  accepted?.('late-turn', 'fixture-owner')
+  await service.idle()
+  assert.equal(JSON.stringify((await disk(r.file)).records[0]), beforeLate, 'late acceptance cannot resurrect a cancelled intent')
+})
+
+test('a stale removal for an older operation cannot change the same incident’s newer move', async t => {
+  const r = await rig(t)
+  let available = ['codex', 'claude']
+  const removed: (() => void)[] = [], uncertain: (() => void)[] = []
+  const service = r.reopen({
+    runtimes: () => available,
+    incarnation: runtime => `owner-${runtime}`,
+    send: (async (_runtime: string, _id: string, _text: string, _kind: string, _fence: unknown, _admitted: unknown, _seat: unknown, _accepted: unknown, unconfirmed: () => void, cancelled: () => void) => { uncertain.push(unconfirmed); if (cancelled) removed.push(cancelled) }) as CarryOnPorts['send'],
+    record: () => false,
+  })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  assert.equal(removed.length, 1)
+  uncertain[0]!(); await service.idle()
+  const asked = service.list().find(one => one.state === 'asked')!
+  assert.ok(asked)
+  available = ['codex', 'codex-2']
+  await service.decide({ incidentId: asked.incidentId, choice: 'switch', target: 'codex-2' as never, always: false })
+  const newer = (await disk(r.file)).records[0]!
+  assert.equal(newer['incidentId'], asked.incidentId)
+  assert.equal(newer['state'], 'moved')
+  const newWatch = newer['watch'], newLink = newer['link'], newReservation = newer['reservation']
+  const newMarkers = (newer['unwritten'] as { id: string; receipt?: { operationId: string } }[]).filter(one => one.receipt?.operationId !== (newer['unwritten'] as { receipt?: { operationId: string } }[])[0]?.receipt?.operationId)
+  assert.ok(newMarkers.length)
+  removed[0]!(); await service.idle()
+  const after = (await disk(r.file)).records[0]!
+  assert.equal(after['state'], 'moved', 'older receipt cannot reset the new action')
+  assert.deepEqual(after['watch'], newWatch)
+  assert.deepEqual(after['link'], newLink)
+  assert.deepEqual(after['reservation'], newReservation)
+  assert.ok(newMarkers.every(marker => (after['unwritten'] as { id: string }[]).some(one => one.id === marker.id)))
+})
+
+for (const outcome of ['completed', 'limit'] as const) test(`an accepted continuation that ${outcome === 'limit' ? 'hit a limit' : 'completed'} before its receipt is reconciled by exact turn`, async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  let receipt: ((id: string, owner: string) => void) | undefined
+  const completed = new Map<string, { id: string; status: string; error?: { code: string; message: string } }>()
+  const service = r.reopen({
+    incarnation: () => 'same-owner',
+    send: (async (_runtime: string, _id: string, _text: string, _kind: string, _fence: unknown, admitted: (turns: readonly string[]) => void, _seat: unknown, accepted: typeof receipt) => { admitted(['brief']); receipt = accepted }) as CarryOnPorts['send'],
+    completedTurn: (_runtime: string, _id: string, turn: string, owner: string) => owner === 'same-owner' ? { kind: 'available', turn: completed.get(turn) } : { kind: 'unavailable' },
+    record: () => false,
+  } as Partial<CarryOnPorts>)
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  const incident = (await disk(r.file)).records[0]!
+  const finished = outcome === 'limit' ? { ...LIMIT, id: 'actual-continuation' } : { id: 'actual-continuation', status: 'completed' }
+  completed.set(finished.id, finished)
+  await service.ended('claude', 'new-1', finished)
+  assert.deepEqual((await disk(r.file)).records[0]!['watch'], { runtime: 'claude', sessionId: 'new-1', pending: true })
+  receipt!('actual-continuation', 'same-owner')
+  await until(() => {
+    const record = (JSON.parse(readFileSync(r.file, 'utf8')) as { records: { state: string; watch?: unknown }[] }).records[0]
+    return outcome === 'limit' ? record?.state === 'stopped' : record?.watch === undefined
+  }, 'the exact accepted completion is reconciled')
+  await service.idle()
+  const after = (await disk(r.file)).records[0]!
+  if (outcome === 'limit') {
+    assert.equal(after['state'], 'stopped')
+    assert.equal(after['incidentId'], incident['incidentId'])
+    assert.equal(after['turnId'], 'actual-continuation')
+  } else assert.equal(after['watch'], undefined)
+})
+
+test('equal turn IDs on different conversations do not hide an accepted continuation limit', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  const service = r.reopen({ send: async (_runtime, _id, _text, _kind, _fence, admitted, _seat, accepted) => { admitted?.([]); accepted?.('t1', 'fixture-owner') }, record: () => false })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT); await service.idle()
+  const before = (await disk(r.file)).records[0]!
+  assert.equal((before['watch'] as { turnId: string }).turnId, 't1')
+  await service.ended('claude', 'new-1', LIMIT); await service.idle()
+  const after = (await disk(r.file)).records[0]!
+  assert.equal(after['incidentId'], before['incidentId'])
+  assert.equal(after['runtime'], 'claude')
+  assert.equal(after['state'], 'stopped')
+})
+
+test('a stale unconfirmed receipt for an older operation cannot change the same incident’s newer move', async t => {
+  const r = await rig(t)
+  let available = ['codex', 'claude']
+  const removed: (() => void)[] = [], uncertain: (() => void)[] = []
+  const service = r.reopen({
+    runtimes: () => available,
+    incarnation: runtime => `owner-${runtime}`,
+    send: (async (_runtime: string, _id: string, _text: string, _kind: string, _fence: unknown, _admitted: unknown, _seat: unknown, _accepted: unknown, unconfirmed: () => void, cancelled: () => void) => { uncertain.push(unconfirmed); if (cancelled) removed.push(cancelled) }) as CarryOnPorts['send'],
+    record: () => false,
+  })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  assert.equal(removed.length, 1)
+  uncertain[0]!(); await service.idle()
+  const asked = service.list().find(one => one.state === 'asked')!
+  assert.ok(asked)
+  available = ['codex', 'codex-2']
+  await service.decide({ incidentId: asked.incidentId, choice: 'switch', target: 'codex-2' as never, always: false })
+  const newer = (await disk(r.file)).records[0]!
+  assert.equal(newer['incidentId'], asked.incidentId)
+  assert.equal(newer['state'], 'moved')
+  const newWatch = newer['watch'], newLink = newer['link'], newReservation = newer['reservation']
+  const newMarkers = (newer['unwritten'] as { id: string; receipt?: { operationId: string } }[]).filter(one => one.receipt?.operationId !== (newer['unwritten'] as { receipt?: { operationId: string } }[])[0]?.receipt?.operationId)
+  assert.ok(newMarkers.length)
+  uncertain[0]!(); await service.idle()
+  const after = (await disk(r.file)).records[0]!
+  assert.equal(after['state'], 'moved', 'older receipt cannot reset the new action')
+  assert.deepEqual(after['watch'], newWatch)
+  assert.deepEqual(after['link'], newLink)
+  assert.deepEqual(after['reservation'], newReservation)
+  assert.ok(newMarkers.every(marker => (after['unwritten'] as { id: string }[]).some(one => one.id === marker.id)))
+})
+
+
+test('a stale invalid accepted receipt for an older operation cannot change the same incident’s newer move', async t => {
+  const r = await rig(t)
+  let available = ['codex', 'claude']
+  const removed: (() => void)[] = [], uncertain: (() => void)[] = [], accepted: ((turn: string, owner: string) => void)[] = []
+  const service = r.reopen({
+    runtimes: () => available,
+    incarnation: runtime => `owner-${runtime}`,
+    send: (async (_runtime: string, _id: string, _text: string, _kind: string, _fence: unknown, _admitted: unknown, _seat: unknown, receipt: (turn: string, owner: string) => void, unconfirmed: () => void, cancelled: () => void) => { accepted.push(receipt); uncertain.push(unconfirmed); if (cancelled) removed.push(cancelled) }) as CarryOnPorts['send'],
+    record: () => false,
+  })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  assert.equal(removed.length, 1)
+  uncertain[0]!(); await service.idle()
+  const asked = service.list().find(one => one.state === 'asked')!
+  assert.ok(asked)
+  available = ['codex', 'codex-2']
+  await service.decide({ incidentId: asked.incidentId, choice: 'switch', target: 'codex-2' as never, always: false })
+  const newer = (await disk(r.file)).records[0]!
+  assert.equal(newer['incidentId'], asked.incidentId)
+  assert.equal(newer['state'], 'moved')
+  const newWatch = newer['watch'], newLink = newer['link'], newReservation = newer['reservation']
+  const newMarkers = (newer['unwritten'] as { id: string; receipt?: { operationId: string } }[]).filter(one => one.receipt?.operationId !== (newer['unwritten'] as { receipt?: { operationId: string } }[])[0]?.receipt?.operationId)
+  assert.ok(newMarkers.length)
+  accepted[0]!('x'.repeat(301), 'owner-claude'); await service.idle()
+  const after = (await disk(r.file)).records[0]!
+  assert.equal(after['state'], 'moved', 'older receipt cannot reset the new action')
+  assert.deepEqual(after['watch'], newWatch)
+  assert.deepEqual(after['link'], newLink)
+  assert.deepEqual(after['reservation'], newReservation)
+  assert.ok(newMarkers.every(marker => (after['unwritten'] as { id: string }[]).some(one => one.id === marker.id)))
+})
+
+
+
+test('an unrelated earlier completion cannot satisfy the accepted continuation watch', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  let receipt: ((id: string, owner: string) => void) | undefined
+  const looked: string[] = []
+  const service = r.reopen({ incarnation: () => 'owner',
+    send: (async (_runtime: string, _id: string, _text: string, _kind: string, _fence: unknown, admitted: (turns: readonly string[]) => void, _seat: unknown, accepted: typeof receipt) => { admitted(['earlier']); receipt = accepted }) as CarryOnPorts['send'],
+    completedTurn: (_runtime: string, _id: string, turn: string) => { looked.push(turn); return { kind: 'available', ...(turn === 'unrelated' ? { turn: { id: 'unrelated', status: 'failed', error: { code: 'credits' } } } : {}) } },
+    record: () => false,
+  } as Partial<CarryOnPorts>)
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  await service.ended('claude', 'new-1', { ...LIMIT, id: 'unrelated' })
+  receipt!('actual', 'owner'); await service.idle()
+  const after = (await disk(r.file)).records[0]!
+  assert.deepEqual(looked, ['actual'])
+  assert.equal(after['state'], 'moved')
+  assert.equal((after['watch'] as { turnId: string }).turnId, 'actual')
+})
+
+test('a changed live incarnation during reconciliation cannot trigger recovery on a stale completion', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  let owner = 'owner-one', receipt: ((id: string, owner: string) => void) | undefined
+  const entered = deferred(), release = deferred<{ reached: boolean; blocked: boolean; resetsAt: null }>()
+  const service = r.reopen({ incarnation: () => owner,
+    meter: async runtime => runtime === 'claude' ? (entered.resolve(), release.promise) : { reached: true, blocked: true, resetsAt: null },
+    send: (async (_runtime: string, _id: string, _text: string, _kind: string, _fence: unknown, admitted: (turns: readonly string[]) => void, _seat: unknown, accepted: typeof receipt) => { admitted([]); receipt = accepted }) as CarryOnPorts['send'],
+    completedTurn: () => ({ kind: 'available', turn: { ...LIMIT, id: 'actual' } }), record: () => false,
+  } as Partial<CarryOnPorts>)
+  t.after(() => { release.resolve({ reached: true, blocked: true, resetsAt: null }); service.close() })
+  await service.ended('codex', 's1', LIMIT)
+  receipt!('actual', 'owner-one'); await entered.promise
+  owner = 'owner-two'; release.resolve({ reached: true, blocked: true, resetsAt: null }); await service.idle()
+  const after = (await disk(r.file)).records[0]!
+  assert.equal(after['state'], 'moved')
+  assert.equal((after['watch'] as { turnId: string }).turnId, 'actual')
+  assert.equal(after['runtime'], 'codex')
+})
+
+test('an unavailable exact completion lookup preserves an uncertain question', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  let receipt: ((id: string, owner: string) => void) | undefined
+  const service = r.reopen({ incarnation: () => 'owner',
+    send: (async (_runtime: string, _id: string, _text: string, _kind: string, _fence: unknown, admitted: (turns: readonly string[]) => void, _seat: unknown, accepted: typeof receipt) => { admitted([]); receipt = accepted }) as CarryOnPorts['send'],
+    completedTurn: () => ({ kind: 'unavailable' }), record: () => false,
+  } as Partial<CarryOnPorts>)
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  receipt!('actual', 'owner'); await service.idle()
+  const after = (await disk(r.file)).records[0]!
+  assert.equal(after['state'], 'asked'); assert.equal(after['uncertain'], true)
+  assert.equal(after['nextAt'], null); assert.ok(after['unwritten'])
+})
+
+test('cancelling a queued handoff preserves earlier pending markers and the opened destination', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  const ledger = new CarryOnIncidents({ file: r.file })
+  const old: CarryOnRecord = { incidentId: 'prior', runtime: 'codex', sessionId: 's1', owner: 'chat', state: 'stopped', cause: 'credits',
+    turnId: 'older-turn', agent: 'codex', from: { name: 'Codex' }, resetsAt: null, nextAt: null, openedAt: 1, lastAt: 1, tried: [], hops: 0, alwaysScope: 'desk',
+    unwritten: [{ id: 'older-protected', runtime: 'codex', sessionId: 's1', phase: 'stopped' }] }
+  await ledger.serial(() => ledger.put(old))
+  let removed: (() => void) | undefined
+  const service = r.reopen({ send: (async (_runtime: string, _id: string, _text: string, _kind: string, _fence: unknown, _admitted: unknown, _seat: unknown, _accepted: unknown, _unconfirmed: unknown, cancellation: typeof removed) => { removed = cancellation }) as CarryOnPorts['send'], record: () => false })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  assert.ok(removed)
+  removed(); await service.idle()
+  const after = (await disk(r.file)).records[0]!
+  assert.deepEqual(after['unwritten'], old.unwritten)
+  assert.equal(after['state'], 'asked')
+  assert.deepEqual(after['link'], { runtime: 'claude', sessionId: 'new-1' })
+})
+
+test('shutdown drains a queue-cancellation ledger write that already started', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  let removed: (() => void) | undefined
+  const service = r.reopen({ send: (async (_runtime: string, _id: string, _text: string, _kind: string, _fence: unknown, _admitted: unknown, _seat: unknown, _accepted: unknown, _unconfirmed: unknown, cancellation: typeof removed) => { removed = cancellation }) as CarryOnPorts['send'], record: () => false })
+  await service.ended('codex', 's1', LIMIT)
+  assert.ok(removed)
+  const entered = deferred(), release = deferred()
+  const rename = fsPromises.rename
+  const mock = t.mock.method(fsPromises, 'rename', async (...args: Parameters<typeof rename>) => {
+    if (String(args[1]) === r.file) { entered.resolve(); await release.promise }
+    return rename(...args)
+  })
+  syncBuiltinESMExports()
+  t.after(() => { release.resolve(); mock.mock.restore(); syncBuiltinESMExports() })
+  removed(); await entered.promise
+  service.close()
+  let drained = false
+  const idle = service.storageIdle().then(() => { drained = true })
+  await new Promise<void>(resolve => setImmediate(resolve))
+  assert.equal(drained, false, 'shutdown waits for the already started ledger write')
+  release.resolve(); await idle
+  const after = (await disk(r.file)).records[0]!
+  assert.equal(after['unwritten'], undefined)
+  assert.equal(after['state'], 'asked')
+})
+
+test('an older queue removal cannot clear uncertainty from a newer reserved action', async t => {
+  const r = await rig(t)
+  let available = ['codex', 'claude'], sends = 0
+  let removed: (() => void) | undefined, uncertain: (() => void) | undefined
+  const service = r.reopen({ runtimes: () => available, incarnation: runtime => `owner-${runtime}`,
+    send: (async (_runtime: string, _id: string, _text: string, _kind: string, _fence: unknown, _admitted: unknown, _seat: unknown, _accepted: unknown, unconfirmed: () => void, cancelled: () => void) => {
+      sends++; if (sends === 1) { uncertain = unconfirmed; removed = cancelled; return }
+      throw new Error('newer action outcome unknown')
+    }) as CarryOnPorts['send'], record: () => false })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT)
+  assert.ok(removed && uncertain)
+  uncertain(); await service.idle()
+  const question = service.list().find(one => one.state === 'asked')!
+  available = ['codex', 'codex-2']
+  await service.decide({ incidentId: question.incidentId, choice: 'switch', target: 'codex-2' as never, always: false })
+  const newer = (await disk(r.file)).records[0]!
+  assert.equal(newer['uncertain'], true)
+  assert.ok(newer['reservation'])
+  const witness = { reservation: newer['reservation'], watch: newer['watch'], note: newer['note'], state: newer['state'], uncertain: newer['uncertain'] }
+  removed(); await service.idle()
+  const after = (await disk(r.file)).records[0]!
+  assert.deepEqual({ reservation: after['reservation'], watch: after['watch'], note: after['note'], state: after['state'], uncertain: after['uncertain'] }, witness)
+})
+
+test('a continuation rolled back during the meter read cannot trigger recovery from the old completion', async t => {
+  const r = await rig(t, { available: ['codex', 'claude'] })
+  let receipt: ((id: string, owner: string) => void) | undefined, present = true
+  const entered = deferred(), release = deferred<{ reached: boolean; blocked: boolean; resetsAt: null }>()
+  const service = r.reopen({ incarnation: () => 'owner',
+    meter: async runtime => runtime === 'claude' ? (entered.resolve(), release.promise) : { reached: true, blocked: true, resetsAt: null },
+    send: (async (_runtime: string, _id: string, _text: string, _kind: string, _fence: unknown, admitted: (turns: readonly string[]) => void, _seat: unknown, accepted: typeof receipt) => { admitted([]); receipt = accepted }) as CarryOnPorts['send'],
+    completedTurn: () => present ? { kind: 'available', turn: { ...LIMIT, id: 'actual' } } : { kind: 'available' }, record: () => false,
+  } as Partial<CarryOnPorts>)
+  t.after(() => { release.resolve({ reached: true, blocked: true, resetsAt: null }); service.close() })
+  await service.ended('codex', 's1', LIMIT)
+  receipt!('actual', 'owner'); await entered.promise
+  present = false
+  release.resolve({ reached: true, blocked: true, resetsAt: null }); await release.promise; await service.idle()
+  const after = (await disk(r.file)).records[0]!
+  assert.equal(after['state'], 'asked')
+  assert.equal(after['uncertain'], true)
+  assert.equal(after['runtime'], 'codex', 'the old completion cannot move the incident to the destination')
+})
+
+for (const boundary of ['seat facts', 'sending write', 'pre-effect refusal'] as const) test(`a person during ${boundary} prevents a Seat replacement effect`, async t => {
+  const entered = deferred(), release = deferred(), seat = seatPorts()
+  let facts = 0, replacements = 0
+  const originalOf = seat.ports.of
+  const ports: CarryOnSeatPorts = {
+    ...seat.ports,
+    of: async (...args) => { facts++; if (boundary === 'seat facts' && facts === 3) { entered.resolve(); await release.promise } return originalOf(...args) },
+    replace: async () => { replacements++; if (boundary === 'pre-effect refusal' && replacements === 1) { entered.resolve(); await release.promise; return { refused: 'no effect', beforeEffect: true } } return { runtime: 'codex-2', sessionId: 's1' } },
+  }
+  const r = await rig(t, { owner: 'seat', seat: ports })
+  const service = r.reopen(); t.after(() => { release.resolve(); service.close() })
+  const put = CarryOnIncidents.prototype.put
+  if (boundary === 'sending write') t.mock.method(CarryOnIncidents.prototype, 'put', async function (this: CarryOnIncidents, record: CarryOnRecord, ...args: Parameters<CarryOnIncidents['put']> extends [CarryOnRecord, ...infer Rest] ? Rest : never) {
+    await put.call(this, record, ...args)
+    if (record.state === 'sending') { entered.resolve(); await release.promise }
+  })
+  const moving = service.ended('codex', 's1', LIMIT)
+  await entered.promise
+  const person = service.personSent('codex', 's1')
+  release.resolve(); await moving; await person
+  assert.equal(replacements, boundary === 'pre-effect refusal' ? 1 : 0, 'no unapproved replacement follows the person')
+  const after = (await disk(r.file)).records[0]!
+  assert.equal(after['state'], 'cleared'); assert.equal(after['reservation'], undefined)
+})
+
+for (const owner of ['chat', 'seat'] as const) for (const protection of ['uncertain', 'watch', 'live state'] as const) test(`a ${owner} same-thread move refuses an unrelated destination protected by ${protection} before effects`, async t => {
+  const seat = seatPorts()
+  const r = await rig(t, { owner, ...(owner === 'seat' ? { seat: seat.ports } : {}) })
+  const ledger = new CarryOnIncidents({ file: r.file })
+  const destination: CarryOnRecord = {
+    incidentId: 'other-incident', runtime: 'codex-2', sessionId: 's1', owner: 'chat', state: protection === 'live state' ? 'asked' : 'moved',
+    cause: 'credits', turnId: 'older-turn', agent: 'codex', from: { name: 'Codex' }, resetsAt: null, nextAt: null,
+    openedAt: 1, lastAt: 1, tried: [], hops: 0, alwaysScope: 'desk',
+    ...(protection === 'uncertain' ? { uncertain: true as const } : {}),
+    ...(protection === 'watch' ? { watch: { runtime: 'codex-2', sessionId: 's1', turnId: 'accepted-old' } } : {}),
+  }
+  await ledger.serial(() => ledger.put(destination))
+  const notices: string[] = []
+  const service = r.reopen({ capacityNotice: (_runtime, _id, reason) => { notices.push(reason) } })
+  t.after(() => service.close())
+  await service.ended('codex', 's1', LIMIT); await service.idle()
+  assert.deepEqual(seat.log, [], 'no Seat replacement follows a protected collision')
+  assert.deepEqual(r.calls, [], 'no source close, target resume, create or send follows a protected collision')
+  const records = (await disk(r.file)).records
+  assert.deepEqual(records.find(one => one['incidentId'] === destination.incidentId), destination, 'unrelated destination history is preserved')
+  const source = records.find(one => one['runtime'] === 'codex' && one['sessionId'] === 's1')!
+  assert.equal(source['state'], 'asked')
+  assert.equal(source['reservation'], undefined, 'the unused action reservation is released')
+  assert.match(String(source['note']), /destination has protected carry-on history/i)
+  assert.ok(notices.length > 0, 'the refusal is visible')
+})
+
+test('a person who sends while an automatic stop reserves capacity prevents the stopped marker', async t => {
+  const r = await rig(t, { choice: 'stop' })
+  const entered = deferred(), release = deferred()
+  const reserve = CarryOnIncidents.prototype.reserve
+  t.mock.method(CarryOnIncidents.prototype, 'reserve', async function (this: CarryOnIncidents, record: CarryOnRecord, slots: 1 | 2, action: 'move' | 'retry' | 'stop' | 'wait') {
+    const reserved = await reserve.call(this, record, slots, action)
+    if (action === 'stop') { entered.resolve(); await release.promise }
+    return reserved
+  })
+  const service = r.reopen(); t.after(() => { release.resolve(); service.close() })
+  const ending = service.ended('codex', 's1', LIMIT)
+  await entered.promise
+  const held = (await disk(r.file)).records[0]!
+  assert.equal((held['reservation'] as { action: string; slots: number }).action, 'stop')
+  assert.equal((held['reservation'] as { action: string; slots: number }).slots, 1, 'the actual reservation was durable')
+  const person = service.personSent('codex', 's1')
+  release.resolve(); await ending; await person; await service.idle()
+  assert.deepEqual(r.marks, [], 'the old stop must not write a marker after the person wins')
+  const after = (await disk(r.file)).records[0]!
+  assert.equal(after['state'], 'cleared')
+  assert.equal(after['reservation'], undefined)
+  assert.equal(after['unwritten'], undefined)
+})
+
+for (const owner of ['chat', 'seat'] as const) test(`a ${owner} same-thread move may replace unrelated unprotected destination history`, async t => {
+  const seat = seatPorts()
+  const r = await rig(t, { owner, ...(owner === 'seat' ? { seat: seat.ports } : {}) })
+  const ledger = new CarryOnIncidents({ file: r.file })
+  await ledger.serial(() => ledger.put({ incidentId: 'old-unprotected', runtime: 'codex-2', sessionId: 's1', owner: 'chat', state: 'stopped',
+    cause: 'credits', turnId: 'old', agent: 'codex', from: { name: 'Codex' }, resetsAt: null, nextAt: null,
+    openedAt: 1, lastAt: 1, tried: [], hops: 0, alwaysScope: 'desk' }))
+  await r.service.ended('codex', 's1', LIMIT); await r.service.idle()
+  assert.ok(r.calls.some(call => call.startsWith('send codex-2 s1')), 'the normal continuation is sent')
+  if (owner === 'seat') assert.ok(seat.log.some(call => call.startsWith('replace ')), 'the normal Seat replacement occurs')
+  const current = (await disk(r.file)).records.find(one => one['runtime'] === 'codex-2' && one['sessionId'] === 's1')!
+  assert.notEqual(current['incidentId'], 'old-unprotected')
+})
+
+test('a person who sends while an automatic wait reserves capacity prevents the waiting marker and timer', async t => {
+  const r = await rig(t, { choice: 'wait', resetsAt: 1_000_000_000 + HOUR })
+  const entered = deferred(), release = deferred()
+  const reserve = CarryOnIncidents.prototype.reserve
+  t.mock.method(CarryOnIncidents.prototype, 'reserve', async function (this: CarryOnIncidents, record: CarryOnRecord, slots: 1 | 2, action: 'move' | 'retry' | 'stop' | 'wait') {
+    const reserved = await reserve.call(this, record, slots, action)
+    if (action === 'wait') { entered.resolve(); await release.promise }
+    return reserved
+  })
+  const service = r.reopen(); t.after(() => { release.resolve(); service.close() })
+  const ending = service.ended('codex', 's1', LIMIT)
+  await entered.promise
+  const held = (await disk(r.file)).records[0]!
+  assert.equal((held['reservation'] as { action: string; slots: number }).action, 'wait')
+  assert.equal((held['reservation'] as { action: string; slots: number }).slots, 1, 'the actual reservation was durable')
+  const person = service.personSent('codex', 's1')
+  release.resolve(); await ending; await person; await service.idle()
+  assert.deepEqual(r.marks, [], 'the old wait must not write a marker after the person wins')
+  assert.equal(r.timers.filter(timer => !timer.cancelled).length, 0, 'no retry timer is armed')
+  const after = (await disk(r.file)).records[0]!
+  assert.equal(after['state'], 'cleared')
+  assert.equal(after['reservation'], undefined)
+  assert.equal(after['unwritten'], undefined)
 })

@@ -185,6 +185,7 @@ export interface HostContext {
   readonly carryOn: {
     list(): readonly import('@harnessdesk/protocol').CarryOnIncidentView[]
     decide(input: import('@harnessdesk/protocol').CarryOnDecision): Promise<import('@harnessdesk/protocol').CarryOnIncidentView>
+    historyChanged(runtime: string, sessionId: string): void
   }
   /** Seen marks, the away digest, the morning brief and the state of each ask; refuses while no Lead runs here. */
   readonly leadPresence: Pick<import('../lead/presence.js').LeadPresenceStore, 'read' | 'dismiss' | 'brief' | 'updateBrief'>

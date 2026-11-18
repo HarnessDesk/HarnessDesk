@@ -519,10 +519,11 @@ export const sessionMethods = {
   'session/rollback': async (ctx, params) => {
     const live = await ctx.sessions.live(params)
     if (!live.rollback) throw new Error('This runtime cannot undo turns.')
+    const runtime = ctx.runtimes.resolve(params).info.id
+    ctx.carryOn.historyChanged(runtime, params.sessionId)
     await live.rollback(params.turns)
     // The conversation dropped those turns, so the host stops claiming
     // them: a later read that no longer lists them is right, not behind.
-    const runtime = ctx.runtimes.resolve(params).info.id
     const id = makeSessionId(params.sessionId)
     ctx.registry.forgetTurns(runtime, id, params.turns)
     /* And so does the transcript store, which fills a thinner read in from

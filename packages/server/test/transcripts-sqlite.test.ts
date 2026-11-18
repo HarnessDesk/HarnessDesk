@@ -1230,3 +1230,61 @@ test('a conversation whose latest turn was stopped still reads stopped from a ne
   await store.flush()
   assert.equal(store.lastTurnStopped(stopped.runtime, stopped.id), false, 'a turn after the stop clears it')
 })
+
+for (const mode of ['title', 'delta', 'base-next', 'external', 'generation', 'epoch', 'protect', 'base-change'] as const) {
+  test(`a post-commit generation settle ${mode === 'title' || mode === 'delta' || mode === 'base-next' ? `keeps current ${mode}` : `protects ${mode}`}`, async t => {
+    const home = await mkdtemp(join(tmpdir(), 'hd-commit-linearization-'))
+    const first = session([turn('one', [message('answer', 'first')])])
+    const later = mode === 'title' ? { ...first, title: 'new title' } : session([turn('one', [message('answer', 'first and later')])])
+    const latest = session([turn('one', [message('answer', 'first and later and newest')])])
+    let current = first, generation = 'g', epoch = 1, inject = false, settled = 0, protectedAfterCallback: boolean | undefined
+    const store = new TranscriptStore(join(home, 'transcripts'), undefined, () => {
+      if (!inject) return
+      inject = false
+      queueMicrotask(() => {
+        current = later
+        if (mode === 'external') {
+          const db = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+          try { const row = db.read(first.runtime, first.id); assert.ok(row); db.write({ ...row, title: 'external owner' }) } finally { db.close() }
+        }
+        if (mode === 'generation') generation = 'other'
+        if (mode === 'epoch') epoch = 2
+        store.record(later, { generation, authorityEpoch: epoch })
+        if (mode === 'protect') store.protectPending(first.runtime, first.id, generation, epoch)
+      })
+    }, (_runtime, _id, g, value, _revision, e) => g === generation && e === epoch && isDeepSession(value, current),
+    (_runtime, _id, _g, advanced) => {
+      if (mode === 'base-next' && current === later) {
+        current = latest
+        store.record(latest, { generation, authorityEpoch: epoch })
+        return
+      }
+      if (mode !== 'base-change' || current !== later || generation !== 'g') return
+      generation = 'replacement'; epoch = 2
+      store.bindBase(later, generation, advanced)
+      store.record(later, { generation, authorityEpoch: epoch })
+      queueMicrotask(() => { protectedAfterCallback = store.hasProtectedChanges(first.runtime, first.id) })
+    }, undefined, undefined, () => { settled++ })
+    t.after(async () => { await store.close().catch(() => {}); await rm(home, { recursive: true, force: true }) })
+    store.record(first); await store.flush()
+    const base = store.observeBase(first, false); assert.ok(base)
+    store.bindBase(first, 'g', base)
+    store.record(first, { generation: 'g', authorityEpoch: 1 })
+    inject = true
+    if (mode === 'title' || mode === 'delta' || mode === 'base-next') {
+      await store.flush()
+      const db = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+      const expected = mode === 'base-next' ? latest : later
+      try { const row = db.read(first.runtime, first.id); assert.ok(row); assert.equal(row.title, expected.title); assert.deepEqual(row.turns, expected.turns) } finally { db.close() }
+    } else {
+      await assert.rejects(store.flush(), /protected/i)
+      if (mode === 'base-change') {
+        assert.equal(protectedAfterCallback, true, 'the replacement never has an unprotected window')
+        assert.equal(settled, 0, 'the old write must not announce settlement for the new owner')
+      }
+      const db = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+      try { const row = db.read(first.runtime, first.id); assert.ok(row); assert.deepEqual(row.turns, first.turns); if (mode === 'external') assert.equal(row.title, 'external owner') } finally { db.close() }
+      await store.forget(first.runtime, first.id)
+    }
+  })
+}

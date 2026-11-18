@@ -4142,6 +4142,7 @@ export class Host {
     clearTimeout(this.#removalSweep)
     await this.#loadouts.close()
     let transcriptFailure: unknown
+    await this.#carryOn.storageIdle()
     try { await this.#transcripts.flush() } catch (error) { transcriptFailure = error }
     await this.#removalSweepWork
     for (const session of this.#indexPending.values()) this.#recordSessionIndex(session, true)
@@ -5776,11 +5777,23 @@ export class Host {
     const key = String(sessionKey(params.runtime, params.sessionId))
     this.#dispatching.set(key, (this.#dispatching.get(key) ?? 0) + 1)
     try {
+      const marker = this.#carryOnMarkerBarriers.get(key)
+      if (marker) {
+        const record = this.registry.get(params.runtime, params.sessionId), live = record?.live, authority = record?.bodyAuthorityEpoch
+        await marker
+        if (this.#disposed || !record || this.registry.get(params.runtime, params.sessionId) !== record || record.live !== live || record.bodyAuthorityEpoch !== authority) {
+          throw new Error('The conversation changed before the message could be sent.')
+        }
+        this.#assertDispatchable(params)
+      }
       return await work()
     } finally {
       const remaining = this.#dispatching.get(key)! - 1
       if (remaining) this.#dispatching.set(key, remaining)
-      else this.#dispatching.delete(key)
+      else {
+        this.#dispatching.delete(key)
+        if (!this.#disposed) void this.#carryOn.reachable(String(params.runtime), String(params.sessionId)).catch(() => {})
+      }
     }
   }
 
@@ -6540,6 +6553,10 @@ export class Host {
     return new CarryOnService({
       file: join(this.#state.directory, 'carry-on', 'incidents.json'),
       problem: reason => this.#logger.warn(reason),
+      capacityNotice: (runtime, sessionId, reason, kind) => this.#push({ method: 'person/notice', params: { notice: {
+        id: randomUUID(), where: 'inbox', title: kind === 'capacity' ? 'Carry-on needs space' : 'Carry-on needs attention', body: reason,
+        from: { runtime, sessionId, name: 'HarnessDesk' }, at: Date.now(),
+      } } }),
       owner: async (runtime, sessionId) => {
         if (this.#evidence.seats.of(runtimeId(runtime), makeSessionId(sessionId)).some(seat => !seat.closed)) return 'seat'
         if (await this.#leadChats?.recovers(`${runtime}:${sessionId}`)) return 'lead'
@@ -6625,6 +6642,22 @@ export class Host {
           now.opened !== opens.opened + 1 || now.pending > 0) return null
         return this.#carryOnLease(at.runtime, at.sessionId, after.live)
       },
+      incarnation: (runtime, sessionId) => {
+        const at = key(runtime, sessionId), record = this.registry.get(at.runtime, at.sessionId)
+        return record?.live ? this.#carryOnLease(at.runtime, at.sessionId, record.live) : null
+      },
+      completedTurn: (runtime, sessionId, turnId, incarnation) => {
+        const at = key(runtime, sessionId), record = this.registry.get(at.runtime, at.sessionId)
+        if (!record?.live || this.#carryOnLease(at.runtime, at.sessionId, record.live) !== incarnation || !record.session.itemsLoaded ||
+            record.session.partialHistory || record.transcriptIncomplete || this.#recoveredTranscriptBases.has(record.bodyGeneration) ||
+            this.#transcripts.hasProtectedChanges(at.runtime, at.sessionId)) return { kind: 'unavailable' }
+        const turns = record.session.turns.filter(turn => String(turn.id) === turnId)
+        if (turns.length > 1) return { kind: 'unavailable' }
+        const turn = turns[0]
+        const seen = this.#seenTurnIds.get(record)
+        if (!turn && (seen === null || seen?.has(turnId))) return { kind: 'unavailable' }
+        return { kind: 'available', ...(turn && turn.status !== 'inProgress' ? { turn: { id: String(turn.id), status: turn.status, error: turn.error ?? null } } : {}) }
+      },
       footprint: (runtime, sessionId) => {
         const at = key(runtime, sessionId)
         const record = this.registry.get(at.runtime, at.sessionId)
@@ -6636,7 +6669,7 @@ export class Host {
         // shows them as something the person typed. The packet is already enveloped; the continue is wrapped here.
         // `stillOurs` rides the dispatch as its admission and is read once more at the effect boundary, after the
         // last await: a person who writes while the host is resolving the handle wins there too.
-        send: async (runtime, sessionId, text, kind, stillOurs, admitted, seat) => {
+        send: async (runtime, sessionId, text, kind, stillOurs, admitted, seat, accepted, unconfirmed, removed) => {
           const at = key(runtime, sessionId)
           // Into a Flow's Seat, the run's own gate rides the same admission: its budget is read when the send goes
           // (a queued packet's when it drains), and its stop at the boundary itself (§9.4). A Seat's send with no gate
@@ -6647,11 +6680,24 @@ export class Host {
             return run
           }
           gate()
+          let dispatchedOn: string | null = null, started = false
           const admission = Object.assign(async () => { await gate()?.admit() }, {
             assertDispatch: () => { if (!stillOurs()) throw new Error('You sent a message first.'); gate()?.assert() },
             // Past the boundary: carry-on's marker goes in now, never for a send the person overtook. With the turns the
             // conversation already had, so carry-on watches the turn this send starts and nothing before it.
-            ...(admitted ? { dispatchStarted: () => admitted((this.registry.get(at.runtime, at.sessionId)?.session.turns ?? []).map((turn) => String(turn.id))) } : {}),
+            dispatchStarted: () => {
+              started = true
+              const record = this.registry.get(at.runtime, at.sessionId)
+              dispatchedOn = record?.live ? this.#carryOnLease(at.runtime, at.sessionId, record.live) : null
+              admitted?.((record?.session.turns ?? []).map((turn) => String(turn.id)))
+            },
+            ...(unconfirmed ? { dispatchUnconfirmed: () => { unconfirmed(); return Promise.resolve() } } : {}),
+            ...(removed ? { queueRemoved: () => { if (!started) removed() } } : {}),
+            ...(accepted ? { dispatchAccepted: (turn: string, live: AgentSession) => {
+              const current = this.registry.get(at.runtime, at.sessionId)
+              if (dispatchedOn && current?.live === live && this.#carryOnLease(at.runtime, at.sessionId, live) === dispatchedOn) accepted(turn, dispatchedOn)
+              else unconfirmed?.()
+            }, retireUnconfirmed: true } : {}),
           })
           // The continue goes as desk context too, under its own label, so the transcript never draws it as the person's.
           const input = [deskContextContent(kind === 'packet' ? text : wrapContext(CONTINUE_SOURCE, text))]
@@ -6694,7 +6740,7 @@ export class Host {
         },
         recover: (runtime, sessionId) => { if (!this.#disposed) this.#recoverSeat(runtime as RuntimeId, sessionId) },
       },
-      record: (runtime, sessionId, item) => this.#recordCarryOn(runtime, sessionId, item),
+      record: (runtime, sessionId, item, turnId) => this.#recordCarryOn(runtime, sessionId, item, turnId),
       publish: (at, incident) => this.#push({ method: 'carryOn/changed', params: { incident, key: at } }),
       writeRule: async (scope, agent, choice) => {
         const current = preferences()
@@ -6862,7 +6908,8 @@ export class Host {
         close: params => this.leadWork.close(params), setReminder: params => this.leadWork.setReminder(params),
         cancelReminder: params => this.leadWork.cancelReminder(params), clearReminder: params => this.leadWork.clearReminder(params) },
       personStopping: chat => { try { return this.#leadWork?.stopping(chat, 'person') ?? (() => {}) } catch { return () => {} } },
-      carryOn: { list: () => this.#carryOn.list(), decide: decision => this.#carryOn.decide(decision) },
+      carryOn: { list: () => this.#carryOn.list(), decide: decision => this.#carryOn.decide(decision),
+        historyChanged: (runtime, sessionId) => this.#carryOn.historyChanged(runtime, sessionId) },
       // Cache only: an allowance question never starts a meter/API refresh or ledger scan.
       // The accounts the Dashboard lists, from the same cache: an allowance question never starts a refresh.
       leadUsageSummary: () => this.#phoneWorkspaceView().usageSummary(this.#trackedUsage(this.#cachedUsage())),
@@ -9036,20 +9083,56 @@ export class Host {
     return true
   }
 
-  /**
-   * A carry-on marker, the way a publication is recorded: into the running or
-   * latest turn, through the host's own door, so the transcript store keeps it
-   * and every window learns of it. The agent never hears of it, so a replay
-   * puts it back where it stood (`publications.ts`).
-   */
-  #recordCarryOn(runtime: string, sessionId: string, item: CarryOnItem): boolean {
-    const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
-    if (!record) return false
-    if (record.session.turns.some(turn => turn.items.some(existing => existing.type === 'carryOn' && existing.id === item.id))) return true
-    const turnId = [...record.running].at(-1) ?? record.session.turns.at(-1)?.id
-    if (turnId === undefined) return false
-    this.#onEvent(record.runtime, { type: 'item/completed', sessionId: record.session.id, turnId, item })
-    return true
+  /** Conflicting marker IDs are reported once while their protected entry remains pending. */
+  readonly #carryOnMarkerConflicts = new Set<string>()
+  /** Finite marker storage operations, fenced against new dispatches for the same conversation. */
+  readonly #carryOnMarkerBarriers = new Map<string, Promise<void>>()
+
+  /** A marker is acknowledged only after its exact turn and payload are read from durable storage. */
+  async #recordCarryOn(runtime: string, sessionId: string, item: CarryOnItem, turn: string): Promise<boolean> {
+    const at = { runtime: runtimeId(runtime), sessionId: makeSessionId(sessionId) }
+    const record = this.registry.get(at.runtime, at.sessionId)
+    const key = String(sessionKey(at.runtime, at.sessionId))
+    if (!record || this.#queueBusy(record) || this.#dispatching.has(key) || this.#draining.has(key) || this.#carryOnMarkerBarriers.has(key)) return false
+    let release!: () => void
+    const barrier = new Promise<void>(resolve => { release = resolve })
+    this.#carryOnMarkerBarriers.set(key, barrier)
+    try { return await this.#recordCarryOnIdle(runtime, sessionId, item, turn) }
+    finally { this.#carryOnMarkerBarriers.delete(key); release() }
+  }
+
+  async #recordCarryOnIdle(runtime: string, sessionId: string, item: CarryOnItem, turn: string): Promise<boolean> {
+    const at = { runtime: runtimeId(runtime), sessionId: makeSessionId(sessionId) }
+    const record = this.registry.get(at.runtime, at.sessionId)
+    const safe = () => !!record && this.registry.get(at.runtime, at.sessionId) === record && record.session.itemsLoaded &&
+      !record.session.partialHistory && !record.transcriptIncomplete && !this.#recoveredTranscriptBases.has(record.bodyGeneration) &&
+      !this.#transcripts.hasProtectedChanges(at.runtime, at.sessionId)
+    if (!record || !safe()) return false
+    const found = record.session.turns.flatMap(one => one.items.filter(existing => existing.id === item.id).map(existing => ({ turn: String(one.id), existing })))
+    const conflict = () => {
+      const key = `${runtime}\0${sessionId}\0${item.id}`
+      if (!this.#carryOnMarkerConflicts.has(key)) {
+        this.#carryOnMarkerConflicts.add(key)
+        if (this.#carryOnMarkerConflicts.size > 512) this.#carryOnMarkerConflicts.delete(this.#carryOnMarkerConflicts.values().next().value!)
+        this.#push({ method: 'person/notice', params: { notice: {
+          id: randomUUID(), where: 'inbox', title: 'A carry-on marker needs attention',
+          body: 'The saved marker conflicts with another transcript item. It remains pending.',
+          from: { runtime, sessionId, name: 'HarnessDesk' }, at: Date.now(),
+        } } })
+      }
+    }
+    if (found.some(one => one.turn !== turn || !isDeepStrictEqual(one.existing, item)) || found.length > 1) { conflict(); return false }
+    if (!record.session.turns.some(one => String(one.id) === turn)) return false
+    if (!found.length) this.#onEvent(record.runtime, { type: 'item/completed', sessionId: record.session.id, turnId: turn as TurnId, item })
+    const generation = record.bodyGeneration, authority = record.bodyAuthorityEpoch, revision = record.bodyRevision
+    try {
+      await this.#transcripts.flushSession(at.runtime, at.sessionId)
+      const durable = await this.#transcripts.recover(at.runtime, at.sessionId)
+      if (!safe() || record.bodyGeneration !== generation || record.bodyAuthorityEpoch !== authority || record.bodyRevision !== revision) return false
+      const copies = durable?.turns.flatMap(one => one.items.filter(existing => existing.id === item.id).map(existing => ({ turn: String(one.id), existing }))) ?? []
+      if (copies.some(one => one.turn !== turn || !isDeepStrictEqual(one.existing, item)) || copies.length > 1) { conflict(); return false }
+      return copies.length === 1 && copies[0]!.turn === turn && isDeepStrictEqual(copies[0]!.existing, item)
+    } catch { return false }
   }
 
   /** The live handle a `(runtime, sessionId)` pair names, reconnecting if it must. */
@@ -10111,7 +10194,9 @@ export class Host {
         effectStarted?.()
         admitLive?.dispatchStarted?.()
         sendStarted = true
-        return this.#sendWithPersonMarker(record, live, input, personSeat)
+        const turn = await this.#sendWithPersonMarker(record, live, input, personSeat)
+        try { admitLive?.dispatchAccepted?.(String(turn), live) } catch { /* A receipt must never change send semantics. */ }
+        return turn
       }
       return await (held ? send(held) : this.#dispatch({ runtime: record.runtime, sessionId: record.session.id }, send))
     } catch (error) {
@@ -10188,7 +10273,9 @@ export class Host {
           admit?.assertDispatch?.()
           sendStarted = true
           admit?.dispatchStarted?.()
-          return this.#sendWithPersonMarker(record, current, sending.input, this.registry.queuedPersonSeat(record, sending.id) ?? null)
+          const turn = await this.#sendWithPersonMarker(record, current, sending.input, this.registry.queuedPersonSeat(record, sending.id) ?? null)
+          try { admit?.dispatchAccepted?.(String(turn), current) } catch { /* Receipt observation cannot change delivery. */ }
+          return turn
         })
         this.registry.cancelQueued(record, sending.id)
         this.#pushQueue(record)
@@ -10209,6 +10296,12 @@ export class Host {
         // queued message and cannot itself retire their recovery receipts.
         if (!sendStarted) this.registry.queuedAdmission(record, sending.id)?.dispatchRefused?.()
         if (sendStarted) await sendingAdmission?.dispatchUnconfirmed?.().catch(() => this.#logger.warn('Lead chat recovery could not settle an unconfirmed send'))
+        if (sendStarted && sendingAdmission?.retireUnconfirmed) {
+          this.registry.cancelQueued(record, sending.id)
+          this.#pushQueue(record)
+          cancelled = true
+          return
+        }
         // Put it back exactly where it was and stop: the message is the thing
         // worth keeping, and a queue that kept firing into a broken agent would
         // burn the rest of it the same way.
@@ -10236,6 +10329,7 @@ export class Host {
       }
     } finally {
       this.#draining.delete(key)
+      if (!this.#disposed) void this.#carryOn.reachable(String(record.runtime), String(record.session.id)).catch(() => {})
       // Cancellation may have emptied the queue long enough for a person to
       // start a new turn. Its completion will drain any new tail in that case.
       if (cancelled && !this.#queueBusy(record)) void this.#drain(record)
@@ -13313,7 +13407,7 @@ export class Host {
       // inherit the admission of the handle that was actually inspected.
       if (this.registry.get(params.runtime, params.sessionId)?.live !== live || !samePath(live.settings().cwd, cwd) ||
         !this.#sessionIndex.isOwn(params.runtime, params.sessionId)) throw new Error('The chat project scope changed before dispatch.')
-    }, { assertDispatch: admitCwd.assertDispatch, dispatchStarted: admitCwd.dispatchStarted, dispatchUnconfirmed: admitCwd.dispatchUnconfirmed, queueRemoved: admitCwd.queueRemoved, dispatchRefused: admitCwd.dispatchRefused })
+    }, { assertDispatch: admitCwd.assertDispatch, dispatchStarted: admitCwd.dispatchStarted, dispatchAccepted: admitCwd.dispatchAccepted ? (turn: string, live: AgentSession) => admitCwd.dispatchAccepted?.(turn, live.settings().cwd) : undefined, retireUnconfirmed: admitCwd.retireUnconfirmed, dispatchUnconfirmed: admitCwd.dispatchUnconfirmed, queueRemoved: admitCwd.queueRemoved, dispatchRefused: admitCwd.dispatchRefused })
     this.#leadChatAdmissions.add(admission)
     return admission
   }
