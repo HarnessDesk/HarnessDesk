@@ -235,3 +235,23 @@ test('a symlinked coordination file refuses ownership and preserves its target',
   assert.equal(await readFile(target, 'utf8'), 'preserve')
   await budget.close()
 })
+
+test('numeric request IDs are refused and malformed persisted IDs freeze without replacing evidence', async () => {
+  const f = await fixture(), budget = f.open()
+  await budget.configure(1000000)
+  assert.equal(await budget.reserve(123, 1000, 200, model), null)
+  const receipt = await budget.reserve('seed', 1000, 200, model)
+  assert.ok(receipt)
+  await receipt.unknown()
+  await budget.close()
+  const data = JSON.parse(await readFile(f.file, 'utf8'))
+  data.receipts[0].id = 123
+  const malformed = JSON.stringify(data)
+  await writeFile(f.file, malformed)
+  const reopened = f.open()
+  assert.ok((await reopened.view()).problem)
+  await assert.rejects(reopened.configure(1000000))
+  assert.equal(await reopened.reserve('new', 1000, 200, model), null)
+  assert.equal(await readFile(f.file, 'utf8'), malformed)
+  await reopened.close()
+})

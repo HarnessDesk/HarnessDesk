@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { dirname, join } from 'node:path'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
-import { createLeadJournal } from '@harnessdesk/lead'
+import { canBeginLeadGoal, createLeadJournal } from '@harnessdesk/lead'
 import { LeadFileJournal } from '../src/lead/journal.js'
 import { createLeadRig } from './fixtures/lead-rig.js'
 import { FakeForge, Clocks } from './fixtures/intake-forge.js'
@@ -110,5 +110,63 @@ test('an active Lead goal keeps its historical charges when an assessment settle
   await rig.dispose()
   const storage = await LeadFileJournal.open(rig.home, 'synthetic-thread')
   try { const reopened = await createLeadJournal(storage); assert.equal(reopened.state.budget?.goalId, goalId); assert.deepEqual(reopened.state.budget?.settled, before) }
+  finally { await storage.close() }
+})
+
+test('an in-flight assessment settles its own receipt after the Lead changes goals', { timeout: 120000 }, async t => {
+  const forge = new FakeForge(), clock = new Clocks(Date.now()), calls: { model: string }[] = []
+  let release!: () => void, started!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  const sent = new Promise<void>(resolve => { started = resolve })
+  const transport = { async send(request: { body: string }) {
+    calls.push(JSON.parse(request.body)); started(); await held
+    return { status: 200, body: JSON.stringify({ content: [{ type: 'text', text: '{"decision":"ask","reason":"Please decide."}' }], usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } }) }
+  } }
+  const rig = await createLeadRig({ characterizationKeep: true, characterizationTransport: transport,
+    characterizationIntake: { gh: forge.runner, now: () => clock.wall, monotonic: () => clock.mono,
+      timers: { every() { return 0 }, clear() {} }, usage: async () => ({ samples: [], complete: true }) } })
+  t.after(async () => { release(); await rig.dispose(); await rm(dirname(rig.home), { recursive: true, force: true }) })
+  await rig.journal.updateBudget({ version: 1, type: 'reserve', now: Date.now(), requestId: 'prior-lead-charge', inputTokens: 100, maxOutputTokens: 10, inputUsdMicrosPerMillion: 1000000, outputUsdMicrosPerMillion: 1000000, cacheReadUsdMicrosPerMillion: 1000000, cacheWriteUsdMicrosPerMillion: 1000000 })
+  await rig.journal.updateBudget({ version: 1, type: 'settle', now: Date.now(), requestId: 'prior-lead-charge', inputTokens: 100, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0 })
+  await rig.journal.stop(async () => {})
+  assert.ok(canBeginLeadGoal(rig.journal.state))
+  await mkdir(join(rig.project.path, '.harnessdesk'), { recursive: true })
+  await writeFile(join(rig.project.path, '.harnessdesk', 'triggers.yml'), trigger.replace('opens: { flow: review-pr }\n  again: { role: reviewer }', 'opens: { lead: true }'))
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: rig.project.path, stdio: 'ignore' })
+  git('add', '.harnessdesk/triggers.yml'); git('commit', '-m', 'synthetic trigger')
+  try { git('remote', 'add', 'origin', 'https://github.com/acme/widgets.git') } catch { git('remote', 'set-url', 'origin', 'https://github.com/acme/widgets.git') }
+  forge.users.set('a-teammate', { id: 31 })
+  const preview = await rig.host.call('trigger/preview', { root: rig.project.path, id: 'ask' })
+  assert.deepEqual(preview.problems, []); assert.ok(preview.token)
+  await rig.host.call('trigger/arm', { root: rig.project.path, id: 'ask', token: preview.token })
+  await rig.host.call('trigger/mode', { root: rig.project.path, id: 'ask', mode: 'act' })
+  await rig.host.call('lead/mentionBudget/configure', { dailyCapUsdMicros: 1000000 })
+  const at = clock.wall + 1000
+  forge.issues.push({ number: 1, state: 'open', created: at, updated: at, events: [], comments: [{ id: 9001, body: '@dex please fix this', created: at, updated: at, user: { id: 31, login: 'a-teammate' } }] })
+  clock.advance(60000)
+  const tick = rig.host.intakePlane.tick()
+  await sent
+  assert.equal(calls.length, 1)
+  const pending = await rig.host.call('lead/mentionBudget/read', {})
+  assert.ok(pending.reservedUsdMicros > 0)
+  await rig.waitFor(() => canBeginLeadGoal(rig.journal.state), 'prior goal settled while assessment is held')
+  const oldGoal = structuredClone(rig.journal.state.budget!)
+  assert.equal(oldGoal.leadUsdMicros, 110, 'the old goal has a pre-existing charge')
+  await rig.journal.beginGoal('synthetic-next-goal', Date.now())
+  const newGoal = structuredClone(rig.journal.state.budget!)
+  assert.notEqual(newGoal.logicalGoalId, oldGoal.logicalGoalId)
+  assert.deepEqual(rig.journal.state.completedBudgets.at(-1), oldGoal)
+  release(); await tick
+  const budget = await rig.host.call('lead/mentionBudget/read', {})
+  assert.equal(budget.reservedUsdMicros, 0)
+  assert.equal(budget.spentUsdMicros, 20)
+  assert.equal(budget.uncertainUsdMicros, 0)
+  assert.deepEqual(rig.journal.state.completedBudgets.at(-1), oldGoal)
+  assert.deepEqual(rig.journal.state.budget, newGoal)
+  clock.advance(60000); await rig.host.intakePlane.tick()
+  assert.equal(calls.length, 1, 'the completed mention is not automatically resent')
+  await rig.dispose()
+  const storage = await LeadFileJournal.open(rig.home, 'synthetic-thread')
+  try { const reopened = await createLeadJournal(storage); assert.deepEqual(reopened.state.completedBudgets.at(-1), oldGoal); assert.deepEqual(reopened.state.budget, newGoal) }
   finally { await storage.close() }
 })

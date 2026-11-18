@@ -36,7 +36,7 @@ const parse = (value: unknown): Stored => {
   if (!s.compacted || !integer(s.compacted.spentUsdMicros) || !integer(s.compacted.uncertainUsdMicros) || !Array.isArray(s.compacted.periods) || s.compacted.periods.length > 30 || s.compacted.periods.some(p => !p || !DAY.test(p.day) || !integer(p.spentUsdMicros) || !integer(p.uncertainUsdMicros))) throw bad()
   const ids = new Set<string>()
   for (const r of s.receipts) {
-    if (!r || typeof r !== 'object' || !ID.test(r.id) || typeof r.nonce !== 'string' || !/^[0-9a-f-]{36}$/.test(r.nonce) || ids.has(r.id) || !DAY.test(r.day) || !DAY.test(r.chargedDay) || typeof r.model !== 'string' || !ID.test(r.model) || r.schedule?.model !== r.model || r.chargedDay !== r.day || r.day > s.day || !integer(r.inputUpper) || !integer(r.maxOutput) || !integer(r.hold) || !integer(r.amount) || r.amount > r.hold || !['pending', 'settled', 'uncertain'].includes(r.state) || (r.state !== 'settled' && r.amount !== r.hold) || !r.schedule || typeof r.schedule !== 'object' || Buffer.byteLength(JSON.stringify(r.schedule)) > MAX_SCHEDULE_BYTES || quoteMentionHold(r.schedule, r.inputUpper, r.maxOutput) !== r.hold) throw bad()
+    if (!r || typeof r !== 'object' || typeof r.id !== 'string' || !ID.test(r.id) || typeof r.nonce !== 'string' || !/^[0-9a-f-]{36}$/.test(r.nonce) || ids.has(r.id) || !DAY.test(r.day) || !DAY.test(r.chargedDay) || typeof r.model !== 'string' || !ID.test(r.model) || r.schedule?.model !== r.model || r.chargedDay !== r.day || r.day > s.day || !integer(r.inputUpper) || !integer(r.maxOutput) || !integer(r.hold) || !integer(r.amount) || r.amount > r.hold || !['pending', 'settled', 'uncertain'].includes(r.state) || (r.state !== 'settled' && r.amount !== r.hold) || !r.schedule || typeof r.schedule !== 'object' || Buffer.byteLength(JSON.stringify(r.schedule)) > MAX_SCHEDULE_BYTES || quoteMentionHold(r.schedule, r.inputUpper, r.maxOutput) !== r.hold) throw bad()
     ids.add(r.id)
   }
   return s
@@ -177,7 +177,7 @@ export class MentionObserverBudget {
     this.#roll(); if (this.#fault) throw bad(); this.#state.cap = dailyCapUsdMicros; await this.#save()
   }) }
   async reserve(requestId: string, inputUpper: number, maxOutput: number, model: string): Promise<AssessCharge | null> { return this.#run(async () => {
-    await this.#load(); if (this.#closed || this.#fault || !ID.test(requestId) || !integer(inputUpper) || !integer(maxOutput) || typeof model !== 'string' || !ID.test(model)) return null
+    await this.#load(); if (this.#closed || this.#fault || typeof requestId !== 'string' || !ID.test(requestId) || !integer(inputUpper) || !integer(maxOutput) || typeof model !== 'string' || !ID.test(model)) return null
     this.#roll(); if (this.#fault) return null
     const schedule = mentionPriceSchedule(model), hold = schedule ? quoteMentionHold(schedule, inputUpper, maxOutput) : null
     const available = this.#view().remainingUsdMicros
