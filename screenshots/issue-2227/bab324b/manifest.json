@@ -1,0 +1,118 @@
+{
+  "issue": 2227,
+  "base": "8747117c8055af001ab3dc25574272d1d272ac15",
+  "tree": "43c3a29e9c6cce47d21caee230723904cd3a059e",
+  "proof": "Actual isolated Electron/Host with renderer wall clock shifted; synthetic accounts only; raw original PNGs.",
+  "scenarios": [
+    "Baseline 874, renderer +/-30 minutes (reused, hashes verified)",
+    "Candidate bab, renderer +/-30 minutes, ~61 second reading retained",
+    "Candidate bab renderer with unchanged 874 Host/desktop composite (not a packaged old binary)"
+  ],
+  "limitations": [
+    "Dated-limit expiry, blocked fallback faults and automatic handoff coupling are covered by tests, not native fault injection.",
+    "Runtime limits fixture is undated.",
+    "No real provider, keychain, physical process memory bound or cross-restart clock guarantee."
+  ],
+  "normalQuitAndOwnedCleanup": true,
+  "canonicalPrivacyAudits": true,
+  "allFramesParentReviewed": true,
+  "head": "bab324b6f97a2804a504e26cb1c2048fda1dc11c",
+  "frames": [
+    {
+      "label": "current_minus: minus-30",
+      "path": "screenshots/issue-2227/bab324b/current_minus-minus-30.png",
+      "source": "bab324b6f97a2804a504e26cb1c2048fda1dc11c",
+      "sha256": "92cdc260dc4313eca9e4a99067e3d2381505848e8bc6dd952be05892bc996b6c",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "current_minus: settings-minus-30",
+      "path": "screenshots/issue-2227/bab324b/current_minus-settings-minus-30.png",
+      "source": "bab324b6f97a2804a504e26cb1c2048fda1dc11c",
+      "sha256": "da7ca238871c924259b8ac0e53455e853be00c0755f8ecbf942033ced305a9a1",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "current_plus: dashboard",
+      "path": "screenshots/issue-2227/bab324b/current_plus-dashboard.png",
+      "source": "bab324b6f97a2804a504e26cb1c2048fda1dc11c",
+      "sha256": "f8abb97696e737435e51a8d46a6a25dd4c9aa794b6e7f96df6f538eec5845319",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "current_plus: settings",
+      "path": "screenshots/issue-2227/bab324b/current_plus-settings.png",
+      "source": "bab324b6f97a2804a504e26cb1c2048fda1dc11c",
+      "sha256": "24b77189af493bf37bbc3f6b05e35c4b437a62c3ce53d75573fe8271b58b4e59",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "current_plus: account-detail",
+      "path": "screenshots/issue-2227/bab324b/current_plus-account-detail.png",
+      "source": "bab324b6f97a2804a504e26cb1c2048fda1dc11c",
+      "sha256": "1209afe1713199a5ffc08c985eca6e5ac7bfc0cade257ed299957984974e3d03",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "current_plus: composer-context",
+      "path": "screenshots/issue-2227/bab324b/current_plus-composer-context.png",
+      "source": "bab324b6f97a2804a504e26cb1c2048fda1dc11c",
+      "sha256": "10a941dede0e8da25d6ef58cbbe06a59ef10a82f2ee218de89c9659a8cd10784",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "old_host_composite: dashboard",
+      "path": "screenshots/issue-2227/bab324b/old_host_composite-dashboard.png",
+      "source": "bab324b6f97a2804a504e26cb1c2048fda1dc11c",
+      "sha256": "7b858931b0ed34da82bcc5e97376c63baddefa3dfdfa27394495f7225b099e61",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "old_host_composite: settings",
+      "path": "screenshots/issue-2227/bab324b/old_host_composite-settings.png",
+      "source": "bab324b6f97a2804a504e26cb1c2048fda1dc11c",
+      "sha256": "546b07a7e6ef76a4f68bc617d37752457e73403ae5e1b427c3f2f3238d01648d",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "old_host_composite: account-detail",
+      "path": "screenshots/issue-2227/bab324b/old_host_composite-account-detail.png",
+      "source": "bab324b6f97a2804a504e26cb1c2048fda1dc11c",
+      "sha256": "5c2aff8e674f6b8744b2b0e005bd9d8c88d22424e030d53d1c2df00ee0928125",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "old_host_composite: composer-context",
+      "path": "screenshots/issue-2227/bab324b/old_host_composite-composer-context.png",
+      "source": "bab324b6f97a2804a504e26cb1c2048fda1dc11c",
+      "sha256": "5d574006dd9f540e4e5eb1109b1958c003638fc10dc5751063b92d074988b4ec",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "baseline_reused: minus-30",
+      "path": "screenshots/issue-2227/bab324b/baseline_reused-minus-30.png",
+      "source": "8747117c8055af001ab3dc25574272d1d272ac15",
+      "sha256": "f2c9c32c775527411930b951d1cc753da8401dd6bcdaf61e308fbf61142c7e66",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "baseline_reused: plus-30",
+      "path": "screenshots/issue-2227/bab324b/baseline_reused-plus-30.png",
+      "source": "8747117c8055af001ab3dc25574272d1d272ac15",
+      "sha256": "7d88a223c4ebcb0b78f7cdca48e8be916c43f255bb4752a4845991f9b3314ab8",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    }
+  ]
+}
