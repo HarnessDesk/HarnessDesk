@@ -1,0 +1,56 @@
+{
+  "issue": 2066,
+  "base": "8747117c8055af001ab3dc25574272d1d272ac15",
+  "scope": "Uninstrumented actual synthetic Electron and Host settings; Off, explicit1.25 cap, readback/restart andOff. Context fault comparison separately uses instrumented transport/credential seam, not depicted in these frames.",
+  "shutdown": "one exactownedchild SIGTERM routes production app.quit,exit0,signalnull,ownedgroupabsent; not UI CmdQ/menu",
+  "isolation": "whole driver tree outer OS networkdeny,loopback/scopedUNIX; synthetic stagedaccounts/homes; not shippedChromiumsandboxproof",
+  "validation": "Parent raw frames and current source/build hashes verified; fullnormal/formal/CI remain separate gates.",
+  "issues": [
+    2066,
+    2126
+  ],
+  "candidate": "ce6b7425deba6b9a232aff5180faad42c7a8a4c7",
+  "head": "ce6b7425deba6b9a232aff5180faad42c7a8a4c7",
+  "frames": [
+    {
+      "label": "before-settings-lead",
+      "path": "screenshots/issues-2066-2126/ce6b742/before-settings-lead.png",
+      "source": "8747117c8055af001ab3dc25574272d1d272ac15",
+      "sha256": "ea409243bd0166f5ca9d2177414f8f03e32e6594fdcf9b7e08dc4d2f4c6424c6",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-default-off",
+      "path": "screenshots/issues-2066-2126/ce6b742/after-default-off.png",
+      "source": "ce6b7425deba6b9a232aff5180faad42c7a8a4c7",
+      "sha256": "43099094b86b9ee2d920e6f0c0e77c4071b793f5f0da66ab26ba5aa5b3b05b7f",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-saved",
+      "path": "screenshots/issues-2066-2126/ce6b742/after-saved.png",
+      "source": "ce6b7425deba6b9a232aff5180faad42c7a8a4c7",
+      "sha256": "0a6381a6485a97b4fd9a633ea85aac65ec5728739c959447b5cd9dc5a24e2dd3",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-reopened",
+      "path": "screenshots/issues-2066-2126/ce6b742/after-reopened.png",
+      "source": "ce6b7425deba6b9a232aff5180faad42c7a8a4c7",
+      "sha256": "60a0b465b2712db602d69135a887501daf6340972a3a875ed6f0026d5abe1dc1",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-turned-off",
+      "path": "screenshots/issues-2066-2126/ce6b742/after-turned-off.png",
+      "source": "ce6b7425deba6b9a232aff5180faad42c7a8a4c7",
+      "sha256": "868d19f192621347856e39910462bc6b814a1966e400dd32948c3e79aabb08eb",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    }
+  ]
+}
