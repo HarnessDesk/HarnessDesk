@@ -2125,3 +2125,78 @@ test('unconfirmed assessment decisions survive ordinary history rotation and ref
   assert.equal(ledger.decisions.length, 500)
   assert.equal(ledger.assessed.count, 1, 'a refused attempt does not consume the daily count')
 })
+
+for (const scenario of ['secret', 'daily-cap'] as const) for (const protectedCount of [499, 500]) {
+  test(`manual ${scenario} decision preserves its cursor with ${protectedCount} protected rows`, E2E, async t => {
+    const repo = await makeRepo('hd-mention-manual-capacity-')
+    await commitTriggers(repo, ASK())
+    const stateDir = tempDir('hd-mention-manual-capacity-state-')
+    const make = (i: number, reason: string) => ({ id: `d-old-${i}`, trigger: 'ask', project: repo.dir, repository: 'acme/widgets',
+      thread: { kind: 'issue', number: i + 1 }, comment: { id: String(80000 + i), url: `https://github.com/acme/widgets/issues/1#issuecomment-${80000 + i}`, at: NOON, author: 'a-teammate', excerpt: '@dex please fix' },
+      decision: 'ask', reason, by: 'assessment', rules: [], mode: 'act', acted: false, work: null, decidedAt: NOON, evaluations: 0 })
+    const seeded = Array.from({ length: protectedCount }, (_, i) => make(i, ASSESS_UNCONFIRMED))
+    if (protectedCount === 499) seeded.push(make(499, 'Ordinary old decision'))
+    await writeFile(join(stateDir, LEDGER), JSON.stringify({ version: 1, decisions: seeded, threads: [], modes: {},
+      assessed: { day: new Date(NOON).toISOString().slice(0, 10), count: scenario === 'daily-cap' ? 200 : 0 } }))
+    const d = await desk(t, ASK(), { stateDir, repo, clocks: new Clocks(NOON) })
+    await act(d)
+    const cursor = join(stateDir, 'triggers-cursors.json')
+    const before = await readFile(cursor, 'utf8')
+    const notices = d.pushed.filter(one => one.method === 'trigger/attention').length
+    const body = scenario === 'secret' ? `@dex rotate ${'ghp_' + 'a'.repeat(36)}` : '@dex please fix the issue'
+    await say(d, 1, body, NAMED)
+    const after = await readFile(cursor, 'utf8')
+    const ledger = JSON.parse(await readFile(join(stateDir, LEDGER), 'utf8'))
+    const current = ledger.decisions.find((one: { comment: { id: string } }) => one.comment.id === String(nextComment))
+    assert.equal(d.model.inputs.length, 0, 'no assessment reaches the model')
+    assert.equal(ledger.decisions.filter((one: { reason: string }) => one.reason === ASSESS_UNCONFIRMED).length, protectedCount)
+    if (protectedCount === 500) {
+      assert.equal(current, undefined, 'full protected history refuses the new decision')
+      assert.equal(after, before, 'the source remains eligible for retry')
+      assert.equal(d.pushed.filter(one => one.method === 'trigger/attention').length, notices, 'no notice claims an unrecorded decision')
+    } else {
+      assert.ok(current, 'the new manual decision is durably retained')
+      assert.equal(current.decision, 'ask')
+      assert.equal(ledger.decisions.some((one: { id: string }) => one.id === 'd-old-499'), false, 'ordinary oldest history rotates')
+      assert.notEqual(after, before, 'the cursor advances after the decision is retained')
+    }
+  })
+}
+
+test('#2070: full protected history keeps a closed firing until its refusal can be recorded', E2E, async t => {
+  let block = true, attempted!: (result: 'saved' | 'refused') => void
+  const attempt = new Promise<'saved' | 'refused'>(resolve => { attempted = resolve })
+  const record = MentionTriage.prototype.recordClosedFiring
+  t.mock.method(MentionTriage.prototype, 'recordClosedFiring', async function (this: MentionTriage, ...args: Parameters<MentionTriage['recordClosedFiring']>) {
+    if (block) throw new Error('hold refusal until restart')
+    try { await record.apply(this, args); attempted('saved') }
+    catch (error) { attempted('refused'); throw error }
+  })
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  await leadOn(t, d)
+  const delivered: string[] = []
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async (input: Parameters<LeadAutomaticGoals['offerTrigger']>[0]) => {
+    delivered.push(input.key); return { delivered: false as const, reason: 'Lead is busy; this firing waits.' }
+  })
+  await act(d); await say(d, 1, '@dex please fix the flaky test')
+  const firing = await firingOf(d, 1)
+  d.forge.issues.find(one => one.number === 1)!.state = 'closed'
+  d.clocks.advance(6 * 60_000); await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).threads[0]?.state, 'closed')
+  assert.ok(d.host.intakePlane.journal.read().operations.some(one => one.key === firing))
+  await d.stop()
+  const file = join(d.stateDir, LEDGER), saved = JSON.parse(await readFile(file, 'utf8'))
+  const template = saved.decisions[0]
+  assert.ok(template)
+  saved.decisions = Array.from({ length: 500 }, (_, i) => ({ ...template, id: `d-protected-${i}`,
+    comment: { ...template.comment, id: String(80000 + i) }, reason: ASSESS_UNCONFIRMED }))
+  await writeFile(file, JSON.stringify(saved))
+  block = false; delivered.length = 0
+  const restarted = await desk(t, LEAD_ASK, { lead: true, arm: false, repo: d.repo, stateDir: d.stateDir, clocks: d.clocks })
+  assert.equal(await attempt, 'refused', 'no refusal may be reported saved when its row cannot be retained')
+  assert.ok(restarted.host.intakePlane.journal.read().operations.some(one => one.key === firing), 'the firing remains durably pending')
+  const after = JSON.parse(await readFile(file, 'utf8'))
+  assert.equal(after.decisions.length, 500)
+  assert.ok(after.decisions.every((one: { reason: string }) => one.reason === ASSESS_UNCONFIRMED))
+  assert.deepEqual(delivered, [], 'the closed firing never reaches the Lead')
+})

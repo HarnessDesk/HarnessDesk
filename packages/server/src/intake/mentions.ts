@@ -585,7 +585,7 @@ export class MentionTriage {
     return recovered
   }
 
-  async #write(next: LedgerFile): Promise<void> {
+  async #write(next: LedgerFile, retainDecisionId?: string): Promise<void> {
     const pending = new Set(this.#port.pendingFirings())
     const anchors = new Map<string, PendingThread>()
     // The visible history wins when it is present; an evicted thread's
@@ -597,7 +597,7 @@ export class MentionTriage {
     const decisions = [...next.decisions]
     const linked = new Set(next.stopIntents.flatMap(one => one.decisionId ? [one.decisionId] : []))
     while (historySlots(decisions, next.stopIntents) > TRIGGER_DECISIONS_KEPT) {
-      const index = decisions.findIndex(one => !linked.has(one.id) && one.reason !== ASSESS_UNCONFIRMED)
+      const index = decisions.findIndex(one => one.id !== retainDecisionId && !linked.has(one.id) && one.reason !== ASSESS_UNCONFIRMED)
       if (index < 0) throw new Error('Protected mention history is full. Review unconfirmed assessments or stop work directly.')
       decisions.splice(index, 1)
     }
@@ -898,7 +898,7 @@ export class MentionTriage {
         decision: 'ignore', reason: 'The firing was refused because its mention thread is closed.', by: 'rules', rules: [],
         mode: 'act', acted: false, work: thread.id, decidedAt: this.#port.now(), evaluations: 0, closedFiring: key,
       }
-      await this.#write({ ...ledger, decisions: [...ledger.decisions, decision] })
+      await this.#write({ ...ledger, decisions: [...ledger.decisions, decision] }, decision.id)
       this.#port.changed(thread.project)
     })
   }
@@ -1289,7 +1289,7 @@ export class MentionTriage {
       mode, acted, work, decidedAt: this.#port.now(), evaluations: 0,
     }
     const ledger = await this.#read()
-    await this.#write({ ...ledger, decisions: [...ledger.decisions.filter((one) => one.id !== decision.id), decision] })
+    await this.#write({ ...ledger, decisions: [...ledger.decisions.filter((one) => one.id !== decision.id), decision] }, decision.id)
     this.#port.changed(arm.project)
     return publicDecision(decision)
   }
