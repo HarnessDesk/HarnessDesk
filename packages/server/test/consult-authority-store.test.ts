@@ -148,3 +148,13 @@ test('truncated database query fails closed', () => {
     assert.throws(() => store.lookup('root'))
   } finally { cleanup() }
 })
+
+ test('archive can preserve a reassociated root while retaining remaining old members', () => {
+  const { store, cleanup } = setup()
+  try {
+    store.archive('new', 'root', ['root'])
+    store.archive('old', 'root', ['old-child'], false)
+    assert.equal(store.lookup('root')?.incarnation, 'new')
+    assert.equal(store.lookup('old-child')?.incarnation, 'old')
+  } finally { cleanup() }
+})

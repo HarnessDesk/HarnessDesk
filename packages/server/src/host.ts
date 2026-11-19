@@ -1,3 +1,4 @@
+import { ConsultAuthorityStore } from './consult-authority-store.js'
 import { LeadLifetime } from './lead/lifetime.js'
 import { DeskFeatures } from './features.js'
 import { startPhoneLink, type RunningPhoneLink, type PhoneLinkOptions } from './phone-link.js'
@@ -669,6 +670,8 @@ export interface HostOptions {
   readonly consultTimers?: QuestionTimers
   /** How many retired consults stay refused by id, for tests only; `CONSULT_RETIRED_KEPT` everywhere else. */
   readonly consultsRetiredKept?: number
+  /** Fault injection after a cold-authority commit, for tests only. */
+  readonly consultAuthorityAfterCommit?: () => void
   /**
    * How to give an agent one more account. Supplied by the wiring, because
    * only the wiring knows that a second Codex means a second process over a
@@ -800,7 +803,7 @@ export type Broadcast = (notification: WireNotification) => void
  * costs a person a refused post. See `Host#teamLive`.
  */
 const REOPEN_REFUSALS_TO_LET_GO = 2
-/** Retired consults still refused by id; beyond this many, the oldest is forgotten (`#retireConsults`). */
+/** Retired consult families kept hot; older families retain exact authority on disk. */
 const CONSULT_RETIRED_KEPT = 1024
 const IDLE_STOP_MS = 10 * 60_000
 const SEAT_REST_MS = IDLE_STOP_MS
@@ -1267,6 +1270,8 @@ export class Host {
     this.registry.onDetached((record, previous) => this.#recordRegistryMutation(record, previous))
     this.#logger = options.logger.child('host')
     this.#state = options.state ?? new StateStore()
+    try { this.#consultAuthority = new ConsultAuthorityStore(join(this.#state.directory, 'consult-authority'), { afterCommit: options.consultAuthorityAfterCommit }) }
+    catch (error) { this.#consultAuthorityFailed = true; this.#logger.warn('consult authority unavailable', { error: String(error) }) }
     this.#features = new DeskFeatures(join(this.#state.directory, 'features.json'),
       { lead: options.leadEnabled === true, mobile: options.mobileEnabled === true },
       (feature, enabled) => this.#setFeature(feature, enabled),
@@ -4037,6 +4042,7 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    try { this.#consultAuthority?.close() } catch { this.#consultAuthorityFailed = true }
     const featuresClosed = this.#features.close()
     this.#leadLifetime?.seal()
     this.#mobileService?.service.seal()
@@ -8260,7 +8266,10 @@ export class Host {
           })
           // Opened after its hold was let go: its start may have reached a window, so its removal does too.
           if (!held) this.#consultsShown.add(sessionKey(runtimeId(opened.runtime), makeSessionId(opened.sessionId)))
-          return { runtime: opened.runtime, sessionId: opened.sessionId, openedAt: Date.now() }
+          const consult = { runtime: opened.runtime, sessionId: opened.sessionId, openedAt: Date.now() }
+          const incarnation = this.#consultFamily.get(sessionKey(runtimeId(opened.runtime), makeSessionId(opened.sessionId)))
+          if (incarnation) this.#consultOpeningIncarnations.set(consult, incarnation)
+          return consult
         } finally {
           signal.removeEventListener('abort', expire)
           if (bound !== null) this.#consultClearTimer(bound)
@@ -8294,19 +8303,22 @@ export class Host {
       }),
       discard: async (consult) => {
         const key = sessionKey(runtimeId(consult.runtime), makeSessionId(consult.sessionId))
+        const expected = this.#consultOpeningIncarnations.get(consult)
+        if (expected && !this.#consultOwnedBy(key, expected)) return null
         try {
           const left = await this.#discardSeat(runtimeId(consult.runtime), makeSessionId(consult.sessionId))
           return left ? left.kind : null
         } finally {
+          if (expected && !this.#consultOwnedBy(key, expected)) return null
           this.#consultTurns.delete(key)
           this.#consulting.delete(key)
-          this.#consultClosed(key)
+          this.#consultClosed(key, expected)
           this.#consultsGone.add(key)
           if (this.#consultsGone.size > 256) this.#consultsGone.delete(this.#consultsGone.values().next().value!)
           this.#retireConsults()
         }
       },
-      closed: (consult) => this.#consultClosed(sessionKey(runtimeId(consult.runtime), makeSessionId(consult.sessionId))),
+      closed: (consult) => this.#consultClosed(sessionKey(runtimeId(consult.runtime), makeSessionId(consult.sessionId)), this.#consultOpeningIncarnations.get(consult)),
       metered: (caller, consult) => this.#intake.consulted(caller, consult),
       meteredStart: (goal, meter, started) => this.#intake.consultStarted(goal, meter, started),
       usage: (consult, ended) => this.#consultUsage(consult, ended),
@@ -8908,7 +8920,20 @@ export class Host {
     const consult = this.#consultOf(String(runtime), String(event.sessionId))
     for (const member of event.item.members) {
       if (!member.sessionId || member.sessionId === String(event.sessionId)) continue
-      if (consult !== null) this.#joinConsult(sessionKey(runtime, makeSessionId(member.sessionId)), consult)
+      if (consult !== null) {
+        const child = sessionKey(runtime, makeSessionId(member.sessionId))
+        const parent = sessionKey(runtime, makeSessionId(event.sessionId))
+        const cold = this.#coldConsultOf(parent)
+        if (cold && cold.incarnation === consult) {
+          try {
+            const old = this.#coldConsult(child)
+            if (old && old.incarnation !== consult) this.#consultAuthority!.replace(child, old.incarnation, consult, cold.root)
+            else this.#consultAuthority!.inherit(cold.key, child)
+            const hot = this.#consultFamily.get(child)
+            if (hot !== undefined && hot !== consult) { this.#consultMembers.get(hot)?.keys.delete(child); this.#consultFamily.delete(child) }
+          } catch { this.#consultAuthorityFailed = true }
+        } else this.#joinConsult(child, consult)
+      }
       if (root !== null) this.#delegatedBy.set(sessionKey(runtime, makeSessionId(member.sessionId)), root)
       if (this.#delegatedBy.size > 2000) {
         const oldest = this.#delegatedBy.keys().next().value
@@ -8945,6 +8970,8 @@ export class Host {
     for (let depth = 0; depth <= 8; depth += 1) {
       const consult = this.#consultFamily.get(key)
       if (consult !== undefined) return consult
+      const cold = this.#coldConsult(key)
+      if (cold) return cold.incarnation
       const parent = this.#delegatedBy.get(key as SessionKey)
       if (!parent) return null
       key = sessionKey(runtimeId(parent.runtime), makeSessionId(parent.sessionId))
@@ -8962,6 +8989,10 @@ export class Host {
   }
 
   #joinConsult(key: string, incarnation: string): void {
+    const cold = this.#coldConsult(key)
+    if (cold && cold.incarnation !== incarnation) {
+      try { this.#consultAuthority!.release(key, cold.incarnation) } catch { this.#consultAuthorityFailed = true; return }
+    }
     const was = this.#consultFamily.get(key)
     if (was === incarnation) return
     if (was !== undefined) this.#consultMembers.get(was)?.keys.delete(key)
@@ -8976,6 +9007,10 @@ export class Host {
    * never touched.
    */
   #leaveClosedConsult(key: string): void {
+    const cold = this.#coldConsult(key)
+    if (cold) {
+      try { this.#consultAuthority!.release(key, cold.incarnation) } catch { this.#consultAuthorityFailed = true; return }
+    }
     const incarnation = this.#consultFamily.get(key)
     if (incarnation === undefined || !(this.#consultsClosed.has(incarnation) || this.#consultsRetired.has(incarnation))) return
     this.#consultFamily.delete(key)
@@ -8983,49 +9018,44 @@ export class Host {
   }
 
   /** The consult on this session key has ended: from now on nothing of it, or of its family, is admitted. */
-  #consultClosed(key: string): void {
+  #consultClosed(key: string, expected?: string): void {
     const incarnation = this.#consultFamily.get(key)
-    if (incarnation !== undefined && this.#consultMembers.get(incarnation)?.root === key) this.#consultsClosed.add(incarnation)
+    if (expected !== undefined && incarnation !== expected) return
+    if (incarnation !== undefined && this.#consultMembers.get(incarnation)?.root === key) {
+      this.#consultsClosed.add(incarnation)
+      this.#retireConsults()
+    }
   }
 
-  /**
-   * Closed consults none of whose family is still a live conversation here
-   * are retired: still refused, among the last `CONSULT_RETIRED_KEPT`. The
-   * oldest beyond that is forgotten; a runtime on which it had a child the
-   * desk never held is marked uncertain, as an evicted delegation is, so a
-   * late call from that child is refused rather than read as a stranger's.
-   * A live consult is never retired or forgotten.
-   */
+  /** Move older closed families to exact Host-lifetime cold authority before evicting hot keys. */
   #retireConsults(): void {
     for (const incarnation of this.#consultsClosed) {
-      const family = this.#consultMembers.get(incarnation)
-      if (!family) { this.#consultsClosed.delete(incarnation); continue }
-      const live = [...family.keys].some((key) => {
-        const { runtime, id } = splitSessionKey(key as SessionKey)
-        return this.registry.get(runtime, id) !== undefined
-      })
-      if (live) continue
       this.#consultsClosed.delete(incarnation)
       this.#consultsRetired.add(incarnation)
     }
     while (this.#consultsRetired.size > (this.options.consultsRetiredKept ?? CONSULT_RETIRED_KEPT)) {
       const oldest = this.#consultsRetired.values().next().value!
-      this.#consultsRetired.delete(oldest)
       const family = this.#consultMembers.get(oldest)
+      if (!family) { this.#consultsRetired.delete(oldest); continue }
+      if (this.#consultAuthorityFailed || !this.#consultAuthority) return
+      try { this.#consultAuthority.archive(oldest, family.root, [...family.keys], family.keys.has(family.root)) }
+      catch { this.#consultAuthorityFailed = true; return }
+      this.#consultsRetired.delete(oldest)
       this.#consultMembers.delete(oldest)
-      for (const key of family?.keys ?? []) {
+      for (const key of family.keys) {
         if (this.#consultFamily.get(key) !== oldest) continue
         this.#consultFamily.delete(key)
         this.#consultsShown.delete(key)
-        if (key !== family!.root) this.#delegationUncertainRuntimes.add(String(splitSessionKey(key as SessionKey).runtime))
       }
     }
   }
 
   /** Why a call from a consult that has closed, or from anything it handed work to, is refused; null otherwise. */
   #closedConsultRefusal(runtime: string, sessionId: string): string | null {
+    const key = sessionKey(runtimeId(runtime), makeSessionId(sessionId))
+    const cold = this.#coldConsultOf(key)
     const consult = this.#consultOf(runtime, sessionId)
-    return consult !== null && (this.#consultsClosed.has(consult) || this.#consultsRetired.has(consult)) ? CONSULT_CLOSED_REFUSAL : null
+    return this.#consultAuthorityFailed || cold !== null || (consult !== null && (this.#consultsClosed.has(consult) || this.#consultsRetired.has(consult))) ? CONSULT_CLOSED_REFUSAL : null
   }
 
   /**
@@ -10379,14 +10409,42 @@ export class Host {
    * the old one. The read ceiling holds for all of them for the consult's
    * whole life, and once it closes (`#consultsClosed`) every desk-tool call
    * from any of them is refused — independent of the bounded caches
-   * (`#consultsGone`, `#delegatedBy`). A closed consult with no live family
-   * retires (`#consultsRetired`), still refused, and only the oldest beyond
-   * `CONSULT_RETIRED_KEPT` is forgotten (`#retireConsults`).
+   * (`#consultsGone`, `#delegatedBy`). A closed consult
+   * retires (`#consultsRetired`), still refused; older families move to the
+   * Host-lifetime cold index (`#retireConsults`).
    */
+  #consultAuthority: ConsultAuthorityStore | null = null
+  #consultAuthorityFailed = false
+  /** Diagnostic counts of in-memory consult authority, excluding the cold index. */
+  get consultAuthorityHotCounts(): { families: number; keys: number } {
+    return { families: this.#consultMembers.size, keys: this.#consultFamily.size }
+  }
+  #coldConsult(key: string): { incarnation: string; root: string } | null {
+    if (this.#consultAuthorityFailed || !this.#consultAuthority) return null
+    try { return this.#consultAuthority.lookup(key) }
+    catch { this.#consultAuthorityFailed = true; return null }
+  }
+  #consultOwnedBy(key: string, incarnation: string): boolean {
+    const hot = this.#consultFamily.get(key)
+    if (hot !== undefined) return hot === incarnation
+    return this.#coldConsult(key)?.incarnation === incarnation
+  }
+  #coldConsultOf(key: string): { incarnation: string; root: string; key: string } | null {
+    for (let depth = 0; depth <= 8; depth += 1) {
+      if (this.#consultFamily.has(key)) return null
+      const cold = this.#coldConsult(key)
+      if (cold) return { ...cold, key }
+      const parent = this.#delegatedBy.get(key as SessionKey)
+      if (!parent) return null
+      key = sessionKey(runtimeId(parent.runtime), makeSessionId(parent.sessionId))
+    }
+    return null
+  }
   readonly #consultFamily = new Map<string, string>()
   readonly #consultMembers = new Map<string, { readonly root: string; readonly keys: Set<string> }>()
   readonly #consultsClosed = new Set<string>()
   readonly #consultsRetired = new Set<string>()
+  readonly #consultOpeningIncarnations = new WeakMap<object, string>()
   #consultIncarnations = 0
   /** Consults that opened after their hold was let go, so a window may have heard them start: their removal is not hidden. */
   readonly #consultsShown = new Set<string>()

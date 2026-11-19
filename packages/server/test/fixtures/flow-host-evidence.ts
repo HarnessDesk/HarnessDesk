@@ -117,6 +117,7 @@ export interface DeskOptions {
   readonly consultTimers?: QuestionTimers
   /** How many retired consults the host keeps refusing by id. */
   readonly consultsRetiredKept?: number
+  readonly consultAuthorityAfterCommit?: () => void
 }
 
 export const desk = async (t: TestContext, second: Second = { id: 'fake-b', provider: 'vendor-b' }, options: DeskOptions = {}): Promise<Desk> => {
@@ -148,6 +149,7 @@ export const desk = async (t: TestContext, second: Second = { id: 'fake-b', prov
     ...(options.questionTimers ? { questionTimers: options.questionTimers } : {}),
     ...(options.consultTimers ? { consultTimers: options.consultTimers } : {}),
     ...(options.consultsRetiredKept !== undefined ? { consultsRetiredKept: options.consultsRetiredKept } : {}),
+    ...(options.consultAuthorityAfterCommit ? { consultAuthorityAfterCommit: options.consultAuthorityAfterCommit } : {}),
   })
   if (options.registerHostCleanup) options.registerHostCleanup(host)
   const runtimes = [

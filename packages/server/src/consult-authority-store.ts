@@ -56,11 +56,11 @@ export class ConsultAuthorityStore {
     })
   }
 
-  archive(incarnation: string, root: string, members: readonly string[]): void {
+  archive(incarnation: string, root: string, members: readonly string[], includeRoot = true): void {
     this.#transaction(() => {
       const insert = this.#db.prepare('INSERT INTO members VALUES (?, ?, ?) ON CONFLICT(key) DO NOTHING')
       const current = this.#db.prepare('SELECT incarnation, root FROM members WHERE key=?')
-      for (const key of (function* () { yield root; yield* members })()) {
+      for (const key of (function* () { if (includeRoot) yield root; yield* members })()) {
         insert.run(key, incarnation, root)
         const owner = current.get(key)
         if (owner?.incarnation !== incarnation || owner.root !== root) throw new Error('Consult authority owner conflict')

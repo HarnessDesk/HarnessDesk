@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readdir, readFile, writeFile } from 'node:fs/promises'
+import { readdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
@@ -67,9 +67,9 @@ interface Asking {
 }
 
 /** A desk with a running fixer seat that may (or may not) ask `holdfake`, and a window listening to everything. */
-const asking = async (t: TestContext, source = ASKS, options: { readonly kept?: number; readonly also?: readonly string[] } = {}): Promise<Asking> => {
+const asking = async (t: TestContext, source = ASKS, options: { readonly kept?: number; readonly also?: readonly string[]; readonly afterCommit?: () => void } = {}): Promise<Asking> => {
   const timers = manualTimers()
-  const d = await desk(t, undefined, { consultTimers: timers, ...(options.kept !== undefined ? { consultsRetiredKept: options.kept } : {}) })
+  const d = await desk(t, undefined, { consultTimers: timers, ...(options.kept !== undefined ? { consultsRetiredKept: options.kept } : {}), ...(options.afterCommit ? { consultAuthorityAfterCommit: options.afterCommit } : {}) })
   const holds = new HoldFake('holdfake')
   d.host.register(holds)
   await holds.start()
@@ -329,13 +329,14 @@ const admitRead = (a: Asking, runtime: string, sessionId: string) => a.d.host.ce
 })
 
 test('round 3: a consult is closed the moment it answers, before its discard: a discard that never settles leaves nothing of it admissible', E2E, async (t) => {
-  const a = await asking(t)
+  const a = await asking(t, ASKS, { kept: 0 })
   answerWith(a.holds, '4')
   let deleting = false
   ;(a.holds as { deleteSession: HoldFake['deleteSession'] }).deleteSession = () => { deleting = true; return new Promise(() => {}) }
   const pending = a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'q', context: null }, a.caller)
   await whenChanged(a.d, () => (deleting ? true : null), 'the discard is under way, and never ends')
   const consult = String(a.holds.held[0]!.id)
+  assert.deepEqual(a.d.host.consultAuthorityHotCounts, { families: 0, keys: 0 })
   assert.deepEqual(await admitRead(a, 'holdfake', consult), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL }, 'refused while the discard hangs')
   for (const one of [...a.timers.live.values()].filter((timer) => timer.ms === 10_000)) one.fire()
   assert.equal((await pending).text, '4', 'the ask still ends at its cleanup bound')
@@ -363,17 +364,94 @@ test('round 3: an id a closed consult once had is a new consult when the runtime
   assert.deepEqual(await admitRead(a, 'holdfake', id), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL }, 'and is refused once it, too, has ended')
 })
 
-test('round 3: closed consults retire, and only the oldest beyond the bound is forgotten', E2E, async (t) => {
+test('round 3: closed consults retire into exact cold authority', E2E, async (t) => {
   const a = await asking(t, ASK_TWICE('holdfake'), { kept: 1 })
   answerWith(a.holds, '4')
   for (const question of ['one', 'two', 'three']) await a.d.host.consultPlane.ask({ agent: 'holdfake', question, context: null }, a.caller)
   const [first, second, third] = a.holds.held.map((one) => String(one.id))
-  // Bound at one: the two older consults are forgotten, the last is still refused.
+  // Bound at one: the two older consults retain their refusal in the cold index.
   assert.deepEqual(await admitRead(a, 'holdfake', third!), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
   for (const id of [first!, second!]) {
-    const admission = await admitRead(a, 'holdfake', id)
-    assert.equal(!admission.admitted && admission.refusal === CONSULT_CLOSED_REFUSAL, false, id)
+    assert.deepEqual(await admitRead(a, 'holdfake', id), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL }, id)
   }
+})
+
+test('closed consult families with registered children retire at the configured bound', E2E, async (t) => {
+  const a = await asking(t, ASK_TWICE('holdfake'), { kept: 1 })
+  const roots: string[] = []
+  const children: string[] = []
+  a.holds.onSend = (session) => {
+    void (async () => {
+      roots.push(String(session.id))
+      const child = await a.holds.createSession({ cwd: a.holds.createOptions[0]!.cwd })
+      children.push(String(child.id))
+      a.holds.emit({ type: 'item/completed', sessionId: session.id, turnId: 'consult-turn' as never,
+        item: { id: `spawn-${child.id}` as never, type: 'subagent', action: 'spawn', status: 'completed', members: [{ sessionId: String(child.id) }] } })
+      ;(session as HoldSession).finish('4')
+    })()
+  }
+  for (const question of ['one', 'two', 'three']) await a.d.host.consultPlane.ask({ agent: 'holdfake', question, context: null }, a.caller)
+  assert.deepEqual(a.d.host.consultAuthorityHotCounts, { families: 1, keys: 2 })
+  assert.deepEqual(await admitRead(a, 'holdfake', roots[0]!), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
+  for (const child of children) assert.deepEqual(await admitRead(a, 'holdfake', child), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL }, child)
+  assert.deepEqual(await admitRead(a, 'holdfake', roots[2]!), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
+})
+
+test('probe: a late registered descendant of an evicted registered child remains refused', E2E, async (t) => {
+  const a = await asking(t, ASK_TWICE('holdfake'), { kept: 1 })
+  const children: string[] = []
+  a.holds.onSend = (session) => { void (async () => {
+    const child = await a.holds.createSession({ cwd: a.holds.createOptions[0]!.cwd })
+    children.push(String(child.id))
+    a.holds.emit({ type: 'item/completed', sessionId: session.id, turnId: 'consult-turn' as never,
+      item: { id: `spawn-${child.id}` as never, type: 'subagent', action: 'spawn', status: 'completed', members: [{ sessionId: String(child.id) }] } })
+    ;(session as HoldSession).finish('4')
+  })() }
+  for (const question of ['one', 'two', 'three']) await a.d.host.consultPlane.ask({ agent: 'holdfake', question, context: null }, a.caller)
+  const late = await a.holds.createSession({ cwd: a.holds.createOptions[0]!.cwd })
+  a.holds.emit({ type: 'item/completed', sessionId: children[0] as never, turnId: 'late-turn' as never,
+    item: { id: 'late-spawn' as never, type: 'subagent', action: 'spawn', status: 'completed', members: [{ sessionId: String(late.id) }] } })
+  assert.deepEqual(await admitRead(a, 'holdfake', String(late.id)), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
+})
+
+test('cold authority retains more than 2000 late and nested reported children', E2E, async (t) => {
+  const a = await asking(t, ASK_TWICE('holdfake'), { kept: 0 })
+  let root = ''
+  a.holds.onSend = (session) => { void (async () => {
+    const child = await a.holds.createSession({ cwd: a.holds.createOptions[0]!.cwd })
+    root = String(child.id)
+    a.holds.emit({ type: 'item/completed', sessionId: session.id, turnId: 'spawn' as never, item: { id: 'spawn' as never, type: 'subagent', action: 'spawn', status: 'completed', members: [{ sessionId: root }] } })
+    ;(session as HoldSession).finish('4')
+  })() }
+  await a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'one', context: null }, a.caller)
+  const nested = await a.holds.createSession({ cwd: a.holds.createOptions[0]!.cwd })
+  const emit = (parent: string, members: string[]) => a.holds.emit({ type: 'item/completed', sessionId: parent as never, turnId: 'late' as never,
+    item: { id: 'late-spawn' as never, type: 'subagent', action: 'spawn', status: 'completed', members: members.map(sessionId => ({ sessionId })) } })
+  emit(root, [...Array.from({ length: 2001 }, (_, n) => `late-${n}`), String(nested.id)])
+  emit(String(nested.id), ['nested-late'])
+  assert.deepEqual(a.d.host.consultAuthorityHotCounts, { families: 0, keys: 0 })
+  for (const id of ['late-0', 'late-2000', 'nested-late']) assert.deepEqual(await admitRead(a, 'holdfake', id), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
+  const independent = await a.holds.createSession({ cwd: a.holds.createOptions[0]!.cwd })
+  assert.deepEqual(await admitRead(a, 'holdfake', String(independent.id)), { admitted: true })
+})
+
+test('lost authority file latches refusal and preserves hot families', E2E, async (t) => {
+  const a = await asking(t, ASK_TWICE('holdfake'), { kept: 0 })
+  const directory = join(a.d.stateDir, 'consult-authority')
+  const [file] = await readdir(directory)
+  await unlink(join(directory, file!))
+  answerWith(a.holds, '4')
+  await a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'one', context: null }, a.caller)
+  assert.equal(a.d.host.consultAuthorityHotCounts.families, 1)
+  assert.deepEqual(await admitRead(a, 'holdfake', 'unrelated'), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
+})
+
+test('uncertain archive commit retains hot facts and latches refusal', E2E, async (t) => {
+  const a = await asking(t, ASK_TWICE('holdfake'), { kept: 0, afterCommit: () => { throw new Error('uncertain commit') } })
+  answerWith(a.holds, '4')
+  await a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'one', context: null }, a.caller)
+  assert.equal(a.d.host.consultAuthorityHotCounts.families, 1)
+  assert.deepEqual(await admitRead(a, 'holdfake', 'unrelated'), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
 })
 
 test('round 3: each opening holds only its own runtime’s announcements, and only until its own bound — an overlapping opening never extends it', E2E, async (t) => {
