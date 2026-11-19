@@ -1,0 +1,26 @@
+{
+  "scope": "Lead permission with redundant Command fact, actual Host and production Chromium; synthetic worker and Demo desk",
+  "before": "Only No was available",
+  "after": "Exact command and working folder, Yes once/No; trusted once answer reached normal worker responder exactly once",
+  "fixture": "Private test fixture used a fixed synthetic scratch path and the existing Host deskName option; pending synthetic permission retained id/session/options and normal responder. Production code and handlers unchanged.",
+  "bounds": "Not Electron-native Lead or live provider; no shell command executed. Other full native frames containing system identity remain private.",
+  "head": "dd42f6b9cd3eee49e9c36cad461c974a04c27dc0",
+  "frames": [
+    {
+      "path": "screenshots/issue-1620/dd42f6b/lead-baseline.png",
+      "sha256": "cfec544996f12f9b00b0c22e0a8dc25b25ef481ad3eb2157509b393c6015841b",
+      "sourceHead": "fd3977a59e133c1147c92237aea52968d93c3d08",
+      "sourceTree": "1a5847bfe935f52aa481e062b86fecd9802a5ef2",
+      "surface": "actual Host and production Chromium with synthetic desk",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-1620/dd42f6b/lead-candidate.png",
+      "sha256": "1bfc4651e39d4c3312502a2c059a2ca7e8fcc8dfa8e6b935368bcfd2929efbe2",
+      "sourceHead": "dd42f6b9cd3eee49e9c36cad461c974a04c27dc0",
+      "sourceTree": "78029cb27eca2d153618be13d0c61f5e26e05777",
+      "surface": "actual Host and production Chromium with synthetic desk",
+      "parentVisuallyInspected": true
+    }
+  ]
+}
