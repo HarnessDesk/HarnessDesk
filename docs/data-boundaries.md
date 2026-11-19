@@ -35,7 +35,10 @@ bundle, and every retained project-memory citation, are files on your disk,
 under `~/.harnessdesk` and your own repositories. Reviewing a repository's
 `AGENT.md` and the bundle beside it never runs anything on its own — it only
 ever produces bytes a person reviews before they are trusted to load. The
-host binds a loopback socket the renderer talks to. Managed chat ownership
+host binds a loopback socket the renderer talks to. An authenticated desktop may request
+`host/clock` with empty parameters; the response contains Host wall time and a
+random epoch for that Host lifetime, with no account or provider data. Phones
+and agent tools cannot call it. Managed chat ownership
 paths, including canonical aliases, are stored in local preferences and sent to
 connected desktop clients as a versioned snapshot; the push carries no other
 preferences. A failed write can leave that ownership in memory until restart;

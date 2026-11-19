@@ -1,0 +1,45 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { HostClockController } from './host-clock'
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
+describe('HostClockController', () => {
+  it('samples and refreshes 30 seconds after settlement', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(1_000_000)
+    const request = vi.fn().mockResolvedValue({ hostNowMs: 100_000, clockEpoch: 'one' })
+    const clock = new HostClockController(request, () => {})
+    clock.connect(true); await Promise.resolve()
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(clock.read()).toEqual({ lowerMs: 100_000, upperMs: 100_001 })
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(request).toHaveBeenCalledTimes(2)
+    clock.disconnect()
+  })
+  it('fences late replies after timeout and reconnect without multiplying requests', async () => {
+    vi.useFakeTimers()
+    const resolvers: ((sample: unknown) => void)[] = []
+    const request = vi.fn(() => new Promise(resolve => resolvers.push(resolve)))
+    const clock = new HostClockController(request, () => {})
+    clock.connect(true); await vi.advanceTimersByTimeAsync(65_000)
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(clock.read()).toBeNull()
+    clock.disconnect(); clock.connect(true)
+    expect(request).toHaveBeenCalledTimes(2)
+    resolvers[0]!({ hostNowMs: 100_000, clockEpoch: 'old' }); await Promise.resolve()
+    expect(clock.read()).toBeNull()
+    resolvers[1]!({ hostNowMs: 200_000, clockEpoch: 'new' }); await Promise.resolve()
+    expect(clock.read()?.lowerMs).toBe(200_000)
+    clock.disconnect()
+  })
+  it('does not probe unsupported hosts and fences a pending reply on resume', async () => {
+    vi.useFakeTimers()
+    const resolvers: ((sample: unknown) => void)[] = []
+    const request = vi.fn(() => new Promise(resolve => resolvers.push(resolve)))
+    const clock = new HostClockController(request, () => {})
+    clock.connect(false); expect(request).not.toHaveBeenCalled()
+    clock.connect(true); clock.resume()
+    expect(request).toHaveBeenCalledTimes(1)
+    resolvers[0]!({ hostNowMs: 100_000, clockEpoch: 'one' }); await Promise.resolve(); await Promise.resolve()
+    expect(clock.read()).toBeNull()
+    expect(request).toHaveBeenCalledTimes(2)
+    clock.disconnect()
+  })
+})
