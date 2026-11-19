@@ -42,4 +42,20 @@ describe('HostClockController', () => {
     expect(request).toHaveBeenCalledTimes(2)
     clock.disconnect()
   })
+  it('fences an in-flight reply if a read detects a wall jump', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(1_000_000)
+    const resolvers: ((sample: unknown) => void)[] = []
+    const request = vi.fn(() => new Promise(resolve => resolvers.push(resolve)))
+    const clock = new HostClockController(request, () => {})
+    clock.connect(true)
+    resolvers[0]!({ hostNowMs: 100_000, clockEpoch: 'one' }); await Promise.resolve(); await Promise.resolve()
+    expect(clock.read()).not.toBeNull()
+    await vi.advanceTimersByTimeAsync(30_000)
+    vi.setSystemTime(2_000_000)
+    expect(clock.read()).toBeNull()
+    resolvers[1]!({ hostNowMs: 130_000, clockEpoch: 'one' }); await Promise.resolve(); await Promise.resolve()
+    expect(clock.read()).toBeNull()
+    clock.disconnect()
+  })
+
 })

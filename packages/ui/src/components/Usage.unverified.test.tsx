@@ -78,6 +78,7 @@ const storeWith = (report: UsageReport, extra: Partial<AppSnapshot> = {}): AppSt
   } as AppSnapshot
   return {
     subscribe: () => () => {},
+    hostTime: () => ({ lowerMs: Date.now(), upperMs: Date.now() }),
     getSnapshot: () => snapshot,
     transport: { request: vi.fn(async () => null) },
     loadAccounts: vi.fn(async () => {}),

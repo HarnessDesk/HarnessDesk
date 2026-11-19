@@ -143,6 +143,7 @@ const makeStore = (over: Partial<AppSnapshot>) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
+    hostTime: () => ({ lowerMs: Date.now(), upperMs: Date.now() }),
     getSnapshot: () => snapshot,
     dismissStanding: (identity: NoticeIdentity) =>
       patch({ noticePolicy: afterDismiss(snapshot.noticePolicy, identity, Date.now()) }),

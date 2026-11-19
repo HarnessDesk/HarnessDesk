@@ -1010,3 +1010,55 @@ export const coverageLabel = (spend: Pick<SpendSummary, 'coverage'>): string | n
   if (!coverage) return null
   return `${coverage.daysCovered} of ${coverage.daysRequested} days with usage`
 }
+
+/** Describe only time claims that hold at both ends of the Host interval. */
+export const describeHostReport = (
+  report: UsageReport,
+  interval: import('./host-clock').HostTimeInterval | null,
+  options: { maxLanes?: number; preference?: UsagePreference } = {},
+): ReportView => {
+  const lower = describeReport(report, { ...options, now: interval?.lowerMs ?? report.fetchedAt })
+  const upper = interval ? describeReport(report, { ...options, now: interval.upperMs }) : null
+  const rounded = (value: number, scale: number) => Math.round(value * scale) / scale
+  const stableBurn = (a: BurnView | null, b: BurnView | null): BurnView | null => {
+    if (!interval || lower.stale || !upper || upper.stale || !a || !b) return null
+    const sameGeometry = rounded(a.elapsed, 1000) === rounded(b.elapsed, 1000) &&
+      rounded(a.projectedAt, 1000) === rounded(b.projectedAt, 1000) &&
+      rounded(a.projectedLeft, 10) === rounded(b.projectedLeft, 10)
+    const sameWords = a.status === b.status && a.forecast === b.forecast && a.runsOut === b.runsOut &&
+      Math.round(a.margin) === Math.round(b.margin) &&
+      formatCountdown(a.resetsAt - interval.lowerMs) === formatCountdown(b.resetsAt - interval.upperMs) &&
+      formatCountdown(a.etaMs ?? 0) === formatCountdown(b.etaMs ?? 0) &&
+      formatWhen(interval.lowerMs + (a.etaMs ?? 0), interval.lowerMs) === formatWhen(interval.upperMs + (b.etaMs ?? 0), interval.upperMs)
+    if (!sameGeometry || !sameWords) return null
+    return { ...a, elapsed: rounded(a.elapsed, 1000), projectedAt: rounded(a.projectedAt, 1000), projectedLeft: rounded(a.projectedLeft, 10) }
+  }
+  const lane = (first: LaneView | null): LaneView | null => {
+    if (!first) return null
+    const second = upper?.all.find(item => item.id === first.id) ?? (upper?.reachedLane?.id === first.id ? upper.reachedLane : null)
+    return {
+      ...first,
+      countdown: second && first.countdown === second.countdown ? first.countdown : null,
+      shortCountdown: second && first.shortCountdown === second.shortCountdown ? first.shortCountdown : null,
+      resetCountdown: second && first.resetCountdown === second.resetCountdown ? first.resetCountdown : '—',
+      resetClock: second && first.resetClock === second.resetClock ? first.resetClock : null,
+      gatedUntil: second && !lower.stale && !upper?.stale && first.gatedUntil === second.gatedUntil ? first.gatedUntil : null,
+      gatedFor: second && !lower.stale && !upper?.stale && first.gatedFor === second.gatedFor ? first.gatedFor : null,
+      gatedClock: second && !lower.stale && !upper?.stale && first.gatedClock === second.gatedClock ? first.gatedClock : null,
+      burn: stableBurn(first.burn, second?.burn ?? null),
+    }
+  }
+  const stablePace = upper && !lower.stale && !upper.stale && lower.pace && upper.pace &&
+    lower.pace.stage === upper.pace.stage && lower.pace.tone === upper.pace.tone &&
+    lower.pace.willLastToReset === upper.pace.willLastToReset && lower.pace.text === upper.pace.text ? lower.pace : null
+  return {
+    ...lower,
+    hero: lane(lower.hero),
+    lanes: lower.lanes.map(item => lane(item)!),
+    all: lower.all.map(item => lane(item)!),
+    reachedLane: lane(lower.reachedLane),
+    pace: stablePace,
+    stale: !upper || lower.stale || upper.stale,
+    age: upper && lower.age === upper.age ? lower.age : 'read time unverified',
+  }
+}

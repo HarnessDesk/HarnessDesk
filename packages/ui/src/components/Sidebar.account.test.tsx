@@ -124,6 +124,7 @@ const mount = (overrides: Partial<AppSnapshot> = {}) => {
   } as AppSnapshot
   const loadUsage = vi.fn().mockResolvedValue(undefined)
   const store = {
+    hostTime: () => ({ lowerMs: Date.now(), upperMs: Date.now() }),
     loadUsage,
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
@@ -147,7 +148,7 @@ it('marks old quota as historical and only asks for readings when Usage opens', 
   expect(loadUsage).not.toHaveBeenCalled()
   expect(usageTrigger().textContent).not.toContain('100% left')
   const details = openUsage()
-  expect(details.textContent).toContain('Outdated reading · last known values')
+  expect(details.textContent).toContain('Currentness unverified · last known values')
   expect(loadUsage).toHaveBeenCalledTimes(1)
 })
 

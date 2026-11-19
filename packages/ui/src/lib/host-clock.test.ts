@@ -21,6 +21,11 @@ describe('HostClockEstimator', () => {
       expect(clock.read(read(10 + rtt))).toEqual({ lowerMs: 100_000, upperMs: 100_001 + rtt })
     }
   })
+  it('rejects Host timestamps outside the representable wall-clock range', () => {
+    const clock = estimator()
+    expect(clock.accept(sample(8_640_000_000_000_001), timing())).toBe(false)
+    expect(clock.read(read())).toBeNull()
+  })
   it('rejects a round trip over five seconds', () => {
     const clock = estimator()
     expect(clock.accept(sample(), timing(10, 5011))).toBe(false)

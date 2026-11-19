@@ -1,3 +1,4 @@
+import { describeHostReport } from '../lib/usage'
 import { effectiveWindowMode } from '../editor'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { RuntimeMark } from './BrandIcons'
@@ -243,14 +244,18 @@ const useStanding = (): Standing | null => {
     const rule = carryOnFor(snapshot.carryOnPolicy, pool)
     const incident = conversation ? snapshot.carryOnIncidents.get(conversation) : undefined
     const deciding = incident !== undefined && CARRY_ON_LIVE.has(incident.state)
-    const condition = conditionFor(runtime.id, snapshot.usage, nameFor, Date.now(), {
-      prefer: inPoolOrder(siblings.filter((entry) => canTakeTurn(entry, snapshot)), pool, { reports: snapshot.usage, now: Date.now() }).map((entry) => entry.id),
+    const hostTime = store.hostTime?.() ?? null
+    const projectCondition = (now: number) => conditionFor(runtime.id, snapshot.usage, nameFor, now, {
+      prefer: inPoolOrder(siblings.filter((entry) => canTakeTurn(entry, snapshot)), pool, { reports: snapshot.usage, now }).map((entry) => entry.id),
       offer: rule.choice !== 'stop' && !deciding,
       canTake: (id) => {
         const entry = snapshot.runtimes.find((one) => one.id === id)
         return entry !== undefined && canTakeTurn(entry, snapshot) && (snapshot.carryOnPolicy.otherAgents || agentKey(entry) === agent)
       },
     })
+    const lower = hostTime && snapshot.usage.every(report => !describeHostReport(report, hostTime).stale) ? projectCondition(hostTime.lowerMs) : null
+    const upper = hostTime && lower ? projectCondition(hostTime.upperMs) : null
+    const condition = lower && JSON.stringify(lower) === JSON.stringify(upper) ? lower : null
     if (condition) {
       const elsewhere = condition.handoff
       return {

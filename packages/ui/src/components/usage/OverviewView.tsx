@@ -1,3 +1,5 @@
+import { useHostTime } from '../../state/host-time-context'
+import { describeHostReport } from '../../lib/usage'
 import type { AppSnapshot } from '../../state/store'
 import type { LedgerReport, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 
@@ -93,9 +95,11 @@ export const OverviewView = ({
   // An allowance about to be lost outranks "most room": it is the one answer the person cannot get back later, and it
   // is the account the Lead names too (Q15).
   const nameFor = (report: UsageReport): string => byId.get(report.runtime)?.presentation.name ?? 'Runtime'
-  const startOn = scope === null
-    ? pacingNote(reports, nameFor, now) ?? rightNow(reports, nameFor, now)
-    : null
+  const hostTime = useHostTime()
+  const certain = hostTime && reports.every(report => !describeHostReport(report, hostTime).stale)
+  const lowerStart = hostTime === undefined ? (pacingNote(reports, nameFor, now) ?? rightNow(reports, nameFor, now)) : certain ? pacingNote(reports, nameFor, hostTime.lowerMs) ?? rightNow(reports, nameFor, hostTime.lowerMs) : null
+  const upperStart = hostTime === undefined ? lowerStart : certain ? pacingNote(reports, nameFor, hostTime.upperMs) ?? rightNow(reports, nameFor, hostTime.upperMs) : null
+  const startOn = scope === null && lowerStart === upperStart ? lowerStart : null
   return (
     <>
       <OverviewStrip

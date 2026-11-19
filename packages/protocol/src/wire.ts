@@ -1053,7 +1053,7 @@ export interface HostMethods {
     result: {
       readonly protocolVersion: number
       readonly hostVersion: string
-      /** Optional host-owned destinations, absent until explicitly enabled at startup. */
+      /** Optional host capabilities; destinations remain absent until enabled. */
       readonly capabilities?: { readonly lead?: true; readonly phone?: true; readonly hostClock?: true }
       readonly runtimes: readonly RuntimeInfo[]
       /**

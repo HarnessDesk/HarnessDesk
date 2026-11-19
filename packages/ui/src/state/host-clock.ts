@@ -9,6 +9,7 @@ export class HostClockController {
   private refresh: ReturnType<typeof setTimeout> | null = null
   private timeout: ReturnType<typeof setTimeout> | null = null
   private resample = false
+  private hasSample = false
 
   constructor(private readonly request: () => Promise<unknown>, private readonly changed: () => void) {}
 
@@ -35,11 +36,22 @@ export class HostClockController {
   }
 
   read(): HostTimeInterval | null {
-    return this.estimator.read({ generation: this.generation, monoMs: performance.now(), wallMs: Date.now() })
+    const value = this.estimator.read({ generation: this.generation, monoMs: performance.now(), wallMs: Date.now() })
+    if (!value && this.hasSample) {
+      this.estimator.reset(++this.generation)
+      this.hasSample = false
+      if (this.pending) this.resample = true
+      else if (this.supported) {
+        if (this.refresh !== null) clearTimeout(this.refresh)
+        this.refresh = setTimeout(() => { this.refresh = null; this.probe() }, 0)
+      }
+    }
+    return value
   }
 
   private fence(): void {
     this.estimator.reset(++this.generation)
+    this.hasSample = false
     this.changed()
   }
 
@@ -61,7 +73,7 @@ export class HostClockController {
     }, 5_000)
     void this.request().then(sample => {
       if (this.pending !== token || generation !== this.generation) return
-      this.estimator.accept(sample, { generation, sentMonoMs, receivedMonoMs: performance.now(), receivedWallMs: Date.now() })
+      this.hasSample = this.estimator.accept(sample, { generation, sentMonoMs, receivedMonoMs: performance.now(), receivedWallMs: Date.now() })
       this.changed()
     }, () => {
       if (this.pending === token && generation === this.generation) this.fence()

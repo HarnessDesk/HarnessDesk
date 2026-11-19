@@ -89,6 +89,7 @@ const mount = (overrides: Partial<AppSnapshot> = {}, activeDestination: 'teams' 
     lead: { state: { revision: 0, settings: { name: 'dex' } }, subscribe: () => () => {} },
     subscribe: () => () => {},
     refreshWorkspaceGit: vi.fn(async () => {}),
+    hostTime: () => ({ lowerMs: Date.now(), upperMs: Date.now() }),
     getSnapshot: () => snapshot,
     loadHistory,
     searchHistory: vi.fn(async () => {}),
@@ -218,6 +219,7 @@ describe('Sidebar readiness with active runtime (#382)', () => {
         return () => listeners.delete(listener)
       },
       refreshWorkspaceGit: vi.fn(async () => {}),
+    hostTime: () => ({ lowerMs: Date.now(), upperMs: Date.now() }),
     getSnapshot: () => snapshot,
       loadHistory: vi.fn(),
       searchHistory,
@@ -385,7 +387,7 @@ describe('sidebar destinations', () => {
         { instanceId: 'one', identity: { id: 'one', name: 'One', source: { kind: 'builtin' } } },
         { instanceId: 'two', identity: { id: 'two', name: 'Two', source: { kind: 'builtin' } } },
       ],
-      usage: [{ runtime: CLAUDE, account: null, plan: null, lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: null }], credits: null, spend: null, reached: null, source: { kind: 'runtime', label: 'API' }, fetchedAt: 1, staleAfterMs: 1, error: null }],
+      usage: [{ runtime: CLAUDE, account: null, plan: null, lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: null }], credits: null, spend: null, reached: null, source: { kind: 'runtime', label: 'API' }, fetchedAt: Date.now(), staleAfterMs: 300_000, error: null }],
     } as unknown as Partial<AppSnapshot>)
     const group = container.querySelector('[aria-label="Main sections"]')!
     const rows = [...group.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')]
@@ -410,7 +412,7 @@ describe('sidebar destinations', () => {
     mount()
     const dashboard = container.querySelector<HTMLButtonElement>('button[aria-label="Dashboard"]')!
     expect(dashboard.parentElement?.querySelector('[data-left-mark]')).toBeNull()
-    const report = (usedPercent: number, error: unknown = null) => ({ runtime: CLAUDE, account: null, plan: null, lanes: [{ id: 'weekly', label: 'Weekly', usedPercent, windowMinutes: 10080, resetsAt: null }], credits: null, spend: null, reached: null, source: { kind: 'runtime', label: 'API' }, fetchedAt: 1, staleAfterMs: 1, error })
+    const report = (usedPercent: number, error: unknown = null) => ({ runtime: CLAUDE, account: null, plan: null, lanes: [{ id: 'weekly', label: 'Weekly', usedPercent, windowMinutes: 10080, resetsAt: null }], credits: null, spend: null, reached: null, source: { kind: 'runtime', label: 'API' }, fetchedAt: Date.now(), staleAfterMs: 300_000, error })
     const badge = () => container.querySelector<HTMLButtonElement>('button[aria-label="Dashboard"]')!.parentElement?.querySelector('[data-left-mark]')?.textContent?.trim()
 
     // Low, or a read that failed for a reason signing in would not fix, is a note on the Dashboard, not a need.

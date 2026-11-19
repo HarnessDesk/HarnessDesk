@@ -19,8 +19,11 @@ own. The [Flow guide](flows.md) illustrates a Team board, and the [Dashboard
 guide](usage-dashboard.md) shows its overview.
 
 The desktop can sample Host time over its authenticated connection to qualify
-usage freshness when the two machines have different clocks. Older Hosts do not
-advertise this optional capability; they remain compatible with existing clients.
+usage freshness when the two machines have different clocks. The reading is
+current only when the whole sampled interval is current; uncertain reset and
+age wording is withheld. With an older Host, or while the sample is unavailable,
+the last reading remains visible with its currentness unverified. Older Hosts
+and clients remain compatible.
 
 ## Panels
 

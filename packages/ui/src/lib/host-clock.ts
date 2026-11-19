@@ -5,6 +5,7 @@ type Estimate = HostTimeInterval & { receivedMonoMs: number }
 const MAX_RTT_MS = 5_000
 const MAX_AGE_MS = 60_000
 const MAX_DISCONTINUITY_MS = 2_000
+const MAX_DATE_MS = 8_640_000_000_000_000
 
 /** A bounded estimate for one transport generation; wall time only detects discontinuities. */
 export class HostClockEstimator {
@@ -37,7 +38,7 @@ export class HostClockEstimator {
     if (this.epoch !== null && this.epoch !== sample.clockEpoch) return fail()
     if (this.observation && ((this.estimate !== null && sentMonoMs < this.estimate.receivedMonoMs) || !this.isContinuous(receivedMonoMs, receivedWallMs))) return fail()
     const upperMs = sample.hostNowMs + rtt + 1
-    if (!Number.isSafeInteger(Math.ceil(upperMs))) return fail()
+    if (!Number.isSafeInteger(Math.ceil(upperMs)) || upperMs > MAX_DATE_MS) return fail()
     if (this.estimate) {
       const elapsed = receivedMonoMs - this.estimate.receivedMonoMs
       if (elapsed > MAX_AGE_MS || sample.hostNowMs > this.estimate.upperMs + elapsed || upperMs < this.estimate.lowerMs + elapsed) return fail()
@@ -55,7 +56,7 @@ export class HostClockEstimator {
     if (elapsed < 0 || elapsed > MAX_AGE_MS) { this.invalidate(); return null }
     const lowerMs = this.estimate.lowerMs + elapsed
     const upperMs = this.estimate.upperMs + elapsed
-    if (!Number.isSafeInteger(Math.ceil(upperMs))) { this.invalidate(); return null }
+    if (!Number.isSafeInteger(Math.ceil(upperMs)) || upperMs > MAX_DATE_MS) { this.invalidate(); return null }
     this.observation = { monoMs: timing.monoMs, wallMs: timing.wallMs }
     return { lowerMs, upperMs }
   }
