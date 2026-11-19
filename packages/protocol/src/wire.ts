@@ -1045,13 +1045,16 @@ export interface HostMethods {
   /** Switches an armed mention trigger between observing and acting, on this machine, until it is armed again. */
   'trigger/mode': { params: { readonly root: string; readonly id: string; readonly mode: TriggerMode }; result: TriggerDecisionsPage }
 
+  /** Current Host wall time and an epoch stable for this Host lifetime. */
+  'host/clock': { params: Record<string, never>; result: { readonly hostNowMs: number; readonly clockEpoch: string } }
+
   'host/hello': {
     params: { readonly clientVersion: string }
     result: {
       readonly protocolVersion: number
       readonly hostVersion: string
       /** Optional host-owned destinations, absent until explicitly enabled at startup. */
-      readonly capabilities?: { readonly lead?: true; readonly phone?: true }
+      readonly capabilities?: { readonly lead?: true; readonly phone?: true; readonly hostClock?: true }
       readonly runtimes: readonly RuntimeInfo[]
       /**
        * How this host protects a secret it is given, in words a person can

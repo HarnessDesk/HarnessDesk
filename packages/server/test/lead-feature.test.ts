@@ -89,13 +89,13 @@ test('a default host creates no Lead directory or files', async t => {
   const { host, home } = rig(t)
   await host.start()
   assert.deepEqual((await readdir(home)).filter(name => /lead/i.test(name)), [])
-  assert.equal(Object.hasOwn(await host.call('host/hello', { clientVersion: 'test' }), 'capabilities'), false)
+  assert.deepEqual((await host.call('host/hello', { clientVersion: 'test' })).capabilities, { hostClock: true })
 })
 
 test('only the explicitly enabled host advertises the Lead capability', async t => {
   const { host } = rig(t, true)
   const hello = await host.call('host/hello', { clientVersion: 'test' })
-  assert.deepEqual((hello as any).capabilities, { lead: true })
+  assert.deepEqual((hello as any).capabilities, { hostClock: true, lead: true })
 })
 
 for (const enabled of [false, true]) test(`the private Lead recipe is never in the Flow catalogue (enabled=${enabled})`, async t => {

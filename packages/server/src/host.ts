@@ -1226,6 +1226,7 @@ export class Host {
   /** Conversations whose turn may have ended on a limit, while carry-on decides whether it takes them (§9.3). */
   readonly #carryOnDeciding = new Set<string>()
   /** What the wire methods may reach; see `HostContext`. Built once the fields above exist. */
+  readonly #clockEpoch = randomUUID()
   readonly #context: HostContext
 
   /** Tells every client this runtime's sign-in state moved. */
@@ -6755,6 +6756,7 @@ export class Host {
   #buildContext(): HostContext {
     return {
       options: this.options,
+      hostClock: () => ({ hostNowMs: Date.now(), clockEpoch: this.#clockEpoch }),
       gitGateway: this.#gitGateway,
       registry: this.registry,
       state: this.#state,

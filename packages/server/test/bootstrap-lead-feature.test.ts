@@ -50,5 +50,5 @@ test('bootstrap advertises Lead only for exact true, including the real desktop 
     child.once('exit', code => { clearTimeout(timer); resolve(code) })
   })
   assert.equal(exited, 0, `bootstrap child exits; stderr: ${err}`)
-  assert.deepEqual(JSON.parse(out.trim()), [null, { lead: true }, null, null, null, null, null, null, null, { lead: true }])
+  assert.deepEqual(JSON.parse(out.trim()), [{ hostClock: true }, { hostClock: true, lead: true }, { hostClock: true }, { hostClock: true }, { hostClock: true }, { hostClock: true }, { hostClock: true }, { hostClock: true }, { hostClock: true }, { hostClock: true, lead: true }])
 })

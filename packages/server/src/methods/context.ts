@@ -109,6 +109,7 @@ import type { AttachmentResolution, ResolvedAttachment } from '../attachments/ca
  * is a handler nobody can test alone.
  */
 export interface HostContext {
+  readonly hostClock: () => { readonly hostNowMs: number; readonly clockEpoch: string }
   readonly gitGateway: GitGateway
   readonly options: HostOptions
   readonly registry: SessionRegistry

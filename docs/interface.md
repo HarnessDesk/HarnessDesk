@@ -18,6 +18,10 @@ The regions are named in the next section, and every surface below has its
 own. The [Flow guide](flows.md) illustrates a Team board, and the [Dashboard
 guide](usage-dashboard.md) shows its overview.
 
+The desktop can sample Host time over its authenticated connection to qualify
+usage freshness when the two machines have different clocks. Older Hosts do not
+advertise this optional capability; they remain compatible with existing clients.
+
 ## Panels
 
 ### Insight

@@ -13,11 +13,12 @@ import type { MethodsUnder } from './context.js'
  * preferences, and the backup file.
  */
 export const appMethods = {
+  'host/clock': ctx => ctx.hostClock(),
+
   'host/hello': (ctx) => ({
     protocolVersion: PROTOCOL_VERSION,
     hostVersion: ctx.options.version ?? '0.1.0',
-    ...(ctx.features.read().lead || ctx.phone.state().enabled
-      ? { capabilities: { ...(ctx.features.read().lead ? { lead: true as const } : {}), ...(ctx.phone.state().enabled ? { phone: true as const } : {}) } } : {}),
+    capabilities: { hostClock: true as const, ...(ctx.features.read().lead ? { lead: true as const } : {}), ...(ctx.phone.state().enabled ? { phone: true as const } : {}) },
     runtimes: ctx.runtimes.all().map((runtime) => ctx.runtimes.infoOf(runtime)),
     credentialProtection: ctx.credentials.protection,
     // Read here rather than carried on the context: the renderer has no home
