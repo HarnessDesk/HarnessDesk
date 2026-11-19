@@ -1,0 +1,44 @@
+{
+  "issue": 2227,
+  "candidate": "8ca4527bea82a114200897195fdc90e8770f7135",
+  "base": "8747117c8055af001ab3dc25574272d1d272ac15",
+  "scope": "Current actualHost syntheticCodex +30minrendererskew. Undatedlimits retainfigures+Unverified inaccountdetail/Composer; separatelydatedHostUsageReportpositivekeeps40percent/Short/pace. Blockedfallback unit-only, oneidentity,norealprovider/account/keychain.",
+  "limitations": "Mixed-account R3 ordering/ranking is unit and actual Store-seam evidence, not a native reproduction. OldHost is a source-built private composite, not a packaged old binary. Earlier60percent-used attempt failed notice threshold and is retained privately.",
+  "shutdown": "Owned SIGTERM routes production app.quit exit0; groups absent. No UI-menu quit or liveprovider/keychain claim.",
+  "validation": "Parentviewed4rawframes; independentlyverified14sources,9648compiledoutputs,11artifactsandownedgroupabsence. Receipt-boundcanonicalaudit/equalitycodeinspected; acceptedsnapshotbodiesnotpersisted, notindependentrecomputedfullsnapshots.",
+  "head": "a73ff8acde121d94d4a13f6413398dcdef38239f",
+  "frames": [
+    {
+      "label": "dashboard",
+      "path": "screenshots/issue-2227/a73ff8a/dashboard.png",
+      "source": "a73ff8acde121d94d4a13f6413398dcdef38239f",
+      "sha256": "d079938eae8f5f342f03c412d47858cf52a5bc41648fb0cdc7fb2945a73e124b",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "settings",
+      "path": "screenshots/issue-2227/a73ff8a/settings.png",
+      "source": "a73ff8acde121d94d4a13f6413398dcdef38239f",
+      "sha256": "747a11b51fc8f76b5d443324dcf8dda73cfd94f7e8688a02a6d5e4b37577167b",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "account-detail",
+      "path": "screenshots/issue-2227/a73ff8a/account-detail.png",
+      "source": "a73ff8acde121d94d4a13f6413398dcdef38239f",
+      "sha256": "54acd40c363262869f2699763d552aef0c7a724cea84cd0891acf814f25aac82",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "composer-context",
+      "path": "screenshots/issue-2227/a73ff8a/composer-context.png",
+      "source": "a73ff8acde121d94d4a13f6413398dcdef38239f",
+      "sha256": "753794ecb8d0ce63d5ac2a55e5dfbc7ca609ad713a301b61b1b8ec4414573043",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    }
+  ]
+}
