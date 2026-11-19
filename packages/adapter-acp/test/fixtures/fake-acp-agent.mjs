@@ -507,6 +507,26 @@ const runPrompt = async (id, params) => {
     return reply(id, { stopReason: 'end_turn' })
   }
 
+  if (text.startsWith('wire permission sequence ')) {
+    const spec = JSON.parse(text.slice('wire permission sequence '.length))
+    for (const event of spec.updates ?? []) update(state.id, { sessionUpdate: event.sessionUpdate ?? 'tool_call_update', toolCallId: 'wire-command', ...event })
+    for (const call of spec.requests) {
+      const { outcome } = await request('session/request_permission', { sessionId: state.id, toolCall: { toolCallId: 'wire-command', title: 'Wire command', ...call },
+        options: [{ optionId: 'no', name: 'Deny once', kind: 'reject_once' }] })
+      say(outcome.outcome === 'selected' ? outcome.optionId : 'cancelled')
+    }
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
+  if (text.includes('partial command permission')) {
+    const command = "cat > synthetic.txt <<'END'\n  line one\nline two\nEND"
+    update(state.id, { sessionUpdate: 'tool_call', toolCallId: 'partial-command', title: command, kind: 'execute', status: 'pending', rawInput: { command } })
+    const { outcome } = await request('session/request_permission', { sessionId: state.id, toolCall: { toolCallId: 'partial-command', title: command },
+      options: [{ optionId: 'yes', name: 'Allow once', kind: 'allow_once' }, { optionId: 'no', name: 'Deny once', kind: 'reject_once' }] })
+    say(outcome.outcome === 'selected' ? outcome.optionId : 'cancelled')
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
   if (text.includes('multiline command approval')) {
     const command = "cat > synthetic.txt <<'END'\n  line one\nline two\nEND"
     update(state.id, { sessionUpdate: 'tool_call', toolCallId: 'command-permission', title: command, kind: 'execute', status: 'pending', rawInput: { command } })

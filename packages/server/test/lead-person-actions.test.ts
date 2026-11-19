@@ -346,3 +346,44 @@ test('a counted check without a verdict can be run again through the existing pe
     assert.equal((await actions.read()).length, verdict.exit === null || verdict.timedOut ? 1 : 0)
   }
 })
+
+test('a redundant command fact retains the existing once-only Lead decision', async () => {
+  const s = rig(); s.approval.summary = 'echo ok'; Object.assign(s.approval, { cwd: '/workspace', facts: [{ label: 'Command', value: 'echo ok' }] })
+  const [action] = await s.actions.read(); assert.ok(action?.kind === 'worker-approval')
+  assert.equal(action.request, 'echo ok'); assert.equal(action.details, 'Command: echo ok\nWorking folder: /workspace'); assert.deepEqual(action.choices, ['yes-once', 'no'])
+  await assert.rejects(s.actions.perform({ id: action.id, contractDigest: digest, choice: 'yes-goal' }))
+  await s.actions.perform({ id: action.id, contractDigest: digest, choice: 'yes-once' })
+  assert.equal(s.calls[0]?.params.decision.optionId, 'allow-once')
+})
+
+test('nonredundant or unsafe permission command facts remain desk-only', async () => {
+  const cases = [
+    { facts: [{ label: 'Command', value: 'other' }], cwd: '/workspace' },
+    { facts: [{ label: 'Command', value: 'echo ok' }, { label: 'Scope', value: 'elsewhere' }], cwd: '/workspace' },
+    { facts: [{ label: 'Command', value: 'echo ok' }], cwd: '/workspace', gateway: true },
+    { facts: [{ label: 'Command', value: 'echo ok' }], cwd: '/workspace', flowBoardTool: { server: 'harnessdesk', tool: 'list_intents' } },
+    { facts: [{ label: 'Command', value: 'echo ok' }] },
+    { facts: [{ label: 'Command', value: 'echo ok' }], cwd: '/synthetic-secret' },
+    { facts: [{ label: 'Command', value: 'echo ok' }], cwd: '/' + 'x'.repeat(8100) },
+    { facts: [{ label: 'Command', value: 'echo ok' }], cwd: '/workspace\u202eoutside' },
+    { facts: [{ label: 'Command', value: 'echo ok' }], cwd: '/workspace\nWorking folder: /other' },
+    { facts: [{ label: 'Command', value: 'echo ok' }], cwd: '/workspace', filesystem: ['/other'] },
+  ]
+  for (const fields of cases) {
+    const s = rig(); s.approval.summary = 'echo ok'; Object.assign(s.approval, fields)
+    const [action] = await s.actions.read(); assert.ok(action?.kind === 'worker-approval'); assert.deepEqual(action.choices, ['no'])
+    await assert.rejects(s.actions.perform({ id: action.id, contractDigest: digest, choice: 'yes-once' })); assert.deepEqual(s.calls, [])
+  }
+  const s = rig(); s.approval.summary = 'echo ok'; Object.assign(s.approval, { cwd: '/workspace', facts: [{ label: 'Command', value: 'echo ok' }] })
+  const [action] = await s.actions.read(); assert.ok(action); s.approval.summary = 'echo changed'
+  await assert.rejects(s.actions.perform({ id: action.id, contractDigest: digest, choice: 'yes-once' }), { wireCode: 'lead-card-stale' })
+})
+
+test('a redundant command fact never creates a reusable or automatic Lead grant', async () => {
+  const s = await standingRig()
+  s.record.approvals.set('first', { type: 'permission', id: 'first', sessionId: 'session', requestedAt: 1, summary: 'echo ok', cwd: s.project,
+    facts: [{ label: 'Command', value: 'echo ok' }], options: [{ id: 'yes', label: 'Yes', intent: 'approve' }, { id: 'no', label: 'No', intent: 'deny' }] })
+  const [action] = await s.actions.read(); assert.ok(action?.kind === 'worker-approval'); assert.deepEqual(action.choices, ['yes-once', 'no'])
+  await assert.rejects(s.actions.perform({ id: action.id, contractDigest: digest, choice: 'yes-goal' }))
+  assert.equal(await s.actions.autoAnswer('fixture', 'session', 'first'), false); assert.equal(s.calls.length, 0)
+})

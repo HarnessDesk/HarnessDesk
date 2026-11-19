@@ -2,8 +2,17 @@ import { resolve } from 'node:path'
 import { PATH_KEYS, shellCommandOf, type AgentItem, type FileChange, type ToolCallItem } from '@harnessdesk/protocol'
 import type { AcpToolCallUpdate } from '@harnessdesk/transport-acp'
 
+/** ACP permission input follows wire replacement semantics, independently of transcript merging. */
+export interface PermissionWireSnapshot { readonly kind?: unknown; readonly rawInput?: unknown }
+export const patchPermissionWire = (previous: PermissionWireSnapshot | undefined, update: { readonly kind?: unknown; readonly rawInput?: unknown }): PermissionWireSnapshot => ({
+  ...previous,
+  ...(Object.hasOwn(update, 'kind') ? { kind: update.kind } : {}),
+  ...(Object.hasOwn(update, 'rawInput') ? { rawInput: update.rawInput } : {}),
+})
+
 /** Keep wire facts beside the generic call, never in the public transcript. */
 export interface ToolItemState {
+  readonly permissionWire: PermissionWireSnapshot
   readonly call: ToolCallItem
   readonly kind?: string
   readonly title?: string
@@ -179,5 +188,5 @@ export const projectToolItem = (
       }
     }
   }
-  return { call, kind, title, diffContent, locations, item }
+  return { call, kind, title, diffContent, locations, item, permissionWire: patchPermissionWire(previous?.permissionWire, update) }
 }

@@ -132,7 +132,7 @@ import { CliMcp, type AcpMcpCommands } from './mcp.js'
 import { decodeLoadout, loadoutItem, loadoutPart } from './loadout.js'
 import { AcpTasks } from './tasks.js'
 import { usageLimits } from './usage.js'
-import { projectToolItem, type ToolItemState } from './tool-items.js'
+import { patchPermissionWire, projectToolItem, type ToolItemState } from './tool-items.js'
 import { whichOnPath } from './which.js'
 import { ACP_STEER, ACP_GOAL, supportsSteering, supportsGoals, goalUpdate } from './session-controls.js'
 
@@ -6245,10 +6245,13 @@ class AcpSession implements AgentSession {
       })
     }
     const flowBoardTool = this.#host.trustsBridgeProvenance ? flowBoardToolOf(request) : null
-    const input = request.toolCall.rawInput
+    const priorTool = this.#currentTurn?.tools?.get(request.toolCall.toolCallId)
+    const wire = patchPermissionWire(priorTool?.permissionWire, request.toolCall)
+    if (priorTool) this.#currentTurn?.tools?.set(request.toolCall.toolCallId, { ...priorTool, permissionWire: wire })
+    const input = wire.rawInput
     const command = input !== null && typeof input === 'object' && !Array.isArray(input)
       ? (input as { command?: unknown }).command : undefined
-    const kind = request.toolCall.kind ?? this.#currentTurn?.tools?.get(request.toolCall.toolCallId)?.kind
+    const kind = wire.kind
     // Display only a complete bounded execute input; never use it for approval policy.
     const shownCommand = kind === 'execute' && typeof command === 'string' && command.trim().length > 0 && command.length <= 65_536 ? command : null
     const title = request.toolCall.title ?? 'The agent asks permission to continue.'
@@ -6268,7 +6271,7 @@ class AcpSession implements AgentSession {
       // user asked me to write outside the workspace" and the dialog showed
       // `write`. A decision needs the sentence, not the verb.
       ...(permissionReason(request.toolCall) ? { reason: permissionReason(request.toolCall) } : {}),
-      cwd: typeof (request.toolCall.rawInput as { cwd?: unknown } | undefined)?.cwd === 'string' ? (request.toolCall.rawInput as { cwd: string }).cwd : this.#cwd,
+      cwd: typeof (input as { cwd?: unknown } | undefined)?.cwd === 'string' ? (input as { cwd: string }).cwd : this.#cwd,
       options: request.options.map((option) => {
         const geminiGrant = this.#host.info.capabilities.perToolMcpApproval && option.kind === 'allow_always'
           ? ({

@@ -3675,3 +3675,49 @@ for (const input of ['non-command permission control', 'non-command permission c
     await tape.until((one) => one.type === 'turn/completed')
   } finally { await runtime.dispose() }
 })
+
+test('a partial permission can show the preceding complete execute command', async () => {
+  const runtime = make()
+  try {
+    await runtime.start(); const tape = record(runtime); const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'partial command permission' }])
+    const event = await tape.until(one => one.type === 'approval/requested')
+    if (event.type !== 'approval/requested' || event.approval.type !== 'permission') throw new Error('expected permission')
+    assert.deepEqual(event.approval.facts, [{ label: 'Command', value: "cat > synthetic.txt <<'END'\n  line one\nline two\nEND" }])
+    await session.respondToApproval(event.approval.id, { type: 'option', optionId: 'no' }); await tape.until(one => one.type === 'turn/completed')
+  } finally { await runtime.dispose() }
+})
+
+test('permission input uses whole wire replacements and stays inside its turn', async () => {
+  const runtime = make()
+  try {
+    await runtime.start(); const tape = record(runtime); const session = await runtime.createSession({ cwd: '/tmp/w' })
+    const cases = [
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo first', cwd: '/tmp/first' } }], requests: [{}], expected: ['echo first'], cwds: ['/tmp/first'] },
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo stale', cwd: '/tmp/old' } }, { rawInput: { cwd: '/tmp/new' } }], requests: [{}], expected: [null], cwds: ['/tmp/new'] },
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo stale' } }, { rawInput: null }], requests: [{}], expected: [null], cwds: ['/tmp/w'] },
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo stale' } }, { rawInput: 'invalid' }], requests: [{}], expected: [null], cwds: ['/tmp/w'] },
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo old', cwd: '/tmp/old' } }, { rawInput: { command: 'echo new', cwd: '/tmp/new' } }], requests: [{}], expected: ['echo new'], cwds: ['/tmp/new'] },
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo old' } }, { kind: 'read' }], requests: [{}], expected: [null], cwds: ['/tmp/w'] },
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo old' } }, { sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo repeated' } }], requests: [{}], expected: ['echo repeated'], cwds: ['/tmp/w'] },
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo old' } }], requests: [{ kind: null }, {}], expected: [null, null], cwds: ['/tmp/w', '/tmp/w'] },
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo old' } }], requests: [{ rawInput: { command: 'echo replacement', cwd: '/tmp/new' } }, {}], expected: ['echo replacement', 'echo replacement'], cwds: ['/tmp/new', '/tmp/new'] },
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo old', cwd: '/tmp/old' } }], requests: [{ rawInput: { cwd: '/tmp/new' } }, {}], expected: [null, null], cwds: ['/tmp/new', '/tmp/new'] },
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo old' } }], requests: [{ rawInput: null }, {}], expected: [null, null], cwds: ['/tmp/w', '/tmp/w'] },
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo old' } }], requests: [{ kind: 'read' }, {}], expected: [null, null], cwds: ['/tmp/w', '/tmp/w'] },
+      { updates: [], requests: [{ kind: 'execute', rawInput: { command: 'echo direct', cwd: '/tmp/direct' } }, {}], expected: ['echo direct', null], cwds: ['/tmp/direct', '/tmp/w'] },
+      { updates: [], requests: [{}], expected: [null], cwds: ['/tmp/w'] },
+    ]
+    for (const spec of cases) {
+      await session.send([{ type: 'text', text: `wire permission sequence ${JSON.stringify(spec)}` }])
+      for (let i = 0; i < spec.requests.length; i++) {
+        const event = await tape.until(one => one.type === 'approval/requested')
+        tape.events.splice(tape.events.indexOf(event), 1)
+        if (event.type !== 'approval/requested' || event.approval.type !== 'permission') throw new Error('expected permission')
+        assert.equal(event.approval.facts?.[0]?.value ?? null, spec.expected[i]); assert.equal(event.approval.cwd, spec.cwds[i])
+        await session.respondToApproval(event.approval.id, { type: 'option', optionId: 'no' })
+      }
+      const completed = await tape.until(one => one.type === 'turn/completed'); tape.events.splice(tape.events.indexOf(completed), 1)
+    }
+  } finally { await runtime.dispose() }
+})
