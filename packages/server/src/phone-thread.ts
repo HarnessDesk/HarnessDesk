@@ -165,8 +165,9 @@ export const assessApproval = (approval: Approval, cwd: string | null | undefine
     if (commands.length) {
       const value = commands.length === 1 ? commands[0]?.value : undefined
       const view = typeof value === 'string' && value.trim() ? commandForApproval(value, cwd, context.home, hasSecret) : { text: '', whole: false }
-      readable = view.whole
-      command = view.whole ? view.text : view.text === '' ? 'Hidden: review it on the desk.' : `${view.text}\n(cut short: review it on the desk)`
+      const useful = view.text.trim() !== '' && view.text.trim() !== '…'
+      readable = view.whole && useful
+      command = !useful ? 'Hidden: review it on the desk.' : view.whole ? view.text : `${view.text}\n(cut short: review it on the desk)`
     } else command = scrub(approval.summary, 300)
     highRisk = true
   }

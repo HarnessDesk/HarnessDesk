@@ -931,9 +931,13 @@ test('phone permission commands are complete or require a desk decision', async 
   const whole = permission([{ label: 'Command', value: 'git status' }])
   const view = assessApproval(whole, CWD, { home: HOME, seat: 'Agent A' })!
   assert.equal(view.turn.command, 'git status'); assert.equal(view.readable, true); assert.equal(view.turn.highRisk, true); assert.equal(view.turn.sessionGrant, undefined)
+  const opaque = assessApproval(permission([{ label: 'Command', value: 'x'.repeat(1200) }]), CWD, { home: HOME, seat: 'Agent A' })!
+  assert.equal(opaque.readable, false); assert.equal(opaque.turn.command, 'Hidden: review it on the desk.'); assert.equal(opaque.turn.highRisk, true); assert.equal(opaque.turn.sessionGrant, undefined)
+  const partial = assessApproval(permission([{ label: 'Command', value: 'echo user@example.com' }]), CWD, { home: HOME, seat: 'Agent A' })!
+  assert.equal(partial.readable, true); assert.equal(partial.turn.command, 'echo …')
   const r = rig(); r.setPending([whole]); await assert.rejects(r.work.approvalDecide({ id: 'ap-1', session: key, allow: true, scope: 'session' }))
   await r.work.approvalDecide({ id: 'ap-1', session: key, allow: true }); assert.equal(r.responded[0].decision.optionId, 'allow')
-  for (const facts of [[{ label: 'Command', value: `echo ${'x '.repeat(400)}` }], [{ label: 'Command', value: 'sk-abcdefghijklmnop' }], [{ label: 'Command', value: '   ' }], [{ label: 'Command', value: 42 as unknown as string }], [{ label: 'Command', value: 'ls' }, { label: 'Command', value: 'rm -rf .' }]]) {
+  for (const facts of [[{ label: 'Command', value: 'x'.repeat(1200) }], [{ label: 'Command', value: `echo ${'x '.repeat(400)}` }], [{ label: 'Command', value: 'sk-abcdefghijklmnop' }], [{ label: 'Command', value: '   ' }], [{ label: 'Command', value: 42 as unknown as string }], [{ label: 'Command', value: 'ls' }, { label: 'Command', value: 'rm -rf .' }]]) {
     const r = rig(); r.setPending([permission(facts)]); await assert.rejects(r.work.approvalDecide({ id: 'ap-1', session: key, allow: true }), /too long or too sensitive/); assert.equal(r.responded.length, 0); await r.work.approvalDecide({ id: 'ap-1', session: key, allow: false }); assert.equal(r.responded[0].decision.optionId, 'deny')
   }
 })
