@@ -256,6 +256,27 @@ describe('ContextUsage', () => {
     open()
     expect(panelText()).toContain(expected)
   })
+  it('retains a dated context reading without Host time under renderer skew', () => {
+    const hostNow = Date.now()
+    const limits = { fetchedAt: hostNow - 60_000, staleAfterMs: 120_000, windows: [{ label: '5-hour', usedPercent: 54, windowMinutes: 300, resetsAt: hostNow + 139 * 60_000 }] }
+    const usage: SessionUsage = { total: tokens(10), last: tokens(10), contextUsed: 10, contextWindow: 100 }
+    vi.spyOn(Date, 'now').mockReturnValue(hostNow + 30 * 60_000)
+    mount(withSession(runtime('alpha', 'Alpha', true), usage, { limits }), null)
+    open()
+    expect(panelText()).toContain('5-hour46% left')
+    expect(panelText()).toContain('Currentness unverified')
+    expect(panelText()).not.toContain('resets')
+  })
+  it('withholds context countdown when observation freshness straddles Host interval', () => {
+    const hostNow = Date.now()
+    const limits = { fetchedAt: hostNow - 119_950, staleAfterMs: 120_000, windows: [{ label: '5-hour', usedPercent: 54, windowMinutes: 300, resetsAt: hostNow + 139 * 60_000 }] }
+    const usage: SessionUsage = { total: tokens(10), last: tokens(10), contextUsed: 10, contextWindow: 100 }
+    mount(withSession(runtime('alpha', 'Alpha', true), usage, { limits }), { lowerMs: hostNow, upperMs: hostNow + 100 })
+    open()
+    expect(panelText()).toContain('5-hour46% left')
+    expect(panelText()).toContain('Currentness unverified')
+    expect(panelText()).not.toContain('resets')
+  })
   it('keeps the latest context-panel figure but withholds reset time without a Host clock', () => {
     const resetsAt = Date.now() + 139 * 60_000
     const limits = { windows: [{ label: '5-hour', usedPercent: 54, windowMinutes: 300, resetsAt }] }

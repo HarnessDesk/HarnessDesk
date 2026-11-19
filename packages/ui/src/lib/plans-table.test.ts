@@ -821,6 +821,14 @@ describe('moneyRowOf', () => {
 })
 
 describe('describeRow', () => {
+  it('retains a failed reading as unverified when renderer time is past its reset', () => {
+    const reading = report({ lanes: [lane({ id: 'weekly', usedPercent: 100, resetsAt: NOON + 10 * MINUTE })], reached: 'weekly', error: { message: 'offline' } })
+    const row = describeRow(reading, NOON + 30 * MINUTE, undefined, null)
+    expect(row.status).toBe('unverified')
+    expect(row.left.percent).toBe(0)
+    expect(row.raw.fetchedAt).toBe(NOON)
+  })
+
   it('assembles one row from a report and a clock', () => {
     const subject = report({ billing: billing(['windows']), lanes: [lane({ id: 'weekly', label: 'Weekly', usedPercent: 71 })] })
     const row = describeRow(subject, NOON)

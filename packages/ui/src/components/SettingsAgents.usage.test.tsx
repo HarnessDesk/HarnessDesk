@@ -166,6 +166,16 @@ describe('an account row in Settings', () => {
     expect(row?.textContent).toContain(expected)
   })
 
+  it('does not present a definite account toolbar state without Host time', async () => {
+    const now = Date.now()
+    const reading = { ...report('work@acme.dev', [lane({ id: 'weekly', usedPercent: 100, resetsAt: now + 60_000 })], 'weekly'), fetchedAt: now - 10_000 }
+    await mount([reading], null, {}, true, null)
+    const row = [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent?.includes('work@acme.dev'))
+    await act(async () => row?.click())
+    expect(container.querySelector('[data-slot="toolbar"] [data-state="limit"]')).toBeNull()
+    expect(container.querySelector('[data-slot="toolbar"]')?.textContent).toContain('Not checked yet')
+  })
+
   it('does not claim a current runtime limit from an unverified reading', async () => {
     const hostNow = Date.now()
     const reading = { ...report('work@acme.dev', [lane({ id: 'weekly', usedPercent: 100, resetsAt: hostNow + 60_000 })], 'weekly'), fetchedAt: hostNow - 60_000 }

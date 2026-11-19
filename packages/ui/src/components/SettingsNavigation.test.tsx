@@ -185,3 +185,18 @@ test('feature search finds disabled services by enablement and nearby-phone lang
   filter('enable lead')
   expect(matches()).toEqual(['Lead'])
 })
+
+
+test('does not mark a dated blocked runtime as current without Host time', () => {
+  const original = previewStore().getSnapshot()
+  const runtime = original.runtimes[0]!
+  const now = Date.now()
+  const snapshot = { ...original, runtimes: [runtime], accountsByRuntime: { [runtime.id]: { accounts: [{ kind: 'oauth', label: 'test@example.com' }] } }, usage: [{ runtime: runtime.id, account: 'test@example.com', plan: null, lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 100, windowMinutes: 300, resetsAt: now + 60_000 }], credits: null, spend: null, reached: 'weekly', fetchedAt: now, staleAfterMs: 120_000, error: null }] } as unknown as typeof original
+  const entry = settingsGroups(snapshot, runtime, null).flatMap(group => group.entries).find(row => row.id === 'runtimes')!
+  expect(entry.state).not.toBe('limit')
+  const store = previewStore(snapshot)
+  vi.spyOn(store, 'hostTime').mockReturnValue(null)
+  act(() => root.render(<StoreProvider store={store}><SettingsNavigation section="general" onSection={() => {}} onBack={() => {}} /></StoreProvider>))
+  expect(row('Runtimes')?.querySelector('[data-state="limit"]')).toBeNull()
+  vi.restoreAllMocks()
+})

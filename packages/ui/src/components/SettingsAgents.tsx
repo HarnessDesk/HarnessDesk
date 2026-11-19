@@ -45,7 +45,7 @@ import {
   registryOrder,
   registrySentence,
 } from '../lib/acp-registry'
-import { describeLimits, formatReset } from '../lib/limits'
+import { describeLimits, hostLimits, retainedLimits, formatReset } from '../lib/limits'
 import { describeHostReport, formatResetCountdown, pacingNote, usageAskedOf } from '../lib/usage'
 import { isBlocking, READINESS_LABEL, readinessOf, worstReadiness, type Readiness } from '../lib/readiness'
 import { splitHealth, type Unavailable } from '../lib/health'
@@ -229,13 +229,14 @@ export const agentMatches = (
  */
 export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name: string }) => {
   const hostTime = useHostTime()
-  const view = describeLimits(limits, hostTime?.lowerMs ?? Date.now())
+  const qualified = hostTime === undefined ? describeLimits(limits) : hostLimits(limits, hostTime)
+  const view = hostTime === undefined ? qualified : qualified ?? retainedLimits(limits, limits?.fetchedAt ?? 0)
   const upper = hostTime ? describeLimits(limits, hostTime.upperMs) : null
-  const blocked = hostTime === undefined ? view?.blocked : hostTime && JSON.stringify(view?.blocked) === JSON.stringify(upper?.blocked) ? view?.blocked : null
+  const blocked = hostTime === undefined ? qualified?.blocked : qualified && JSON.stringify(qualified.blocked) === JSON.stringify(upper?.blocked) ? qualified.blocked : null
   return (
     <>
       <SectionHead level="label" name="Usage" />
-      {hostTime === null && view && <Text role="meta">Currentness unverified</Text>}
+      {hostTime !== undefined && !qualified && view && <Text role="meta">Currentness unverified</Text>}
       {blocked && (
         <Text role="muted" as="p" tone="danger" >
           {blocked.title} — {blocked.detail}
@@ -249,7 +250,7 @@ export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name
       {view && (view.windows.length > 0 || view.credits) ? (
         <Rows>
           {view.windows.map((window) => (
-            <UsageMeter key={window.label} window={window} />
+            <UsageMeter key={window.label} window={window} verified={hostTime === undefined || Boolean(qualified)} />
           ))}
           {view.credits && (
             <Row
@@ -285,13 +286,13 @@ export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name
  * under a fifth, red when spent. The figure is said, not implied: a bare
  * "48%" reads as spent to half the people who see it.
  */
-export const UsageMeter = ({ window }: { window: UsageWindow }) => {
+export const UsageMeter = ({ window, verified = true }: { window: UsageWindow; verified?: boolean }) => {
   const remaining = Math.max(0, Math.round(100 - window.usedPercent))
   const hostTime = useHostTime()
   const now = hostTime?.lowerMs ?? Date.now()
   const lower = window.resetsAt === null ? '—' : formatResetCountdown(window.resetsAt - now)
   const upper = window.resetsAt === null || !hostTime ? null : formatResetCountdown(window.resetsAt - hostTime.upperMs)
-  const valid = hostTime === undefined || (hostTime !== null && window.resetsAt !== null && window.resetsAt > hostTime.upperMs && lower === upper)
+  const valid = verified && (hostTime === undefined || (hostTime !== null && window.resetsAt !== null && window.resetsAt > hostTime.upperMs && lower === upper))
   const title = valid && window.resetsAt !== null && (hostTime === undefined || (hostTime && formatReset(window.resetsAt, hostTime.lowerMs) === formatReset(window.resetsAt, hostTime.upperMs)))
     ? `resets ${formatReset(window.resetsAt, now)}` : undefined
   return <Row title={<UsageMeterRow name={window.label} percent={remaining} countdown={valid ? lower : '—'} countdownTitle={title} label={`${window.label} remaining`} standalone />} />
@@ -1560,7 +1561,7 @@ const AccountDetail = ({
   // runtime the same single report (BLOCKING 3). The Plan card below never
   // reads `report.billing` at all; it reads its own stored entry.
   const report = snapshot.usage.find((entry) => entry.runtime === info.id && usageAccount(entry) === account.label.trim())
-  const state: Readiness = report && isBlocked(report) ? 'limit' : 'ready'
+  const state: Readiness = report && describeHostReport(report, store.hostTime?.() ?? null).stale ? 'unknown' : report && isBlocked(report) ? 'limit' : 'ready'
   const accountWide = report?.lanes.some((lane) => lane.placeholder !== true && !lane.scope) ?? false
   const usageOptions = [
     { value: '', label: 'Automatic' },

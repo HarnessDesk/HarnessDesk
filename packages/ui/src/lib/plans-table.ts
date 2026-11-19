@@ -387,7 +387,8 @@ export const describeRow = (report: UsageReport, now: number, preference?: Usage
   const options = { maxLanes: 3, preference: deciding ? { ...preference, pinLaneId: deciding } : preference }
   const view = hostTime === undefined ? describeReport(drawn, { now, ...options }) : describeHostReport(drawn, hostTime, options)
   const statusView = borrowed ? (hostTime === undefined ? describeReport(report, { now, maxLanes: 0 }) : describeHostReport(report, hostTime, { maxLanes: 0 })) : view
-  const baseStatus = statusOf(report, shape, statusView, now)
+  const statusNow = hostTime === null ? report.fetchedAt : now
+  const baseStatus = statusOf(report, shape, statusView, statusNow)
   const upperStatus = hostTime ? statusOf(report, shape, statusView, hostTime.upperMs) : baseStatus
   const status = hostTime !== undefined && (statusView.stale || baseStatus !== upperStatus) && baseStatus !== 'unknown' && baseStatus !== 'notReporting' ? 'unverified' : baseStatus
   // Unknown has no figure to draw and sorts on none; a kept reading draws its last good figure.

@@ -7,7 +7,7 @@ import {
   formatTokens,
   type ContextFill,
 } from '../lib/context-usage'
-import { describeLimits, formatReset } from '../lib/limits'
+import { hostLimits, retainedLimits, formatReset } from '../lib/limits'
 import { formatResetCountdown } from '../lib/usage'
 import { useActiveSession, useRuntime, useSnapshot, useStore } from '../state/context'
 import { useNarrowToolbar } from './ComposerControls'
@@ -41,7 +41,8 @@ export const ContextUsage = () => {
   // Plan windows are the active runtime's, like the sidebar footer: a pane on
   // another agent must not show this agent's allowance as its own.
   const metered = runtime.capabilities.metered && runtime.id === snapshot.activeRuntime
-  const limits = metered ? describeLimits(snapshot.limits, hostTime?.lowerMs ?? Date.now()) : null
+  const qualified = metered ? hostLimits(snapshot.limits, hostTime) : null
+  const limits = metered ? qualified ?? retainedLimits(snapshot.limits, snapshot.limits?.fetchedAt ?? 0) : null
 
   const usageTrigger = (fill: ContextFill | null, ringLabel: string) => <Button
     variant="ghost"
@@ -72,8 +73,8 @@ export const ContextUsage = () => {
       const upper = window.resetsAt !== null && hostTime ? formatResetCountdown(window.resetsAt - hostTime.upperMs) : null
       const clock = window.resetsAt !== null && hostTime ? formatReset(window.resetsAt, hostTime.lowerMs) : null
       const upperClock = window.resetsAt !== null && hostTime ? formatReset(window.resetsAt, hostTime.upperMs) : null
-      const verified = hostTime && window.resetsAt !== null && window.resetsAt > hostTime.upperMs && lower === upper && clock === upperClock
-      return { id: `limit:${window.label}`, label: window.label, tone: toneOf(left <= 0 ? 'bad' : left < 20 ? 'warn' : 'good'), value: `${left}% left`, note: verified ? `${lower} · resets ${clock}` : !hostTime || window.resetsAt !== null ? 'Currentness unverified' : undefined }
+      const verified = qualified && hostTime && window.resetsAt !== null && window.resetsAt > hostTime.upperMs && lower === upper && clock === upperClock
+      return { id: `limit:${window.label}`, label: window.label, tone: toneOf(left <= 0 ? 'bad' : left < 20 ? 'warn' : 'good'), value: `${left}% left`, note: verified ? `${lower} · resets ${clock}` : !qualified || window.resetsAt !== null ? 'Currentness unverified' : undefined }
     }) : []),
   ]
   const compositionData = composition ? {

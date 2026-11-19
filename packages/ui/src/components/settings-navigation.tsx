@@ -38,9 +38,9 @@ const MOBILE_KEYWORDS: readonly string[] = [
   'nearby phone', 'nearby mobile', 'phone', 'pair', 'pairing', 'qr', 'code', 'mobile', 'devices', 'allow', 'remove',
   'linked phones', 'reachable', 'relay', 'account',
 ]
-export const settingsGroups = (snapshot: AppSnapshot, runtime: RuntimeInfo): readonly SettingsNavGroup[] => {
+export const settingsGroups = (snapshot: AppSnapshot, runtime: RuntimeInfo, interval?: import('../lib/host-clock').HostTimeInterval | null): readonly SettingsNavGroup[] => {
   const accountCount = snapshot.runtimes.reduce((n, info) => n + (snapshot.accountsByRuntime[info.id]?.accounts.length ?? 0), 0)
-  const worst = worstReadiness(agentGroups(snapshot.runtimes).map(group => agentReadiness(group.siblings, snapshot)))
+  const worst = worstReadiness(agentGroups(snapshot.runtimes).map(group => agentReadiness(group.siblings, snapshot, interval)))
   const scoped = (page: string) => `${page} belongs to ${runtime.presentation.name}, the runtime the active conversation is with.`
   return [
     { label: 'Preferences', entries: [

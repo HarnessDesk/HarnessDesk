@@ -147,3 +147,18 @@ export const describeLimits = (limits: RateLimits | null | undefined, now = Date
 
   return { blocked, usage, windows, credits }
 }
+
+/** Keep the vendor's last figures even when their currentness cannot be verified. */
+export const retainedLimits = (limits: RateLimits | null | undefined, now: number): LimitsView | null => {
+  if (!limits) return null
+  const { fetchedAt: _fetchedAt, ...reading } = limits
+  return describeLimits(reading, now)
+}
+
+/** Both ends must regard a dated reading as current. */
+export const hostLimits = (limits: RateLimits | null | undefined, interval: import('./host-clock').HostTimeInterval | null): LimitsView | null => {
+  if (!interval) return null
+  const lower = describeLimits(limits, interval.lowerMs)
+  const upper = describeLimits(limits, interval.upperMs)
+  return lower && upper ? lower : null
+}

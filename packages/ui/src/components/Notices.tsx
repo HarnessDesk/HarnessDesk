@@ -29,11 +29,11 @@ import {
   type NoticeTone,
 } from '../design'
 import { shortPath } from '../lib/paths'
-import { describeLimits } from '../lib/limits'
+import { describeLimits, hostLimits } from '../lib/limits'
 import { composerPaceVisible } from '../lib/composer-usage'
 import { teamInboxAction } from '../lib/team-inbox'
 import { conditionFor } from '../lib/usage-alerts'
-import { canTakeTurn, inPoolOrder } from '../lib/account-pool'
+import { canTakeTurn, inPoolOrder, runtimeOut, whenOutOf } from '../lib/account-pool'
 import { accountKey, accountName, agentKey } from '../lib/accounts'
 import { isSilenced, offersMute, surfaceFor, wasKept, type NoticeIdentity, type NoticePolicy, type NoticeSurface } from '../lib/notice-policy'
 import { useShell, type ShellActions } from '../panels/views'
@@ -245,19 +245,39 @@ const useStanding = (): Standing | null => {
     const incident = conversation ? snapshot.carryOnIncidents.get(conversation) : undefined
     const deciding = incident !== undefined && CARRY_ON_LIVE.has(incident.state)
     const hostTime = store.hostTime?.() ?? null
-    const projectCondition = (now: number) => conditionFor(runtime.id, snapshot.usage, nameFor, now, {
-      prefer: inPoolOrder(siblings.filter((entry) => canTakeTurn(entry, snapshot)), pool, { reports: snapshot.usage, now }).map((entry) => entry.id),
+    const activeReports = snapshot.usage.filter(report => report.runtime === runtime.id)
+    const verifiedReports = hostTime ? snapshot.usage.filter(report => !describeHostReport(report, hostTime).stale) : []
+    const verifiedRuntime = (id: RuntimeId) => {
+      const own = snapshot.usage.filter(report => report.runtime === id)
+      return own.length > 0 && own.every(report => verifiedReports.includes(report))
+    }
+    const projectCondition = (now: number) => conditionFor(runtime.id, verifiedReports, nameFor, now, {
+      prefer: inPoolOrder(siblings.filter((entry) => canTakeTurn(entry, snapshot) && verifiedRuntime(entry.id)), pool, { reports: verifiedReports, now }).map((entry) => entry.id),
       offer: rule.choice !== 'stop' && !deciding,
       canTake: (id) => {
         const entry = snapshot.runtimes.find((one) => one.id === id)
-        return entry !== undefined && canTakeTurn(entry, snapshot) && (snapshot.carryOnPolicy.otherAgents || agentKey(entry) === agent)
+        return entry !== undefined && verifiedRuntime(id) && canTakeTurn(entry, snapshot) && (snapshot.carryOnPolicy.otherAgents || agentKey(entry) === agent)
       },
     })
-    const lower = hostTime && snapshot.usage.every(report => !describeHostReport(report, hostTime).stale) ? projectCondition(hostTime.lowerMs) : null
+    const activeVerified = hostTime && activeReports.length > 0 && activeReports.every(report => !describeHostReport(report, hostTime).stale)
+    const lower = activeVerified ? projectCondition(hostTime.lowerMs) : null
     const upper = hostTime && lower ? projectCondition(hostTime.upperMs) : null
     const condition = lower && JSON.stringify(lower) === JSON.stringify(upper) ? lower : null
     if (condition) {
-      const elsewhere = condition.handoff
+      let elsewhere = condition.handoff
+      // The automatic new-session choice still uses its existing renderer-clock
+      // policy. Do not name a different same-agent recipient as its advice.
+      if (elsewhere && pool?.pace === 'soonest' && whenOutOf(pool, snapshot.carryOnPolicy) === 'next' && runtimeOut(runtime.id, snapshot.usage)) {
+        const target = snapshot.runtimes.find(entry => entry.id === elsewhere?.runtime)
+        if (target && agentKey(target) === agent) {
+          const ordered = inPoolOrder(siblings, pool, { reports: snapshot.usage, now: Date.now() })
+          const usable = (entry: typeof siblings[number]) => entry.id !== runtime.id && !runtimeOut(entry.id, snapshot.usage) && canTakeTurn(entry, snapshot)
+          const actual = snapshot.activeRuntime === runtime.id
+            ? ordered.find(usable)
+            : ordered.find(entry => entry.id === snapshot.activeRuntime && usable(entry))
+          if (actual?.id !== elsewhere.runtime) elsewhere = null
+        }
+      }
       return {
         key: condition.key,
         kind: condition.kind,
@@ -277,7 +297,9 @@ const useStanding = (): Standing | null => {
     }
     // Nothing metered reached us: the narrow view still speaks for a runtime
     // that answers `runtime/limits` and has no report of its own.
-    const blocked = runtime.capabilities.metered ? describeLimits(snapshot.limits)?.blocked : null
+    const lowerLimits = runtime.capabilities.metered && activeReports.length === 0 ? hostLimits(snapshot.limits, hostTime) : null
+    const upperLimits = hostTime && lowerLimits ? describeLimits(snapshot.limits, hostTime.upperMs) : null
+    const blocked = lowerLimits && JSON.stringify(lowerLimits.blocked) === JSON.stringify(upperLimits?.blocked) ? lowerLimits.blocked : null
     if (blocked) {
       return {
         key: `limits:${runtime.id}:${blocked.title}`,

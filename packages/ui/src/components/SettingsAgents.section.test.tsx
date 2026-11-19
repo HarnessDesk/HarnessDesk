@@ -155,3 +155,17 @@ it('withholds a countdown for an unsupported Host and a reset-straddling interva
     if (interval === null) expect(container.textContent).toContain('Currentness unverified')
   }
 })
+
+
+it.each(['missing', 'straddled'])('retains dated windows but withholds currentness for %s Host time', kind => {
+  const now = Date.now()
+  const reading = limits({ fetchedAt: now - 119_950, staleAfterMs: 120_000, windows: [{ label: '5-hour', usedPercent: 60, windowMinutes: 300, resetsAt: now + 139 * 60_000 }] })
+  const interval = kind === 'missing' ? null : { lowerMs: now, upperMs: now + 100 }
+  vi.spyOn(Date, 'now').mockReturnValue(now + 30 * 60_000)
+  act(() => root.render(<HostTimeProvider interval={interval}><UsageSection limits={reading} name="Codex" /></HostTimeProvider>))
+  expect(container.textContent).toContain('5-hour')
+  expect(container.textContent).toContain('40%')
+  expect(container.textContent).toContain('Currentness unverified')
+  expect(container.textContent).not.toContain('resets')
+  vi.restoreAllMocks()
+})

@@ -212,6 +212,43 @@ const menuItem = (label: string): HTMLElement | null =>
     (row) => row.textContent?.includes(label) ?? false,
   ) ?? null
 
+it('keeps the verified active warning when an unrelated report is stale', () => {
+  const active = racing('a')
+  const other = { ...racing('b'), fetchedAt: active.fetchedAt - 120_000 }
+  mount({ usage: [active, other], carryOnPolicy: { onLimit: 'stop', otherAgents: false } })
+  expect(container.textContent).toContain('will run out before it refills')
+})
+
+it('does not assert fallback limits without Host time', () => {
+  const now = Date.now()
+  const store = mount({ usage: [], limits: { reached: 'other', fetchedAt: now, staleAfterMs: 120_000, windows: [] } as never })
+  vi.spyOn(store, 'hostTime').mockReturnValue(null)
+  act(() => store.patch({}))
+  expect(container.textContent).not.toContain('New turns will fail')
+})
+
+it('withholds the fallback when its freshness straddles the Host interval', () => {
+  const now = Date.now()
+  const limits = { reached: 'other', fetchedAt: now - 119_950, staleAfterMs: 120_000, windows: [] } as never
+  const store = mount({ usage: [], limits })
+  vi.spyOn(store, 'hostTime').mockReturnValue({ lowerMs: now, upperMs: now + 100 })
+  act(() => store.patch({}))
+  expect(container.textContent).not.toContain('New turns will fail')
+})
+
+it('retains a verified fallback when there is no active report', () => {
+  const now = Date.now()
+  mount({ usage: [], limits: { reached: 'other', fetchedAt: now, staleAfterMs: 120_000, windows: [] } as never })
+  expect(container.textContent).toContain('New turns will fail')
+})
+
+it('does not use the fallback when an active report was rejected', () => {
+  const now = Date.now()
+  const reading = { ...racing('a'), fetchedAt: now - 120_000 }
+  mount({ usage: [reading], limits: { reached: 'other', fetchedAt: now, staleAfterMs: 120_000, windows: [] } as never })
+  expect(container.textContent).not.toContain('New turns will fail')
+})
+
 it('keeps pace warnings off a fresh composer, including when quota is low', () => {
   mount({ usage: [racing('a')], sessions: new Map() })
   expect(container.textContent).not.toContain('will run out before it refills')
@@ -1149,6 +1186,57 @@ describe('the out-of-quota banner under the carry-on rule', () => {
     scene()
     expect(container.textContent).toContain('Agent A is out of quota')
     expect(action()?.textContent).toBe('Continue with Agent B')
+  })
+
+  it('withholds a same-agent soonest recommendation that disagrees with the current pool action', () => {
+    const now = Date.now()
+    const same = (id: string) => ({ ...runtime(id, `Agent ${id}`), slot: { agent: 'a' } }) as RuntimeInfo
+    const a = spent('a'), b = roomy('b'), c = roomy('c')
+    const reading = (r: UsageReport, reset: number) => ({ ...r, fetchedAt: now, lanes: r.lanes.map(l => ({ ...l, resetsAt: reset })) })
+    vi.spyOn(Date, 'now').mockReturnValue(now + 30 * 60_000)
+    const store = scene({ runtimes: [same('a'), same('b'), same('c')], accountsByRuntime: { a: { accounts: [{ kind: 'oauth', label: 'a' }] }, b: { accounts: [{ kind: 'oauth', label: 'b' }] }, c: { accounts: [{ kind: 'oauth', label: 'c' }] } } as never,
+      usage: [reading(a, now + 6 * HOUR), reading(b, now + 10 * 60_000), reading(c, now + HOUR)], accountPools: { a: { pace: 'soonest', whenOut: 'next', order: ['a', 'c', 'b'] } } as never })
+    vi.spyOn(store, 'hostTime').mockReturnValue({ lowerMs: now, upperMs: now + 1 })
+    act(() => store.patch({}))
+    expect(container.textContent).toContain('is out of quota')
+    expect(action()).toBeUndefined()
+  })
+
+  it('compares an existing pane recommendation with the already-switched new-session default', () => {
+    const now = Date.now()
+    const same = (id: string) => ({ ...runtime(id, `Agent ${id}`), slot: { agent: 'a' } }) as RuntimeInfo
+    const a = spent('a'), b = roomy('b'), c = roomy('c')
+    const reading = (r: UsageReport, reset: number) => ({ ...r, fetchedAt: now, lanes: r.lanes.map(l => ({ ...l, resetsAt: reset })) })
+    const store = makeStore({ runtimes: [same('a'), same('b'), same('c')], activeRuntime: 'c' as never, activeSessionKey: SESSION,
+      accountsByRuntime: { a: { accounts: [{ kind: 'oauth', label: 'a' }] }, b: { accounts: [{ kind: 'oauth', label: 'b' }] }, c: { accounts: [{ kind: 'oauth', label: 'c' }] } } as never,
+      usage: [reading(a, now + 6 * HOUR), reading(b, now + 10 * 60_000), reading(c, now + HOUR)], accountPools: { a: { pace: 'soonest', whenOut: 'next', order: ['a', 'c', 'b'] } } as never })
+    vi.spyOn(store, 'hostTime').mockReturnValue({ lowerMs: now, upperMs: now + 1 })
+    act(() => root.render(<StoreProvider store={store}><PaneProvider scope={{ paneId: 'p1' as never, view: { kind: 'conversation', session: SESSION }, sessionKey: SESSION }}><StatusBanner onSignIn={() => {}} /></PaneProvider></StoreProvider>))
+    expect(container.textContent).toContain('is out of quota')
+    expect([...container.querySelectorAll('button')].some(button => /Continue with|Switch to/.test(button.textContent ?? ''))).toBe(false)
+  })
+
+  it.each(['soonest', 'manual'])('keeps an agreed same-agent %s recommendation', pace => {
+    const now = Date.now()
+    const same = (id: string) => ({ ...runtime(id, `Agent ${id}`), slot: { agent: 'a' } }) as RuntimeInfo
+    const a = spent('a'), b = roomy('b')
+    const reading = (r: UsageReport) => ({ ...r, fetchedAt: now, lanes: r.lanes.map(l => ({ ...l, resetsAt: now + HOUR })) })
+    scene({ runtimes: [same('a'), same('b')], accountsByRuntime: { a: { accounts: [{ kind: 'oauth', label: 'a' }] }, b: { accounts: [{ kind: 'oauth', label: 'b' }] } } as never,
+      usage: [reading(a), reading(b)], accountPools: { a: { ...(pace === 'soonest' ? { pace: 'soonest' } : {}), whenOut: 'next', order: ['a', 'b'] } } as never })
+    expect(action()?.textContent).toBe('Continue with b')
+  })
+
+  it('keeps a verified cross-agent option even when the active pool uses soonest', () => {
+    scene({ accountPools: { a: { pace: 'soonest', whenOut: 'next' } } })
+    expect(action()?.textContent).toBe('Continue with Agent B')
+  })
+
+  it('does not offer a stale alternative while retaining the active warning', () => {
+    const current = spent('a')
+    const stale = { ...roomy('b'), fetchedAt: current.fetchedAt - 120_000 }
+    scene({ usage: [current, stale] })
+    expect(container.textContent).toContain('Agent A is out of quota')
+    expect(action()).toBeUndefined()
   })
 
   it('follows the saved desk rule: Stop offers nothing', () => {
