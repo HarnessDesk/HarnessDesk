@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as lead from '@harnessdesk/lead'
@@ -1622,6 +1622,7 @@ test('a stored withholding swap recovers on either side of the journal commit', 
   await assert.rejects(store.request(), /lead-journal-append-failed/)
   assert.equal(records.filter(record => record.type === 'context-withheld').length, 0)
   assert.equal(await readFile(join(home, 'context.jsonl'), 'utf8'), oldFile)
+  await assert.rejects(store.request(), /lead-context-recovery-required/, 'an uncertain journal commit is held until reopen')
   // A restart discards the uncommitted NEXT file, then retries the same replacement.
   failCommit = false
   const restarted = await LeadContextStore.open({ ...options, journal: await makeJournal() })
@@ -1971,4 +1972,79 @@ test('#2126: seeding preserves the opening stub when the Lead spoke first', asyn
   assert.match(JSON.stringify(store.turns[0]), /Lead spoke first/)
   assert.equal(store.turns[1]?.role, 'assistant')
   assert.doesNotThrow(() => lead.parseLeadContextTurns(store.turns))
+})
+
+test('a failed context record holds later Lead requests before the service is called', async t => {
+  const home = await directory(t)
+  const { journal } = await journalOver()
+  const store = await LeadContextStore.open({ directory: home, journal, model: MODEL, now: () => 100, nextId: () => 'checkpoint', window: 200_000 })
+  const { LeadControls } = await import('../src/lead/controls.js')
+  const sends: unknown[] = []
+  let writeError: unknown
+  const service = { async status() { return { configured: true, protection: 'synthetic' } }, async setKey() {}, async deleteKey() {}, async assertPublic() {},
+    async send(input: unknown) {
+      sends.push(input)
+      if (sends.length === 1) {
+        await rename(join(home, 'context.jsonl'), join(home, 'saved.jsonl'))
+        await mkdir(join(home, 'context.jsonl'))
+        try { await store.record({ epoch: store.epoch, base: 0, extend: [], turns: [{ role: 'assistant', content: [text('synthetic uncommitted reply')] }], usage: null }) }
+        catch (error) { writeError = error; throw error }
+        throw new Error('expected context write failure')
+      }
+      return { status: 'completed' as const, text: 'synthetic reply' }
+    } }
+  const controls = new LeadControls({ journal, service: service as any, context: store, project: { id: 'demo', path: '/workspace/demo' }, model: MODEL, now: () => 100,
+    nextId: () => 'card', push() {}, decidePerson: async () => {}, decideResult: async () => {}, scheduleContextCheck() {} })
+  t.after(() => controls.close())
+  await controls.send({ idempotencyKey: 'first', text: 'First synthetic question' }); await controls.idle()
+  assert.equal((writeError as NodeJS.ErrnoException)?.code, 'EISDIR')
+  await controls.send({ idempotencyKey: 'second', text: 'Second synthetic question' }); await controls.idle()
+  assert.equal(sends.length, 1, 'the later request must not reach the service with uncertain context')
+  assert.equal(journal.state.managementReason, 'lead-request-failed')
+})
+
+
+test('partial and uncertain context appends preserve bytes and hold all later requests', async t => {
+  for (const mode of ['partial', 'after-write'] as const) {
+    const home = await directory(t), { journal } = await journalOver()
+    const fault = new Error(`synthetic ${mode} failure`)
+    let attempted = ''
+    const store = await LeadContextStore.open({ directory: home, journal, model: MODEL, now: () => 100, nextId: () => 'checkpoint', window: 200_000,
+      testIO: { append: async (file, line) => {
+        attempted = line
+        await appendFile(file, mode === 'partial' ? line.slice(0, 24) : line)
+        throw fault
+      } } })
+    const file = join(home, 'context.jsonl'), before = await readFile(file, 'utf8')
+    await assert.rejects(store.record({ epoch: store.epoch, base: 0, extend: [], turns: [{ role: 'user', content: [text(`synthetic ${mode}`)] }], usage: null }), error => error === fault)
+    const landed = await readFile(file, 'utf8')
+    assert.equal(landed, before + (mode === 'partial' ? attempted.slice(0, 24) : attempted), 'no bytes are removed or assumed absent')
+    await assert.rejects(store.request(), /lead-context-recovery-required/)
+    await assert.rejects(store.record({ epoch: store.epoch, base: 0, extend: [], turns: [], usage: null }), /lead-context-recovery-required/)
+    await assert.rejects(store.compact('manual', async () => { throw new Error('must not send') }), /lead-context-recovery-required/)
+  }
+})
+
+test('a snapshot rename with an uncertain outcome holds later context operations', async t => {
+  const home = await directory(t), { journal } = await journalOver()
+  const file = join(home, 'context.jsonl')
+  await writeFile(file, JSON.stringify({ type: 'header', version: 1, epoch: 0, known: [], overhead: 0, softAt: lead.LEAD_CONTEXT.softShare }) + '\n' + '\n'.repeat(lead.LEAD_CONTEXT.diskBytes))
+  const fault = new Error('synthetic post-rename failure')
+  const store = await LeadContextStore.open({ directory: home, journal, model: MODEL, now: () => 100, nextId: () => 'checkpoint', window: 200_000,
+    testIO: { afterSnapshotRename: async name => { if (name === 'context.jsonl') throw fault } } })
+  await assert.rejects(store.record({ epoch: store.epoch, base: 0, extend: [], turns: [{ role: 'user', content: [text('synthetic snapshot')] }], usage: null }), error => error === fault)
+  assert.match(await readFile(file, 'utf8'), /synthetic snapshot/, 'rename did land before the reported failure')
+  await assert.rejects(store.request(), /lead-context-recovery-required/)
+})
+
+test('invalid context records do not poison a healthy store and valid writes still work', async t => {
+  const home = await directory(t), { journal } = await journalOver()
+  const store = await LeadContextStore.open({ directory: home, journal, model: MODEL, now: () => 100, nextId: () => 'checkpoint', window: 200_000 })
+  const file = join(home, 'context.jsonl'), before = await readFile(file, 'utf8')
+  await assert.rejects(store.record({ epoch: store.epoch, base: 0, extend: [], turns: [{ role: 'user', content: Array.from({ length: 65 }, () => text('x')) }], usage: null }), /lead-messages-invalid/)
+  assert.equal(await readFile(file, 'utf8'), before)
+  await store.request()
+  await store.record({ epoch: store.epoch, base: 0, extend: [], turns: [{ role: 'user', content: [text('valid synthetic')] }], usage: null })
+  assert.match(await readFile(file, 'utf8'), /valid synthetic/)
+  assert.match(JSON.stringify((await store.request()).messages), /valid synthetic/)
 })
