@@ -65,3 +65,29 @@ it('suppresses the pacing claim without a Host clock', async () => {
   await render(runtime => [weekly(runtime, 'team@acme.dev', 30, hostNow + 20 * HOUR), weekly(runtime, 'dev@example.com', 10, hostNow + 6 * 24 * HOUR)], null)
   expect(box.textContent).not.toContain('first — its Weekly')
 })
+
+
+it('renders paced usage in a direct preview specimen with its synchronous fixture clock', async () => {
+  const now = Date.now()
+  const base = previewStore()
+  const runtime = base.getSnapshot().runtimes[0]!
+  const store = previewStore({ usage: [weekly(runtime.id, 'dev@example.com', 10, now + 6 * 24 * HOUR), weekly(runtime.id, 'team@acme.dev', 30, now + 20 * HOUR)] })
+  await act(async () => root.render(<StoreProvider store={store}><SettingsTestScope>
+    <RuntimesSection view={{ kind: 'list' }} onView={() => {}} onSignIn={() => {}} />
+  </SettingsTestScope></StoreProvider>))
+  expect(box.textContent).toContain('first — its Weekly has 70% left')
+  expect(store.hostTime()).toEqual({ lowerMs: expect.any(Number), upperMs: expect.any(Number) })
+})
+
+
+it('retains the fixture clock through the destination preview adapter', async () => {
+  const now = Date.now()
+  const base = previewStore()
+  const runtime = base.getSnapshot().runtimes[0]!
+  const fixture = previewStore({ usage: [weekly(runtime.id, 'dev@example.com', 10, now + 6 * 24 * HOUR), weekly(runtime.id, 'team@acme.dev', 30, now + 20 * HOUR)] })
+  const store = frameDestinationStore(fixture)
+  await act(async () => root.render(<StoreProvider store={store}><SettingsTestScope>
+    <RuntimesSection view={{ kind: 'list' }} onView={() => {}} onSignIn={() => {}} />
+  </SettingsTestScope></StoreProvider>))
+  expect(box.textContent).toContain('first — its Weekly has 70% left')
+})
