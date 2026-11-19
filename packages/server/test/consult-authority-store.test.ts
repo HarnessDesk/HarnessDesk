@@ -59,10 +59,10 @@ test('failed archive rolls back all members and latches', () => {
   const { store, cleanup } = setup()
   const external = new DatabaseSync(store.file)
   try {
-    external.exec("CREATE TRIGGER fail_insert BEFORE INSERT ON members WHEN NEW.key='bad' BEGIN SELECT RAISE(ABORT, 'injected write failure'); END")
+    external.exec(`CREATE TRIGGER fail_insert BEFORE INSERT ON members WHEN NEW.key='"bad"' BEGIN SELECT RAISE(ABORT, 'injected write failure'); END`)
     assert.throws(() => store.archive('one', 'root', ['first', 'bad']))
     assert.throws(() => store.lookup('first'))
-    assert.equal(external.prepare("SELECT count(*) AS n FROM members WHERE key='first'").get()?.n, 0)
+    assert.equal(external.prepare("SELECT count(*) AS n FROM members WHERE key=?").get(JSON.stringify('first'))?.n, 0)
   } finally { external.close(); cleanup() }
 })
 
@@ -93,8 +93,8 @@ test('archive refuses a key owned by another incarnation without partial writes'
     assert.throws(() => store.archive('old', 'old-root', ['partial', 'owned']))
     const external = new DatabaseSync(store.file)
     try {
-      assert.equal(external.prepare("SELECT count(*) AS n FROM members WHERE key='partial'").get()?.n, 0)
-      assert.equal(external.prepare("SELECT incarnation FROM members WHERE key='owned'").get()?.incarnation, 'new')
+      assert.equal(external.prepare("SELECT count(*) AS n FROM members WHERE key=?").get(JSON.stringify('partial'))?.n, 0)
+      assert.equal(external.prepare("SELECT incarnation FROM members WHERE key=?").get(JSON.stringify('owned'))?.incarnation, JSON.stringify('new'))
     } finally { external.close() }
   } finally { cleanup() }
 })
@@ -108,7 +108,7 @@ test('commit failure rolls back archive and latches', () => {
       CREATE TRIGGER fail_commit AFTER INSERT ON members BEGIN INSERT INTO deferred VALUES ('absent'); END;`)
     assert.throws(() => store.archive('one', 'root', ['first']))
     assert.throws(() => store.lookup('first'))
-    assert.equal(external.prepare("SELECT count(*) AS n FROM members WHERE key='first'").get()?.n, 0)
+    assert.equal(external.prepare("SELECT count(*) AS n FROM members WHERE key=?").get(JSON.stringify('first'))?.n, 0)
   } finally { external.close(); cleanup() }
 })
 
@@ -134,7 +134,7 @@ test('a post-commit error latches even when the transaction committed', () => {
   try {
     assert.throws(() => store.archive('one', 'root', ['child']))
     const external = new DatabaseSync(store.file, { readOnly: true })
-    try { assert.equal(external.prepare("SELECT incarnation FROM members WHERE key='child'").get()?.incarnation, 'one') } finally { external.close() }
+    try { assert.equal(external.prepare("SELECT incarnation FROM members WHERE key=?").get(JSON.stringify('child'))?.incarnation, JSON.stringify('one')) } finally { external.close() }
     assert.throws(() => store.lookup('child'))
   } finally { store.close(); rmSync(dir, { recursive: true, force: true }) }
 })
@@ -157,4 +157,48 @@ test('truncated database query fails closed', () => {
     assert.equal(store.lookup('root')?.incarnation, 'new')
     assert.equal(store.lookup('old-child')?.incarnation, 'old')
   } finally { cleanup() }
+})
+
+test('NUL-delimited and unusual identifiers stay exact through inheritance and conditional ownership', () => {
+  const { store, cleanup } = setup()
+  const root = 'runtime\0root-雪\ud800'
+  const sibling = 'runtime\0root-雪\ud801'
+  const child = 'runtime\0child-🦊'
+  const grandchild = 'runtime\0grandchild'
+  const owner = 'runtime\0owner-\udfff'
+  const newer = 'runtime\0new-owner'
+  try {
+    store.archive(owner, root, [child])
+    store.archive(newer, sibling, [sibling])
+    assert.deepEqual(store.lookup(child), { incarnation: owner, root })
+    assert.deepEqual(store.lookup(sibling), { incarnation: newer, root: sibling })
+    assert.equal(store.lookup('runtime\0root-雪'), null)
+    assert.equal(store.inherit(child, grandchild), true)
+    assert.deepEqual(store.lookup(grandchild), { incarnation: owner, root })
+    assert.equal(store.release(grandchild, newer), false)
+    assert.equal(store.replace(grandchild, newer, newer, sibling), false)
+    assert.equal(store.replace(grandchild, owner, newer, sibling), true)
+    assert.equal(store.release(grandchild, owner), false)
+    assert.deepEqual(store.lookup(grandchild), { incarnation: newer, root: sibling })
+    assert.equal(store.release(grandchild, newer), true)
+    assert.equal(store.lookup(grandchild), null)
+  } finally { cleanup() }
+})
+
+test('malformed persisted identifiers latch reads and conditional mutations closed', () => {
+  for (const operation of ['lookup', 'replace', 'release'] as const) {
+    const { store, cleanup } = setup()
+    const external = new DatabaseSync(store.file)
+    try {
+      store.archive('owner', 'root', ['key'])
+      external.exec("UPDATE members SET root='null'")
+      assert.throws(() => {
+        if (operation === 'lookup') store.lookup('key')
+        else if (operation === 'replace') store.replace('key', 'owner', 'new', 'new-root')
+        else store.release('key', 'owner')
+      })
+      assert.throws(() => store.lookup('missing'))
+      assert.equal(external.prepare('SELECT count(*) AS n FROM members').get()?.n, 2)
+    } finally { external.close(); cleanup() }
+  }
 })

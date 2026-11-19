@@ -3,6 +3,16 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 
+// JSON escapes NUL and preserves every JavaScript string, including lone surrogates.
+// Node 22's SQLite TEXT reader otherwise truncates strings at embedded NULs.
+const encode = (value: string): string => JSON.stringify(value)
+const decode = (value: unknown): string => {
+  if (typeof value !== 'string') throw new Error('Invalid consult authority identifier')
+  const decoded: unknown = JSON.parse(value)
+  if (typeof decoded !== 'string' || encode(decoded) !== value) throw new Error('Invalid consult authority identifier')
+  return decoded
+}
+
 export interface ClosedConsultAuthority { readonly incarnation: string; readonly root: string }
 
 /** Host-lifetime closed consult facts. A failed store never answers as if empty. */
@@ -61,37 +71,50 @@ export class ConsultAuthorityStore {
       const insert = this.#db.prepare('INSERT INTO members VALUES (?, ?, ?) ON CONFLICT(key) DO NOTHING')
       const current = this.#db.prepare('SELECT incarnation, root FROM members WHERE key=?')
       for (const key of (function* () { if (includeRoot) yield root; yield* members })()) {
-        insert.run(key, incarnation, root)
-        const owner = current.get(key)
-        if (owner?.incarnation !== incarnation || owner.root !== root) throw new Error('Consult authority owner conflict')
+        insert.run(encode(key), encode(incarnation), encode(root))
+        const owner = current.get(encode(key))
+        if (!owner || decode(owner.incarnation) !== incarnation || decode(owner.root) !== root) throw new Error('Consult authority owner conflict')
       }
     })
   }
 
   lookup(key: string): ClosedConsultAuthority | null {
     return this.#run(() => {
-      const row = this.#db.prepare('SELECT incarnation, root FROM members WHERE key=?').get(key)
-      return row ? { incarnation: String(row.incarnation), root: String(row.root) } : null
+      const row = this.#db.prepare('SELECT incarnation, root FROM members WHERE key=?').get(encode(key))
+      return row ? { incarnation: decode(row.incarnation), root: decode(row.root) } : null
     })
   }
 
   inherit(parentKey: string, childKey: string): boolean {
     return this.#transaction(() => {
-      const parent = this.#db.prepare('SELECT incarnation, root FROM members WHERE key=?').get(parentKey)
+      const parent = this.#db.prepare('SELECT incarnation, root FROM members WHERE key=?').get(encode(parentKey))
       if (!parent) return false
-      this.#db.prepare('INSERT INTO members VALUES (?, ?, ?) ON CONFLICT(key) DO NOTHING').run(childKey, String(parent.incarnation), String(parent.root))
-      const child = this.#db.prepare('SELECT incarnation, root FROM members WHERE key=?').get(childKey)
-      if (child?.incarnation !== parent.incarnation || child?.root !== parent.root) throw new Error('Consult authority owner conflict')
+      const incarnation = decode(parent.incarnation), root = decode(parent.root)
+      this.#db.prepare('INSERT INTO members VALUES (?, ?, ?) ON CONFLICT(key) DO NOTHING').run(encode(childKey), encode(incarnation), encode(root))
+      const child = this.#db.prepare('SELECT incarnation, root FROM members WHERE key=?').get(encode(childKey))
+      if (!child || decode(child.incarnation) !== incarnation || decode(child.root) !== root) throw new Error('Consult authority owner conflict')
       return true
     })
   }
 
+  // Validate both stored fields before a conditional mutation can discard them.
+  #owner(key: string): ClosedConsultAuthority | null {
+    const row = this.#db.prepare('SELECT incarnation, root FROM members WHERE key=?').get(encode(key))
+    return row ? { incarnation: decode(row.incarnation), root: decode(row.root) } : null
+  }
+
   replace(key: string, expectedIncarnation: string, incarnation: string, root: string): boolean {
-    return this.#run(() => Number(this.#db.prepare('UPDATE members SET incarnation=?, root=? WHERE key=? AND incarnation=?').run(incarnation, root, key, expectedIncarnation).changes) === 1)
+    return this.#run(() => {
+      if (this.#owner(key)?.incarnation !== expectedIncarnation) return false
+      return Number(this.#db.prepare('UPDATE members SET incarnation=?, root=? WHERE key=? AND incarnation=?').run(encode(incarnation), encode(root), encode(key), encode(expectedIncarnation)).changes) === 1
+    })
   }
 
   release(key: string, expectedIncarnation: string): boolean {
-    return this.#run(() => Number(this.#db.prepare('DELETE FROM members WHERE key=? AND incarnation=?').run(key, expectedIncarnation).changes) === 1)
+    return this.#run(() => {
+      if (this.#owner(key)?.incarnation !== expectedIncarnation) return false
+      return Number(this.#db.prepare('DELETE FROM members WHERE key=? AND incarnation=?').run(encode(key), encode(expectedIncarnation)).changes) === 1
+    })
   }
 
   close(): void {

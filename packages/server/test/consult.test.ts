@@ -510,7 +510,7 @@ test('host cold late-child write failure latches refusal for registered independ
     a.holds.emit({ type: 'item/completed', sessionId: child as never, turnId: 'late' as never, item: { id: 'late' as never, type: 'subagent', action: 'spawn', status: 'completed', members: [{ sessionId: 'late-child' }] } })
     assert.deepEqual(await admitRead(a, 'holdfake', 'late-child'), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
     assert.deepEqual(await admitRead(a, 'holdfake', String(independent.id)), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
-    assert.equal(db.prepare("SELECT count(*) AS n FROM members WHERE key LIKE '%late-child'").get()?.n, 0)
+    assert.equal(db.prepare("SELECT count(*) AS n FROM members WHERE key LIKE '%late-child%'").get()?.n, 0)
   } finally { db.close() }
 })
 
