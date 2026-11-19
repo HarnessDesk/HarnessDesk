@@ -1,0 +1,22 @@
+{
+  "issue": 1620,
+  "candidate": "e54da9b5c628ff1fb64f0792414da5062ac602e5",
+  "baseline": "8747117c8055af001ab3dc25574272d1d272ac15",
+  "surface": "Synthetic ACP approval component rig in real Chromium, actual isolated Host/adapter; not full Electron before/after.",
+  "behavior": "Command retains line breaks and indentation; trusted Deny once maps to Host option no and completes the turn.",
+  "privacy": "Raw frames parent-inspected. Complete pre/post DOM, body text, form values and URL equal for each capture; body/selected visible attribute checks clear. Not a canonical full-app account/history audit. Private DOM includes local source paths and stays private.",
+  "isolation": "Synthetic local peers, random IPv4 loopback bindings, Host exits zero, fixture removed, browser closed; Vite interrupted with SIGINT. No outbound network-denial probe, real account, provider or keychain claim.",
+  "proofBoundary": "Before uses frozen baseline adapter/Host compiled files; candidate component UI unchanged between cases. Selected dist hashes match earlier pinned builds; not complete filesystem dependency provenance. Separate native acceptance exists privately; its system desk-label image is not published.",
+  "frames": [
+    {
+      "path": "screenshots/issue-1620/e54da9b/before-command.png",
+      "sha256": "6529b494e53a1277f3d63a7c9ed009e4e952e1f9cc645693a70813ad8cadadba",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-1620/e54da9b/after-command.png",
+      "sha256": "62bf9e5616446a3a1befa4452b3fc5f1f04ef86a616a7fbd151456c2f0d9e0fd",
+      "parentVisuallyInspected": true
+    }
+  ]
+}
