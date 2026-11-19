@@ -1,0 +1,129 @@
+{
+  "issue": 2227,
+  "base": "8747117c8055af001ab3dc25574272d1d272ac15",
+  "tree": "4abedc07ae2a9b9bcf611f232e9aae0238a0feca",
+  "proof": "Actual isolated Electron/Host with renderer wall clock shifted; synthetic accounts only; raw original PNGs.",
+  "scenarios": [
+    "Baseline 874, renderer +/-30 minutes (reused, hashes verified)",
+    "Candidate bab, renderer +/-30 minutes, ~61 second reading retained",
+    "Candidate bab renderer with unchanged 874 Host/desktop composite (not a packaged old binary)",
+    "Old-Host actual account picker withholds unqualified percentage"
+  ],
+  "limitations": [
+    "Old Host is a private composite of 874 desktop/server/protocol and current UI, not a packaged old binary.",
+    "Synthetic runtime/limits is undated; dated-limit expiry, stale reset boundary and blocked fallback faults remain unit-only.",
+    "Manual pool mismatch and six-day/midnight format boundary remain unit-only.",
+    "Only renderer Date was skewed; real Host report fetchedAt was preserved.",
+    "Baseline 874 evidence is reused; visual review is recorded separately."
+  ],
+  "normalQuitAndOwnedCleanup": true,
+  "canonicalPrivacyAudits": true,
+  "allFramesParentReviewed": true,
+  "head": "9d87fca10743ef15c9865b8c065f439d861955cf",
+  "frames": [
+    {
+      "label": "current_minus: minus-30",
+      "path": "screenshots/issue-2227/9d87fca/current_minus-minus-30.png",
+      "source": "9d87fca10743ef15c9865b8c065f439d861955cf",
+      "sha256": "59207ddeb9bdd925f78ad176da95b38b8328192867ab073b84923819498ff357",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "current_minus: settings-minus-30",
+      "path": "screenshots/issue-2227/9d87fca/current_minus-settings-minus-30.png",
+      "source": "9d87fca10743ef15c9865b8c065f439d861955cf",
+      "sha256": "ad39da9d0ebd4a2642a411b8172d42a41b718322bd9b68155f8bebb93bfbdd86",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "current_plus: dashboard",
+      "path": "screenshots/issue-2227/9d87fca/current_plus-dashboard.png",
+      "source": "9d87fca10743ef15c9865b8c065f439d861955cf",
+      "sha256": "3e7eeaf9687afcbb983ca2d9ecddddb2d9d96606464afdd0625a324e7947210a",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "current_plus: settings",
+      "path": "screenshots/issue-2227/9d87fca/current_plus-settings.png",
+      "source": "9d87fca10743ef15c9865b8c065f439d861955cf",
+      "sha256": "9e2c031778fc78217c4a18da8a3294d7fb3739db5e77e0589e5f0e9739bddf34",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "current_plus: account-detail",
+      "path": "screenshots/issue-2227/9d87fca/current_plus-account-detail.png",
+      "source": "9d87fca10743ef15c9865b8c065f439d861955cf",
+      "sha256": "715ed2a8572fcad5e72140d3cf2c8ad2a0129e4696d25dc0d9450ef1be7c9626",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "current_plus: composer-context",
+      "path": "screenshots/issue-2227/9d87fca/current_plus-composer-context.png",
+      "source": "9d87fca10743ef15c9865b8c065f439d861955cf",
+      "sha256": "c7f16970e5956efe0313e7395b7beafa85c7a9d14ff05dbf5b7e386d03b7b33d",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "old_host_composite: dashboard",
+      "path": "screenshots/issue-2227/9d87fca/old_host_composite-dashboard.png",
+      "source": "9d87fca10743ef15c9865b8c065f439d861955cf",
+      "sha256": "fcb56300d5328a815dd1e119f0159186890706db3597b62cb5d9c2e2b20730b4",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "old_host_composite: account-picker",
+      "path": "screenshots/issue-2227/9d87fca/old_host_composite-account-picker.png",
+      "source": "9d87fca10743ef15c9865b8c065f439d861955cf",
+      "sha256": "bdbb029f198d52ca3a4be3a564acf79ffdae197f6ff6e9db280edf08923b4255",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "old_host_composite: settings",
+      "path": "screenshots/issue-2227/9d87fca/old_host_composite-settings.png",
+      "source": "9d87fca10743ef15c9865b8c065f439d861955cf",
+      "sha256": "1a245cf2aa5375e2d893b0d8d9c46ab87a570d398be2739914fe566fa9e384fb",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "old_host_composite: account-detail",
+      "path": "screenshots/issue-2227/9d87fca/old_host_composite-account-detail.png",
+      "source": "9d87fca10743ef15c9865b8c065f439d861955cf",
+      "sha256": "409b914f4249e8fe34e72d233c4f3696257b63414eb47e44acdd12b61100c5b1",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "old_host_composite: composer-context",
+      "path": "screenshots/issue-2227/9d87fca/old_host_composite-composer-context.png",
+      "source": "9d87fca10743ef15c9865b8c065f439d861955cf",
+      "sha256": "9e8c7e9fae7b305c8b98c3a0dde01cd884a88c651d5f40b74cdc9ef79a39cc42",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "baseline_reused: minus-30",
+      "path": "screenshots/issue-2227/9d87fca/baseline_reused-minus-30.png",
+      "source": "8747117c8055af001ab3dc25574272d1d272ac15",
+      "sha256": "f2c9c32c775527411930b951d1cc753da8401dd6bcdaf61e308fbf61142c7e66",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "baseline_reused: plus-30",
+      "path": "screenshots/issue-2227/9d87fca/baseline_reused-plus-30.png",
+      "source": "8747117c8055af001ab3dc25574272d1d272ac15",
+      "sha256": "7d88a223c4ebcb0b78f7cdca48e8be916c43f255bb4752a4845991f9b3314ab8",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    }
+  ]
+}
