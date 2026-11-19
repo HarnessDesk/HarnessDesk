@@ -202,3 +202,30 @@ test('malformed persisted identifiers latch reads and conditional mutations clos
     } finally { external.close(); cleanup() }
   }
 })
+
+test('pending delegation edges survive churn, terminate cycles, and forget old seating edges', () => {
+  const { store, cleanup } = setup()
+  try {
+    store.recordEdges('parent', ['child'])
+    store.recordEdges('child', ['grandchild'])
+    store.recordEdges('grandchild', ['parent'])
+    store.recordEdges('unrelated', Array.from({ length: 2001 }, (_, n) => `noise-${n}`))
+    const seen: string[] = []
+    store.descendants('parent', child => { seen.push(child) })
+    assert.deepEqual(new Set(seen), new Set(['child', 'grandchild']))
+    store.forgetEdges('child')
+    const after: string[] = []
+    store.descendants('parent', child => { after.push(child) })
+    assert.deepEqual(after, [])
+  } finally { cleanup() }
+})
+
+test('pending delegation write failure latches the authority store', () => {
+  const { store, cleanup } = setup()
+  const external = new DatabaseSync(store.file)
+  try {
+    external.exec("CREATE TRIGGER fail_edge BEFORE INSERT ON edges BEGIN SELECT RAISE(ABORT, 'edge write failure'); END")
+    assert.throws(() => store.recordEdges('parent', ['child']))
+    assert.throws(() => store.lookup('independent'))
+  } finally { external.close(); cleanup() }
+})

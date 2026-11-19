@@ -8916,7 +8916,11 @@ export class Host {
     if (event.item.type !== 'subagent') return
     const root = this.#rootOf(String(runtime), String(event.sessionId))
     if (root === null) this.#delegationUncertainRuntimes.add(String(runtime))
-    // A consult's child is the consult's, registered or not, however deep: held as it is, apart from the bounded map below.
+    // A child may report its own children before its parent is known to us.
+    // Keep those edges in the Host-lifetime index before any gate can use them.
+    const parentKey = sessionKey(runtime, makeSessionId(event.sessionId))
+    const children = event.item.members.flatMap(member => member.sessionId && member.sessionId !== String(event.sessionId) ? [sessionKey(runtime, makeSessionId(member.sessionId))] : [])
+    try { this.#consultAuthority?.recordEdges(parentKey, children) } catch { this.#consultAuthorityFailed = true }
     const consult = this.#consultOf(String(runtime), String(event.sessionId))
     for (const member of event.item.members) {
       if (!member.sessionId || member.sessionId === String(event.sessionId)) continue
@@ -8933,6 +8937,19 @@ export class Host {
             if (hot !== undefined && hot !== consult) { this.#consultMembers.get(hot)?.keys.delete(child); this.#consultFamily.delete(child) }
           } catch { this.#consultAuthorityFailed = true }
         } else this.#joinConsult(child, consult)
+        // Include earlier reports by this newly associated child, even after the
+        // ordinary bounded delegation cache has forgotten them.
+        try {
+          this.#consultAuthority?.descendants(child, descendant => {
+            if (cold && cold.incarnation === consult) {
+              const old = this.#coldConsult(descendant)
+              if (old && old.incarnation !== consult) this.#consultAuthority!.replace(descendant, old.incarnation, consult, cold.root)
+              else this.#consultAuthority!.inherit(cold.key, descendant)
+              const hot = this.#consultFamily.get(descendant)
+              if (hot !== undefined && hot !== consult) { this.#consultMembers.get(hot)?.keys.delete(descendant); this.#consultFamily.delete(descendant) }
+            } else this.#joinConsult(descendant, consult)
+          })
+        } catch { this.#consultAuthorityFailed = true }
       }
       if (root !== null) this.#delegatedBy.set(sessionKey(runtime, makeSessionId(member.sessionId)), root)
       if (this.#delegatedBy.size > 2000) {
@@ -9007,6 +9024,9 @@ export class Host {
    * never touched.
    */
   #leaveClosedConsult(key: string): void {
+    // A newly opened seating supersedes the old association and its edges.
+    try { this.#consultAuthority?.forgetEdges(key) } catch { this.#consultAuthorityFailed = true; return }
+    this.#delegatedBy.delete(key as SessionKey)
     const cold = this.#coldConsult(key)
     if (cold) {
       try { this.#consultAuthority!.release(key, cold.incarnation) } catch { this.#consultAuthorityFailed = true; return }
@@ -9038,7 +9058,8 @@ export class Host {
       const family = this.#consultMembers.get(oldest)
       if (!family) { this.#consultsRetired.delete(oldest); continue }
       if (this.#consultAuthorityFailed || !this.#consultAuthority) return
-      try { this.#consultAuthority.archive(oldest, family.root, [...family.keys], family.keys.has(family.root)) }
+      const shown = [...family.keys].filter(key => this.#consultsShown.has(key) && this.#consultFamily.get(key) === oldest)
+      try { this.#consultAuthority.archive(oldest, family.root, [...family.keys], family.keys.has(family.root), shown) }
       catch { this.#consultAuthorityFailed = true; return }
       this.#consultsRetired.delete(oldest)
       this.#consultMembers.delete(oldest)
@@ -10574,10 +10595,11 @@ export class Host {
     }
     // An id a closed consult once had is not that consult any more.
     this.#leaveClosedConsult(sessionKey(runtime.info.id, live.id))
+    let openingIncarnation: string | undefined
     if (where.consult) {
       const key = sessionKey(runtime.info.id, live.id)
       this.#consulting.add(key)
-      this.#beginConsult(key)
+      openingIncarnation = this.#beginConsult(key)
     }
     this.#seating.set(sessionKey(runtime.info.id, live.id), { live, reached: false, removing: false })
     try {
@@ -10611,7 +10633,7 @@ export class Host {
         return null
       })
       noteLeftOnFailure(error, left)
-      if (where.consult) {
+      if (where.consult && openingIncarnation && this.#consultOwnedBy(sessionKey(runtime.info.id, live.id), openingIncarnation)) {
         // Nothing of a consult that never opened reaches a window, not even what was held back while it opened.
         const key = sessionKey(runtime.info.id, live.id)
         for (let at = this.#consultHeld.length - 1; at >= 0; at -= 1) {
@@ -10619,7 +10641,7 @@ export class Host {
         }
         this.#consultHeldKeys.delete(key)
         this.#consulting.delete(key)
-        this.#consultClosed(key)
+        this.#consultClosed(key, openingIncarnation)
         this.#retireConsults()
       }
       throw error
@@ -13849,7 +13871,11 @@ export class Host {
       case 'session/removed':
       case 'session/cache-invalidated': {
         const key = sessionKey(notification.params.runtime, notification.params.sessionId)
-        if (notification.method === 'session/removed' && this.#consultsShown.delete(key)) return notification
+        if (notification.method === 'session/removed') {
+          if (this.#consultsShown.delete(key)) return notification
+          try { if (this.#consultAuthority?.consumeShown(key)) return notification }
+          catch { this.#consultAuthorityFailed = true }
+        }
         if (this.#hiddenConsult(key)) return null
         // A conversation whose start is held back while a consult opens is held with it.
         if (this.#consultHeldKeys.has(key)) {

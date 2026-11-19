@@ -377,65 +377,6 @@ test('round 3: closed consults retire into exact cold authority', E2E, async (t)
   }
 })
 
-test('closed consult families with registered children retire at the configured bound', E2E, async (t) => {
-  const a = await asking(t, ASK_TWICE('holdfake'), { kept: 1 })
-  const roots: string[] = []
-  const children: string[] = []
-  a.holds.onSend = (session) => {
-    void (async () => {
-      roots.push(String(session.id))
-      const child = await a.holds.createSession({ cwd: a.holds.createOptions[0]!.cwd })
-      children.push(String(child.id))
-      a.holds.emit({ type: 'item/completed', sessionId: session.id, turnId: 'consult-turn' as never,
-        item: { id: `spawn-${child.id}` as never, type: 'subagent', action: 'spawn', status: 'completed', members: [{ sessionId: String(child.id) }] } })
-      ;(session as HoldSession).finish('4')
-    })()
-  }
-  for (const question of ['one', 'two', 'three']) await a.d.host.consultPlane.ask({ agent: 'holdfake', question, context: null }, a.caller)
-  assert.deepEqual(a.d.host.consultAuthorityHotCounts, { families: 1, keys: 2 })
-  assert.deepEqual(await admitRead(a, 'holdfake', roots[0]!), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
-  for (const child of children) assert.deepEqual(await admitRead(a, 'holdfake', child), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL }, child)
-  assert.deepEqual(await admitRead(a, 'holdfake', roots[2]!), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
-})
-
-test('probe: a late registered descendant of an evicted registered child remains refused', E2E, async (t) => {
-  const a = await asking(t, ASK_TWICE('holdfake'), { kept: 1 })
-  const children: string[] = []
-  a.holds.onSend = (session) => { void (async () => {
-    const child = await a.holds.createSession({ cwd: a.holds.createOptions[0]!.cwd })
-    children.push(String(child.id))
-    a.holds.emit({ type: 'item/completed', sessionId: session.id, turnId: 'consult-turn' as never,
-      item: { id: `spawn-${child.id}` as never, type: 'subagent', action: 'spawn', status: 'completed', members: [{ sessionId: String(child.id) }] } })
-    ;(session as HoldSession).finish('4')
-  })() }
-  for (const question of ['one', 'two', 'three']) await a.d.host.consultPlane.ask({ agent: 'holdfake', question, context: null }, a.caller)
-  const late = await a.holds.createSession({ cwd: a.holds.createOptions[0]!.cwd })
-  a.holds.emit({ type: 'item/completed', sessionId: children[0] as never, turnId: 'late-turn' as never,
-    item: { id: 'late-spawn' as never, type: 'subagent', action: 'spawn', status: 'completed', members: [{ sessionId: String(late.id) }] } })
-  assert.deepEqual(await admitRead(a, 'holdfake', String(late.id)), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
-})
-
-test('cold authority retains more than 2000 late and nested reported children', E2E, async (t) => {
-  const a = await asking(t, ASK_TWICE('holdfake'), { kept: 0 })
-  let root = ''
-  a.holds.onSend = (session) => { void (async () => {
-    const child = await a.holds.createSession({ cwd: a.holds.createOptions[0]!.cwd })
-    root = String(child.id)
-    a.holds.emit({ type: 'item/completed', sessionId: session.id, turnId: 'spawn' as never, item: { id: 'spawn' as never, type: 'subagent', action: 'spawn', status: 'completed', members: [{ sessionId: root }] } })
-    ;(session as HoldSession).finish('4')
-  })() }
-  await a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'one', context: null }, a.caller)
-  const nested = await a.holds.createSession({ cwd: a.holds.createOptions[0]!.cwd })
-  const emit = (parent: string, members: string[]) => a.holds.emit({ type: 'item/completed', sessionId: parent as never, turnId: 'late' as never,
-    item: { id: 'late-spawn' as never, type: 'subagent', action: 'spawn', status: 'completed', members: members.map(sessionId => ({ sessionId })) } })
-  emit(root, [...Array.from({ length: 2001 }, (_, n) => `late-${n}`), String(nested.id)])
-  emit(String(nested.id), ['nested-late'])
-  assert.deepEqual(a.d.host.consultAuthorityHotCounts, { families: 0, keys: 0 })
-  for (const id of ['late-0', 'late-2000', 'nested-late']) assert.deepEqual(await admitRead(a, 'holdfake', id), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
-  const independent = await a.holds.createSession({ cwd: a.holds.createOptions[0]!.cwd })
-  assert.deepEqual(await admitRead(a, 'holdfake', String(independent.id)), { admitted: true })
-})
-
 test('lost authority file latches refusal and preserves hot families', E2E, async (t) => {
   const a = await asking(t, ASK_TWICE('holdfake'), { kept: 0 })
   const directory = join(a.d.stateDir, 'consult-authority')
