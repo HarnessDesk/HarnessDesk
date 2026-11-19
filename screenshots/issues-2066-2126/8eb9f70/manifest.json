@@ -1,0 +1,64 @@
+{
+  "issue": 2066,
+  "base": "8747117c8055af001ab3dc25574272d1d272ac15",
+  "scope": "Current8eb singlelaunch budgetOff/Hostread/normalquit; earlierbedd save/readback/reopen/Off reused only unchangedHost/assessor/Settings/UIpaths; b250externalcap/dirtyinput reused only identicalUI.",
+  "shutdown": "one exactownedchild SIGTERM routes production app.quit,exit0,signalnull,ownedgroupabsent; not UI CmdQ/menu",
+  "isolation": "whole driver tree outer OS networkdeny,loopback/scopedUNIX; synthetic stagedaccounts/homes; not shippedChromiumsandboxproof",
+  "validation": "Parent inspected currentOff original and earlier source-pinned rawframes, verifiedsource/compiledartifacthashes and ownednormalquit. Newcapacityfault has95Node22realHosttests; no nativecapacityfault, realprovider/forge/keychain claim.",
+  "issues": [
+    2066,
+    2126
+  ],
+  "candidate": "8eb9f70feaadc89ce0ea5e1e8ac83b28f79f4f31",
+  "head": "8eb9f70feaadc89ce0ea5e1e8ac83b28f79f4f31",
+  "frames": [
+    {
+      "label": "before-settings-lead",
+      "path": "screenshots/issues-2066-2126/8eb9f70/before-settings-lead.png",
+      "source": "8747117c8055af001ab3dc25574272d1d272ac15",
+      "sha256": "ea409243bd0166f5ca9d2177414f8f03e32e6594fdcf9b7e08dc4d2f4c6424c6",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-default-off",
+      "path": "screenshots/issues-2066-2126/8eb9f70/after-default-off.png",
+      "source": "8eb9f70feaadc89ce0ea5e1e8ac83b28f79f4f31",
+      "sha256": "40dbb9a0d9dc2cdf58c9ef38e2ccb676fb92e8f097fc6ce8aed0f8b93f7d4b35",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "earlier-unchanged-Host-UI: after-saved",
+      "path": "screenshots/issues-2066-2126/8eb9f70/after-saved.png",
+      "source": "bedd011844a55efde660641c74d388093b02edbd",
+      "sha256": "00958c088f768372451f85a09fdf7c71fdc80d30d9deccfcc64dd9f828f6241b",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "earlier-unchanged-Host-UI: after-reopened",
+      "path": "screenshots/issues-2066-2126/8eb9f70/after-reopened.png",
+      "source": "bedd011844a55efde660641c74d388093b02edbd",
+      "sha256": "e890f2a264111a5bd02f9ddc400deb32e6457d91cca95eb9365114bc943eb8b2",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "earlier-unchanged-Host-UI: after-turned-off",
+      "path": "screenshots/issues-2066-2126/8eb9f70/after-turned-off.png",
+      "source": "bedd011844a55efde660641c74d388093b02edbd",
+      "sha256": "b8d4fc6bf35a6abb1462636ede1fd0c0fda4a8d1411a5bea38e782906e01729f",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "earlier-unchanged-ui-external-dirty",
+      "path": "screenshots/issues-2066-2126/8eb9f70/earlier-unchanged-ui-external-dirty.png",
+      "source": "b250508afb45925d646af76398884d145be479da",
+      "sha256": "0cbcb2569ed8cd017905311c8fc675a775f5bf810c39031289cc3e1e69c8c866",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    }
+  ]
+}
