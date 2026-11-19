@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
+import { EventEmitter } from 'node:events'
 import { mkdir, writeFile, symlink } from 'node:fs/promises'
 import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { test } from 'node:test'
@@ -30,16 +31,19 @@ for (const parentFilename of ['native', 'named', 'null'] as const) test(`the Lin
     try { watcher?.close() } finally { Object.assign(fs, originals); syncBuiltinESMExports() }
   })
   let rootCallback: ((event: string, file: string | Buffer | null) => void) | undefined
-  let creatingAgent = false
   const attached = new Set<string>()
   fs.watch = (dir: string, options: unknown, listener: (event: string, file: string | Buffer | null) => void) => {
-    const watcher = originals.watch(dir, options, (event: string, file: string | Buffer | null) => {
-      if (creatingAgent && parentFilename !== 'native' && dir === root && String(file) === 'new-agent') listener(event, parentFilename === 'named' ? 'new-agent' : null)
-      else listener(event, file)
-    })
-    if (dir === root) rootCallback = listener
+    if (dir === root && parentFilename !== 'native') {
+      // No native root events can start a competing reconciliation.
+      rootCallback = listener
+      const rootWatcher = new EventEmitter()
+      Object.assign(rootWatcher, { close: () => {}, ref: () => rootWatcher, unref: () => rootWatcher })
+      attached.add(dir)
+      return rootWatcher
+    }
+    const native = originals.watch(dir, options, listener)
     attached.add(dir)
-    return watcher
+    return native
   }
   const sync: string[] = []
   for (const [name, original] of Object.entries({ lstatSync: originals.lstatSync, readdirSync: originals.readdirSync })) fs[name] = (...args: unknown[]) => {
@@ -71,17 +75,17 @@ for (const parentFilename of ['native', 'named', 'null'] as const) test(`the Lin
       return false
     })
   }
-  await writeUntilWatched('agent/AGENT.md')
+  if (parentFilename === 'native') await writeUntilWatched('agent/AGENT.md')
+  else await until(() => attached.has(join(root, 'agent')))
   const beforeMkdir = renames.length
-  creatingAgent = true
   await mkdir(join(root, 'new-agent'))
-  assert.ok(rootCallback, 'the real root watcher supplied its callback')
+  assert.ok(parentFilename === 'native' || rootCallback, 'the controlled root watcher supplied its callback')
   if (parentFilename === 'native') {
     await until(() => renames.slice(beforeMkdir).some(file => file === 'new-agent' || file === null))
   } else {
-    // Deliver an API-legal parent event through the real watcher's callback.
+    // Only this controlled parent event can schedule discovery of the new folder.
     const filename = parentFilename === 'named' ? 'new-agent' : null
-    rootCallback('rename', filename)
+    rootCallback!('rename', filename)
     assert.ok(renames.slice(beforeMkdir).includes(filename), 'the parent rename was forwarded')
   }
   // Only a real child notification proves the new folder was watched; a
