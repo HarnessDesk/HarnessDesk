@@ -6245,6 +6245,13 @@ class AcpSession implements AgentSession {
       })
     }
     const flowBoardTool = this.#host.trustsBridgeProvenance ? flowBoardToolOf(request) : null
+    const input = request.toolCall.rawInput
+    const command = input !== null && typeof input === 'object' && !Array.isArray(input)
+      ? (input as { command?: unknown }).command : undefined
+    const kind = request.toolCall.kind ?? this.#currentTurn?.tools?.get(request.toolCall.toolCallId)?.kind
+    // Display only a complete bounded execute input; never use it for approval policy.
+    const shownCommand = kind === 'execute' && typeof command === 'string' && command.length > 0 && command.length <= 65_536 ? command : null
+    const title = request.toolCall.title ?? 'The agent asks permission to continue.'
     const approval: Approval = {
       id,
       sessionId: this.id,
@@ -6252,7 +6259,8 @@ class AcpSession implements AgentSession {
       itemId: itemId(request.toolCall.toolCallId),
       requestedAt: Date.now(),
       type: 'permission',
-      summary: request.toolCall.title ?? 'The agent asks permission to continue.',
+      summary: shownCommand && title === shownCommand ? 'Run this command?' : title,
+      ...(shownCommand ? { facts: [{ label: 'Command', value: shownCommand }] } : {}),
       ...(flowBoardTool ? { flowBoardTool } : {}),
       // Why the agent is asking, when the agent said. ACP carries that on the
       // request's own tool call, and reading only the title threw it away:

@@ -80,7 +80,7 @@ const boardToolContribution = {
   id: 'team/list_intents', owner: 'team', revision: 1, scope: 'session', inputSchema: {},
 } as unknown as AppSnapshot['contributions'][number]
 
-const boardApproval = (summary: string, options: readonly ApprovalOption[]): Approval => ({
+const boardApproval = (summary: string, options: readonly ApprovalOption[]): Extract<Approval, { type: 'permission' }> => ({
   id: 'approval-board-tool' as never,
   sessionId: SESSION as never,
   requestedAt: Date.now(),
@@ -314,4 +314,13 @@ it('selects only one option at a time when multiSelect is false', () => {
     type: 'answers',
     answers: { q1: ['prod'] },
   })
+})
+
+
+it('renders a structured multiline permission command as preformatted code', () => {
+  const command = "cat > synthetic.txt <<'END'\n  line one\nline two\nEND"
+  mount({ ...boardApproval('Run this command?', SESSION_SET), facts: [{ label: 'Command', value: command }] })
+  const code = container.querySelector('pre')
+  expect(code?.textContent).toBe(command)
+  expect(container.textContent?.split(command)).toHaveLength(2)
 })

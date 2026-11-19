@@ -496,6 +496,27 @@ const runPrompt = async (id, params) => {
     return reply(id, { stopReason: 'end_turn' })
   }
 
+  if (text.includes('non-command permission control')) {
+    const input = text.includes('malformed') ? { command: ['not a command'] } : text.includes('oversized') ? { command: 'x'.repeat(65_537) } : { command: 'looks like a command' }
+    const kind = text.includes('execute') ? 'execute' : 'read'
+    update(state.id, { sessionUpdate: 'tool_call', toolCallId: 'non-command', title: 'Other tool', kind, status: 'pending', rawInput: input })
+    const { outcome } = await request('session/request_permission', { sessionId: state.id,
+      toolCall: { toolCallId: 'non-command', title: 'Other tool', rawInput: input },
+      options: [{ optionId: 'yes', name: 'Allow once', kind: 'allow_once' }, { optionId: 'no', name: 'Deny once', kind: 'reject_once' }] })
+    say(outcome.outcome === 'selected' ? outcome.optionId : 'cancelled')
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
+  if (text.includes('multiline command approval')) {
+    const command = "cat > synthetic.txt <<'END'\n  line one\nline two\nEND"
+    update(state.id, { sessionUpdate: 'tool_call', toolCallId: 'command-permission', title: command, kind: 'execute', status: 'pending', rawInput: { command } })
+    const { outcome } = await request('session/request_permission', { sessionId: state.id,
+      toolCall: { toolCallId: 'command-permission', title: command, rawInput: { command } },
+      options: [{ optionId: 'yes', name: 'Allow once', kind: 'allow_once' }, { optionId: 'no', name: 'Deny once', kind: 'reject_once' }] })
+    say(outcome.outcome === 'selected' ? outcome.optionId : 'cancelled')
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
   if (text.includes('use the desk tool with provenance')) {
     const { outcome } = await request('session/request_permission', {
       sessionId: state.id,

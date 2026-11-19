@@ -3636,3 +3636,41 @@ test('a failed dedicated ACP worker stop does not retire its owner', async t => 
   }
   assert.deepEqual(deaths, [owner], 'successful disposal retires the original owner')
 })
+
+
+test('an execute permission exposes its exact multiline command without changing choices', async () => {
+  const runtime = make()
+  try {
+    await runtime.start()
+    const tape = record(runtime)
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'multiline command approval' }])
+    const event = await tape.until((one) => one.type === 'approval/requested')
+    assert.equal(event.type, 'approval/requested')
+    if (event.type !== 'approval/requested' || event.approval.type !== 'permission') throw new Error('expected permission')
+    const approval = event.approval
+    assert.deepEqual(approval.facts, [{ label: 'Command', value: "cat > synthetic.txt <<'END'\n  line one\nline two\nEND" }])
+    assert.deepEqual(approval.options.map(({ id, intent }) => [id, intent]), [['yes', 'approve'], ['no', 'deny']])
+    assert.equal(approval.flowBoardTool, undefined)
+    await session.respondToApproval(approval.id, { type: 'option', optionId: 'no' })
+    await tape.until((one) => one.type === 'turn/completed')
+  } finally { await runtime.dispose() }
+})
+
+
+for (const input of ['non-command permission control', 'non-command permission control execute malformed', 'non-command permission control execute oversized']) test(`preserves ${input} as a normal permission`, async () => {
+  const runtime = make()
+  try {
+    await runtime.start()
+    const tape = record(runtime)
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: input }])
+    const event = await tape.until((one) => one.type === 'approval/requested')
+    if (event.type !== 'approval/requested' || event.approval.type !== 'permission') throw new Error('expected permission')
+    assert.equal(event.approval.summary, 'Other tool')
+    assert.equal(event.approval.facts, undefined)
+    assert.equal(event.approval.flowBoardTool, undefined)
+    await session.respondToApproval(event.approval.id, { type: 'option', optionId: 'yes' })
+    await tape.until((one) => one.type === 'turn/completed')
+  } finally { await runtime.dispose() }
+})
