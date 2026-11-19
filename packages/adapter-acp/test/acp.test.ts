@@ -3649,6 +3649,7 @@ test('an execute permission exposes its exact multiline command without changing
     assert.equal(event.type, 'approval/requested')
     if (event.type !== 'approval/requested' || event.approval.type !== 'permission') throw new Error('expected permission')
     const approval = event.approval
+    assert.equal(approval.summary, "cat > synthetic.txt <<'END'\n  line one\nline two\nEND")
     assert.deepEqual(approval.facts, [{ label: 'Command', value: "cat > synthetic.txt <<'END'\n  line one\nline two\nEND" }])
     assert.deepEqual(approval.options.map(({ id, intent }) => [id, intent]), [['yes', 'approve'], ['no', 'deny']])
     assert.equal(approval.flowBoardTool, undefined)

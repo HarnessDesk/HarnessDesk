@@ -161,7 +161,13 @@ export const assessApproval = (approval: Approval, cwd: string | null | undefine
     highRisk = !!approval.grantRoot || approval.changes.length === 0 || !approval.changes.every(change => changeIsLowRisk(change, cwd))
   } else {
     title = 'Change what the agent may do'
-    command = scrub(approval.summary, 300)
+    const commands = approval.facts?.filter(fact => fact.label === 'Command') ?? []
+    if (commands.length) {
+      const value = commands.length === 1 ? commands[0]?.value : undefined
+      const view = typeof value === 'string' && value.trim() ? commandForApproval(value, cwd, context.home, hasSecret) : { text: '', whole: false }
+      readable = view.whole
+      command = view.whole ? view.text : view.text === '' ? 'Hidden: review it on the desk.' : `${view.text}\n(cut short: review it on the desk)`
+    } else command = scrub(approval.summary, 300)
     highRisk = true
   }
 

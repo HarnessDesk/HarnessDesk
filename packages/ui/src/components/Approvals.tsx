@@ -217,7 +217,7 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false, requester,
   )
   const approval = mine[0]?.approval
   const TITLES = titles(runtime.presentation.name)
-  const title = approval?.type === 'permission' && approval.facts?.length ? approval.summary : approval?.type === 'command' ? commandTitle(approval) : approval ? TITLES[approval.type] : ''
+  const title = approval?.type === 'permission' && approval.facts?.length ? approval.facts.some(fact => fact.label === 'Command' && fact.value === approval.summary) ? 'Run this command?' : approval.summary : approval?.type === 'command' ? commandTitle(approval) : approval ? TITLES[approval.type] : ''
   const [answers, setAnswers] = useState<Record<string, string[]>>({})
   const scope = useRef<HTMLDivElement>(null)
   const docked = placement === 'docked'

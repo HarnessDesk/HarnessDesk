@@ -150,3 +150,12 @@ test('Never leaves native git unchanged while a pinned outside push is still obs
   assert.equal(events.some(event => event.type === 'approval/requested' || event.type === 'notice' && event.message.includes('went around')), false)
   assert.equal(await f.host.call('git/record/attribute', { root: f.cwd, branch: 'x', sha: git(f.cwd, 'rev-parse', 'HEAD') }), 'outside')
 })
+
+test('ACP command-specific deny policy sees the original execute title', async t => {
+  const f = await fixture(t, 'acp', true)
+  await f.host.call('app/state/set', { patch: { permissionPolicy: [{ id: 'deny', name: 'Deny synthetic', match: { type: 'permission', pattern: 'echo policy-sentinel' }, action: 'deny' }, { id: 'allow-rest', name: 'Allow other permissions', match: { type: 'permission' }, action: 'approve' }] } })
+  const command = 'echo policy-sentinel'
+  const events = await f.turn('ceiling permission ' + JSON.stringify({ reportOutcome: true, toolCall: { toolCallId: 'policy-command', title: command, kind: 'execute', rawInput: { command } }, options: [{ optionId: 'yes', name: 'Allow once', kind: 'allow_once' }, { optionId: 'no', name: 'Deny once', kind: 'reject_once' }] }))
+  assert.equal(events.some(event => event.type === 'approval/requested'), false, 'policy should answer before publication')
+  assert.ok(events.some(event => event.type === 'turn/completed' && event.turn.items.some(item => item.type === 'assistantMessage' && item.text === JSON.stringify({ outcome: 'selected', optionId: 'no' }))), JSON.stringify(events))
+})

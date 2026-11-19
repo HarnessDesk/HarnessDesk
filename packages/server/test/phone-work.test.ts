@@ -924,3 +924,16 @@ test('phone delete capability follows the ready agents', async () => {
   assert.equal((await rig({ canDelete: () => true }).work.snapshot()).capabilities.delete, true)
   assert.equal((await rig({ readyRuntimes: () => [], canDelete: () => true }).work.snapshot()).capabilities.delete, false, 'an unavailable default agent does not advertise delete')
 })
+
+
+test('phone permission commands are complete or require a desk decision', async () => {
+  const permission = (facts: { label: string; value: string }[]): Approval => ({ id: approvalId('ap-1'), sessionId: SID, requestedAt: 1, type: 'permission', summary: 'Execute tool', facts, options: [allow, forTool, deny] })
+  const whole = permission([{ label: 'Command', value: 'git status' }])
+  const view = assessApproval(whole, CWD, { home: HOME, seat: 'Agent A' })!
+  assert.equal(view.turn.command, 'git status'); assert.equal(view.readable, true); assert.equal(view.turn.highRisk, true); assert.equal(view.turn.sessionGrant, undefined)
+  const r = rig(); r.setPending([whole]); await assert.rejects(r.work.approvalDecide({ id: 'ap-1', session: key, allow: true, scope: 'session' }))
+  await r.work.approvalDecide({ id: 'ap-1', session: key, allow: true }); assert.equal(r.responded[0].decision.optionId, 'allow')
+  for (const facts of [[{ label: 'Command', value: `echo ${'x '.repeat(400)}` }], [{ label: 'Command', value: 'sk-abcdefghijklmnop' }], [{ label: 'Command', value: '   ' }], [{ label: 'Command', value: 42 as unknown as string }], [{ label: 'Command', value: 'ls' }, { label: 'Command', value: 'rm -rf .' }]]) {
+    const r = rig(); r.setPending([permission(facts)]); await assert.rejects(r.work.approvalDecide({ id: 'ap-1', session: key, allow: true }), /too long or too sensitive/); assert.equal(r.responded.length, 0); await r.work.approvalDecide({ id: 'ap-1', session: key, allow: false }); assert.equal(r.responded[0].decision.optionId, 'deny')
+  }
+})

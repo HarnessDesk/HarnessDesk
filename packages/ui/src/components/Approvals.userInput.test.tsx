@@ -324,3 +324,18 @@ it('renders a structured multiline permission command as preformatted code', () 
   expect(code?.textContent).toBe(command)
   expect(container.textContent?.split(command)).toHaveLength(2)
 })
+
+
+it('preserves a command summary for authority while rendering a concise heading', () => {
+  const command = "cat > synthetic.txt <<'END'\n  line one\nline two\nEND"
+  mount({ ...boardApproval(command, SESSION_SET), facts: [{ label: 'Command', value: command }] })
+  expect(container.textContent).toContain('Run this command?')
+  expect(container.querySelector('pre')?.textContent).toBe(command)
+  expect(container.textContent?.split(command)).toHaveLength(2)
+})
+
+it('keeps an unrelated permission title with a command fact', () => {
+  mount({ ...boardApproval('Execute tool', SESSION_SET), facts: [{ label: 'Command', value: 'git status' }] })
+  expect(container.textContent).toContain('Execute tool')
+  expect(container.querySelector('pre')?.textContent).toBe('git status')
+})
