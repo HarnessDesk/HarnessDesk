@@ -1,0 +1,42 @@
+{
+  "head": "a5565440c012ddb75183271eed2c2349ffecefd7",
+  "base": "8747117c8055af001ab3dc25574272d1d272ac15",
+  "scope": "Synthetic component, actual Electron separately private, paired encrypted iOS. Historical captures explicitly attributed; current opaque phone a556. Raw unchanged PNGs. Node Host Allow refusal separate from actual phone Deny; existing phone Allow once remains visible. No provider or real credentials.",
+  "frames": [
+    {
+      "label": "desktop-before.png",
+      "path": "screenshots/issue-1620/a556544/desktop-before.png",
+      "sha256": "6529b494e53a1277f3d63a7c9ed009e4e952e1f9cc645693a70813ad8cadadba",
+      "provenance": "Chromium Approvals component, baseline 874 compiled adapter/Host with bcb component; synthetic ACP. Historical capture.",
+      "parentVisuallyInspected": true
+    },
+    {
+      "label": "desktop-after.png",
+      "path": "screenshots/issue-1620/a556544/desktop-after.png",
+      "sha256": "62bf9e5616446a3a1befa4452b3fc5f1f04ef86a616a7fbd151456c2f0d9e0fd",
+      "provenance": "Chromium Approvals component and adapter/Host bcb; synthetic ACP. Historical capture, not a556 Electron.",
+      "parentVisuallyInspected": true
+    },
+    {
+      "label": "phone-baseline.png",
+      "path": "screenshots/issue-1620/a556544/phone-baseline.png",
+      "sha256": "0bd43a3c33e663730219d1adcb3d49f212b831df36f0328b121b9c648bbd03d8",
+      "provenance": "iOS c7, baseline desktop 874, synthetic FakeRuntime through real Host and encrypted phone. Historical capture.",
+      "parentVisuallyInspected": true
+    },
+    {
+      "label": "phone-command.png",
+      "path": "screenshots/issue-1620/a556544/phone-command.png",
+      "sha256": "7b35e65e9ed87f099f959e47ada12978f1a565dd45bbf23a9decb729624d3616",
+      "provenance": "iOS c7, desktop bcb, synthetic FakeRuntime through real Host and encrypted phone. Complete-command projection serializes identically at a556; old binary bit-identity not established.",
+      "parentVisuallyInspected": true
+    },
+    {
+      "label": "phone-hidden.png",
+      "path": "screenshots/issue-1620/a556544/phone-hidden.png",
+      "sha256": "d32d32b1a6bc74a053292716e5276a8b523c539908303c93dd85a4f40c1815c4",
+      "provenance": "iOS c7, desktop a556, synthetic FakeRuntime through real Host and encrypted phone; opaque-command pending state.",
+      "parentVisuallyInspected": true
+    }
+  ]
+}
