@@ -8,10 +8,10 @@ const capture = async (page: Page, name: string) => {
 }
 
 for (const theme of ['light','dark'] as const) {
-  test(`quiet usage days retain zero and honest recorded-day coverage in ${theme}`, async ({page}) => {
+  test(`rowless usage days remain unknown with honest recorded-day coverage in ${theme}`, async ({page}) => {
     await openFrame(page,'frame-wall=dashboard&frame-view=spend&frame-fix10-ledger=partial',theme)
     const cost=page.getByRole('region',{name:'What it cost',exact:true})
-    await expect(cost.locator('[data-slot="stat"]').filter({hasText:'Today'})).toContainText('$0')
+    await expect(cost.locator('[data-slot="stat"]').filter({hasText:'Today'})).toContainText('No record yet')
     await expect(cost).toContainText('3 of 30 days with usage')
     await expect(cost).not.toContainText('days scanned')
     await capture(page,`spend-quiet-days-${theme}`)

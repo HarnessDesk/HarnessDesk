@@ -36,7 +36,9 @@ it('places the empty plot inside a chart card', () => {
 it('does not show zero spend for shorter rowless periods', () => {
   act(() => root.render(<Spend ledger={emptyLedger(30)} wideLedger={emptyLedger(60)} byId={new Map()} tintOf={() => 'blue'} scan={null} now={Date.parse('2026-10-10T12:00:00')} range={30} mode="bars" onModeChange={() => {}} onScan={() => {}} />))
   const stats = [...host.querySelectorAll('[data-slot="stat"]')]
-  expect(stats.find(stat => stat.textContent?.includes('Today'))?.textContent).toContain('No record yet')
+  const today = stats.find(stat => stat.textContent?.includes('Today'))!
+  expect(today.querySelector('[data-role="metric"]')?.textContent).toBe('—')
+  expect(today.textContent).toContain('No record yet')
   expect(stats.find(stat => stat.textContent?.includes('Last 7 days'))?.textContent).toContain('No record yet')
   expect(host.querySelector('[data-slot="chart-title"]')?.textContent).toBe('—')
   expect(host.textContent?.match(/0 of 30 days with usage/g)).toHaveLength(1)
@@ -66,16 +68,16 @@ it('agrees across ranges while distinguishing a rowless today from an observed z
   const headline = host.querySelector('[data-slot="chart-title"]')!.textContent
   expect(headline).toBe('$23.09')
   expect(host.textContent).toContain('3 of 7 days with usage')
-  expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('TodayNo record yet')
+  expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('Today—No record yet')
   render(30)
   const week = [...host.querySelectorAll('[data-slot="stat"]')].find(stat => stat.textContent?.includes('Last 7 days'))!
-  expect(week.textContent).toContain(headline)
+  expect(week.querySelector('[data-role="metric"]')?.textContent).toBe(headline)
   expect(week.textContent).toContain('3 of 7 days with history')
-  expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('TodayNo record yet')
+  expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('Today—No record yet')
   render(7, { ...ledger(7), daily: [...daily, { day: day(0), runtime: runtimeId('fixture'), cost: 0, tokens: 0 }] })
   expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('Today$0')
   render(7, { ...ledger(7), daily: [], totalCost: 0, coverage: { ...ledger(7).coverage, daysCovered: 0, coveredDays: [] } }, day(1) + 12 * 3600000)
-  expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('TodayNo record yet')
+  expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('Today—No record yet')
 })
 
 it('counts runtimes in the turns chart’s coverage footnote', () => {
@@ -96,7 +98,7 @@ it.each(['cost', 'tokens', 'turns'] as const)('uses record-based wording for a r
     coverage: { ...emptyLedger(7).coverage, turnsKnownFor: [runtime] } }
   const render = (ledger: LedgerReport) => act(() => root.render(<Spend ledger={ledger} wideLedger={null} byId={new Map()} tintOf={() => 'blue'} scan={null} now={now} range={7} mode="bars" metric={metric} onModeChange={() => {}} onScan={() => {}} />))
   render(base)
-  expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('TodayNo record yet')
+  expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('Today—No record yet')
   render({ ...base, daily: [...base.daily, { day: today, runtime, cost: 0, tokens: 0, turns: 0 }] })
   expect(host.querySelector('[data-slot="stat"]')?.textContent).not.toContain('No record yet')
 })

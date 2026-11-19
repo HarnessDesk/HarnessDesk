@@ -84,11 +84,13 @@ test('FIX9 command card waits for approval and names its folder', async ({ page 
 
 {
 
-  for (const [item0, state] of (['mixed', 'zero']).entries()) test(`FIX9 shorter spend figures keep quiet days known after the earliest retained row [item ${[item0].join('-')}]`, async ({ page }) => {
+  for (const [item0, state] of (['mixed', 'zero']).entries()) test(`FIX9 shorter spend figures distinguish rowless dates from explicit zero [item ${[item0].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, `frame-wall=dashboard&frame-view=spend&frame-fix9-ledger=${state}`)
     const today = page.locator('[data-slot="stat"]').filter({ hasText: 'Today' })
-    await expect(today).toContainText('$0')
+    await expect(today).toContainText(state === 'zero' ? '$0' : 'No record yet')
+    if (state === 'mixed') await expect(today).not.toContainText('$0')
+    if (state === 'zero') await expect(today).not.toContainText('No record yet')
     if (state === 'zero') await expect(page.getByText('30 of 30 days with usage', { exact: true })).toHaveCount(1)
 
 
