@@ -19,35 +19,73 @@ test('a missing recursive watch root refuses instead of returning an inert watch
   }
 })
 
-test('the Linux roster walker never reads synchronously and never follows a nested link', async t => {
+for (const parentFilename of ['native', 'named', 'null'] as const) test(`the Linux roster walker stays async and avoids nested links (parent filename: ${parentFilename})`, async t => {
   const root = tempDir('hd-recursive-async-'), outside = tempDir('hd-recursive-outside-')
   await mkdir(join(root, 'agent'))
   await symlink(outside, join(root, 'linked'))
   const fs = createRequire(import.meta.url)('node:fs')
-  const originals = { lstatSync: fs.lstatSync, readdirSync: fs.readdirSync }
+  const originals = { lstatSync: fs.lstatSync, readdirSync: fs.readdirSync, watch: fs.watch }
+  let watcher: ReturnType<typeof watchRoster> | undefined
+  t.after(() => {
+    try { watcher?.close() } finally { Object.assign(fs, originals); syncBuiltinESMExports() }
+  })
+  let rootCallback: ((event: string, file: string | Buffer | null) => void) | undefined
+  let creatingAgent = false
+  const attached = new Set<string>()
+  fs.watch = (dir: string, options: unknown, listener: (event: string, file: string | Buffer | null) => void) => {
+    const watcher = originals.watch(dir, options, (event: string, file: string | Buffer | null) => {
+      if (creatingAgent && parentFilename !== 'native' && dir === root && String(file) === 'new-agent') listener(event, parentFilename === 'named' ? 'new-agent' : null)
+      else listener(event, file)
+    })
+    if (dir === root) rootCallback = listener
+    attached.add(dir)
+    return watcher
+  }
   const sync: string[] = []
-  for (const [name, original] of Object.entries(originals)) fs[name] = (...args: unknown[]) => {
+  for (const [name, original] of Object.entries({ lstatSync: originals.lstatSync, readdirSync: originals.readdirSync })) fs[name] = (...args: unknown[]) => {
     if (String(args[0]).startsWith(root)) sync.push(name)
     return original(...args)
   }
   syncBuiltinESMExports()
   const changes: string[] = []
-  const watcher = watchRoster(root, { recursive: true, persistent: false, platform: 'linux' }, (_event, file) => changes.push(String(file)))
-  t.after(() => { watcher.close(); Object.assign(fs, originals); syncBuiltinESMExports() })
+  const renames: (string | null)[] = []
+  watcher = watchRoster(root, { recursive: true, persistent: false, platform: 'linux' }, (event, file) => {
+    changes.push(String(file))
+    if (event === 'rename') renames.push(file === null ? null : String(file))
+  })
   assert.deepEqual(sync, [], 'starting a recursive watcher must not block file requests')
   const until = async (check: () => boolean | Promise<boolean>) => {
     const end = Date.now() + 5000
     while (!await check()) { assert.ok(Date.now() < end, 'folder watch did not settle'); await new Promise(done => setTimeout(done, 10)) }
   }
-  // Repeated writes also wait for the initial asynchronous walk to attach.
-  const writeUntilWatched = (file: string) => until(async () => {
-    if (changes.includes(file)) return true
-    await writeFile(join(root, file), 'Synthetic agent')
-    return false
-  })
+  // Wait for the actual watcher before writing once; the same deadline still
+  // covers attachment and the real child-file notification.
+  const writeUntilWatched = (file: string) => {
+    let written = false
+    return until(async () => {
+      if (changes.includes(file)) return true
+      if (!written && attached.has(join(root, file.split('/')[0]!))) {
+        written = true
+        await writeFile(join(root, file), 'Synthetic agent')
+      }
+      return false
+    })
+  }
   await writeUntilWatched('agent/AGENT.md')
+  const beforeMkdir = renames.length
+  creatingAgent = true
   await mkdir(join(root, 'new-agent'))
-  await until(() => changes.includes('new-agent'))
+  assert.ok(rootCallback, 'the real root watcher supplied its callback')
+  if (parentFilename === 'native') {
+    await until(() => renames.slice(beforeMkdir).some(file => file === 'new-agent' || file === null))
+  } else {
+    // Deliver an API-legal parent event through the real watcher's callback.
+    const filename = parentFilename === 'named' ? 'new-agent' : null
+    rootCallback('rename', filename)
+    assert.ok(renames.slice(beforeMkdir).includes(filename), 'the parent rename was forwarded')
+  }
+  // Only a real child notification proves the new folder was watched; a
+  // platform need not report a named event for the parent directory itself.
   await writeUntilWatched('new-agent/AGENT.md')
   const seen = changes.length
   await writeFile(join(outside, 'never-follow.md'), 'Outside the roster')
