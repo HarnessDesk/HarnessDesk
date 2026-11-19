@@ -952,6 +952,7 @@ test('phone refuses permission commands when material meaning or location is hid
     { ...base, facts: [...base.facts!, { label: 'Repository', value: 'another repo' }] },
     { ...base, summary: "bash -lc 'echo ok'", facts: [{ label: 'Command', value: "bash -lc 'echo ok'" }] },
     { ...base, summary: `cat ${CWD}/file`, facts: [{ label: 'Command', value: `cat ${CWD}/file` }] },
+    ...['cat /private/other/file', 'cat C:\\private\\other\\file', 'curl https://example.com/private/path?id=example'].map(value => ({ ...base, summary: value, facts: [{ label: 'Command', value }] })),
     ...[100, 1200].map(n => ({ ...base, summary: `echo ${'x'.repeat(n)}`, facts: [{ label: 'Command', value: `echo ${'x'.repeat(n)}` }] })),
     { ...base, cwd: '/private/other', summary: 'cat /private/other/file', facts: [{ label: 'Command', value: 'cat /private/other/file' }] },
     { ...base, cwd: undefined },
@@ -964,12 +965,17 @@ test('phone refuses permission commands when material meaning or location is hid
   for (const [index, approval] of unsafe.entries()) await t.test(`unsafe case ${index}`, async () => {
     const r = rig(); r.setPending([approval]); const thread = await r.work.threadRead({ id: key }); const ask = thread.turns.find(one => one.type === 'approval')!
     assert.equal(ask.type, 'approval'); if (ask.type !== 'approval') throw new Error('missing approval')
-    assert.match(ask.command, /review.*desk/i); assert.ok(!JSON.stringify(ask).includes('/private/other')); assert.equal(ask.highRisk, true); assert.equal(ask.sessionGrant, undefined)
+    assert.match(ask.command, /review.*desk/i); for (const privateValue of ['/private/other', 'C:\\private', '/private/path?id=example']) assert.ok(!ask.command.includes(privateValue) && !JSON.stringify(ask).includes(JSON.stringify(privateValue).slice(1, -1)));  assert.equal(ask.highRisk, true); assert.equal(ask.sessionGrant, undefined)
     await assert.rejects(r.work.approvalDecide({ id: 'ap-1', session: key, allow: true }), /too long or too sensitive/); assert.equal(r.responded.length, 0)
     await r.work.approvalDecide({ id: 'ap-1', session: key, allow: false }); assert.equal(r.responded[0].decision.optionId, 'deny')
   })
   const relative = assessApproval({ ...base, cwd: '.' }, '.', { home: HOME, seat: 'Agent A' })!
   assert.equal(relative.readable, false); assert.match(relative.turn.command, /review.*desk/i)
+  const ordinary: Extract<Approval, { type: 'permission' }> = { ...base, summary: 'cat /private/other/file', facts: undefined }
+  const legacy = assessApproval(ordinary, CWD, { home: HOME, seat: 'Agent A' })!
+  assert.equal(legacy.readable, true); assert.ok(!legacy.turn.command.includes('/private/other'))
+  const relativePath = assessApproval({ ...base, summary: 'cat src/file', facts: [{ label: 'Command', value: 'cat src/file' }] }, CWD, { home: HOME, seat: 'Agent A' })!
+  assert.equal(relativePath.readable, true); assert.equal(relativePath.turn.command, 'cat src/file')
   const r = rig(); r.setPending([base]); const thread = await r.work.threadRead({ id: key }); const ask = thread.turns.find(one => one.type === 'approval')!
   assert.equal(ask.type, 'approval'); if (ask.type === 'approval') assert.equal(ask.command, 'echo ok')
   await r.work.approvalDecide({ id: 'ap-1', session: key, allow: true }); assert.equal(r.responded[0].decision.optionId, 'allow')

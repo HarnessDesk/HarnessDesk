@@ -171,7 +171,7 @@ export const assessApproval = (approval: Approval, cwd: string | null | undefine
         approval.summary === value && approval.facts?.length === 1 && !approval.gateway &&
         !approval.filesystem?.length && !approval.network?.length && !approval.flowBoardTool &&
         !approval.extraGrants?.length && !approval.reason && !!approval.cwd && !!cwd && isAbsolute(approval.cwd) && isAbsolute(cwd) && approval.cwd === cwd &&
-        view.whole && view.text === value && view.text.trim().length > 0 && !view.text.includes('…')
+        view.whole && view.text === value && scrub(value, 600) === value && view.text.trim().length > 0 && !view.text.includes('…')
       command = readable ? view.text : `${scrub(approval.summary, 300)}\nReview this request on the desk.`.trim()
     } else command = scrub(approval.summary, 300)
     highRisk = true
