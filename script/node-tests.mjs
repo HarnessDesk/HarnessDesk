@@ -85,6 +85,8 @@ export const GROUPS = [
       // These two wire paths exercise the real Lead runtime admission; the
       // rest of the attempt regressions remain in Node 22's unit group.
       'packages/server/dist/test/lead-attempts-wire.test.js',
+      // The observer Host integration starts the real Lead child for its active-goal case.
+      'packages/server/dist/test/issue-2066-host-integration.test.js',
     ],
     timeout: 120_000, node: 26,
   },

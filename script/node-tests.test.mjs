@@ -75,6 +75,20 @@ test('Lead retry wire cases run on Node 26 while ordinary attempt cases stay on 
   assert.equal(groupOf(ordinary).node, 22)
 })
 
+test('mention observer Host integration uses Node 26 while storage and pricing stay on Node 22', () => {
+  const host = 'packages/server/dist/test/issue-2066-host-integration.test.js'
+  const ordinary = ['packages/server/dist/test/mention-observer-budget.test.js', 'packages/server/dist/test/mention-observer-pricing.test.js']
+  assert.ok([host, ...ordinary].every(file => files.includes(file)), 'all three test files are in the CI plan')
+  assert.equal(groupOf(host).name, 'lead')
+  assert.equal(groupOf(host).node, 26)
+  for (const file of ordinary) { assert.equal(groupOf(file).name, 'unit'); assert.equal(groupOf(file).node, 22) }
+  const jobs = plan([host, ...ordinary], {}, { 22: 1, 26: 1 })
+  for (const [file, group, node] of [[host, 'lead', 26], ...ordinary.map(file => [file, 'unit', 22])]) {
+    const matches = jobs.flatMap(job => job.runs.flatMap(run => run.files.filter(candidate => candidate === file).map(() => ({ group: run.group, node: job.node }))))
+    assert.deepEqual(matches, [{ group, node }], `${file} is dealt once on its intended runtime`)
+  }
+})
+
 test('a file with no recorded seconds counts as the median, and the deal balances by load', () => {
   const sample = ['packages/a/dist/test/big.test.js', 'packages/a/dist/test/b.test.js', 'packages/a/dist/test/c.test.js', 'packages/a/dist/test/d.test.js']
   const jobs = plan(sample, { [sample[0]]: 300, [sample[1]]: 3, [sample[2]]: 3 }, { 22: 2 })
