@@ -1,0 +1,51 @@
+{
+  "issue": 2066,
+  "base": "8747117c8055af001ab3dc25574272d1d272ac15",
+  "scope": "synthetic actual Electron and Host; defaultOff, explicit1250000 microdollars, persistence andOff; no providercalls/keys/livebilling",
+  "shutdown": "one exactownedchild SIGTERM routes production app.quit,exit0,signalnull,ownedgroupabsent; not UI CmdQ/menu",
+  "isolation": "whole driver tree outer OS networkdeny,loopback/scopedUNIX; synthetic stagedaccounts/homes; not shippedChromiumsandboxproof",
+  "validation": "actualHostreadsandpersistedcap independentreadback; fullnormal/review/CI pending",
+  "head": "2e2a8e5dcb2407b8371f736d6ba68c942f7d55c0",
+  "frames": [
+    {
+      "label": "before-settings-lead",
+      "path": "screenshots/issue-2066/2e2a8e5/before-settings-lead.png",
+      "source": "8747117c8055af001ab3dc25574272d1d272ac15",
+      "sha256": "ea409243bd0166f5ca9d2177414f8f03e32e6594fdcf9b7e08dc4d2f4c6424c6",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-default-off",
+      "path": "screenshots/issue-2066/2e2a8e5/after-default-off.png",
+      "source": "2e2a8e5dcb2407b8371f736d6ba68c942f7d55c0",
+      "sha256": "38fbb8c68367d9990afb86b9a5989d00680f3e4aa85af8d0a863136ce1b8bbc3",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-saved",
+      "path": "screenshots/issue-2066/2e2a8e5/after-saved.png",
+      "source": "2e2a8e5dcb2407b8371f736d6ba68c942f7d55c0",
+      "sha256": "6aa8bb231eb799f242dcd69bf8672d9e046ab2319620053e820a5a54f8af2c34",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-reopened",
+      "path": "screenshots/issue-2066/2e2a8e5/after-reopened.png",
+      "source": "2e2a8e5dcb2407b8371f736d6ba68c942f7d55c0",
+      "sha256": "60a0b465b2712db602d69135a887501daf6340972a3a875ed6f0026d5abe1dc1",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-turned-off",
+      "path": "screenshots/issue-2066/2e2a8e5/after-turned-off.png",
+      "source": "2e2a8e5dcb2407b8371f736d6ba68c942f7d55c0",
+      "sha256": "868d19f192621347856e39910462bc6b814a1966e400dd32948c3e79aabb08eb",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    }
+  ]
+}
