@@ -10746,6 +10746,8 @@ export class Host {
       }
       // The runtime first, because whether it deleted decides what the desk keeps.
       const asked = owner ? await this.#askToDelete(owner, id) : null
+      // A newer seating can take this key while the runtime deletion waits.
+      if (this.#seating.get(key) !== inHand) return { kind: 'inUse' }
       // Then out of the host's records and every window, before any file is touched.
       this.registry.delete(runtime, id)
       this.#turnSinceIdle.delete(`${runtime}\u0000${String(id)}`)
@@ -10754,7 +10756,7 @@ export class Host {
       await this.#forgetSeat(runtime, id, left)
       return left
     } finally {
-      this.#seating.delete(key)
+      if (this.#seating.get(key) === inHand) this.#seating.delete(key)
     }
   }
 

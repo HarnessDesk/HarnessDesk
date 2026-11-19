@@ -117,6 +117,9 @@ export interface DeskOptions {
   readonly consultTimers?: QuestionTimers
   /** How many retired consults the host keeps refusing by id. */
   readonly consultsRetiredKept?: number
+  readonly skipStart?: boolean
+  readonly stateDir?: string
+  readonly beforeHost?: (stateDir: string) => Promise<void>
   readonly consultAuthorityAfterCommit?: () => void
 }
 
@@ -128,7 +131,7 @@ export const desk = async (t: TestContext, second: Second = { id: 'fake-b', prov
   // Work happens on a branch, so what an Agent commits is a real diff against `main` — unless the test says it stays there.
   if (!options.onMain) await repo.git('checkout', '-q', '-b', 'work')
   const gh = forge()
-  const stateDir = tempDir('hd-flow-host-state-')
+  const stateDir = options.stateDir ?? tempDir('hd-flow-host-state-')
   for (const [id, agent] of Object.entries(AGENTS)) {
     await mkdir(join(stateDir, 'agents', id), { recursive: true })
     await writeFile(join(stateDir, 'agents', id, 'AGENT.md'), [
@@ -138,6 +141,7 @@ export const desk = async (t: TestContext, second: Second = { id: 'fake-b', prov
       `prefer: [${agent.prefer === 'fake-b' ? second.id : agent.prefer}]`, '---', `Do the ${id} part.`, '',
     ].join('\n'), 'utf8')
   }
+  await options.beforeHost?.(stateDir)
   const host = new Host({
     logger: silent,
     state: new StateStore(join(stateDir, 'state.json')),
@@ -160,7 +164,7 @@ export const desk = async (t: TestContext, second: Second = { id: 'fake-b', prov
     runtime.refusesWhileBusy = options.refusesWhileBusy ?? false
     host.register(runtime)
   }
-  await host.start()
+  if (!options.skipStart) await host.start()
   if (!options.registerHostCleanup) t.after(() => host.dispose())
   let wake: (() => void) | null = null
   let next = new Promise<void>((resolve) => { wake = resolve })
@@ -169,7 +173,7 @@ export const desk = async (t: TestContext, second: Second = { id: 'fake-b', prov
     next = new Promise<void>((resolve) => { wake = resolve })
     woken?.()
   })
-  await host.call('workspace/open', { path: repo.dir })
+  if (!options.skipStart) await host.call('workspace/open', { path: repo.dir })
   return { host, root: repo.dir, forge: gh, runs: [], runtimes, stateDir, moved: () => next, problems: [] }
 }
 
