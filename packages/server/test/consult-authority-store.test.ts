@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, renameSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -110,4 +110,41 @@ test('commit failure rolls back archive and latches', () => {
     assert.throws(() => store.lookup('first'))
     assert.equal(external.prepare("SELECT count(*) AS n FROM members WHERE key='first'").get()?.n, 0)
   } finally { external.close(); cleanup() }
+})
+
+test('archive includes the root even when omitted from members', () => {
+  const { store, cleanup } = setup()
+  try { store.archive('one', 'root', ['child']); assert.deepEqual(store.lookup('root'), { incarnation: 'one', root: 'root' }) } finally { cleanup() }
+})
+
+test('a symlink to the original database is refused and left untouched', () => {
+  const { store, cleanup } = setup()
+  try {
+    store.archive('one', 'root', ['root'])
+    renameSync(store.file, `${store.file}.old`)
+    symlinkSync(`${store.file}.old`, store.file)
+    assert.throws(() => store.lookup('root'))
+    assert.throws(() => store.lookup('root'))
+  } finally { cleanup() }
+})
+
+test('a post-commit error latches even when the transaction committed', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'consult-commit-'))
+  const store = new ConsultAuthorityStore(dir, { afterCommit: () => { throw new Error('injected post-commit error') } })
+  try {
+    assert.throws(() => store.archive('one', 'root', ['child']))
+    const external = new DatabaseSync(store.file, { readOnly: true })
+    try { assert.equal(external.prepare("SELECT incarnation FROM members WHERE key='child'").get()?.incarnation, 'one') } finally { external.close() }
+    assert.throws(() => store.lookup('child'))
+  } finally { store.close(); rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('truncated database query fails closed', () => {
+  const { store, cleanup } = setup()
+  try {
+    store.archive('one', 'root', Array.from({ length: 5000 }, (_, i) => `key-${i}`))
+    truncateSync(store.file, 0)
+    assert.throws(() => store.lookup('key-4999'))
+    assert.throws(() => store.lookup('root'))
+  } finally { cleanup() }
 })

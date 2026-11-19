@@ -1,4 +1,4 @@
-import { closeSync, mkdirSync, openSync, statSync, unlinkSync } from 'node:fs'
+import { closeSync, mkdirSync, openSync, lstatSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
@@ -13,19 +13,23 @@ export class ConsultAuthorityStore {
   #failed = false
   #closed = false
 
-  constructor(directory: string) {
+  constructor(directory: string, private readonly hooks: { readonly afterCommit?: () => void } = {}) {
     mkdirSync(directory, { recursive: true, mode: 0o700 })
     this.file = join(directory, `consult-authority-${randomUUID()}.sqlite`)
     const fd = openSync(this.file, 'wx', 0o600)
     closeSync(fd)
-    const identity = statSync(this.file)
+    const identity = lstatSync(this.file)
     this.#identity = { dev: identity.dev, ino: identity.ino }
     try {
       this.#db = new DatabaseSync(this.file)
       this.#db.exec(`PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA cache_size=-1024;
         CREATE TABLE members (key TEXT PRIMARY KEY, incarnation TEXT NOT NULL, root TEXT NOT NULL) WITHOUT ROWID;`)
+      if (this.#db.prepare('PRAGMA quick_check').get()?.quick_check !== 'ok') throw new Error('Consult authority store corrupt')
     } catch (error) {
-      try { unlinkSync(this.file) } catch { /* leave an inaccessible file alone */ }
+      try {
+        const current = lstatSync(this.file)
+        if (current.isFile() && current.nlink === 1 && current.dev === this.#identity.dev && current.ino === this.#identity.ino) unlinkSync(this.file)
+      } catch { /* leave an inaccessible file alone */ }
       throw error
     }
   }
@@ -33,10 +37,9 @@ export class ConsultAuthorityStore {
   #check(): void {
     if (this.#failed || this.#closed) throw new Error('Consult authority store unavailable')
     try {
-      const identity = statSync(this.file)
+      const identity = lstatSync(this.file)
       if (identity.dev !== this.#identity.dev || identity.ino !== this.#identity.ino) throw new Error('Consult authority store replaced')
-      const check = this.#db.prepare('PRAGMA quick_check').get()
-      if (check?.quick_check !== 'ok') throw new Error('Consult authority store corrupt')
+      if (!identity.isFile() || identity.nlink !== 1) throw new Error('Consult authority store is not a private regular file')
     } catch (error) { this.#failed = true; throw error }
   }
 
@@ -48,7 +51,7 @@ export class ConsultAuthorityStore {
   #transaction<T>(operation: () => T): T {
     return this.#run(() => {
       this.#db.exec('BEGIN IMMEDIATE')
-      try { const value = operation(); this.#db.exec('COMMIT'); return value }
+      try { const value = operation(); this.#db.exec('COMMIT'); this.hooks.afterCommit?.(); return value }
       catch (error) { try { this.#db.exec('ROLLBACK') } catch { /* original failure wins */ }; throw error }
     })
   }
@@ -57,7 +60,7 @@ export class ConsultAuthorityStore {
     this.#transaction(() => {
       const insert = this.#db.prepare('INSERT INTO members VALUES (?, ?, ?) ON CONFLICT(key) DO NOTHING')
       const current = this.#db.prepare('SELECT incarnation, root FROM members WHERE key=?')
-      for (const key of members) {
+      for (const key of (function* () { yield root; yield* members })()) {
         insert.run(key, incarnation, root)
         const owner = current.get(key)
         if (owner?.incarnation !== incarnation || owner.root !== root) throw new Error('Consult authority owner conflict')
@@ -96,8 +99,8 @@ export class ConsultAuthorityStore {
     this.#closed = true
     this.#db.close()
     try {
-      const identity = statSync(this.file)
-      if (identity.dev === this.#identity.dev && identity.ino === this.#identity.ino) unlinkSync(this.file)
+      const identity = lstatSync(this.file)
+      if (identity.isFile() && identity.nlink === 1 && identity.dev === this.#identity.dev && identity.ino === this.#identity.ino) unlinkSync(this.file)
     } catch { /* absent or inaccessible: never remove another file */ }
   }
 }
