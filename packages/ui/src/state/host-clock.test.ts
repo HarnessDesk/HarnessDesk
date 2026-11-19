@@ -2,6 +2,30 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { HostClockController } from './host-clock'
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
 describe('HostClockController', () => {
+  it('does not issue a second request when capability negotiation repeats on one connection', () => {
+    vi.useFakeTimers()
+    const request = vi.fn(() => new Promise(() => {}))
+    const clock = new HostClockController(request, () => {})
+    clock.connect(true)
+    clock.connect(true)
+    expect(request).toHaveBeenCalledTimes(1)
+    clock.disconnect()
+  })
+  it('does not overlap a pending probe after a capability drop and restoration', async () => {
+    vi.useFakeTimers()
+    let settle!: (value: unknown) => void
+    const request = vi.fn(() => new Promise(resolve => { settle = resolve }))
+    const clock = new HostClockController(request, () => {})
+    clock.connect(true)
+    clock.connect(false)
+    clock.connect(true)
+    expect(request).toHaveBeenCalledTimes(1)
+    settle({ hostNowMs: 100_000, clockEpoch: 'old' })
+    await Promise.resolve(); await Promise.resolve()
+    expect(clock.read()).toBeNull()
+    expect(request).toHaveBeenCalledTimes(2)
+    clock.disconnect()
+  })
   it('samples and refreshes 30 seconds after settlement', async () => {
     vi.useFakeTimers(); vi.setSystemTime(1_000_000)
     const request = vi.fn().mockResolvedValue({ hostNowMs: 100_000, clockEpoch: 'one' })

@@ -4,6 +4,7 @@ import { HostClockEstimator, type HostTimeInterval } from '../lib/host-clock'
 export class HostClockController {
   private readonly estimator = new HostClockEstimator()
   private generation = 0
+  private connected = false
   private supported = false
   private pending: object | null = null
   private refresh: ReturnType<typeof setTimeout> | null = null
@@ -14,12 +15,23 @@ export class HostClockController {
   constructor(private readonly request: () => Promise<unknown>, private readonly changed: () => void) {}
 
   connect(supported: boolean): void {
-    this.disconnect()
+    if (this.connected && this.supported === supported) return
+    if (!this.connected) {
+      this.connected = true
+      this.supported = supported
+      this.fence()
+      if (supported) this.probe()
+      return
+    }
     this.supported = supported
-    if (supported) this.probe()
+    this.clearTimers()
+    this.fence()
+    this.resample = supported && this.pending !== null
+    if (supported && !this.pending) this.probe()
   }
 
   disconnect(): void {
+    this.connected = false
     this.supported = false
     this.pending = null
     this.resample = false
