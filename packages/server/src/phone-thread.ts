@@ -164,10 +164,15 @@ export const assessApproval = (approval: Approval, cwd: string | null | undefine
     const commands = approval.facts?.filter(fact => fact.label === 'Command') ?? []
     if (commands.length) {
       const value = commands.length === 1 ? commands[0]?.value : undefined
-      const view = typeof value === 'string' && value.trim() ? commandForApproval(value, cwd, context.home, hasSecret) : { text: '', whole: false }
-      const useful = view.text.trim() !== '' && view.text.trim() !== '…'
-      readable = view.whole && useful
-      command = !useful ? 'Hidden: review it on the desk.' : view.whole ? view.text : `${view.text}\n(cut short: review it on the desk)`
+      const view = typeof value === 'string' && value.trim() ? commandForApproval(value, approval.cwd, context.home, hasSecret) : { text: '', whole: false }
+      // The existing phone fields cannot represent a distinct scope, extra facts, or a different working directory.
+      // Keep those decisions on the desk instead of making a partial question look complete.
+      readable = typeof value === 'string' && value.trim().length > 0 && value.length <= 600 &&
+        approval.summary === value && approval.facts?.length === 1 && !approval.gateway &&
+        !approval.filesystem?.length && !approval.network?.length && !approval.flowBoardTool &&
+        !approval.extraGrants?.length && !approval.reason && !!approval.cwd && !!cwd && isAbsolute(approval.cwd) && isAbsolute(cwd) && approval.cwd === cwd &&
+        view.whole && view.text === value && view.text.trim().length > 0 && !view.text.includes('…')
+      command = readable ? view.text : `${scrub(approval.summary, 300)}\nReview this request on the desk.`.trim()
     } else command = scrub(approval.summary, 300)
     highRisk = true
   }
