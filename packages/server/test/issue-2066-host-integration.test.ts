@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { dirname, join } from 'node:path'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
-import { execFileSync } from 'node:child_process'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { execFileSync, fork } from 'node:child_process'
 import { canBeginLeadGoal, createLeadJournal } from '@harnessdesk/lead'
 import { LeadFileJournal } from '../src/lead/journal.js'
 import { createLeadRig } from './fixtures/lead-rig.js'
@@ -11,6 +11,9 @@ import { LEAD_MESSAGES_DEFAULTS } from '@harnessdesk/lead'
 import { CredentialBroker } from '../src/credentials.js'
 import { intakeDesk, commitTriggers } from './fixtures/intake-host.js'
 import { makeRepo } from './fixtures/evidence-desk.js'
+import { tempDir } from './scratch.js'
+import { MentionObserverBudget } from '../src/lead/mention-observer-budget.js'
+import { CarryOnService } from '../src/carry-on/service.js'
 
 const trigger = `- id: ask
   on: mention
@@ -195,11 +198,158 @@ test('a failed observer budget close still releases unrelated Host storage', { t
   await sent
   assert.ok((await d.host.call('lead/mentionBudget/read', {})).reservedUsdMicros > 0)
   await writeFile(join(d.stateDir, 'lead', 'mention-observer-budget.json'), '{"tampered":true}')
+  // Intake now drains first, so its settlement sees the tamper before close.
+  // Inject a separate close failure to verify that Host still drains and reports it.
+  const originalClose = MentionObserverBudget.prototype.close
+  MentionObserverBudget.prototype.close = async function () { await originalClose.call(this); throw new Error('synthetic budget close failure') }
   const closing = d.stop()
   const releaseTimer = setTimeout(release, 500)
-  try { await assert.rejects(closing) } finally { clearTimeout(releaseTimer); release() }
+  try { await assert.rejects(closing, /synthetic budget close failure/) } finally { MentionObserverBudget.prototype.close = originalClose; clearTimeout(releaseTimer); release() }
   await tick.catch(() => {})
   const reopened = await intakeDesk({ repo, stateDir: d.stateDir, lead: true })
   t.after(() => reopened.stop())
   assert.ok(reopened.host, 'the unrelated Host writer lease was released')
+})
+
+test('shutdown drains an in-flight assessment before closing its budget', { timeout: 60000 }, async t => {
+  const repo = await makeRepo('hd-mention-shutdown-')
+  await commitTriggers(repo, trigger)
+  let release!: () => void, started!: () => void, signal!: AbortSignal
+  const held = new Promise<void>(resolve => { release = resolve })
+  const sent = new Promise<void>(resolve => { started = resolve })
+  let calls = 0
+  const transport = { async send(request: { signal: AbortSignal }) {
+    calls++; signal = request.signal; started(); await held
+    return { status: 200, body: JSON.stringify({ content: [{ type: 'text', text: '{"decision":"ask","reason":"Please decide."}' }], usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } }) }
+  } }
+  const cipher = { protection: 'synthetic cipher', encrypt: (plain: string) => Buffer.from(Buffer.from(plain).toString('hex')), decrypt: (blob: Buffer) => Buffer.from(blob.toString(), 'hex').toString() }
+  const d = await intakeDesk({ repo, lead: true, characterizationTransport: transport, characterizationSeed: async stateDir => {
+    await new CredentialBroker(join(stateDir, 'credentials.json'), cipher).storeLead('anthropic', 'sk-test-not-real-0000')
+  } })
+  t.after(async () => { release(); await d.stop().catch(() => {}) })
+  d.forge.users.set('a-teammate', { id: 31 })
+  const preview = await d.host.call('trigger/preview', { root: repo.dir, id: 'ask' })
+  await d.host.call('trigger/arm', { root: repo.dir, id: 'ask', token: preview.token! })
+  await d.host.call('trigger/mode', { root: repo.dir, id: 'ask', mode: 'act' })
+  await d.host.call('lead/mentionBudget/configure', { dailyCapUsdMicros: 1000000 })
+  const at = d.clocks.wall + 1000
+  d.forge.issues.push({ number: 1, state: 'open', created: at, updated: at, events: [], comments: [{ id: 9001, body: '@dex please fix this', created: at, updated: at, user: { id: 31, login: 'a-teammate' } }] })
+  d.clocks.advance(60000)
+  const tick = d.host.intakePlane.tick()
+  await sent
+  const pending = await d.host.call('lead/mentionBudget/read', {})
+  assert.ok(pending.reservedUsdMicros > 0)
+  let reached!: () => void, budgetClosing = false
+  const boundary = new Promise<void>(resolve => { reached = resolve })
+  const originalIdle = CarryOnService.prototype.storageIdle, originalClose = MentionObserverBudget.prototype.close
+  CarryOnService.prototype.storageIdle = async function () { await originalIdle.call(this); reached() }
+  MentionObserverBudget.prototype.close = function () { budgetClosing = true; return originalClose.call(this) }
+  const closing = d.stop()
+  try {
+    await boundary
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(budgetClosing, false, 'the budget stays open while the source delivery is in flight')
+    assert.equal(signal.aborted, false, 'a complete response precedes the separate mention abort')
+  } finally {
+    CarryOnService.prototype.storageIdle = originalIdle; MentionObserverBudget.prototype.close = originalClose
+    release(); await closing; await tick.catch(() => {})
+  }
+  const reopened = await intakeDesk({ repo, stateDir: d.stateDir, lead: true })
+  t.after(() => reopened.stop())
+  const budget = await reopened.host.call('lead/mentionBudget/read', {})
+  assert.equal(calls, 1)
+  assert.equal(budget.reservedUsdMicros, 0)
+  assert.equal(budget.uncertainUsdMicros, 0, 'completed usage must not become uncertain at shutdown')
+  assert.equal(budget.spentUsdMicros, 20)
+})
+
+test('assessment has a durable manual decision before provider dispatch', { timeout: 60000 }, async t => {
+  const repo = await makeRepo('hd-mention-shutdown-')
+  await commitTriggers(repo, trigger)
+  let release!: () => void, started!: () => void, signal!: AbortSignal
+  const held = new Promise<void>(resolve => { release = resolve })
+  const sent = new Promise<void>(resolve => { started = resolve })
+  let calls = 0
+  const transport = { async send(request: { signal: AbortSignal }) {
+    calls++; signal = request.signal; started(); await held
+    return { status: 200, body: JSON.stringify({ content: [{ type: 'text', text: '{"decision":"ask","reason":"Please decide."}' }], usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } }) }
+  } }
+  const cipher = { protection: 'synthetic cipher', encrypt: (plain: string) => Buffer.from(Buffer.from(plain).toString('hex')), decrypt: (blob: Buffer) => Buffer.from(blob.toString(), 'hex').toString() }
+  const d = await intakeDesk({ repo, lead: true, characterizationTransport: transport, characterizationSeed: async stateDir => {
+    await new CredentialBroker(join(stateDir, 'credentials.json'), cipher).storeLead('anthropic', 'sk-test-not-real-0000')
+  } })
+  t.after(async () => { release(); await d.stop().catch(() => {}) })
+  d.forge.users.set('a-teammate', { id: 31 })
+  const preview = await d.host.call('trigger/preview', { root: repo.dir, id: 'ask' })
+  await d.host.call('trigger/arm', { root: repo.dir, id: 'ask', token: preview.token! })
+  await d.host.call('trigger/mode', { root: repo.dir, id: 'ask', mode: 'act' })
+  await d.host.call('lead/mentionBudget/configure', { dailyCapUsdMicros: 1000000 })
+  const at = d.clocks.wall + 1000
+  d.forge.issues.push({ number: 1, state: 'open', created: at, updated: at, events: [], comments: [{ id: 9001, body: '@dex please fix this', created: at, updated: at, user: { id: 31, login: 'a-teammate' } }] })
+  d.clocks.advance(60000)
+  const tick = d.host.intakePlane.tick()
+  await sent
+  try {
+    const ledger = JSON.parse(await readFile(join(d.stateDir, 'triggers-mentions.json'), 'utf8'))
+    assert.equal(ledger.assessed.count, 1)
+    assert.equal(ledger.decisions.length, 1, 'replay must find a decision before the provider effect')
+    assert.equal(ledger.decisions[0].decision, 'ask')
+    assert.match(ledger.decisions[0].reason, /unconfirmed/i)
+  } finally { release(); await tick.catch(() => {}) }
+  assert.equal(calls, 1)
+})
+
+
+test('a crashed assessment is not automatically resent and can be manually re-evaluated', { timeout: 60000 }, async t => {
+  const repo = await makeRepo('hd-mention-crash-')
+  await commitTriggers(repo, trigger)
+  const stateDir = tempDir('hd-mention-crash-state-')
+  const child = fork(new URL('./fixtures/mention-crash.js', import.meta.url), [repo.dir, stateDir], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] })
+  let errors = ''; child.stderr?.on('data', chunk => { errors += String(chunk) })
+  t.after(async () => {
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = new Promise<void>(resolve => child.once('exit', () => resolve()))
+      child.kill('SIGKILL'); await exited
+    }
+  })
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`dispatch deadline: ${errors}`)), 15000)
+    child.once('message', message => { clearTimeout(timer); message === 'dispatched' ? resolve() : reject(new Error('unexpected fixture message')) })
+    child.once('exit', () => { clearTimeout(timer); reject(new Error(`child exited before dispatch: ${errors}`)) })
+  })
+  const exit = new Promise<void>(resolve => child.once('exit', () => resolve()))
+  child.kill('SIGKILL'); await exit
+  const clocks = new Clocks(1800000000000); clocks.advance(60000)
+  let calls = 0
+  const transport = { async send() { calls++; return { status: 200, body: JSON.stringify({ content: [{ type: 'text', text: '{"decision":"ask","reason":"Please decide."}' }], usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } }) } } }
+  const d = await intakeDesk({ repo, stateDir, clocks, lead: true, characterizationTransport: transport })
+  t.after(() => d.stop())
+  d.forge.users.set('a-teammate', { id: 31 })
+  const at = 1800000001000
+  d.forge.issues.push({ number: 1, state: 'open', created: at, updated: at, events: [], comments: [{ id: 9001, body: '@dex please fix this', created: at, updated: at, user: { id: 31, login: 'a-teammate' } }] })
+  clocks.advance(60000); await d.host.intakePlane.tick()
+  assert.equal(calls, 0, 'cursor replay does not resend an uncertain assessment')
+  const page = await d.host.call('trigger/decisions', { root: repo.dir, id: 'ask' })
+  const decision = page.decisions.find(one => one.comment.id === '9001')
+  assert.ok(decision); assert.match(decision.reason, /unconfirmed/i)
+  const budget = await d.host.call('lead/mentionBudget/read', {})
+  assert.ok(budget.uncertainUsdMicros > 0)
+  const comment = d.forge.issues[0]!.comments[0]!
+  comment.body = '@dex please fix an edited request'
+  comment.updated = d.forge.issues[0]!.updated = clocks.wall + 1000
+  clocks.advance(60000); await d.host.intakePlane.tick()
+  assert.equal(calls, 0, 'an edited comment is not sent automatically')
+  await assert.rejects(d.host.call('trigger/decision/reevaluate', { root: repo.dir, id: 'ask', decision: decision.id }), /edited after it was first read/)
+  comment.body = '@dex please fix this'
+  const rearm = await d.host.call('trigger/preview', { root: repo.dir, id: 'ask' })
+  await d.host.call('trigger/arm', { root: repo.dir, id: 'ask', token: rearm.token! })
+  clocks.advance(60000); await d.host.intakePlane.tick()
+  assert.equal(calls, 0, 'rearming does not resend the prior uncertain comment')
+  await d.host.call('lead/mentionBudget/configure', { dailyCapUsdMicros: 0 })
+  const refused = await d.host.call('trigger/decision/reevaluate', { root: repo.dir, id: 'ask', decision: decision.id })
+  assert.match(refused.reason, /unconfirmed/i, 'a refused new attempt cannot erase the earlier uncertainty')
+  assert.equal(calls, 0)
+  await d.host.call('lead/mentionBudget/configure', { dailyCapUsdMicros: 1000000 })
+  await d.host.call('trigger/decision/reevaluate', { root: repo.dir, id: 'ask', decision: decision.id })
+  assert.equal(calls, 1, 'a person can explicitly request a new assessment')
 })

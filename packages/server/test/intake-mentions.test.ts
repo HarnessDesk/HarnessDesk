@@ -15,7 +15,7 @@ import { tempDir } from './scratch.js'
 import { writeTriggers } from '../src/authoring/model.js'
 import { Logger } from '../src/log.js'
 import { parseTriggers } from '../src/intake/definition.js'
-import { addressesHandle, asksToStop, parseAssessment, MentionTriage, type MentionAssessInput, type MentionAssessor, type WorkItemsPort } from '../src/intake/mentions.js'
+import { addressesHandle, asksToStop, parseAssessment, MentionTriage, ASSESS_UNCONFIRMED, type MentionAssessInput, type MentionAssessor, type WorkItemsPort } from '../src/intake/mentions.js'
 import { PHONE_POLICY } from '../src/phone-link.js'
 import { LeadAutomaticGoals } from '../src/lead/automatic-goals.js'
 import { Admission } from '../src/intake/admission.js'
@@ -225,7 +225,7 @@ test('the assessment unavailable is a question for the person, never a guess; Re
   await say(d, 1, '@dex could you take a look')
   let [one] = (await decisions(d)).decisions
   assert.deepEqual([one!.decision, one!.by], ['ask', 'assessment'])
-  assert.match(one!.reason, /could not be made/)
+  assert.equal(one!.reason, ASSESS_UNCONFIRMED)
   assert.ok(d.pushed.some((notice) => notice.method === 'trigger/attention'), 'acting, the person is told it waits for them')
 
   d.model.answer = { decision: 'ignore', reason: 'Not a request for work.' }
@@ -2099,4 +2099,29 @@ test('a same-trigger thread linked after an unobserved interval receives that re
   const after = await decisions(d)
   assert.equal(after.threads.find(one => one.id === b.id)?.resumes, 1)
   assert.equal(after.threads.find(one => one.id === a.id)?.resumes, 0)
+})
+
+
+test('unconfirmed assessment decisions survive ordinary history rotation and refuse at capacity', E2E, async t => {
+  const repo = await makeRepo('hd-mention-protected-')
+  await commitTriggers(repo, ASK())
+  const stateDir = tempDir('hd-mention-protected-state-')
+  const make = (i: number, reason: string) => ({ id: `d-protected-${i}`, trigger: 'ask', project: repo.dir, repository: 'acme/widgets',
+    thread: { kind: 'issue', number: i + 1 }, comment: { id: String(80000 + i), url: `https://github.com/acme/widgets/issues/1#issuecomment-${80000 + i}`, at: NOON, author: 'a-teammate', excerpt: '@dex please fix' },
+    decision: 'ask', reason, by: 'assessment', rules: [], mode: 'act', acted: false, work: null, decidedAt: NOON, evaluations: 0 })
+  const seeded = [...Array.from({ length: 499 }, (_, i) => make(i, ASSESS_UNCONFIRMED)), make(499, 'Ordinary old decision')]
+  await writeFile(join(stateDir, LEDGER), JSON.stringify({ version: 1, decisions: seeded, threads: [], modes: {}, assessed: { day: '', count: 0 } }))
+  const d = await desk(t, ASK(), { stateDir, repo })
+  d.model.answer = null
+  await say(d, 1, '@dex please fix this', NAMED)
+  assert.equal(d.model.inputs.length, 1)
+  let ledger = JSON.parse(await readFile(join(stateDir, LEDGER), 'utf8'))
+  assert.equal(ledger.decisions.length, 500)
+  assert.equal(ledger.decisions.filter((one: { reason: string }) => one.reason === ASSESS_UNCONFIRMED).length, 500)
+  assert.equal(ledger.decisions.some((one: { id: string }) => one.id === 'd-protected-499'), false, 'only ordinary history rotates')
+  await say(d, 2, '@dex please fix another', NAMED)
+  assert.equal(d.model.inputs.length, 1, 'full protected history refuses before another effect')
+  ledger = JSON.parse(await readFile(join(stateDir, LEDGER), 'utf8'))
+  assert.equal(ledger.decisions.length, 500)
+  assert.equal(ledger.assessed.count, 1, 'a refused attempt does not consume the daily count')
 })

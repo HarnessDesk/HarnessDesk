@@ -46,7 +46,7 @@ export interface AssessUsage {
 /** One observer request's independent budget hold. */
 export interface AssessCharge {
   /** It used this: the hold is settled at it. */
-  settle(usage: AssessUsage): Promise<void>
+  settle(usage: AssessUsage): Promise<boolean | void>
   /** What it cost cannot be known: the whole hold is counted. */
   unknown(): Promise<void>
 }
@@ -85,19 +85,23 @@ export const observerAssessor = (options: {
   readonly key: () => Promise<string | null>
   readonly model: string
   readonly account: AssessAccount
-}): MentionAssessor => async (input, signal) => {
+}): MentionAssessor => async (input, signal, evidence) => {
   const key = await options.key().catch(() => null)
-  if (!key) return null
+  if (!key) { evidence?.notSent(); return null }
   const body = JSON.stringify({
     model: options.model, max_tokens: MAX_TOKENS, system: ASSESSMENT_SYSTEM,
     messages: [{ role: 'user', content: JSON.stringify({ request: input }) }],
   })
-  if (leadContainsSecret(input, key)) return null
+  if (leadContainsSecret(input, key)) { evidence?.notSent(); return null }
   const requestId = `mention-assess:${randomUUID()}`
   // A token is never shorter than a byte, so the body's length bounds what it can bill as input.
   const charge = await options.account.reserve(requestId, Buffer.byteLength(body), MAX_TOKENS).catch(() => null)
-  if (!charge) return null
-  const settle = (usage: AssessUsage | null): Promise<void> => (usage ? charge.settle(usage) : charge.unknown()).catch(() => {})
+  if (!charge) { evidence?.notSent(); return null }
+  const settle = async (usage: AssessUsage | null): Promise<void> => {
+    if (!usage) evidence?.unconfirmed()
+    try { if (usage) { if (await charge.settle(usage) === false) evidence?.unconfirmed() } else await charge.unknown() }
+    catch { evidence?.unconfirmed() }
+  }
   let response: Awaited<ReturnType<MessagesTransport['send']>>
   try {
     response = await options.transport.send({
@@ -112,6 +116,7 @@ export const observerAssessor = (options: {
   // Refused before any processing, it was never billed.
   if (response.status >= 400 && response.status < 500 && response.processing === 'not-started') {
     await settle(ZERO)
+    evidence?.notSent()
     return null
   }
   let decoded: unknown = null

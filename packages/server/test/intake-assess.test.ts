@@ -26,7 +26,7 @@ const ANSWER = JSON.stringify({
 })
 
 /** A scripted provider and a scripted spend limit, each writing what happened into one shared log. */
-const rig = (reply: MessagesHttpResponse | Error, allow = true) => {
+const rig = (reply: MessagesHttpResponse | Error, allow = true, known = true) => {
   const log: string[] = []
   const sent: MessagesHttpRequest[] = []
   const settled: (AssessUsage | 'unknown')[] = []
@@ -45,7 +45,7 @@ const rig = (reply: MessagesHttpResponse | Error, allow = true) => {
       reserved.push({ requestId, inputTokens, maxOutputTokens })
       if (!allow) return null
       return {
-        settle: async (usage) => { log.push('settle'); settled.push(usage) },
+        settle: async (usage) => { log.push('settle'); settled.push(usage); return known },
         unknown: async () => { log.push('unknown'); settled.push('unknown') },
       }
     },
@@ -102,4 +102,20 @@ test('missing cache usage counters keep the full hold unconfirmed', async () => 
     await r.assess(INPUT, new AbortController().signal)
     assert.deepEqual(r.settled, ['unknown'], `${field} is required to price the response`)
   }
+})
+
+
+test('unpriceable reported usage remains an unconfirmed assessment', async () => {
+  const r = rig({ status: 200, body: ANSWER }, true, false)
+  let unconfirmed = 0
+  await r.assess(INPUT, new AbortController().signal, { notSent() {}, unconfirmed() { unconfirmed++ } })
+  assert.equal(unconfirmed, 1, 'the durable account refused to price the usage')
+})
+
+test('a refused reservation is proven not sent and does not become unconfirmed', async () => {
+  const r = rig({ status: 200, body: ANSWER }, false)
+  let notSent = 0, unconfirmed = 0
+  assert.equal(await r.assess(INPUT, new AbortController().signal, { notSent() { notSent++ }, unconfirmed() { unconfirmed++ } }), null)
+  assert.equal(notSent, 1); assert.equal(unconfirmed, 0)
+  assert.deepEqual(r.log, ['reserve'])
 })

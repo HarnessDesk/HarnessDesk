@@ -4120,7 +4120,6 @@ export class Host {
     let transcriptFailure: unknown
     await this.#carryOn.storageIdle()
     let mentionBudgetFailure: unknown
-    try { await this.#mentionBudget.close() } catch (error) { mentionBudgetFailure = error }
     try { await this.#transcripts.flush() } catch (error) { transcriptFailure = error }
     await this.#removalSweepWork
     for (const session of this.#indexPending.values()) this.#recordSessionIndex(session, true)
@@ -4153,6 +4152,7 @@ export class Host {
     for (const held of [...this.#heldAnswers.values()]) held.answer('unanswered')
     this.#questions.close()
     await intakeClosed
+    try { await this.#mentionBudget.close() } catch (error) { mentionBudgetFailure = error }
     await this.#flows.flush()
     await this.#publications.idle()
     await this.#findings.close()

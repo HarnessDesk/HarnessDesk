@@ -324,8 +324,12 @@ Lead. The host keeps the cap and request receipts in `lead/mention-observer-budg
 request IDs, model and captured price schedule, bounds, period and amounts, but
 no comments, credentials or provider payloads. A companion SQLite lock file
 coordinates desk processes; it stores no assessment content. A settlement records reported
-usage; an unknown outcome counts the authorized hold as unconfirmed. The hold is
-admission accounting, not a guarantee about invoices outside the reported usage
+usage; an unknown outcome counts the authorized hold as unconfirmed. A durable
+manual decision is recorded before dispatch, so a crash does
+not automatically send the same comment again. Up to 500 unconfirmed decisions
+are protected from history rotation; if protected history is full, further
+assessments wait for a person. Explicit Re-evaluate remains a new person request.
+The hold is admission accounting, not a guarantee about invoices outside the reported usage
 contract. Days use the host's local date and are assigned when the request starts;
 a clock moving backwards does not create fresh credit. Existing Lead goal amounts
 and old holds remain in the Lead journal. The phone cannot configure this budget.

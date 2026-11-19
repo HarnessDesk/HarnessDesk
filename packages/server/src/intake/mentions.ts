@@ -53,6 +53,7 @@ const REASON = 300
 export const ASSESSMENTS_PER_DAY = 200
 
 export const ASSESS_UNAVAILABLE = 'The assessment could not be made, so this waits for you. Check the mention assessment budget and Lead provider settings.'
+export const ASSESS_UNCONFIRMED = 'The assessment is unconfirmed. It waits for you; use Re-evaluate to request another assessment.'
 export const ASSESS_SECRET = 'This comment looks like it holds a credential, so it was not sent for assessment; it waits for you.'
 export const ASSESS_CAPPED = `More than ${ASSESSMENTS_PER_DAY} requests were assessed today, so this one waits for you.`
 const STOPPED = 'Stopped from the forge: someone allowed asked the work on this thread to stop.'
@@ -118,7 +119,7 @@ export interface MentionAssessInput {
 }
 
 /** The observer model, behind one call. Null, or a throw, is "could not be made". */
-export type MentionAssessor = (input: MentionAssessInput, signal: AbortSignal) => Promise<MentionAssessment | null>
+export type MentionAssessor = (input: MentionAssessInput, signal: AbortSignal, evidence?: { notSent(): void; unconfirmed(): void }) => Promise<MentionAssessment | null>
 
 /**
  * Where an accepted thread of work joins the Lead's work ledger: the thread it
@@ -596,8 +597,8 @@ export class MentionTriage {
     const decisions = [...next.decisions]
     const linked = new Set(next.stopIntents.flatMap(one => one.decisionId ? [one.decisionId] : []))
     while (historySlots(decisions, next.stopIntents) > TRIGGER_DECISIONS_KEPT) {
-      const index = decisions.findIndex(one => !linked.has(one.id))
-      if (index < 0) throw new Error('Stop history is full. Stop work directly before taking further action.')
+      const index = decisions.findIndex(one => !linked.has(one.id) && one.reason !== ASSESS_UNCONFIRMED)
+      if (index < 0) throw new Error('Protected mention history is full. Review unconfirmed assessments or stop work directly.')
       decisions.splice(index, 1)
     }
     // A distinct authorized stop must still find the original thread after
@@ -1073,9 +1074,12 @@ export class MentionTriage {
         : this.#port.forge.comment(arm.project, before.repository, Number(before.comment.id), this.#port.signal)), project: arm.project }
       if (before.commentDigest !== undefined && bodyDigest(fact.body ?? '') !== before.commentDigest) throw Object.assign(new Error(EDITED), { code: 'HD_TRIGGER_REFUSED' })
       const handle = this.#handle(arm.definition)
-      const verdict: Verdict = addressesHandle(fact.body ?? '', handle)
-        ? await this.#gate(arm, fact, handle, true)
+      let verdict: Verdict = addressesHandle(fact.body ?? '', handle)
+        ? await this.#gate(arm, fact, handle, true, before)
         : { decision: 'ignore', by: 'rules', reason: `This comment no longer addresses @${handle}.`, rules: [{ id: 'addressed', passed: false, detail: `This comment no longer addresses @${handle}.` }] }
+      // A refused new attempt cannot resolve the older uncertain effect.
+      if (before.reason === ASSESS_UNCONFIRMED && (verdict.by !== 'assessment' || verdict.reason === ASSESS_UNAVAILABLE))
+        verdict = { ...verdict, decision: 'ask', by: 'assessment', reason: ASSESS_UNCONFIRMED }
       const ledger = await this.#read()
       const mode = this.#modeOf(ledger, arm)
       let acted = before.acted
@@ -1212,7 +1216,7 @@ export class MentionTriage {
   }
 
   /** The rules in order, stopping at the first that fails; then, when every rule passed, one assessment. */
-  async #gate(arm: ArmedTrigger, fact: TriggerFact, handle: string, refreshNegative = false): Promise<Verdict> {
+  async #gate(arm: ArmedTrigger, fact: TriggerFact, handle: string, refreshNegative = false, previous?: StoredDecision): Promise<Verdict> {
     const definition = arm.definition
     const number = Number(fact.subject)
     const kind = fact.thread ?? 'issue'
@@ -1248,18 +1252,26 @@ export class MentionTriage {
     const day = new Date(this.#port.now()).toISOString().slice(0, 10)
     const count = ledger.assessed.day === day ? ledger.assessed.count : 0
     if (count >= ASSESSMENTS_PER_DAY) return ask(ASSESS_CAPPED, 'rules')
-    await this.#write({ ...ledger, assessed: { day, count: count + 1 } })
+    const id = commentId(fact.url ?? '')
+    const provisional: StoredDecision = previous ? { ...previous, decision: 'ask', by: 'assessment', reason: ASSESS_UNCONFIRMED, rules }
+      : { id: `d-${digest([arm.project, arm.id, id])}`, trigger: arm.id, project: arm.project, repository: fact.repository ?? '',
+        thread: { kind, number }, comment: { id, url: fact.url ?? '', at: fact.at, author: fact.login ?? null, excerpt: excerptOf(fact.body ?? '') },
+        commentDigest: bodyDigest(fact.body ?? ''), decision: 'ask', by: 'assessment', reason: ASSESS_UNCONFIRMED, rules,
+        mode: this.#modeOf(ledger, arm), acted: false, work: null, decidedAt: this.#port.now(), evaluations: 0 }
+    await this.#write({ ...ledger, assessed: { day, count: count + 1 }, decisions: [...ledger.decisions.filter(one => one.id !== provisional.id), provisional] })
     let answer: MentionAssessment | null = null
+    let notSent = false, unconfirmed = false
     try {
       answer = await this.#port.assess({
         trigger: { id: definition.id, handle, opens: opensWords(definition) },
         repository: fact.repository!,
         thread: { kind, number, title: thread.title },
         comment: { author: fact.login ?? null, body: fact.body ?? '' },
-      }, this.#port.signal)
+      }, this.#port.signal, { notSent: () => { notSent = true }, unconfirmed: () => { unconfirmed = true } })
     } catch {
       answer = null
     }
+    if (unconfirmed || (!answer && !notSent)) return ask(ASSESS_UNCONFIRMED, 'assessment')
     if (!answer) return ask(ASSESS_UNAVAILABLE, 'assessment')
     return { decision: answer.decision, reason: answer.reason, by: 'assessment', rules }
   }

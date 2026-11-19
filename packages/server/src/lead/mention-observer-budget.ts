@@ -186,19 +186,20 @@ export class MentionObserverBudget {
     const nonce = randomUUID()
     this.#state.receipts.push({ id: requestId, nonce, day: this.#state.day, chargedDay: this.#state.day, model, schedule: frozen, inputUpper, maxOutput, hold, state: 'pending', amount: hold })
     try { await this.#save() } catch { return null }
-    return { settle: (usage: AssessUsage) => this.#settle(requestId, nonce, usage), unknown: () => this.#settle(requestId, nonce, null) }
+    return { settle: (usage: AssessUsage) => this.#settle(requestId, nonce, usage), unknown: async () => { await this.#settle(requestId, nonce, null) } }
   }) }
-  #settle(id: string, nonce: string, usage: AssessUsage | null): Promise<void> { return this.#run(async () => {
-    await this.#load(); if (this.#closed || this.#fault) return
-    this.#roll(); if (this.#fault) return
+  #settle(id: string, nonce: string, usage: AssessUsage | null): Promise<boolean> { return this.#run(async () => {
+    await this.#load(); if (this.#closed || this.#fault) return false
+    this.#roll(); if (this.#fault) return false
     const receipt = this.#state.receipts.find(r => r.id === id)
-    if (!receipt || receipt.nonce !== nonce || receipt.state !== 'pending') return
+    if (!receipt || receipt.nonce !== nonce || receipt.state !== 'pending') return false
     const input = usage ? usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens : NaN
     const amount = usage && Number.isSafeInteger(input) && input <= receipt.inputUpper && usage.outputTokens <= receipt.maxOutput ? priceMentionUsage(receipt.schedule, usage) : null
     receipt.chargedDay = receipt.day
     if (amount === null || !integer(amount) || amount > receipt.hold) { receipt.state = 'uncertain'; receipt.amount = receipt.hold }
     else { receipt.state = 'settled'; receipt.amount = amount }
     await this.#save()
+    return receipt.state === 'settled'
   }) }
   async storageIdle(): Promise<void> { await this.#queue }
   async close(): Promise<void> { await this.#run(async () => {
