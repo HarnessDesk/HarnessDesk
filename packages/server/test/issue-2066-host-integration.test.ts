@@ -170,3 +170,36 @@ test('an in-flight assessment settles its own receipt after the Lead changes goa
   try { const reopened = await createLeadJournal(storage); assert.deepEqual(reopened.state.completedBudgets.at(-1), oldGoal); assert.deepEqual(reopened.state.budget, newGoal) }
   finally { await storage.close() }
 })
+
+test('a failed observer budget close still releases unrelated Host storage', { timeout: 60000 }, async t => {
+  const repo = await makeRepo('hd-mention-close-')
+  await commitTriggers(repo, trigger)
+  let release!: () => void, started!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  const sent = new Promise<void>(resolve => { started = resolve })
+  const transport = { async send() { started(); await held; return { status: 500, body: '{}' } } }
+  const cipher = { protection: 'synthetic cipher', encrypt: (plain: string) => Buffer.from(Buffer.from(plain).toString('hex')), decrypt: (blob: Buffer) => Buffer.from(blob.toString(), 'hex').toString() }
+  const d = await intakeDesk({ repo, lead: true, characterizationTransport: transport, characterizationSeed: async stateDir => {
+    await new CredentialBroker(join(stateDir, 'credentials.json'), cipher).storeLead('anthropic', 'sk-test-not-real-0000')
+  } })
+  t.after(async () => { release(); await d.stop().catch(() => {}) })
+  d.forge.users.set('a-teammate', { id: 31 })
+  const preview = await d.host.call('trigger/preview', { root: repo.dir, id: 'ask' })
+  await d.host.call('trigger/arm', { root: repo.dir, id: 'ask', token: preview.token! })
+  await d.host.call('trigger/mode', { root: repo.dir, id: 'ask', mode: 'act' })
+  await d.host.call('lead/mentionBudget/configure', { dailyCapUsdMicros: 1000000 })
+  const at = d.clocks.wall + 1000
+  d.forge.issues.push({ number: 1, state: 'open', created: at, updated: at, events: [], comments: [{ id: 9001, body: '@dex please fix this', created: at, updated: at, user: { id: 31, login: 'a-teammate' } }] })
+  d.clocks.advance(60000)
+  const tick = d.host.intakePlane.tick()
+  await sent
+  assert.ok((await d.host.call('lead/mentionBudget/read', {})).reservedUsdMicros > 0)
+  await writeFile(join(d.stateDir, 'lead', 'mention-observer-budget.json'), '{"tampered":true}')
+  const closing = d.stop()
+  const releaseTimer = setTimeout(release, 500)
+  try { await assert.rejects(closing) } finally { clearTimeout(releaseTimer); release() }
+  await tick.catch(() => {})
+  const reopened = await intakeDesk({ repo, stateDir: d.stateDir, lead: true })
+  t.after(() => reopened.stop())
+  assert.ok(reopened.host, 'the unrelated Host writer lease was released')
+})

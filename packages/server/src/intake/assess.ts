@@ -68,8 +68,8 @@ const usageOf = (decoded: unknown): AssessUsage | null => {
   const fields = usage as Record<string, unknown>
   const input = count(fields['input_tokens'])
   const output = count(fields['output_tokens'])
-  const read = fields['cache_read_input_tokens'] === undefined ? 0 : count(fields['cache_read_input_tokens'])
-  const write = fields['cache_creation_input_tokens'] === undefined ? 0 : count(fields['cache_creation_input_tokens'])
+  const read = count(fields['cache_read_input_tokens'])
+  const write = count(fields['cache_creation_input_tokens'])
   if (input === null || output === null || read === null || write === null) return null
   const creation = fields['cache_creation']
   const ttl = typeof creation === 'object' && creation !== null ? creation as Record<string, unknown> : null

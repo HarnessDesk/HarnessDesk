@@ -1135,7 +1135,7 @@ const childRig = async (bootstrapExtra: Record<string, unknown>, providerSend: (
   child.kill = () => { void runtime.close().then(() => child.emit('exit', 0, null)); return true }
   const f = await fixture({ journal, spawn: () => child, bootstrap: async () => ({ key: secret, descriptor, project, model: 'fixture-model',
     prices: management.options.messages.prices, ...bootstrapExtra }), resolveTool: management.options.resolveTool, providerSend, ...extra })
-  return { ...f, journal, project, management, runtime, async finish() { await f.supervisor.stop(); await runtime.close() } }
+  return { ...f, child, journal, project, management, runtime, async finish() { await f.supervisor.stop(); await runtime.close() } }
 }
 
 test('the actual child names the host project root and seats to the model', async () => {
@@ -1534,4 +1534,22 @@ test('the host hears that the reply is being written when the child hands it ove
   for (let waited = 0; !order.includes('reply') && waited < 5000; waited += 20) await new Promise(resolve => setTimeout(resolve, 20))
   assert.deepEqual(order, ['admitted', 'replying', 'reply'])
   await f.supervisor.stop(); await sent
+})
+
+test('a context record failure terminates the child before publishing its reply', async () => {
+  const { message } = await import('./fixtures/fake-messages.js')
+  let sends = 0, records = 0
+  const f = await childRig({}, async () => { sends++; return message([{ type: 'text', text: 'Must not be published.' }]) },
+    { recordContext: async () => { records++; throw new Error('synthetic uncertain write') } })
+  let kills = 0
+  const kill = f.child.kill
+  f.child.kill = (...args: unknown[]) => { kills++; return kill(...args) }
+  try {
+    await assert.rejects(f.supervisor.send(request))
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(kills, 1)
+    assert.equal(records, 1)
+    assert.equal(sends, 1)
+    assert.deepEqual(f.journal.state.messages, [])
+  } finally { await f.finish() }
 })

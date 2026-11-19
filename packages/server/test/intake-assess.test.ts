@@ -7,8 +7,8 @@ import { observerAssessor, type AssessAccount, type AssessUsage } from '../src/i
 import type { MentionAssessInput } from '../src/intake/mentions.js'
 
 /*
- * The observer model's request is the Lead's spend: it is held against the
- * Lead's limit before it is sent, settled at what the provider reports, and
+ * The observer model's request is held against the independent daily budget
+ * before it is sent, settled at what the provider reports, and
  * counted whole when what it cost cannot be known. Refused, it is not sent.
  */
 
@@ -54,7 +54,7 @@ const rig = (reply: MessagesHttpResponse | Error, allow = true) => {
   return { assess, log, sent, settled, reserved }
 }
 
-test('the observer request is held against the Lead’s limit before it is sent, and settled at what it used', async () => {
+test('the observer request is held against its daily budget before it is sent, and settled at what it used', async () => {
   const r = rig({ status: 200, body: ANSWER })
   const answer = await r.assess(INPUT, new AbortController().signal)
   assert.deepEqual(answer, { decision: 'accept', reason: 'It asks for a fix.' })
@@ -92,4 +92,14 @@ test('preserves provider cache creation TTL counters for pricing', async () => {
   const r = rig({ status: 200, body: JSON.stringify(reply) })
   await r.assess(INPUT, new AbortController().signal)
   assert.deepEqual(r.settled, [{ inputTokens: 120, outputTokens: 30, cacheReadTokens: 0, cacheWriteTokens: 17, cacheWrite5mTokens: 12, cacheWrite1hTokens: 5 }])
+})
+
+test('missing cache usage counters keep the full hold unconfirmed', async () => {
+  for (const field of ['cache_read_input_tokens', 'cache_creation_input_tokens']) {
+    const reply = JSON.parse(ANSWER)
+    delete reply.usage[field]
+    const r = rig({ status: 200, body: JSON.stringify(reply) })
+    await r.assess(INPUT, new AbortController().signal)
+    assert.deepEqual(r.settled, ['unknown'], `${field} is required to price the response`)
+  }
 })

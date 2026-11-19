@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { MentionObserverBudgetView } from '@harnessdesk/protocol'
 import { Banner, Button, Input, Row, Rows, Section, Text } from '../design'
 import { useDestinationActive } from '../panels/destination-page'
@@ -9,13 +9,26 @@ export const LeadMentionBudget = () => {
   const store = useStore(), active = useDestinationActive()
   const [view, setView] = useState<MentionObserverBudgetView | null>(null)
   const [amount, setAmount] = useState(''), [pending, setPending] = useState(false), [error, setError] = useState<string | null>(null)
+  const dirty = useRef(false), generation = useRef(0)
   useEffect(() => {
-    if (active) void store.lead.readMentionBudget().then(next => { setView(next); setAmount(next.enabled ? String(next.dailyCapUsdMicros / 1000000) : '') }, () => setError('Mention assessment budget settings are unavailable. Older desk versions do not provide them.'))
+    if (!active) return
+    let cancelled = false
+    const refresh = () => {
+      const request = ++generation.current
+      void store.lead.readMentionBudget().then(next => {
+        if (cancelled || request !== generation.current) return
+        setView(next); setError(null)
+        if (!dirty.current) setAmount(next.enabled ? String(next.dailyCapUsdMicros / 1000000) : '')
+      }, () => { if (!cancelled && request === generation.current) setError('Mention assessment budget settings are unavailable. Older desk versions do not provide them.') })
+    }
+    refresh()
+    const timer = setInterval(refresh, 30000)
+    return () => { cancelled = true; clearInterval(timer) }
   }, [active, store])
   const micros = Math.round(Number(amount) * 1000000)
   const save = async (cap: number) => {
-    setPending(true); setError(null)
-    try { const next = await store.lead.configureMentionBudget(cap); setView(next); setAmount(next.enabled ? String(next.dailyCapUsdMicros / 1000000) : '') }
+    setPending(true); setError(null); ++generation.current
+    try { const next = await store.lead.configureMentionBudget(cap); ++generation.current; dirty.current = false; setView(next); setAmount(next.enabled ? String(next.dailyCapUsdMicros / 1000000) : '') }
     catch { setError('The mention assessment budget could not be saved.') }
     finally { setPending(false) }
   }
@@ -24,7 +37,7 @@ export const LeadMentionBudget = () => {
     {!view ? <Text role="muted">{error ?? 'Loading…'}</Text> : <>
       <Rows>
         <Row title="Daily budget" desc={view.enabled ? `${money(view.dailyCapUsdMicros)} per day` : 'Off. Mentions wait for your decision until you choose a daily amount.'} />
-        <Row title="Daily amount in dollars" control={<Input aria-label="Mention assessment daily amount" type="number" min="0.000001" step="0.000001" value={amount} onChange={event => setAmount(event.target.value)} disabled={pending} />} />
+        <Row title="Daily amount in dollars" control={<Input aria-label="Mention assessment daily amount" type="number" min="0.000001" step="0.000001" value={amount} onChange={event => { dirty.current = true; setAmount(event.target.value) }} disabled={pending} />} />
         <Row title="Budget day" desc={`${view.day} (local)`} />
         <Row title="Known spend" desc={money(view.spentUsdMicros)} />
         <Row title="Held" desc={money(view.reservedUsdMicros)} />

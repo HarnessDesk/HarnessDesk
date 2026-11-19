@@ -4119,7 +4119,8 @@ export class Host {
     await this.#loadouts.close()
     let transcriptFailure: unknown
     await this.#carryOn.storageIdle()
-    await this.#mentionBudget.close()
+    let mentionBudgetFailure: unknown
+    try { await this.#mentionBudget.close() } catch (error) { mentionBudgetFailure = error }
     try { await this.#transcripts.flush() } catch (error) { transcriptFailure = error }
     await this.#removalSweepWork
     for (const session of this.#indexPending.values()) this.#recordSessionIndex(session, true)
@@ -4170,7 +4171,9 @@ export class Host {
        approval of a session was still appending to `audit.ndjson` after
        `dispose()` had resolved. */
     await this.#audit.flush()
+    if (transcriptFailure && mentionBudgetFailure) throw new AggregateError([transcriptFailure, mentionBudgetFailure], 'Conversation and mention budget shutdown failed.')
     if (transcriptFailure) throw transcriptFailure
+    if (mentionBudgetFailure) throw mentionBudgetFailure
   }
 
   #onLeadDispose(disposer: () => Promise<void> | void): void { this.#leadDisposers.push(disposer) }

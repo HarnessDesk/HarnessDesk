@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { StoreProvider } from '../state/context'
 import { previewStore } from './harness'
 import { LeadSettingsSection } from '../components/LeadSettings'
@@ -196,4 +196,20 @@ it('explains an unavailable mention budget on an older desk', async () => {
     expect(box.textContent).toContain('Older desk versions do not provide them')
     expect(box.querySelector('[aria-label="Mention assessment daily amount"]')).toBeNull()
   } finally { act(() => root.unmount()); box.remove() }
+})
+
+
+it('refreshes an active mention budget without overwriting an edited amount', async () => {
+  vi.useFakeTimers()
+  const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
+  const store = createLeadFixtureStore('settings-configured')
+  try {
+    await act(async () => root.render(<StoreProvider store={store}><LeadSettingsSection /></StoreProvider>))
+    const input = box.querySelector<HTMLInputElement>('[aria-label="Mention assessment daily amount"]')!
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '3.25'); input.dispatchEvent(new Event('input', { bubbles: true })) })
+    await store.lead.configureMentionBudget(2000000)
+    await act(async () => { await vi.advanceTimersByTimeAsync(30000) })
+    expect(box.textContent).toContain('$2.000000 per day')
+    expect(input.value).toBe('3.25')
+  } finally { act(() => root.unmount()); box.remove(); vi.useRealTimers() }
 })

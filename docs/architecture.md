@@ -566,9 +566,9 @@ sample.
   Observe mode writes nothing to the forge and raises no attention notice.
   The sweep links pull requests from the Git gateway's record and closes a
   thread when they merge or close, or, with none linked, when its issue
-  closes. Each assessment is reserved and settled on the Lead's budget
-  ledger through the host (`#holdLeadSpend`), so it is journaled and counted
-  against the Lead's spend limit.
+  closes. Each assessment is reserved and settled through the host's separate
+  mention observer daily budget. It is off until a person chooses an amount;
+  it does not charge the Lead goal ledger. Existing goal charges remain there.
 - **Authoring and the front door** (`packages/server/src/authoring/`) — the
   one owner of an Agent's file, a flow and a project's triggers, read exactly
   and written only through a preview a person saw: `authoring/read`,
