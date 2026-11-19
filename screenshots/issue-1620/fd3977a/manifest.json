@@ -1,0 +1,42 @@
+{
+  "base": "8747117c8055af001ab3dc25574272d1d272ac15",
+  "scope": "Rawsyntheticframes, parentvisualreview; phoneprivacylimitednativehierarchy/projectionchecks, notcanonicalfullaccountaudit; historicaldesktopcomponent/currentphoneexplicitlyattributed.",
+  "head": "fd3977a59e133c1147c92237aea52968d93c3d08",
+  "frames": [
+    {
+      "label": "desktop-before.png",
+      "sha256": "6529b494e53a1277f3d63a7c9ed009e4e952e1f9cc645693a70813ad8cadadba",
+      "path": "screenshots/issue-1620/fd3977a/desktop-before.png",
+      "provenance": "Historicalcomponent 874adapter/Host withbcbUI; selectedsourceonly,no compiledUIequivalence.",
+      "parentVisuallyInspected": true
+    },
+    {
+      "label": "desktop-after.png",
+      "sha256": "62bf9e5616446a3a1befa4452b3fc5f1f04ef86a616a7fbd151456c2f0d9e0fd",
+      "path": "screenshots/issue-1620/fd3977a/desktop-after.png",
+      "provenance": "Historicalbcbcomponent; currentphone-onlyprivacyguard doesnotchange desktopsource. C56actualElectronpriorprivate.",
+      "parentVisuallyInspected": true
+    },
+    {
+      "label": "earlier-phone-safe.png",
+      "sha256": "fec9211edb8d07c8378eea1e6b5d139219d28ab34ab27225705b5d41a32f567c",
+      "path": "screenshots/issue-1620/fd3977a/earlier-phone-safe.png",
+      "provenance": "EarlierC56Host/iOSc7safeexample; serializedprojection andapp48filehashmatchfd39, notnewnativehead/wholeHostidentity.",
+      "parentVisuallyInspected": true
+    },
+    {
+      "label": "earlier-phone-scope.png",
+      "sha256": "87b1caed577d2cb8d96a25a2ddbb1c5dd48e221ea34d00348f925afabaf21449",
+      "path": "screenshots/issue-1620/fd3977a/earlier-phone-scope.png",
+      "provenance": "EarlierC56distinctscopeexample; serializedprojectionmatchesfd39. Inputsnotcausalbeforeafterpair.",
+      "parentVisuallyInspected": true
+    },
+    {
+      "label": "phone-private-path.png",
+      "sha256": "a66a1328d9ff7d7de5845486adb2b58b08265da2fba7ba9e1abbc4c1508f3d41",
+      "path": "screenshots/issue-1620/fd3977a/phone-private-path.png",
+      "provenance": "Currentfd39Host/iOSc7externalpathsyntheticcase,redactedcat/desknotice,actualtrustedDeny. NoACP/provider/liveAllow; rawpathabsencehierarchyandNodeAllowrefusal separate.",
+      "parentVisuallyInspected": true
+    }
+  ]
+}
