@@ -227,6 +227,11 @@ it('does not assert fallback limits without Host time', () => {
   expect(container.textContent).not.toContain('New turns will fail')
 })
 
+it('does not assert undated fallback limits even with a Host clock', () => {
+  mount({ usage: [], limits: { reached: 'other', windows: [] } as never })
+  expect(container.textContent).not.toContain('New turns will fail')
+})
+
 it('withholds the fallback when its freshness straddles the Host interval', () => {
   const now = Date.now()
   const limits = { reached: 'other', fetchedAt: now - 119_950, staleAfterMs: 120_000, windows: [] } as never

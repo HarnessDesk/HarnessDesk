@@ -319,8 +319,9 @@ describe('an account row in Settings', () => {
   })
 
   it('keeps the reset clock in the Settings countdown title', async () => {
-    const resetsAt = Date.now() + 3 * 86_400_000
-    await mount([fableSpent], { windows: [{ label: 'Weekly', usedPercent: 63, windowMinutes: 10_080, resetsAt }] })
+    const now = Date.now()
+    const resetsAt = now + 3 * 86_400_000
+    await mount([fableSpent], { fetchedAt: now - 1000, staleAfterMs: 120_000, windows: [{ label: 'Weekly', usedPercent: 63, windowMinutes: 10_080, resetsAt }] })
     const account = [...container.querySelectorAll<HTMLButtonElement>('button')]
       .find((button) => button.textContent?.includes('olivia@acme.dev'))
     await act(async () => account?.click())

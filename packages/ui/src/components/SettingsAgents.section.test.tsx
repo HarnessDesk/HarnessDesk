@@ -139,7 +139,7 @@ it('says when a window refills in the shared meter countdown column', () => {
 
 it.each([-30, 30])('uses Host interval for account limit countdown at %s minute renderer skew', offset => {
   const hostNow = Date.now()
-  const reading = limits({ windows: [{ label: 'Weekly', usedPercent: 40, resetsAt: hostNow + 2 * 3_600_000 + 14 * 60_000 }] as never })
+  const reading = limits({ fetchedAt: hostNow - 1000, staleAfterMs: 120_000, windows: [{ label: 'Weekly', usedPercent: 40, resetsAt: hostNow + 2 * 3_600_000 + 14 * 60_000 }] as never })
   vi.spyOn(Date, 'now').mockReturnValue(hostNow + offset * 60_000)
   act(() => root.render(<HostTimeProvider interval={{ lowerMs: hostNow, upperMs: hostNow + 1 }}><UsageSection limits={reading} name="Codex" /></HostTimeProvider>))
   expect(container.textContent).toContain('in 2 h 14 m')
@@ -148,7 +148,7 @@ it.each([-30, 30])('uses Host interval for account limit countdown at %s minute 
 
 it('withholds a countdown for an unsupported Host and a reset-straddling interval', () => {
   const hostNow = Date.now()
-  const reading = limits({ windows: [{ label: 'Weekly', usedPercent: 40, resetsAt: hostNow + 50 }] as never })
+  const reading = limits({ fetchedAt: hostNow - 1000, staleAfterMs: 120_000, windows: [{ label: 'Weekly', usedPercent: 40, resetsAt: hostNow + 50 }] as never })
   for (const interval of [null, { lowerMs: hostNow, upperMs: hostNow + 100 }]) {
     act(() => root.render(<HostTimeProvider interval={interval}><UsageSection limits={reading} name="Codex" /></HostTimeProvider>))
     expect(container.querySelector('[data-slot="usage-meter-row"]')?.textContent).toContain('—')
@@ -168,4 +168,16 @@ it.each(['missing', 'straddled'])('retains dated windows but withholds currentne
   expect(container.textContent).toContain('Currentness unverified')
   expect(container.textContent).not.toContain('resets')
   vi.restoreAllMocks()
+})
+
+
+it('shows undated limits as unverified even with a verified Host clock', () => {
+  const now = Date.now()
+  const reading = limits({ reached: 'other', windows: [{ label: '5-hour', usedPercent: 60, windowMinutes: 300, resetsAt: now + 139 * 60_000 }] })
+  act(() => root.render(<HostTimeProvider interval={{ lowerMs: now, upperMs: now + 1 }}><UsageSection limits={reading} name="Codex" /></HostTimeProvider>))
+  expect(container.textContent).toContain('5-hour')
+  expect(container.textContent).toContain('40%')
+  expect(container.textContent).toContain('Currentness unverified')
+  expect(container.textContent).not.toContain('New turns will fail')
+  expect(container.textContent).not.toContain('in 2 h')
 })

@@ -157,7 +157,8 @@ export const retainedLimits = (limits: RateLimits | null | undefined, now: numbe
 
 /** Both ends must regard a dated reading as current. */
 export const hostLimits = (limits: RateLimits | null | undefined, interval: import('./host-clock').HostTimeInterval | null): LimitsView | null => {
-  if (!interval) return null
+  const fetchedAt = limits?.fetchedAt
+  if (!interval || typeof fetchedAt !== 'number' || !Number.isFinite(fetchedAt) || fetchedAt <= 0) return null
   const lower = describeLimits(limits, interval.lowerMs)
   const upper = describeLimits(limits, interval.upperMs)
   return lower && upper ? lower : null
