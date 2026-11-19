@@ -5,7 +5,7 @@ import { StoreProvider } from '../state/context'
 import { dashboardDestinationStore } from './dashboard-destination-fixture'
 
 /** Two signed-in plans: one below the sustainable line, one above it. */
-export const dashboardD10Store = () => {
+export const dashboardD10Store = ({ staleAfterMs = 4 * 3_600_000 }: { staleAfterMs?: number } = {}) => {
   const store = dashboardDestinationStore()
   const snapshot = store.getSnapshot()
   const now = Date.now()
@@ -21,7 +21,8 @@ export const dashboardD10Store = () => {
       windowMinutes: 10_080, resetsAt: now + 10_080 * 60_000 / 2, usageKnown: true }],
     credits: null, spend: null, reached: null,
     source: { kind: 'runtime', label: 'From a recorded plan' },
-    fetchedAt: performance.timeOrigin - 3 * 3_600_000, staleAfterMs: 5 * 60_000, error: null,
+    // The recorded observation is three hours old, and remains valid for four hours.
+    fetchedAt: performance.timeOrigin - 3 * 3_600_000, staleAfterMs, error: null,
   }))
   Object.assign(snapshot, { runtimes, usage,
     accountsByRuntime: Object.fromEntries(usage.map(report => [report.runtime, { accounts: [{ kind: 'plan', label: report.account }], signInMethods: [] }])),
@@ -45,7 +46,7 @@ export const dashboardD10Store = () => {
 }
 
 /** Browser checks mount this fixture inside preview.html, using only synthetic identities. */
-export const mountDashboardD10 = (container: HTMLElement) => {
-  const store = dashboardD10Store()
+export const mountDashboardD10 = (container: HTMLElement, options?: { staleAfterMs?: number }) => {
+  const store = dashboardD10Store(options)
   createRoot(container).render(<StoreProvider store={store}><App /></StoreProvider>)
 }
