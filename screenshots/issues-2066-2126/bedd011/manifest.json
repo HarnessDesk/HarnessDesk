@@ -1,0 +1,64 @@
+{
+  "issue": 2066,
+  "base": "8747117c8055af001ab3dc25574272d1d272ac15",
+  "scope": "Synthetic actual Electron/Host Off, save1.25, Host/disk, normalquit/reopen1.25, Off. Crash/replay and shutdown-with-request are actual ownedHost integrationtest evidence, not nativeapp fault injection.",
+  "shutdown": "one exactownedchild SIGTERM routes production app.quit,exit0,signalnull,ownedgroupabsent; not UI CmdQ/menu",
+  "isolation": "whole driver tree outer OS networkdeny,loopback/scopedUNIX; synthetic stagedaccounts/homes; not shippedChromiumsandboxproof",
+  "validation": "Parent viewed all four current raw budget frames including reopenedcap/input, independently verified all source/compiled artifacts and owned normalquit. UI/disk/Hostreadbacks synthetic; no provider. Earlier b250 externalcap/dirtyinput inherited only for identical UI.",
+  "issues": [
+    2066,
+    2126
+  ],
+  "candidate": "bedd011844a55efde660641c74d388093b02edbd",
+  "head": "bedd011844a55efde660641c74d388093b02edbd",
+  "frames": [
+    {
+      "label": "before-settings-lead",
+      "path": "screenshots/issues-2066-2126/bedd011/before-settings-lead.png",
+      "source": "8747117c8055af001ab3dc25574272d1d272ac15",
+      "sha256": "ea409243bd0166f5ca9d2177414f8f03e32e6594fdcf9b7e08dc4d2f4c6424c6",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-default-off",
+      "path": "screenshots/issues-2066-2126/bedd011/after-default-off.png",
+      "source": "bedd011844a55efde660641c74d388093b02edbd",
+      "sha256": "2e51aa6f3a30098f7601b566013dbcd7989832d28d77404eabae99803109114f",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-saved",
+      "path": "screenshots/issues-2066-2126/bedd011/after-saved.png",
+      "source": "bedd011844a55efde660641c74d388093b02edbd",
+      "sha256": "00958c088f768372451f85a09fdf7c71fdc80d30d9deccfcc64dd9f828f6241b",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-reopened",
+      "path": "screenshots/issues-2066-2126/bedd011/after-reopened.png",
+      "source": "bedd011844a55efde660641c74d388093b02edbd",
+      "sha256": "e890f2a264111a5bd02f9ddc400deb32e6457d91cca95eb9365114bc943eb8b2",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-turned-off",
+      "path": "screenshots/issues-2066-2126/bedd011/after-turned-off.png",
+      "source": "bedd011844a55efde660641c74d388093b02edbd",
+      "sha256": "b8d4fc6bf35a6abb1462636ede1fd0c0fda4a8d1411a5bea38e782906e01729f",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "earlier-unchanged-ui-external-dirty",
+      "path": "screenshots/issues-2066-2126/bedd011/earlier-unchanged-ui-external-dirty.png",
+      "source": "b250508afb45925d646af76398884d145be479da",
+      "sha256": "0cbcb2569ed8cd017905311c8fc675a775f5bf810c39031289cc3e1e69c8c866",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    }
+  ]
+}
