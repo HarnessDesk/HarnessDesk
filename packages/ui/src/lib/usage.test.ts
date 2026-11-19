@@ -1043,6 +1043,24 @@ describe('the countdown the Lead is told (#2174)', () => {
 
 
 describe('Host time usage presentation', () => {
+  it.each(['straddled', 'expired'])('withholds reset wording when freshness is %s', kind => {
+    const reading = report({ fetchedAt: NOON - 1000, staleAfterMs: 1050, lanes: [lane({ id: 'weekly', usedPercent: 100, resetsAt: NOON + 3 * DAY })], reached: 'weekly' })
+    const interval = kind === 'straddled' ? { lowerMs: NOON, upperMs: NOON + 100 } : { lowerMs: NOON + 100, upperMs: NOON + 200 }
+    const view = describeHostReport(reading, interval)
+    expect(view.stale).toBe(true)
+    for (const item of [view.hero, view.reachedLane, ...view.lanes, ...view.all].filter(Boolean)) {
+      expect(item).toMatchObject({ countdown: null, shortCountdown: null, resetCountdown: '—', resetClock: null, remainingPercent: 0 })
+    }
+    expect(reading.fetchedAt).toBe(NOON - 1000)
+  })
+
+  it('retains reset wording when both endpoints see a fresh reading', () => {
+    const reading = report({ lanes: [lane({ id: 'weekly', usedPercent: 50, resetsAt: NOON + 3 * DAY })] })
+    const view = describeHostReport(reading, { lowerMs: NOON, upperMs: NOON + 1 })
+    expect(view.stale).toBe(false)
+    expect(view.hero?.resetCountdown).not.toBe('—')
+    expect(view.hero?.resetClock).not.toBeNull()
+  })
   it('qualifies freshness across the entire interval and leaves unsupported time unverified', () => {
     const reading = report({ fetchedAt: NOON - MINUTE })
     for (const offset of [-30 * MINUTE, 30 * MINUTE]) {

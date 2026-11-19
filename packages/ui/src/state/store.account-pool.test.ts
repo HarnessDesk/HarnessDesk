@@ -95,6 +95,16 @@ describe('the account pool', () => {
     vi.restoreAllMocks()
   })
 
+  it('uses the manual next account even if that account has no usage report', async () => {
+    push({ method: 'runtime/added', params: { info: { id: runtimeId('codex-3'), name: 'Agent', slot: { agent: runtimeId('codex') }, presentation: { name: 'Agent' }, capabilities: {} } } } as unknown as WireNotification)
+    await store.loadAccounts()
+    preferences = { activeRuntime: 'codex', accountPools: { codex: { whenOut: 'next', order: ['codex', 'codex-2', 'codex-3'] } } }
+    await store.loadPreferences()
+    push({ method: 'usage/updated', params: { report: report(30, 'codex-3') } })
+    push({ method: 'usage/updated', params: { report: report(100, 'codex') } })
+    await vi.waitFor(() => expect(store.getSnapshot().activeRuntime).toBe('codex-2'))
+  })
+
   it('stays put when the rule is to ask', async () => {
     preferences = { activeRuntime: 'codex', accountPools: { codex: { whenOut: 'ask' } } }
     await store.loadPreferences()

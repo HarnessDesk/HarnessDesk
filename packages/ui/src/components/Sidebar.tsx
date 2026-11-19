@@ -441,7 +441,7 @@ export const AccountFooter = ({
           figure: usage[0]
             ? (() => {
                 const lane = describeHostReport(usage[0] as UsageReport, hostTime, { maxLanes: 1 }).hero
-                return lane?.known && lane.remainingPercent !== null ? `${lane.remainingPercent}%` : null
+                return !describeHostReport(usage[0] as UsageReport, hostTime).stale && lane?.known && lane.remainingPercent !== null ? `${lane.remainingPercent}%` : null
               })()
             : null,
           tone: usage[0] ? describeHostReport(usage[0], hostTime, { maxLanes: 1 }).tone : 'good',
@@ -468,7 +468,7 @@ export const AccountFooter = ({
         sub: (hide ? accountName(account, snapshot.accountPrefs[key], info.presentation.name, snapshot.hideAccountAddresses) : accountIdentity(account)) || info.presentation.name,
         state,
         answered: true,
-        figure: lane?.known && lane.remainingPercent !== null ? `${lane.remainingPercent}%` : null,
+        figure: view && !view.stale && lane?.known && lane.remainingPercent !== null ? `${lane.remainingPercent}%` : null,
         tone: view?.blocked ? ('bad' as const) : (lane?.tone ?? ('good' as const)),
         current,
         report: report ?? null,

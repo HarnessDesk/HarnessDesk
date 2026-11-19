@@ -1036,12 +1036,13 @@ export const describeHostReport = (
   const lane = (first: LaneView | null): LaneView | null => {
     if (!first) return null
     const second = upper?.all.find(item => item.id === first.id) ?? (upper?.reachedLane && upper.reachedLane.id === first.id ? upper.reachedLane : null)
+    const current = Boolean(second && upper && !lower.stale && !upper.stale)
     return {
       ...first,
-      countdown: second && first.countdown === second.countdown ? first.countdown : null,
-      shortCountdown: second && first.shortCountdown === second.shortCountdown ? first.shortCountdown : null,
-      resetCountdown: second && first.resetCountdown === second.resetCountdown ? first.resetCountdown : '—',
-      resetClock: second && first.resetClock === second.resetClock ? first.resetClock : null,
+      countdown: current && second && first.countdown === second.countdown ? first.countdown : null,
+      shortCountdown: current && second && first.shortCountdown === second.shortCountdown ? first.shortCountdown : null,
+      resetCountdown: current && second && first.resetCountdown === second.resetCountdown ? first.resetCountdown : '—',
+      resetClock: current && second && first.resetClock === second.resetClock ? first.resetClock : null,
       gatedUntil: second && !lower.stale && !upper?.stale && first.gatedUntil === second.gatedUntil ? first.gatedUntil : null,
       gatedFor: second && !lower.stale && !upper?.stale && first.gatedFor === second.gatedFor ? first.gatedFor : null,
       gatedClock: second && !lower.stale && !upper?.stale && first.gatedClock === second.gatedClock ? first.gatedClock : null,

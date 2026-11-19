@@ -77,6 +77,31 @@ const strip = (over: Partial<StripInput> = {}) =>
 const six = ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => runtime(id, `Agent ${id.toUpperCase()}`))
 
 describe('the anchor', () => {
+  it('withholds ambiguous back time across local midnight', () => {
+    const lower = new Date(2026, 7, 22, 23, 59, 59, 950).getTime(), upper = lower + 100
+    const reset = new Date(2026, 7, 23, 12, 0, 0).getTime()
+    expect(formatWhen(reset, lower)).not.toBe(formatWhen(reset, upper))
+    const reading = report('a', [lane({ id: 'weekly', usedPercent: 100, resetsAt: reset })], { reached: 'weekly', fetchedAt: lower - 1000 })
+    const view = strip({ runtimes: six, usage: [reading], sessionRuntime: runtimeId('a'), hostTime: { lowerMs: lower, upperMs: upper } })
+    expect(view.anchor?.kind === 'meter' && view.anchor.meter.figure).toBe('out')
+    expect(view.anchor?.kind === 'meter' && view.anchor.meter.out).toBe(true)
+  })
+
+  it('withholds an ambiguous back time across the six-day format boundary', () => {
+    const lower = new Date(2026, 7, 22, 12, 0, 0).getTime(), upper = lower + 100
+    const reset = lower + 6 * 24 * HOUR + 50
+    expect(formatWhen(reset, lower)).not.toBe(formatWhen(reset, upper))
+    const reading = report('a', [lane({ id: 'weekly', usedPercent: 100, resetsAt: reset })], { reached: 'weekly', fetchedAt: lower - 1000 })
+    const view = strip({ runtimes: six, usage: [reading], sessionRuntime: runtimeId('a'), hostTime: { lowerMs: lower, upperMs: upper } })
+    expect(view.anchor?.kind === 'meter' && view.anchor.meter.figure).toBe('out')
+  })
+
+  it('keeps a back time agreed by a fresh narrow Host interval', () => {
+    const reading = spent('a', 4 * HOUR)
+    const view = strip({ runtimes: six, usage: [reading], sessionRuntime: runtimeId('a'), hostTime: { lowerMs: NOON, upperMs: NOON + 1 } })
+    expect(view.anchor?.kind === 'meter' && view.anchor.meter.figure).toBe(`back ${formatWhen(NOON + 4 * HOUR, NOON)}`)
+  })
+
   it('does not present a ten-day-old full allowance as current', () => {
     const old = at('a', 100, { fetchedAt: NOON - 10 * 24 * HOUR })
     const view = strip({ runtimes: six, usage: [old], activeRuntime: runtimeId('a') })

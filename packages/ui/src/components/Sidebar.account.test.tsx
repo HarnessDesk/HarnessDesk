@@ -99,7 +99,7 @@ const usageReport = (runtime: RuntimeId, lanes: readonly UsageLane[]): UsageRepo
     error: null,
   }) as unknown as UsageReport
 
-const mount = (overrides: Partial<AppSnapshot> = {}) => {
+const mount = (overrides: Partial<AppSnapshot> = {}, clock: { lowerMs: number; upperMs: number } | null | undefined = undefined) => {
   const selectRuntime = vi.fn(async () => {})
   const signOutAgent = vi.fn(async () => {})
   const onOpenSettings = vi.fn()
@@ -124,7 +124,7 @@ const mount = (overrides: Partial<AppSnapshot> = {}) => {
   } as AppSnapshot
   const loadUsage = vi.fn().mockResolvedValue(undefined)
   const store = {
-    hostTime: () => ({ lowerMs: Date.now(), upperMs: Date.now() }),
+    hostTime: () => clock === undefined ? ({ lowerMs: Date.now(), upperMs: Date.now() }) : clock,
     loadUsage,
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
@@ -222,6 +222,36 @@ const click = (element: Element): void => {
     element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   })
 }
+
+it('does not present an unverified account percentage in the new-session picker', () => {
+  const reading = usageReport(CLAUDE, [lane({ id: 'weekly', usedPercent: 20 })])
+  mount({ usage: [reading] }, null)
+  click(row())
+  click(document.querySelector('[role="menuitem"][data-current]')!)
+  const seat = seatNamed('olivia@acme.dev')
+  expect(seat).toBeDefined()
+  expect(seat?.textContent).not.toContain('80%')
+})
+
+it('keeps a current percentage in the new-session picker', () => {
+  const now = Date.now()
+  const reading = usageReport(CLAUDE, [lane({ id: 'weekly', usedPercent: 20 })])
+  mount({ usage: [reading] }, { lowerMs: now, upperMs: now + 1 })
+  click(row())
+  click(document.querySelector('[role="menuitem"][data-current]')!)
+  expect(seatNamed('olivia@acme.dev')?.textContent).toContain('80%')
+})
+
+it('does not present an unverified percentage for a runtime without accounts', () => {
+  const withoutAccounts = { ...claude, capabilities: { ...claude.capabilities, account: false } }
+  const reading = usageReport(CLAUDE, [lane({ id: 'weekly', usedPercent: 20 })])
+  mount({ runtimes: [codex, withoutAccounts], accountsByRuntime: { [CODEX]: signedIn('shane@example.com'), [CLAUDE]: { accounts: [], signInMethods: [] } }, usage: [reading] }, null)
+  click(row())
+  click(document.querySelector('[role="menuitem"][data-current]')!)
+  const seat = [...document.querySelectorAll('[role="menuitem"]:has([data-menu-account-name])')].reverse().find(item => item.textContent?.includes('Claude Code'))
+  expect(seat).toBeDefined()
+  expect(seat?.textContent).not.toContain('80%')
+})
 
 it('shows the desk identity and names the default agent on hover', () => {
   mount()

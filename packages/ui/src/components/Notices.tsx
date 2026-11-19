@@ -33,7 +33,7 @@ import { describeLimits, hostLimits } from '../lib/limits'
 import { composerPaceVisible } from '../lib/composer-usage'
 import { teamInboxAction } from '../lib/team-inbox'
 import { conditionFor } from '../lib/usage-alerts'
-import { canTakeTurn, inPoolOrder, runtimeOut, whenOutOf } from '../lib/account-pool'
+import { canTakeTurn, inPoolOrder, nextInPool, runtimeOut, whenOutOf } from '../lib/account-pool'
 import { accountKey, accountName, agentKey } from '../lib/accounts'
 import { isSilenced, offersMute, surfaceFor, wasKept, type NoticeIdentity, type NoticePolicy, type NoticeSurface } from '../lib/notice-policy'
 import { useShell, type ShellActions } from '../panels/views'
@@ -267,13 +267,13 @@ const useStanding = (): Standing | null => {
       let elsewhere = condition.handoff
       // The automatic new-session choice still uses its existing renderer-clock
       // policy. Do not name a different same-agent recipient as its advice.
-      if (elsewhere && pool?.pace === 'soonest' && whenOutOf(pool, snapshot.carryOnPolicy) === 'next' && runtimeOut(runtime.id, snapshot.usage)) {
+      if (elsewhere && whenOutOf(pool, snapshot.carryOnPolicy) === 'next' && runtimeOut(runtime.id, snapshot.usage)) {
         const target = snapshot.runtimes.find(entry => entry.id === elsewhere?.runtime)
         if (target && agentKey(target) === agent) {
           const ordered = inPoolOrder(siblings, pool, { reports: snapshot.usage, now: Date.now() })
           const usable = (entry: typeof siblings[number]) => entry.id !== runtime.id && !runtimeOut(entry.id, snapshot.usage) && canTakeTurn(entry, snapshot)
           const actual = snapshot.activeRuntime === runtime.id
-            ? ordered.find(usable)
+            ? pool?.pace === 'soonest' ? ordered.find(usable) : nextInPool(ordered, runtime.id, id => ordered.some(entry => entry.id === id && usable(entry)))
             : ordered.find(entry => entry.id === snapshot.activeRuntime && usable(entry))
           if (actual?.id !== elsewhere.runtime) elsewhere = null
         }

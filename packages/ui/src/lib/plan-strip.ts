@@ -152,6 +152,7 @@ const meterFor = (
   // the standing knows; the headline's own reset can come hours earlier.
   const backAt = standing.status === 'out' ? standing.backAt : lane.resetsAt
   const name = info.presentation.name
+  const backLabel = backAt !== null && backAt > now && (hostTime === undefined || (hostTime !== null && backAt > hostTime.upperMs && formatWhen(backAt, now) === formatWhen(backAt, hostTime.upperMs))) ? formatWhen(backAt, now) : null
   return {
     runtime: report.runtime,
     info,
@@ -169,7 +170,7 @@ const meterFor = (
     // Out of quota is the one state where the percentage is not the useful
     // number. When it comes back is — as a time, which stays true without a
     // refresh, where "3h" was already wrong by the time it was read.
-    figure: unread ? '—' : onCredits ? (standing.status === 'overdrawn' ? 'overdrawn' : 'no credits') : spent ? (backAt !== null && backAt > now ? `back ${formatWhen(backAt, now)}` : 'out') : `${lane.remainingPercent}%`,
+    figure: unread ? '—' : onCredits ? (standing.status === 'overdrawn' ? 'overdrawn' : 'no credits') : spent ? (backLabel ? `back ${backLabel}` : 'out') : `${lane.remainingPercent}%`,
     // Low as the standing says it, too: a healthy headline can sit in front of a Weekly that is the low one.
     low: !unread && (onCredits || spent || lane.remainingPercent < LOW || standing.status === 'low'),
     out: !unread && (onCredits || view.blocked),

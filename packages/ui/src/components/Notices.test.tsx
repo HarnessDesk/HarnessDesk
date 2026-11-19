@@ -1226,6 +1226,29 @@ describe('the out-of-quota banner under the carry-on rule', () => {
     expect(action()?.textContent).toBe('Continue with b')
   })
 
+  it('does not offer a different same-agent account than the manual pool action', () => {
+    const now = Date.now()
+    const same = (id: string) => ({ ...runtime(id, `Agent ${id}`), slot: { agent: 'a' } }) as RuntimeInfo
+    const reading = (r: UsageReport) => ({ ...r, fetchedAt: now, lanes: r.lanes.map(l => ({ ...l, resetsAt: now + HOUR })) })
+    scene({ runtimes: [same('a'), same('b'), same('c')], accountsByRuntime: { a: { accounts: [{ kind: 'oauth', label: 'a' }] }, b: { accounts: [{ kind: 'oauth', label: 'b' }] }, c: { accounts: [{ kind: 'oauth', label: 'c' }] } } as never,
+      usage: [reading(spent('a')), reading(roomy('c'))], accountPools: { a: { whenOut: 'next', order: ['a', 'b', 'c'] } } as never })
+    expect(container.textContent).toContain('is out of quota')
+    expect(action()).toBeUndefined()
+  })
+
+  it('withholds manual advice that disagrees with the already-selected default', () => {
+    const now = Date.now()
+    const same = (id: string) => ({ ...runtime(id, `Agent ${id}`), slot: { agent: 'a' } }) as RuntimeInfo
+    const reading = (r: UsageReport) => ({ ...r, fetchedAt: now, lanes: r.lanes.map(l => ({ ...l, resetsAt: now + HOUR })) })
+    const store = makeStore({ runtimes: [same('a'), same('b'), same('c')], activeRuntime: 'b' as never, activeSessionKey: SESSION,
+      accountsByRuntime: { a: { accounts: [{ kind: 'oauth', label: 'a' }] }, b: { accounts: [{ kind: 'oauth', label: 'b' }] }, c: { accounts: [{ kind: 'oauth', label: 'c' }] } } as never,
+      usage: [reading(spent('a')), reading(roomy('c'))], accountPools: { a: { whenOut: 'next', order: ['a', 'b', 'c'] } } as never })
+    vi.spyOn(store, 'hostTime').mockReturnValue({ lowerMs: now, upperMs: now + 1 })
+    act(() => root.render(<StoreProvider store={store}><PaneProvider scope={{ paneId: 'p1' as never, view: { kind: 'conversation', session: SESSION }, sessionKey: SESSION }}><StatusBanner onSignIn={() => {}} /></PaneProvider></StoreProvider>))
+    expect(container.textContent).toContain('is out of quota')
+    expect([...container.querySelectorAll('button')].some(button => /Continue with|Switch to/.test(button.textContent ?? ''))).toBe(false)
+  })
+
   it('keeps a verified cross-agent option even when the active pool uses soonest', () => {
     scene({ accountPools: { a: { pace: 'soonest', whenOut: 'next' } } })
     expect(action()?.textContent).toBe('Continue with Agent B')
