@@ -1,0 +1,36 @@
+{
+  "head": "c56dc9ffa488c1fbd0c61df178e9e1f2f3a9cc91",
+  "base": "8747117c8055af001ab3dc25574272d1d272ac15",
+  "scope": "SyntheticACP\u2192actualElectrondesktop andFakeRuntime\u2192actualHost\u2192pairediOS separately. Currentdesktopframeprivate/systemdesklabel. Fourpublicrawframes explicitlyprior/current; no provider/account/liveAllowclaim.",
+  "frames": [
+    {
+      "label": "desktop-before.png",
+      "path": "screenshots/issue-1620/c56dc9f/desktop-before.png",
+      "sha256": "6529b494e53a1277f3d63a7c9ed009e4e952e1f9cc645693a70813ad8cadadba",
+      "provenance": "HistoricalChromium component with874adapter/Host andbcbUI; selectedUI/adapter sourceunchanged, notcompiledUIequivalence.",
+      "parentVisuallyInspected": true
+    },
+    {
+      "label": "desktop-after.png",
+      "path": "screenshots/issue-1620/c56dc9f/desktop-after.png",
+      "sha256": "62bf9e5616446a3a1befa4452b3fc5f1f04ef86a616a7fbd151456c2f0d9e0fd",
+      "provenance": "HistoricalbcbChromium component after; currentc56fullElectron acceptedseparately/private, noallUIbundleequivalenceclaim.",
+      "parentVisuallyInspected": true
+    },
+    {
+      "label": "phone-safe.png",
+      "path": "screenshots/issue-1620/c56dc9f/phone-safe.png",
+      "sha256": "fec9211edb8d07c8378eea1e6b5d139219d28ab34ab27225705b5d41a32f567c",
+      "provenance": "Currentc56Host/iOSc7, FakeRuntimepermission exactsummary/singleCommand/knownsameabsolute cwd, successfultrustedDeny.",
+      "parentVisuallyInspected": true
+    },
+    {
+      "label": "phone-desk-only.png",
+      "path": "screenshots/issue-1620/c56dc9f/phone-desk-only.png",
+      "sha256": "87b1caed577d2cb8d96a25a2ddbb1c5dd48e221ea34d00348f925afabaf21449",
+      "provenance": "Currentc56Host/iOSc7, distinctpermissionscope shownwithdesk-onlynotice, successfultrustedDeny. Separateexampleinput, notbeforeafterpair. ExistingAllowbuttonvisible; HostrefusalNode-only.",
+      "parentVisuallyInspected": true
+    }
+  ],
+  "currentPrivateNativeReceiptSha256": "a988ba5c5597f90d3f57ee5b37bef1d89c2ea08e4508c39c86153428f7ea870f"
+}
