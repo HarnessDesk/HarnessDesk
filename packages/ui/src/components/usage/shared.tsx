@@ -855,7 +855,7 @@ export const Spend = ({
               />
             )}
           </ChartHead>
-          <DashboardStats facts={periods.map(period => ({id:String(period.days),label:period.label,value:period.unknown ? 'Not read yet' : format(period.cost),
+          <DashboardStats facts={periods.map(period => ({id:String(period.days),label:period.label,value:period.unknown ? 'No record yet' : format(period.cost),
             qualifier:!period.unknown && period.daysRead < period.days ? `· ${period.daysRead} of ${period.days} ${period.days === 1 ? 'day' : 'days'} with history` : !period.unknown ? 'so far' : undefined,
           }))} />
         </ChartCard>
