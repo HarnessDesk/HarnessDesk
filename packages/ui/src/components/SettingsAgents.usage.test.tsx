@@ -17,7 +17,7 @@ import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { accountKey } from '../lib/accounts'
 import { formatReset } from '../lib/limits'
-import { describeLane, standingSentence } from '../lib/usage'
+import { describeLane, describeLaneReset, standingSentence } from '../lib/usage'
 import { usageStandingOf } from '@harnessdesk/protocol'
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -36,6 +36,8 @@ afterEach(() => {
   vi.restoreAllMocks()
   vi.useRealTimers()
 })
+
+const describeLaneResetForTest = (window: UsageLane, now: number) => describeLaneReset(describeLane(window, now, [window]))
 
 const CLAUDE = runtimeId('claude')
 
@@ -70,7 +72,7 @@ const report = (account: string, lanes: readonly UsageLane[], reached: string | 
   spend: null,
   reached,
   source: { kind: 'runtime', label: 'from its own API' },
-  fetchedAt: 0,
+  fetchedAt: Date.now(),
   staleAfterMs: 600_000,
   error: null,
 })
@@ -89,7 +91,7 @@ const fableSpent = report(
 /** A second account whose own weekly really is gone. */
 const reallySpent = report('work@acme.dev', [lane({ id: 'weekly', usedPercent: 100 })], 'weekly')
 
-const mount = async (usage: readonly UsageReport[], limits: RateLimits | null = null, extra: Partial<AppSnapshot> = {}, openRuntime = true): Promise<AppStore> => {
+const mount = async (usage: readonly UsageReport[], limits: RateLimits | null = null, extra: Partial<AppSnapshot> = {}, openRuntime = true, hostClock?: { lowerMs: number; upperMs: number } | null): Promise<AppStore> => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -102,6 +104,7 @@ const mount = async (usage: readonly UsageReport[], limits: RateLimits | null = 
   } as unknown as AppSnapshot
   const store = {
     subscribe: () => () => {},
+    hostTime: () => hostClock === undefined ? { lowerMs: Date.now(), upperMs: Date.now() } : hostClock,
     getSnapshot: () => snapshot,
     transport: { request: vi.fn(async () => null) },
     loadAccounts: vi.fn(async () => {}),
@@ -152,6 +155,45 @@ const rows = (): { label: string; figure: string | null; state: string | null }[
     }))
 
 describe('an account row in Settings', () => {
+  it.each([-30, 30])('renders the same account reset at %s minute renderer skew', async offset => {
+    const hostNow = Date.now()
+    const window = lane({ id: 'session', label: 'Session', usedPercent: 12, windowMinutes: 300, resetsAt: hostNow + 139 * 60_000 })
+    const reading = { ...report('olivia@acme.dev', [window]), fetchedAt: hostNow - 60_000 }
+    const expected = describeLaneResetForTest(window, hostNow)
+    vi.spyOn(Date, 'now').mockReturnValue(hostNow + offset * 60_000)
+    await mount([reading], null, {}, true, { lowerMs: hostNow, upperMs: hostNow + 1 })
+    const row = [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent?.includes('olivia@acme.dev'))
+    expect(row?.textContent).toContain(expected)
+  })
+
+  it('does not claim a current runtime limit from an unverified reading', async () => {
+    const hostNow = Date.now()
+    const reading = { ...report('work@acme.dev', [lane({ id: 'weekly', usedPercent: 100, resetsAt: hostNow + 60_000 })], 'weekly'), fetchedAt: hostNow - 60_000 }
+    await mount([reading], null, {}, false, null)
+    const runtime = container.querySelector('[data-slot="agent-row"]')
+    expect(runtime?.textContent).not.toContain('Limit reached')
+    expect(runtime?.textContent).toContain('Unverified')
+  })
+
+  it('labels an account reading unverified and withholds reset timing without Host time', async () => {
+    const hostNow = Date.now()
+    const reading = { ...report('olivia@acme.dev', [lane({ id: 'session', usedPercent: 12, resetsAt: hostNow + 139 * 60_000 })]), fetchedAt: hostNow - 60_000 }
+    await mount([reading], null, {}, true, null)
+    const row = [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent?.includes('olivia@acme.dev'))
+    expect(row?.textContent).toContain('Unverified')
+    expect(row?.textContent).not.toContain('resets')
+    expect(row?.textContent).not.toContain('Use it first')
+  })
+
+  it.each([-30, 30])('keeps a qualified use-first label at %s minute skew', async offset => {
+    const hostNow = Date.now()
+    const reading = { ...report('olivia@acme.dev', [lane({ id: 'session', usedPercent: 20, windowMinutes: 300, resetsAt: hostNow + 30 * 60_000 })]), fetchedAt: hostNow - 60_000 }
+    vi.spyOn(Date, 'now').mockReturnValue(hostNow + offset * 60_000)
+    await mount([reading], null, {}, true, { lowerMs: hostNow, upperMs: hostNow + 1 })
+    const row = [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent?.includes('olivia@acme.dev'))
+    expect(row?.textContent).toContain('Use it first')
+  })
+
   it('reads the account own window, not whichever lane is tightest', async () => {
     await mount([fableSpent])
     const olivia = rows().find((row) => row.label === 'olivia@acme.dev')
@@ -227,7 +269,8 @@ describe('an account row in Settings', () => {
     await mount([{ ...report('work@acme.dev', [saved]), fetchedAt: now - 900_000, error: { message: 'temporary' } }])
     const row = [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent?.includes('work@acme.dev'))!
     expect(row.textContent).toContain('60% left')
-    expect(row.textContent).toContain(`in ${describeLane(saved, now, [saved]).countdown}`)
+    expect(row.textContent).toContain('Unverified')
+    expect(row.textContent).not.toMatch(/resets|in \d/)
   })
 
   it('does not invent another account’s reset for unknown or missing readings', async () => {
@@ -319,6 +362,26 @@ describe('an account row in Settings', () => {
 })
 
 describe('the agent page in Settings › Runtimes', () => {
+  it.each([-30, 30])('uses Host time for the usage card at %s minute renderer skew', async offset => {
+    const hostNow = Date.now()
+    const reading = { ...report('olivia@acme.dev', [lane({ id: 'session', label: 'Session', usedPercent: 60, windowMinutes: 300, resetsAt: hostNow + 139 * 60_000 })]), fetchedAt: hostNow - 60_000 }
+    vi.spyOn(Date, 'now').mockReturnValue(hostNow + offset * 60_000)
+    await mount([reading], null, {}, true, { lowerMs: hostNow, upperMs: hostNow + 1 })
+    const usage = container.querySelector('[aria-label="Usage by account"]')
+    expect(usage?.textContent).toContain('Short')
+    expect(usage?.textContent).toContain('Runs out')
+    expect(usage?.textContent).not.toContain('Unverified')
+  })
+
+  it('marks the latest settings usage reading unverified when the Host lacks a clock', async () => {
+    const hostNow = Date.now()
+    const reading = { ...report('olivia@acme.dev', [lane({ id: 'session', usedPercent: 60, windowMinutes: 300, resetsAt: hostNow + 139 * 60_000 })]), fetchedAt: hostNow - 60_000 }
+    await mount([reading], null, {}, true, null)
+    const usage = container.querySelector('[aria-label="Usage by account"]')
+    expect(usage?.textContent).toContain('Unverified')
+    expect(usage?.textContent).toContain('40%')
+    expect(usage?.textContent).not.toContain('Runs out')
+  })
   it('shows each account with the Dashboard card: its figure and the same pacing sentence', async () => {
     const resetsAt = Date.now() + 2 * 3_600_000
     const pacing = report('olivia@acme.dev', [lane({ id: 'session', label: 'Session', usedPercent: 40, windowMinutes: 300, resetsAt })])

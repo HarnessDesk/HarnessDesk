@@ -39,6 +39,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.restoreAllMocks()
 })
 
 const runtime = (id: string, name: string, metered: boolean): RuntimeInfo =>
@@ -80,17 +81,18 @@ const tokens = (
 })
 
 /** A store that is only a snapshot; the component never writes. */
-const storeOf = (snapshot: AppSnapshot): AppStore =>
+const storeOf = (snapshot: AppSnapshot, hostClock?: { lowerMs: number; upperMs: number } | null): AppStore =>
   ({
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
+    hostTime: () => hostClock === undefined ? { lowerMs: Date.now(), upperMs: Date.now() } : hostClock,
   }) as unknown as AppStore
 
-const mount = (over: Partial<AppSnapshot>): void => {
+const mount = (over: Partial<AppSnapshot>, hostClock?: { lowerMs: number; upperMs: number } | null): void => {
   const snapshot: AppSnapshot = { ...emptySnapshot(), ...over }
   act(() => {
     root.render(
-      <StoreProvider store={storeOf(snapshot)}>
+      <StoreProvider store={storeOf(snapshot, hostClock)}>
         <ContextUsage />
       </StoreProvider>,
     )
@@ -243,6 +245,35 @@ describe('ContextUsage', () => {
     expect(panelText()).not.toContain('5-hour46% left')
   })
 
+  it.each([-30, 30])('uses Host time for the context-panel reset at %s minute skew', offset => {
+    const hostNow = Date.now()
+    const resetsAt = hostNow + 139 * 60_000
+    const limits = { windows: [{ label: '5-hour', usedPercent: 54, windowMinutes: 300, resetsAt }] }
+    const usage: SessionUsage = { total: tokens(10), last: tokens(10), contextUsed: 10, contextWindow: 100 }
+    const expected = formatResetCountdown(resetsAt - hostNow)
+    vi.spyOn(Date, 'now').mockReturnValue(hostNow + offset * 60_000)
+    mount(withSession(runtime('alpha', 'Alpha', true), usage, { limits }), { lowerMs: hostNow, upperMs: hostNow + 1 })
+    open()
+    expect(panelText()).toContain(expected)
+  })
+  it('keeps the latest context-panel figure but withholds reset time without a Host clock', () => {
+    const resetsAt = Date.now() + 139 * 60_000
+    const limits = { windows: [{ label: '5-hour', usedPercent: 54, windowMinutes: 300, resetsAt }] }
+    const usage: SessionUsage = { total: tokens(10), last: tokens(10), contextUsed: 10, contextWindow: 100 }
+    mount(withSession(runtime('alpha', 'Alpha', true), usage, { limits }), null)
+    open()
+    expect(panelText()).toContain('5-hour46% left')
+    expect(panelText()).not.toContain('resets')
+  })
+  it('withholds reset timing when the Host interval straddles the reset', () => {
+    const hostNow = Date.now()
+    const limits = { windows: [{ label: '5-hour', usedPercent: 54, windowMinutes: 300, resetsAt: hostNow + 50 }] }
+    const usage: SessionUsage = { total: tokens(10), last: tokens(10), contextUsed: 10, contextWindow: 100 }
+    mount(withSession(runtime('alpha', 'Alpha', true), usage, { limits }), { lowerMs: hostNow, upperMs: hostNow + 100 })
+    open()
+    expect(panelText()).toContain('Currentness unverified')
+    expect(panelText()).not.toContain('resets')
+  })
   it('keeps the reset clock in the context-panel countdown title', () => {
     const resetsAt = Date.now() + 3 * 86_400_000
     const limits = {

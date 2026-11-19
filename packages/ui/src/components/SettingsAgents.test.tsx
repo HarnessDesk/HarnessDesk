@@ -437,6 +437,7 @@ const mountList = async (
     transport: { request: vi.fn(async () => null) },
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
+    hostTime: () => ({ lowerMs: Date.now(), upperMs: Date.now() }),
     loadAccounts: async () => {},
     // What an agent's own page asks for beyond the list's needs. Stubbed to
     // nothing so a test can mount the page and override only what it is about.
@@ -1647,7 +1648,7 @@ it('prefers the account that resets soonest, hides the hand moves, and says whic
   const setAccountPool = vi.fn()
   const now = Date.now()
   const lane = (usedPercent: number, resetsIn: number) => ({ id: 'session', label: '5h', usedPercent, windowMinutes: 300, resetsAt: now + resetsIn })
-  const fresh = { fetchedAt: now, staleAfterMs: 900_000, error: null }
+  const fresh = { fetchedAt: now, staleAfterMs: 900_000, error: null, source: { kind: 'runtime', label: 'fixture' } }
   await mountList({
     accountPools: { alpha: { pace: 'soonest' } },
     usage: [
@@ -1744,7 +1745,7 @@ it('an identity with no report of its own does not borrow another identity\'s st
       ...ROSTER.accountsByRuntime,
       beta: signedIn([{ kind: 'agent', label: 'Jane Doe' }, { kind: 'externalKey', label: 'API key' }], ['apiKey']),
     },
-    usage: [{ runtime: 'beta', account: 'Jane Doe', plan: null, lanes: [{ label: 'weekly', usedPercent: 100 }], reached: 'weekly' }] as never,
+    usage: [{ runtime: 'beta', account: 'Jane Doe', plan: null, lanes: [{ id: 'weekly', label: 'weekly', usedPercent: 100, windowMinutes: null, resetsAt: null }], reached: 'weekly', fetchedAt: Date.now(), staleAfterMs: 300_000, error: null, source: { kind: 'runtime', label: 'fixture' } }] as never,
   })
   const lines = [...line('Beta').querySelectorAll('[data-slot="desc-line"]')].map((node) => node.textContent ?? '')
   expect(lines.find((text) => text.includes('Jane Doe'))).toMatch(/Limit/)

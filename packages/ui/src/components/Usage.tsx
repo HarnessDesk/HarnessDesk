@@ -199,7 +199,7 @@ export const DashboardPage = ({ view, scope, onView, onScope, onSignIn, onOpenPl
 
   // Every registered agent gets a card, whether or not it reported anything.
   const everyReport = useMemo(() => {
-    const readings = [...trackedUsage(snapshot.runtimes, snapshot.usage, snapshot.usageOff, now, usageAskedOf(snapshot.usageAsked))]
+    const readings = [...trackedUsage(snapshot.runtimes, snapshot.usage, snapshot.usageOff, hostTime?.lowerMs ?? now, usageAskedOf(snapshot.usageAsked))]
     if (!hostTime || readings.some(report => describeHostReport(report, hostTime).stale)) return readings
     const lower = byUrgency(readings, hostTime.lowerMs)
     const upper = byUrgency(readings, hostTime.upperMs)

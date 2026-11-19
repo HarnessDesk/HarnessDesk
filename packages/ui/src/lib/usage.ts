@@ -1035,7 +1035,7 @@ export const describeHostReport = (
   }
   const lane = (first: LaneView | null): LaneView | null => {
     if (!first) return null
-    const second = upper?.all.find(item => item.id === first.id) ?? (upper?.reachedLane?.id === first.id ? upper.reachedLane : null)
+    const second = upper?.all.find(item => item.id === first.id) ?? (upper?.reachedLane && upper.reachedLane.id === first.id ? upper.reachedLane : null)
     return {
       ...first,
       countdown: second && first.countdown === second.countdown ? first.countdown : null,

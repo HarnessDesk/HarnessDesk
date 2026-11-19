@@ -9,7 +9,7 @@ import {
 } from '../lib/context-usage'
 import { describeLimits, formatReset } from '../lib/limits'
 import { formatResetCountdown } from '../lib/usage'
-import { useActiveSession, useRuntime, useSnapshot } from '../state/context'
+import { useActiveSession, useRuntime, useSnapshot, useStore } from '../state/context'
 import { useNarrowToolbar } from './ComposerControls'
 import { Button, ComposerTrack, InfoCard, ProgressRing, type InfoFact, type Tone } from '../design'
 
@@ -26,6 +26,8 @@ export const ContextUsage = () => {
   const { ref, folded, tight } = useNarrowToolbar('context')
   const session = useActiveSession()
   const snapshot = useSnapshot()
+  const store = useStore()
+  const hostTime = store.hostTime?.() ?? null
   // The ring is about the session, so the runtime is the session's own —
   // the pane's runtime is the same thing inside a pane, and outside one it
   // would be the active runtime, which may not be who this session talks to.
@@ -39,7 +41,7 @@ export const ContextUsage = () => {
   // Plan windows are the active runtime's, like the sidebar footer: a pane on
   // another agent must not show this agent's allowance as its own.
   const metered = runtime.capabilities.metered && runtime.id === snapshot.activeRuntime
-  const limits = metered ? describeLimits(snapshot.limits) : null
+  const limits = metered ? describeLimits(snapshot.limits, hostTime?.lowerMs ?? Date.now()) : null
 
   const usageTrigger = (fill: ContextFill | null, ringLabel: string) => <Button
     variant="ghost"
@@ -66,7 +68,12 @@ export const ContextUsage = () => {
     ...(composition ? composition.segments.map(segment => ({ id: `composition:${segment.id}`, label: segment.label, value: `${formatTokens(segment.tokens)} · ${segment.percent}%`, note: segment.count != null ? `${segment.count} items` : undefined })) : []),
     ...(limits ? limits.windows.map(window => {
       const left = Math.min(100, Math.max(0, Math.round(100 - window.usedPercent)))
-      return { id: `limit:${window.label}`, label: window.label, tone: toneOf(left <= 0 ? 'bad' : left < 20 ? 'warn' : 'good'), value: `${left}% left`, note: window.resetsAt === null ? undefined : `${formatResetCountdown(window.resetsAt - Date.now())} · resets ${formatReset(window.resetsAt)}` }
+      const lower = window.resetsAt !== null && hostTime ? formatResetCountdown(window.resetsAt - hostTime.lowerMs) : null
+      const upper = window.resetsAt !== null && hostTime ? formatResetCountdown(window.resetsAt - hostTime.upperMs) : null
+      const clock = window.resetsAt !== null && hostTime ? formatReset(window.resetsAt, hostTime.lowerMs) : null
+      const upperClock = window.resetsAt !== null && hostTime ? formatReset(window.resetsAt, hostTime.upperMs) : null
+      const verified = hostTime && window.resetsAt !== null && window.resetsAt > hostTime.upperMs && lower === upper && clock === upperClock
+      return { id: `limit:${window.label}`, label: window.label, tone: toneOf(left <= 0 ? 'bad' : left < 20 ? 'warn' : 'good'), value: `${left}% left`, note: verified ? `${lower} · resets ${clock}` : !hostTime || window.resetsAt !== null ? 'Currentness unverified' : undefined }
     }) : []),
   ]
   const compositionData = composition ? {
