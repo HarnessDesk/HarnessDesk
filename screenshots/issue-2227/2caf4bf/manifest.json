@@ -1,0 +1,75 @@
+{
+  "issue": 2227,
+  "base": "8747117c8055af001ab3dc25574272d1d272ac15",
+  "scope": "Synthetic realElectron/Host, rendererclock plus/minus30minutes, actualHosttimestamps unchanged. Dashboard/Settings aged61seconds; accountdetail/Composer oneplus30case. Independentcandidatehomes start atdifferenttimes so absoluteclocklabels differ.",
+  "shutdown": "Owned SIGTERM routesproduction app.quit,exit0/signalnull/processgroupgone; no menuquit claim.",
+  "isolation": "Wholecontroller/descendantsOSnetworkdeny exceptloopback/scopedlocal sockets, independentEPERM/loopbackprobes; stagedfakeCodex/accounts/repos only.",
+  "boundaries": "Phone, planlabelprovenance, persistednoticeeffects andaccountpooldecisionordering notfixed bythisslice. OldHost fallback tests areunitproof, notliveoldHostappfault. Priorreload/navigation/auditfailures retainedprivately; selectedframesarecompletepassedruns.",
+  "head": "2caf4bf6edb7d8aa0f49a502037aeb548a0c560e",
+  "frames": [
+    {
+      "label": "before-minus30",
+      "path": "screenshots/issue-2227/2caf4bf/before-minus30.png",
+      "source": "8747117c8055af001ab3dc25574272d1d272ac15",
+      "sha256": "f2c9c32c775527411930b951d1cc753da8401dd6bcdaf61e308fbf61142c7e66",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "before-plus30",
+      "path": "screenshots/issue-2227/2caf4bf/before-plus30.png",
+      "source": "8747117c8055af001ab3dc25574272d1d272ac15",
+      "sha256": "7d88a223c4ebcb0b78f7cdca48e8be916c43f255bb4752a4845991f9b3314ab8",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-minus30",
+      "path": "screenshots/issue-2227/2caf4bf/after-minus30.png",
+      "source": "2caf4bf6edb7d8aa0f49a502037aeb548a0c560e",
+      "sha256": "0c1aba2099501cabd7a1d76f4952cd7c1c691800c4dc3152487d0dcee208c0d4",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-plus30",
+      "path": "screenshots/issue-2227/2caf4bf/after-plus30.png",
+      "source": "2caf4bf6edb7d8aa0f49a502037aeb548a0c560e",
+      "sha256": "866ffd234c5deaa3741b489d8bf10525ca259fb15b89f7b888ab4a4adcb5be69",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "settings-minus30",
+      "path": "screenshots/issue-2227/2caf4bf/settings-minus30.png",
+      "source": "2caf4bf6edb7d8aa0f49a502037aeb548a0c560e",
+      "sha256": "80ca6e31bdb09f282e90604f654cd6f63a3b7eaa0aa6ed6c30e0a48fafcf5419",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "settings-plus30",
+      "path": "screenshots/issue-2227/2caf4bf/settings-plus30.png",
+      "source": "2caf4bf6edb7d8aa0f49a502037aeb548a0c560e",
+      "sha256": "ebd419bd4c206144b73de17f9bba2d250d8ab99aaaa474380333a619930a97d8",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "account-detail",
+      "path": "screenshots/issue-2227/2caf4bf/account-detail.png",
+      "source": "2caf4bf6edb7d8aa0f49a502037aeb548a0c560e",
+      "sha256": "e3d255eaeb52207b7f71dc1b787096e4d6a907387669fc7b742e59fee09d2e5c",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "composer-context",
+      "path": "screenshots/issue-2227/2caf4bf/composer-context.png",
+      "source": "2caf4bf6edb7d8aa0f49a502037aeb548a0c560e",
+      "sha256": "4aae02ebab7267e85651996ab6acac7801ce4cd0f1d7b14010c9bef7067a2c83",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    }
+  ]
+}
