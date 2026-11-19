@@ -246,23 +246,27 @@ const useStanding = (): Standing | null => {
     const deciding = incident !== undefined && CARRY_ON_LIVE.has(incident.state)
     const hostTime = store.hostTime?.() ?? null
     const activeReports = snapshot.usage.filter(report => report.runtime === runtime.id)
+    const selected = activeReports[0]
     const verifiedReports = hostTime ? snapshot.usage.filter(report => !describeHostReport(report, hostTime).stale) : []
-    const verifiedRuntime = (id: RuntimeId) => {
-      const own = snapshot.usage.filter(report => report.runtime === id)
-      return own.length > 0 && own.every(report => verifiedReports.includes(report))
-    }
-    const projectCondition = (now: number) => conditionFor(runtime.id, verifiedReports, nameFor, now, {
-      prefer: inPoolOrder(siblings.filter((entry) => canTakeTurn(entry, snapshot) && verifiedRuntime(entry.id)), pool, { reports: verifiedReports, now }).map((entry) => entry.id),
+    const projectCondition = (now: number, rankReports: typeof snapshot.usage) => conditionFor(runtime.id, snapshot.usage, nameFor, now, {
+      prefer: inPoolOrder(siblings.filter((entry) => canTakeTurn(entry, snapshot)), pool, { reports: rankReports, now }).map((entry) => entry.id),
       offer: rule.choice !== 'stop' && !deciding,
+      confirmReport: (report) => verifiedReports.includes(report),
       canTake: (id) => {
         const entry = snapshot.runtimes.find((one) => one.id === id)
-        return entry !== undefined && verifiedRuntime(id) && canTakeTurn(entry, snapshot) && (snapshot.carryOnPolicy.otherAgents || agentKey(entry) === agent)
+        return entry !== undefined && canTakeTurn(entry, snapshot) && (snapshot.carryOnPolicy.otherAgents || agentKey(entry) === agent)
       },
     })
-    const activeVerified = hostTime && activeReports.length > 0 && activeReports.every(report => !describeHostReport(report, hostTime).stale)
-    const lower = activeVerified ? projectCondition(hostTime.lowerMs) : null
-    const upper = hostTime && lower ? projectCondition(hostTime.upperMs) : null
-    const condition = lower && JSON.stringify(lower) === JSON.stringify(upper) ? lower : null
+    const activeVerified = hostTime && selected && !describeHostReport(selected, hostTime).stale
+    const lower = activeVerified ? projectCondition(hostTime.lowerMs, snapshot.usage) : null
+    const upper = hostTime && lower ? projectCondition(hostTime.upperMs, snapshot.usage) : null
+    const withoutHandoff = (value: typeof lower) => value && { ...value, handoff: null }
+    const stableWarning = lower && upper && JSON.stringify(withoutHandoff(lower)) === JSON.stringify(withoutHandoff(upper))
+    const rankedLower = hostTime && lower ? projectCondition(hostTime.lowerMs, verifiedReports) : null
+    const rankedUpper = hostTime && lower ? projectCondition(hostTime.upperMs, verifiedReports) : null
+    const stableHandoff = lower && upper && rankedLower && rankedUpper &&
+      [upper, rankedLower, rankedUpper].every(value => JSON.stringify(value.handoff) === JSON.stringify(lower.handoff))
+    const condition = stableWarning ? { ...lower, handoff: stableHandoff ? lower.handoff : null } : null
     if (condition) {
       let elsewhere = condition.handoff
       // The automatic new-session choice still uses its existing renderer-clock

@@ -223,7 +223,9 @@ export const conditionFor = (
   now: number,
   /**
    * The agent's own other accounts, in the order its pool uses them
-   * (`lib/account-pool.ts`), and whether to offer a way out at all. Another
+   * (`lib/account-pool.ts`), and whether to offer a way out at all. The optional
+   * `confirmReport` qualifies the report that actually supports a handoff,
+   * without changing the original ordering or substituting another account. Another
    * account of the same agent is the cheaper move — same models, same tools,
    * the conversation's own history format — so one with room is offered
    * before the roomiest agent of any kind. A pool whose rule is "Stop" offers
@@ -231,7 +233,7 @@ export const conditionFor = (
    * an account could take a turn at all (`canTakeTurn`); a report is cached
    * past a sign-out, so a roomy reading alone is not somewhere to go.
    */
-  pool: { readonly prefer?: readonly RuntimeId[]; readonly offer?: boolean; readonly canTake?: (runtime: RuntimeId) => boolean } = {},
+  pool: { readonly prefer?: readonly RuntimeId[]; readonly offer?: boolean; readonly canTake?: (runtime: RuntimeId) => boolean; readonly confirmReport?: (report: UsageReport) => boolean } = {},
 ): UsageCondition | null => {
   if (runtime === null) return null
   const report = reports.find((entry) => entry.runtime === runtime)
@@ -263,7 +265,12 @@ export const conditionFor = (
       return own.length === 0 || !own.every(isBlocked)
     })
   const best = sibling ?? alternatives[0]?.entry.runtime
-  const handoff = pool.offer === false || !best ? null : { runtime: best, name: nameFor(best) }
+  // Keep the original winner and its account identity; an uncertain winner
+  // must not be replaced by a different account's fresher reading.
+  const confirmed = !pool.confirmReport || (sibling
+    ? reports.some((entry) => entry.runtime === sibling && !isBlocked(entry) && pool.confirmReport!(entry))
+    : alternatives[0] !== undefined && pool.confirmReport(alternatives[0].entry))
+  const handoff = pool.offer === false || !best || !confirmed ? null : { runtime: best, name: nameFor(best) }
 
   // Only an account-wide limit earns a banner. One model being spent is a
   // fact for the card, not a reason to offer someone another agent.

@@ -1262,6 +1262,76 @@ describe('the out-of-quota banner under the carry-on rule', () => {
     expect(action()).toBeUndefined()
   })
 
+  it('keeps the selected fresh active account warning when a later account is stale', () => {
+    const now = Date.now()
+    const selected = { ...spent('a'), account: 'selected', fetchedAt: now }
+    const later = { ...roomy('a'), account: 'other', fetchedAt: now - 120_000 }
+    scene({ usage: [selected, later, roomy('b')] })
+    expect(container.textContent).toContain('Agent A is out of quota')
+    expect(action()?.textContent).toBe('Continue with Agent B')
+    expect(selected.account).toBe('selected')
+  })
+
+  it('does not replace a stale selected active account with a later fresh one', () => {
+    const now = Date.now()
+    const selected = { ...spent('a'), account: 'selected', fetchedAt: now - 120_000 }
+    const later = { ...spent('a'), account: 'other', fetchedAt: now }
+    scene({ usage: [selected, later, roomy('b')] })
+    expect(container.textContent).not.toContain('Agent A is out of quota')
+    expect(action()).toBeUndefined()
+  })
+
+  it('keeps a fresh winning alternative despite a stale later account on that runtime', () => {
+    const now = Date.now()
+    const fresh = { ...roomy('b'), account: 'first', fetchedAt: now }
+    const stale = { ...spent('b'), account: 'second', fetchedAt: now - 120_000 }
+    scene({ usage: [spent('a'), fresh, stale] })
+    expect(container.textContent).toContain('Agent A is out of quota')
+    expect(action()?.textContent).toBe('Continue with Agent B')
+  })
+
+  it('does not substitute a fresh second alternative for a stale winning first account', () => {
+    const now = Date.now()
+    const stale = { ...roomy('b'), account: 'first', fetchedAt: now - 120_000 }
+    const fresh = { ...spent('b'), account: 'second', fetchedAt: now }
+    scene({ usage: [spent('a'), stale, fresh] })
+    expect(container.textContent).toContain('Agent A is out of quota')
+    expect(action()).toBeUndefined()
+  })
+
+  it('keeps the original fresh winning alternative even when an earlier lower-ranked account is stale', () => {
+    const now = Date.now()
+    const stale = { ...spent('b'), account: 'first', fetchedAt: now - 120_000 }
+    const fresh = { ...roomy('b'), account: 'second', fetchedAt: now }
+    scene({ usage: [spent('a'), stale, fresh] })
+    expect(container.textContent).toContain('Agent A is out of quota')
+    expect(action()?.textContent).toBe('Continue with Agent B')
+  })
+
+  it('keeps a verified same-agent handoff when a separate account on that runtime is stale', () => {
+    const now = Date.now()
+    const same = (id: string) => ({ ...runtime(id, `Agent ${id}`), slot: { agent: 'a' } }) as RuntimeInfo
+    const active = { ...spent('a'), account: 'active', fetchedAt: now }
+    const first = { ...roomy('b'), account: 'first', fetchedAt: now }
+    const later = { ...spent('b'), account: 'second', fetchedAt: now - 120_000 }
+    scene({ runtimes: [same('a'), same('b')], accountsByRuntime: { a: { accounts: [{ kind: 'oauth', label: 'a' }] }, b: { accounts: [{ kind: 'oauth', label: 'b' }] } } as never,
+      usage: [active, first, later], accountPools: { a: { whenOut: 'ask', order: ['a', 'b'] } } as never, carryOnPolicy: { onLimit: 'ask', otherAgents: false } })
+    expect(container.textContent).toContain('is out of quota')
+    expect(action()?.textContent).toBe('Continue with b')
+  })
+
+  it.each(['missing', 'expired', 'straddled'])('withholds the selected warning for %s Host time', kind => {
+    const now = Date.now()
+    const selected = { ...spent('a'), account: 'selected', fetchedAt: now - 119_950, staleAfterMs: 120_000 }
+    const later = { ...spent('a'), account: 'other', fetchedAt: now }
+    const store = scene({ usage: [selected, later, roomy('b')] })
+    const clock = kind === 'missing' ? null : kind === 'expired' ? { lowerMs: now + 100, upperMs: now + 200 } : { lowerMs: now, upperMs: now + 100 }
+    vi.spyOn(store, 'hostTime').mockReturnValue(clock)
+    act(() => store.patch({}))
+    expect(container.textContent).not.toContain('Agent A is out of quota')
+    expect(action()).toBeUndefined()
+  })
+
   it('follows the saved desk rule: Stop offers nothing', () => {
     scene({ carryOnPolicy: { onLimit: 'stop', otherAgents: true } })
     expect(container.textContent).toContain('Agent A is out of quota')

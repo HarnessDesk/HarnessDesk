@@ -105,6 +105,14 @@ describe('the account pool', () => {
     await vi.waitFor(() => expect(store.getSnapshot().activeRuntime).toBe('codex-2'))
   })
 
+  it('retains separate account reports on the same runtime in arrival order', () => {
+    const first = { ...report(100, 'codex'), account: 'selected' }
+    const second = { ...report(20, 'codex'), account: 'other', fetchedAt: first.fetchedAt - 120_000 }
+    push({ method: 'usage/updated', params: { report: first } })
+    push({ method: 'usage/updated', params: { report: second } })
+    expect(store.getSnapshot().usage.map(item => [item.runtime, item.account])).toEqual([['codex', 'selected'], ['codex', 'other']])
+  })
+
   it('stays put when the rule is to ask', async () => {
     preferences = { activeRuntime: 'codex', accountPools: { codex: { whenOut: 'ask' } } }
     await store.loadPreferences()
