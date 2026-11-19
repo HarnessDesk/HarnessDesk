@@ -1,0 +1,50 @@
+{
+  "scope": "Current-source Host clock display evidence; identities and folders are synthetic fixtures",
+  "native": "Four actual Electron/Host frames at +30m renderer skew; dated Host usage remains qualified while undated limit figures remain visible and unverified. Normal app quit and owned process group cleanup succeeded.",
+  "browser": "The separate local website fake Host frame shows dated shifted reports and an effective client Host interval. Its pre-existing staged-turn fallback and Not wired toast remain visible. This is a local source demo, not a live website deployment.",
+  "mixedAccounts": "Four independent browser preview cases cover fresh/stale selected report readiness. They are separate from the one-identity native run.",
+  "provenance": "Parent inspected each original PNG and independently checked source, compiled and artifact hashes. Full native canonical checks were accepted from controller assertions and source inspection; full pre/post bodies were not independently recomputed.",
+  "head": "20e53f634f8402b882f883013cf587d5587303af",
+  "frames": [
+    {
+      "path": "screenshots/issue-2227/20e53f6/dashboard.png",
+      "sha256": "d4a3912c95c100ef136c8e1a0ededfab5a7fccf0bb89f2021da0192faeddebe3",
+      "sourceHead": "20e53f634f8402b882f883013cf587d5587303af",
+      "sourceTree": "a40754102c1a0d643fb772eb50f5665fa2b50876",
+      "surface": "actual Electron and Host; synthetic single identity; +30m renderer skew",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-2227/20e53f6/settings.png",
+      "sha256": "168963a151fb01fc26c8011728551e999b23021c3fde3b9827d6ba27c5a169cc",
+      "sourceHead": "20e53f634f8402b882f883013cf587d5587303af",
+      "sourceTree": "a40754102c1a0d643fb772eb50f5665fa2b50876",
+      "surface": "actual Electron and Host; synthetic single identity; +30m renderer skew",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-2227/20e53f6/account-detail.png",
+      "sha256": "9a12fcedd57550c46562cb7909d857d6386dd5587b9e1b9865479706e2c209da",
+      "sourceHead": "20e53f634f8402b882f883013cf587d5587303af",
+      "sourceTree": "a40754102c1a0d643fb772eb50f5665fa2b50876",
+      "surface": "actual Electron and Host; synthetic single identity; +30m renderer skew",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-2227/20e53f6/composer-context.png",
+      "sha256": "90dc357fa51683056477d9e0a8409493c51fe311498315cbc184950830e5938b",
+      "sourceHead": "20e53f634f8402b882f883013cf587d5587303af",
+      "sourceTree": "a40754102c1a0d643fb772eb50f5665fa2b50876",
+      "surface": "actual Electron and Host; synthetic single identity; +30m renderer skew",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-2227/20e53f6/site-usage.png",
+      "sha256": "391eb359a1db27d65b7f809664633f60277c614b2000c115c94e8f609dc5cf41",
+      "sourceHead": "20e53f634f8402b882f883013cf587d5587303af",
+      "sourceTree": "a40754102c1a0d643fb772eb50f5665fa2b50876",
+      "surface": "local website fake Host browser; existing25s fallback",
+      "parentVisuallyInspected": true
+    }
+  ]
+}
