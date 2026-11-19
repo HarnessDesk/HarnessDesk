@@ -1,0 +1,44 @@
+{
+  "iosHead": "c7e47a3a4730aba87e2bbbd9bc300e7f65b0603f",
+  "iosBase": "040b73e82174ce4952eb636b42c86c1d93a85bc9",
+  "issue": "HarnessDesk/HarnessDesk#2039",
+  "scope": "synthetic real phone UI and Host; oldHost localdot canclear withoutHostmark; newHost visibleopen writesopened>=completed; previewdoesnotmark",
+  "validation": "961 package tests, unsigned Debug/Release,27Nodepolicy,10Pythonpolicy,9encryptedUI, targetedHostcomparison; iOSActions remain disabled byowner; local landing guard still required",
+  "frames": [
+    {
+      "label": "before-local-open",
+      "path": "screenshots/issue-2039/c7e47a3/before-local-open.png",
+      "sha256": "5b63419f19ff5d409d3979b70dc12a8ffed58cf49b6a3e95aebe9bf1c5efa2d1",
+      "bytes": 318296,
+      "width": 1206,
+      "height": 2622,
+      "iosHead": "c7e47a3a4730aba87e2bbbd9bc300e7f65b0603f",
+      "desktopHead": "8747117c8055af001ab3dc25574272d1d272ac15",
+      "privacy": "parent visually inspected; synthetic native phone fixtures only; original XCTest bytes"
+    },
+    {
+      "label": "after-unread",
+      "path": "screenshots/issue-2039/c7e47a3/after-unread.png",
+      "sha256": "d0e880341d531d57eb74a66d5c30c466afee98b9520c8fb35a3d5a5d1f04817d",
+      "bytes": 335989,
+      "width": 1206,
+      "height": 2622,
+      "iosHead": "c7e47a3a4730aba87e2bbbd9bc300e7f65b0603f",
+      "desktopHead": "1e6b4febfa2af7c8801691dfa78cb4e6f16271b0",
+      "privacy": "parent visually inspected; synthetic native phone fixtures only; original XCTest bytes"
+    },
+    {
+      "label": "after-visible-open",
+      "path": "screenshots/issue-2039/c7e47a3/after-visible-open.png",
+      "sha256": "50380756f16dfcab60c0bb607862f823c97530806c71c0a86a76bd994af30cf1",
+      "bytes": 317605,
+      "width": 1206,
+      "height": 2622,
+      "iosHead": "c7e47a3a4730aba87e2bbbd9bc300e7f65b0603f",
+      "desktopHead": "1e6b4febfa2af7c8801691dfa78cb4e6f16271b0",
+      "privacy": "parent visually inspected; synthetic native phone fixtures only; original XCTest bytes"
+    }
+  ],
+  "boundary": "screenshots alone do not prove cross-device authority; separate Host projection/DB/transport observations do; oldHost/reconnect fault tests arepackage tests",
+  "publication": "Synthetic evidence for public desktop issue #2039 and companion iOS PR92; original XCTest PNGs only. No private source or account data."
+}
