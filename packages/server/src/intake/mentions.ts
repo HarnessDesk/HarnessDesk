@@ -1260,7 +1260,7 @@ export class MentionTriage {
         mode: this.#modeOf(ledger, arm), acted: false, work: null, decidedAt: this.#port.now(), evaluations: 0 }
     await this.#write({ ...ledger, assessed: { day, count: count + 1 }, decisions: [...ledger.decisions.filter(one => one.id !== provisional.id), provisional] })
     let answer: MentionAssessment | null = null
-    let notSent = false, unconfirmed = false
+    let notSent = false, unconfirmed = false, failed = false
     try {
       answer = await this.#port.assess({
         trigger: { id: definition.id, handle, opens: opensWords(definition) },
@@ -1269,9 +1269,17 @@ export class MentionTriage {
         comment: { author: fact.login ?? null, body: fact.body ?? '' },
       }, this.#port.signal, { notSent: () => { notSent = true }, unconfirmed: () => { unconfirmed = true } })
     } catch {
-      answer = null
+      answer = null; failed = true
     }
-    if (unconfirmed || (!answer && !notSent)) return ask(ASSESS_UNCONFIRMED, 'assessment')
+    // The durable slot precedes any possible effect. Return it only when the
+    // assessor proves nothing was sent and no uncertain settlement was seen.
+    if (!answer && notSent && !unconfirmed && !failed) {
+      const current = await this.#read()
+      if (current.assessed.day !== day || current.assessed.count !== count + 1)
+        throw new Error('The assessment count changed before a no-send could be recorded.')
+      await this.#write({ ...current, assessed: { day, count } })
+    }
+    if (failed || unconfirmed || (!answer && !notSent)) return ask(ASSESS_UNCONFIRMED, 'assessment')
     if (!answer) return ask(ASSESS_UNAVAILABLE, 'assessment')
     return { decision: answer.decision, reason: answer.reason, by: 'assessment', rules }
   }

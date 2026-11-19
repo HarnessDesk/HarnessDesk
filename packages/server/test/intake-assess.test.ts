@@ -119,3 +119,21 @@ test('a refused reservation is proven not sent and does not become unconfirmed',
   assert.equal(notSent, 1); assert.equal(unconfirmed, 0)
   assert.deepEqual(r.log, ['reserve'])
 })
+
+test('missing key and trusted not-started refusal prove no send, unless settlement is unconfirmed', async () => {
+  let reservations = 0, sent = 0, noSend = 0, uncertain = 0
+  const evidence = { notSent() { noSend++ }, unconfirmed() { uncertain++ } }
+  const missing = observerAssessor({ key: async () => null, model: 'test-model',
+    transport: { async send() { sent++; throw new Error('must not send') } },
+    account: { async reserve() { reservations++; return null } } })
+  assert.equal(await missing(INPUT, new AbortController().signal, evidence), null)
+  assert.deepEqual([noSend, uncertain, reservations, sent], [1, 0, 0, 0])
+  const refused = rig({ status: 400, body: '{}', processing: 'not-started' })
+  noSend = uncertain = 0
+  await refused.assess(INPUT, new AbortController().signal, evidence)
+  assert.deepEqual([noSend, uncertain], [1, 0])
+  const failedSettlement = rig({ status: 400, body: '{}', processing: 'not-started' }, true, false)
+  noSend = uncertain = 0
+  await failedSettlement.assess(INPUT, new AbortController().signal, evidence)
+  assert.deepEqual([noSend, uncertain], [1, 1], 'unconfirmed settlement takes priority over no-send')
+})

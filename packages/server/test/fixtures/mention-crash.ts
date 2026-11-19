@@ -3,13 +3,14 @@ import { CredentialBroker } from '../../src/credentials.js'
 import { intakeDesk } from './intake-host.js'
 import { Clocks } from './intake-forge.js'
 
-const [dir, stateDir] = process.argv.slice(2)
+const [dir, stateDir, mode] = process.argv.slice(2)
 if (!dir || !stateDir) throw new Error('synthetic fixture arguments missing')
 const repo = { dir, git: async () => '' }
 const clocks = new Clocks(1800000000000)
 const cipher = { protection: 'synthetic cipher', encrypt: (plain: string) => Buffer.from(Buffer.from(plain).toString('hex')), decrypt: (blob: Buffer) => Buffer.from(blob.toString(), 'hex').toString() }
-const transport = { async send() { process.send?.('dispatched'); return await new Promise<never>(() => {}) } }
-const d = await intakeDesk({ repo, stateDir, clocks, lead: true, characterizationTransport: transport, characterizationSeed: async home => {
+const transport = { async send() { process.send?.('after-dispatch'); return await new Promise<never>(() => {}) } }
+const d = await intakeDesk({ repo, stateDir, clocks, lead: true, characterizationTransport: transport,
+  ...(mode === 'before-proof' ? { mentions: { assess: async () => { process.send?.('before-proof'); return await new Promise<never>(() => {}) } } } : {}), characterizationSeed: async home => {
   await new CredentialBroker(join(home, 'credentials.json'), cipher).storeLead('anthropic', 'sk-test-not-real-0000')
 } })
 d.forge.users.set('a-teammate', { id: 31 })

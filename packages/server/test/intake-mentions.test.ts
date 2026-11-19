@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
@@ -53,9 +53,10 @@ ${extra}`
 class FakeAssessor {
   readonly inputs: MentionAssessInput[] = []
   answer: ReturnType<typeof parseAssessment> = { decision: 'accept', reason: 'It asks for a fix on this thread.' }
-  readonly assess: MentionAssessor = async (input) => {
+  hook?: MentionAssessor
+  readonly assess: MentionAssessor = async (input, signal, evidence) => {
     this.inputs.push(input)
-    return this.answer
+    return this.hook ? this.hook(input, signal, evidence) : this.answer
   }
 }
 
@@ -2199,4 +2200,86 @@ test('#2070: full protected history keeps a closed firing until its refusal can 
   assert.equal(after.decisions.length, 500)
   assert.ok(after.decisions.every((one: { reason: string }) => one.reason === ASSESS_UNCONFIRMED))
   assert.deepEqual(delivered, [], 'the closed firing never reaches the Lead')
+})
+
+for (const mode of ['not-sent', 'uncertain', 'contradictory', 'throw', 'not-sent-then-throw', 'answer-and-not-sent'] as const) {
+  test(`daily assessment count requires conclusive no-send evidence: ${mode}`, E2E, async t => {
+    const d = await desk(t)
+    d.model.hook = async (_input, _signal, evidence) => {
+      if (mode === 'not-sent' || mode === 'contradictory' || mode === 'not-sent-then-throw' || mode === 'answer-and-not-sent') evidence?.notSent()
+      if (mode === 'uncertain' || mode === 'contradictory') evidence?.unconfirmed()
+      if (mode === 'throw' || mode === 'not-sent-then-throw') throw new Error('synthetic ambiguous failure')
+      return mode === 'answer-and-not-sent' ? { decision: 'ask', reason: 'Please decide.' } : null
+    }
+    await say(d, 1, '@dex please fix this', NAMED)
+    const ledger = JSON.parse(await readFile(join(d.stateDir, LEDGER), 'utf8'))
+    assert.equal(ledger.assessed.count, mode === 'not-sent' ? 0 : 1)
+    if (mode === 'uncertain' || mode === 'contradictory' || mode === 'throw' || mode === 'not-sent-then-throw') assert.equal(ledger.decisions.at(-1).reason, ASSESS_UNCONFIRMED)
+  })
+}
+
+test('a no-send crossing UTC midnight releases its captured day before the next assessment', E2E, async t => {
+  const now = Date.UTC(2026, 0, 1, 23, 58, 0), clocks = new Clocks(now)
+  const d = await desk(t, ASK(), { clocks })
+  let attempts = 0
+  d.model.hook = async (_input, _signal, evidence) => {
+    attempts++
+    if (attempts === 1) { clocks.advance(120000); evidence?.notSent(); return null }
+    return { decision: 'ask', reason: 'Please decide.' }
+  }
+  await say(d, 1, '@dex please fix this', NAMED)
+  let ledger = JSON.parse(await readFile(join(d.stateDir, LEDGER), 'utf8'))
+  assert.deepEqual(ledger.assessed, { day: '2026-01-01', count: 0 }, 'release uses captured day despite midnight')
+  await say(d, 2, '@dex please fix another', NAMED)
+  ledger = JSON.parse(await readFile(join(d.stateDir, LEDGER), 'utf8'))
+  assert.deepEqual(ledger.assessed, { day: '2026-01-02', count: 1 })
+})
+
+test('a failed no-send count read retains the cursor and durable provisional decision', E2E, async t => {
+  const d = await desk(t)
+  const file = join(d.stateDir, LEDGER), saved = join(d.stateDir, 'mentions-held.json')
+  let moved = false
+  d.model.hook = async (_input, _signal, evidence) => {
+    await rename(file, saved); await mkdir(file); moved = true
+    evidence?.notSent(); return null
+  }
+  const cursor = join(d.stateDir, 'triggers-cursors.json'), before = await readFile(cursor, 'utf8')
+  try {
+    await say(d, 1, '@dex please fix this', NAMED)
+    assert.equal(await readFile(cursor, 'utf8'), before, 'the source cursor did not advance')
+    const ledger = JSON.parse(await readFile(saved, 'utf8'))
+    assert.equal(ledger.assessed.count, 1, 'failed refund read never removes the conservative count')
+    assert.equal(ledger.decisions.at(-1).reason, ASSESS_UNCONFIRMED)
+    assert.equal(d.model.inputs.length, 1)
+  } finally {
+    if (moved) { await rm(file, { recursive: true, force: true }); await rename(saved, file) }
+  }
+  await d.stop()
+  const reopened = await desk(t, ASK(), { stateDir: d.stateDir, repo: d.repo, clocks: d.clocks, forge: d.forge, arm: false })
+  d.clocks.advance(60000); await reopened.host.intakePlane.tick()
+  assert.equal(reopened.model.inputs.length, 0, 'replay cannot resend the uncertain provisional attempt')
+  assert.notEqual(await readFile(cursor, 'utf8'), before, 'the source revisits and accepts the retained provisional decision')
+  const recovered = JSON.parse(await readFile(file, 'utf8'))
+  assert.equal(recovered.assessed.count, 1)
+  assert.equal(recovered.decisions.at(-1).reason, ASSESS_UNCONFIRMED)
+})
+
+test('serialized concurrent mentions keep a sent assessment when another proves no-send', E2E, async t => {
+  const d = await desk(t)
+  let attempts = 0
+  d.model.hook = async (_input, _signal, evidence) => {
+    attempts++
+    if (attempts === 1) { evidence?.notSent(); return null }
+    return { decision: 'ask', reason: 'Please decide.' }
+  }
+  const at = d.clocks.wall + 1000
+  d.forge.issues.push({ number: 1, state: 'open', created: at, updated: at + 1, events: [], comments: [
+    { id: 9501, body: '@dex first request', created: at, updated: at, user: NAMED },
+    { id: 9502, body: '@dex second request', created: at + 1, updated: at + 1, user: NAMED },
+  ] })
+  d.clocks.advance(60000)
+  await Promise.all([d.host.intakePlane.tick(), d.host.intakePlane.tick()])
+  assert.equal(attempts, 2)
+  const ledger = JSON.parse(await readFile(join(d.stateDir, LEDGER), 'utf8'))
+  assert.equal(ledger.assessed.count, 1, 'the proven no-send releases only its own slot')
 })

@@ -300,11 +300,11 @@ test('assessment has a durable manual decision before provider dispatch', { time
 })
 
 
-test('a crashed assessment is not automatically resent and can be manually re-evaluated', { timeout: 60000 }, async t => {
+for (const crashPoint of ['after-dispatch', 'before-proof'] as const) test(`a crashed assessment at ${crashPoint} is not automatically resent and can be manually re-evaluated`, { timeout: 60000 }, async t => {
   const repo = await makeRepo('hd-mention-crash-')
   await commitTriggers(repo, trigger)
   const stateDir = tempDir('hd-mention-crash-state-')
-  const child = fork(new URL('./fixtures/mention-crash.js', import.meta.url), [repo.dir, stateDir], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] })
+  const child = fork(new URL('./fixtures/mention-crash.js', import.meta.url), [repo.dir, stateDir, crashPoint], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] })
   let errors = ''; child.stderr?.on('data', chunk => { errors += String(chunk) })
   t.after(async () => {
     if (child.exitCode === null && child.signalCode === null) {
@@ -314,7 +314,7 @@ test('a crashed assessment is not automatically resent and can be manually re-ev
   })
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`dispatch deadline: ${errors}`)), 15000)
-    child.once('message', message => { clearTimeout(timer); message === 'dispatched' ? resolve() : reject(new Error('unexpected fixture message')) })
+    child.once('message', message => { clearTimeout(timer); message === crashPoint ? resolve() : reject(new Error('unexpected fixture message')) })
     child.once('exit', () => { clearTimeout(timer); reject(new Error(`child exited before dispatch: ${errors}`)) })
   })
   const exit = new Promise<void>(resolve => child.once('exit', () => resolve()))
@@ -333,7 +333,9 @@ test('a crashed assessment is not automatically resent and can be manually re-ev
   const decision = page.decisions.find(one => one.comment.id === '9001')
   assert.ok(decision); assert.match(decision.reason, /unconfirmed/i)
   const budget = await d.host.call('lead/mentionBudget/read', {})
-  assert.ok(budget.uncertainUsdMicros > 0)
+  if (crashPoint === 'after-dispatch') assert.ok(budget.uncertainUsdMicros > 0)
+  else assert.equal(budget.uncertainUsdMicros, 0, 'no provider reservation was made before this fixture stopped')
+  assert.equal(JSON.parse(await readFile(join(stateDir, 'triggers-mentions.json'), 'utf8')).assessed.count, 1, 'a crash before no-send proof keeps its daily count')
   const comment = d.forge.issues[0]!.comments[0]!
   comment.body = '@dex please fix an edited request'
   comment.updated = d.forge.issues[0]!.updated = clocks.wall + 1000
@@ -346,10 +348,45 @@ test('a crashed assessment is not automatically resent and can be manually re-ev
   clocks.advance(60000); await d.host.intakePlane.tick()
   assert.equal(calls, 0, 'rearming does not resend the prior uncertain comment')
   await d.host.call('lead/mentionBudget/configure', { dailyCapUsdMicros: 0 })
+  const beforeRefusal = JSON.parse(await readFile(join(stateDir, 'triggers-mentions.json'), 'utf8')).assessed.count
   const refused = await d.host.call('trigger/decision/reevaluate', { root: repo.dir, id: 'ask', decision: decision.id })
   assert.match(refused.reason, /unconfirmed/i, 'a refused new attempt cannot erase the earlier uncertainty')
+  assert.equal(JSON.parse(await readFile(join(stateDir, 'triggers-mentions.json'), 'utf8')).assessed.count, beforeRefusal)
   assert.equal(calls, 0)
   await d.host.call('lead/mentionBudget/configure', { dailyCapUsdMicros: 1000000 })
   await d.host.call('trigger/decision/reevaluate', { root: repo.dir, id: 'ask', decision: decision.id })
   assert.equal(calls, 1, 'a person can explicitly request a new assessment')
+})
+
+for (const startingCap of [0, 1]) test(`a no-send assessment at cap ${startingCap} does not consume the last daily slot`, { timeout: 60000 }, async t => {
+  const repo = await makeRepo('hd-mention-count-')
+  await commitTriggers(repo, trigger)
+  const stateDir = tempDir('hd-mention-count-state-')
+  const date = new Date(), now = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 12)
+  const clocks = new Clocks(now)
+  await writeFile(join(stateDir, 'triggers-mentions.json'), JSON.stringify({ version: 1, decisions: [], threads: [], modes: {}, assessed: { day: new Date(now).toISOString().slice(0, 10), count: 199 } }))
+  let sends = 0
+  const transport = { async send() { sends++; return { status: 200, body: JSON.stringify({ content: [{ type: 'text', text: '{"decision":"ask","reason":"Please decide."}' }], usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } }) } } }
+  const cipher = { protection: 'synthetic cipher', encrypt: (plain: string) => Buffer.from(Buffer.from(plain).toString('hex')), decrypt: (blob: Buffer) => Buffer.from(blob.toString(), 'hex').toString() }
+  const d = await intakeDesk({ repo, stateDir, clocks, lead: true, characterizationTransport: transport, characterizationSeed: async home => {
+    await new CredentialBroker(join(home, 'credentials.json'), cipher).storeLead('anthropic', 'sk-test-not-real-0000')
+  } })
+  t.after(() => d.stop())
+  d.forge.users.set('a-teammate', { id: 31 })
+  const preview = await d.host.call('trigger/preview', { root: repo.dir, id: 'ask' })
+  await d.host.call('trigger/arm', { root: repo.dir, id: 'ask', token: preview.token! })
+  await d.host.call('trigger/mode', { root: repo.dir, id: 'ask', mode: 'act' })
+  if (startingCap) await d.host.call('lead/mentionBudget/configure', { dailyCapUsdMicros: startingCap })
+  const say = async (number: number) => {
+    const at = clocks.wall + 1000
+    d.forge.issues.push({ number, state: 'open', created: at, updated: at, events: [], comments: [{ id: 9000 + number, body: '@dex please fix this', created: at, updated: at, user: { id: 31, login: 'a-teammate' } }] })
+    clocks.advance(60000); await d.host.intakePlane.tick()
+  }
+  await say(1)
+  assert.equal(sends, 0)
+  const after = JSON.parse(await readFile(join(stateDir, 'triggers-mentions.json'), 'utf8'))
+  await d.host.call('lead/mentionBudget/configure', { dailyCapUsdMicros: 1000000 })
+  await say(2)
+  assert.equal(after.assessed.count, 199, 'a proven no-send did not consume the last slot')
+  assert.equal(sends, 1, 'the funded next request may use the last slot')
 })
