@@ -246,7 +246,9 @@ export const previousByRuntime = (
   const end = Math.max(0, wide.days.length - range)
   const start = Math.max(0, end - range)
   const slice = wide.days.slice(start, end)
-  const complete = slice.length === range && slice.every((day) => !day.unknown)
+  const current = wide.days.slice(-range)
+  const complete = slice.length === range && current.length === range
+    && slice.every((day) => !day.unknown) && current.every((day) => !day.unknown)
   const totals = new Map<RuntimeId, number>()
   wide.keys.forEach((key, index) => {
     totals.set(

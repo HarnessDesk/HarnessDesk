@@ -314,6 +314,16 @@ describe('stackDaily marking rowless days unknown', () => {
   })
 })
 
+it.each(['tokens', 'turns'] as const)('keeps rowless %s days unknown and observed zero known', metric => {
+  const ledger = report(3, [
+    { day: TODAY - 2 * DAY, runtime: CODEX, cost: 1, tokens: 4, turns: 2 },
+    { day: TODAY, runtime: CODEX, cost: 0, tokens: 0, turns: 0 },
+  ], null, [CODEX])
+  const series = stackDailyMetric(ledger, NOON, metric)
+  expect(series.days.map(day => day.unknown)).toEqual([false, true, false])
+  expect(series.days.map(day => day.total)).toEqual(metric === 'tokens' ? [4, 0, 0] : [2, 0, 0])
+})
+
 describe('previousPeriod', () => {
   const daily = (start: number, count: number, costOf: (index: number) => number) =>
     Array.from({ length: count }, (_, index) => ({
@@ -419,6 +429,15 @@ describe('previousByRuntime', () => {
     expect(previous.complete).toBe(true)
     expect(previous.totals.get(CLAUDE)).toBe(14)
     expect(previous.totals.get(CODEX)).toBe(0)
+  })
+
+  it('suppresses comparison when a current day is rowless while retaining previous totals', () => {
+    const rows = Array.from({ length: 14 }, (_, index) => ({
+      day: TODAY - (13 - index) * DAY, runtime: CODEX, cost: 2,
+    })).filter(row => row.day !== TODAY - DAY)
+    const previous = previousByRuntime(stackDaily(report(14, rows), NOON), 7)
+    expect(previous.totals.get(CODEX)).toBe(14)
+    expect(previous.complete).toBe(false)
   })
 
   it('is not complete when the older half starts before coverage.earliestDay', () => {

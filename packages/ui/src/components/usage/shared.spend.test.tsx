@@ -54,7 +54,7 @@ it('states complete scan coverage once even when the recorded window is empty', 
 })
 
 
-it('agrees to the cent across ranges for a partly read week beside a quiet day', () => {
+it('agrees across ranges while distinguishing a rowless today from an observed zero', () => {
   const now = new Date(2026, 9, 10, 12).getTime()
   const day = (back: number) => new Date(2026, 9, 10 - back).getTime()
   const coveredDays = [3, 4, 6].map(day)
@@ -66,14 +66,16 @@ it('agrees to the cent across ranges for a partly read week beside a quiet day',
   const headline = host.querySelector('[data-slot="chart-title"]')!.textContent
   expect(headline).toBe('$23.09')
   expect(host.textContent).toContain('3 of 7 days with usage')
-  expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('Today$0')
+  expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('TodayNot read yet')
   render(30)
   const week = [...host.querySelectorAll('[data-slot="stat"]')].find(stat => stat.textContent?.includes('Last 7 days'))!
   expect(week.textContent).toContain(headline)
-  expect(week.textContent).toContain('so far')
+  expect(week.textContent).toContain('3 of 7 days with history')
+  expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('TodayNot read yet')
+  render(7, { ...ledger(7), daily: [...daily, { day: day(0), runtime: runtimeId('fixture'), cost: 0, tokens: 0 }] })
   expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('Today$0')
   render(7, { ...ledger(7), daily: [], totalCost: 0, coverage: { ...ledger(7).coverage, daysCovered: 0, coveredDays: [] } }, day(1) + 12 * 3600000)
-  expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('Today$0')
+  expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('TodayNot read yet')
 })
 
 it('counts runtimes in the turns chart’s coverage footnote', () => {
