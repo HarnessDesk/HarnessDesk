@@ -1,0 +1,56 @@
+{
+  "issue": 2066,
+  "base": "8747117c8055af001ab3dc25574272d1d272ac15",
+  "scope": "Actual synthetic uninstrumented Electron/Host: Off, save1.25, reopen readback, external2.00 while dirty3.25 preserved, Off. No realprovider/key.",
+  "shutdown": "one exactownedchild SIGTERM routes production app.quit,exit0,signalnull,ownedgroupabsent; not UI CmdQ/menu",
+  "isolation": "whole driver tree outer OS networkdeny,loopback/scopedUNIX; synthetic stagedaccounts/homes; not shippedChromiumsandboxproof",
+  "validation": "Parent visually inspected four current budget frames and excluded top-of-settings reopenframe. UI/Host/disk checks prove persistence; normal/reviews/fullCI remain separate.",
+  "issues": [
+    2066,
+    2126
+  ],
+  "candidate": "b250508afb45925d646af76398884d145be479da",
+  "head": "b250508afb45925d646af76398884d145be479da",
+  "frames": [
+    {
+      "label": "before-settings-lead",
+      "path": "screenshots/issues-2066-2126/b250508/before-settings-lead.png",
+      "source": "8747117c8055af001ab3dc25574272d1d272ac15",
+      "sha256": "ea409243bd0166f5ca9d2177414f8f03e32e6594fdcf9b7e08dc4d2f4c6424c6",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-default-off",
+      "path": "screenshots/issues-2066-2126/b250508/after-default-off.png",
+      "source": "b250508afb45925d646af76398884d145be479da",
+      "sha256": "58685ccfdcf452379464a31c066a3c51a50f8228d29d3b2d5d57ae292be5f456",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-saved",
+      "path": "screenshots/issues-2066-2126/b250508/after-saved.png",
+      "source": "b250508afb45925d646af76398884d145be479da",
+      "sha256": "ec037803b58440b1e37757b99b3ee74cb65f56740bb325598809785d4083196f",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-external-change-dirty",
+      "path": "screenshots/issues-2066-2126/b250508/after-external-change-dirty.png",
+      "source": "b250508afb45925d646af76398884d145be479da",
+      "sha256": "0cbcb2569ed8cd017905311c8fc675a775f5bf810c39031289cc3e1e69c8c866",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-turned-off",
+      "path": "screenshots/issues-2066-2126/b250508/after-turned-off.png",
+      "source": "b250508afb45925d646af76398884d145be479da",
+      "sha256": "f4739dc475da0cf96c737897e351e788ae7e65711b4b6072ef1b4db2f44861a4",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    }
+  ]
+}
