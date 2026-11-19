@@ -1197,3 +1197,14 @@ it('with addresses hidden, the seat menu names accounts and never draws an addre
   expect(document.body.textContent).toContain('Shane-Claude')
   expect(document.body.textContent).toContain('shane')
 })
+
+it('keeps the selected working account ready despite a stale sibling report', () => {
+  const now = Date.now()
+  const selected = { ...usageReport(keeper.id, [lane({ id: 'weekly', usedPercent: 20 })]), fetchedAt: now }
+  const sibling = { ...usageReport(keeper.id, [lane({ id: 'weekly', usedPercent: 90 })]), account: 'other@example.com', fetchedAt: now - 2_000_000 }
+  mount({ runtimes: [keeper], activeRuntime: keeper.id, accountsByRuntime: { [keeper.id]: { accounts: [], signInMethods: [] } }, usage: [sibling, selected] }, { lowerMs: now, upperMs: now + 1 })
+  click(row())
+  click(document.querySelector('[role="menuitem"][data-current]')!)
+  const item = [...document.querySelectorAll('[role="menuitem"]')].find(el => /^Cline/.test(el.textContent?.trim() ?? ''))
+  expect(item && identityOf(item)).toBe('Ready')
+})

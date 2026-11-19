@@ -46,7 +46,7 @@ import {
   registrySentence,
 } from '../lib/acp-registry'
 import { describeLimits, hostLimits, retainedLimits, formatReset } from '../lib/limits'
-import { describeHostReport, formatResetCountdown, pacingNote, usageAskedOf } from '../lib/usage'
+import { describeHostReport, formatResetCountdown, pacingNote, usageAskedOf, workingAccount } from '../lib/usage'
 import { isBlocking, READINESS_LABEL, readinessOf, worstReadiness, type Readiness } from '../lib/readiness'
 import { splitHealth, type Unavailable } from '../lib/health'
 import { shortPath } from '../lib/paths'
@@ -154,7 +154,8 @@ export const agentReadiness = (
       if ((status?.accounts.length ?? 0) === 0) return null
       const usage = view.usage.filter((report) => report.runtime === entry.id)
       const readiness = readinessOf({ registered: true, health, account: status, usage })
-      return interval !== undefined && usage.some(report => describeHostReport(report, interval).stale) &&
+      const selected = workingAccount(usage)
+      return interval !== undefined && selected && describeHostReport(selected, interval).stale &&
         (readiness === 'ready' || readiness === 'limit') ? 'unknown' : readiness
     })
     .filter((state): state is Readiness => state !== null)

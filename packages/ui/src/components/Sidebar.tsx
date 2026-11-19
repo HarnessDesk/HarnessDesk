@@ -418,7 +418,8 @@ export const AccountFooter = ({
       accounts: info.capabilities.account,
       usage,
     })
-    const state = usage.length > 0 && usage.some(report => describeHostReport(report, hostTime).stale) && (rawState === 'ready' || rawState === 'limit') ? 'unknown' : rawState
+    const selected = workingAccount(usage)
+    const state = selected && describeHostReport(selected, hostTime).stale && (rawState === 'ready' || rawState === 'limit') ? 'unknown' : rawState
     const accounts = status?.accounts ?? []
     const current = info.id === snapshot.activeRuntime
     const answered = status !== null

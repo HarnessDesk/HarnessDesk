@@ -21,7 +21,7 @@ import { accountKey } from '../lib/accounts'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, AppStore, type AppSnapshot } from '../state/store'
 import { AddAgentsTestPage as AddAgents } from '../test-support/settings-page'
-import { AddAgents as ControlledAddAgents } from './SettingsAgents'
+import { AddAgents as ControlledAddAgents, agentReadiness } from './SettingsAgents'
 import { SettingsTestScope } from '../test-support/settings-page'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -1823,4 +1823,24 @@ it('an agent page is the default while new sessions run as any of its accounts',
   // the Accounts section's to say.
   expect(container.textContent).not.toContain('Use for new sessions')
   expect(container.textContent).toContain('Default')
+})
+
+it('qualifies readiness using the selected working account rather than a stale sibling report', () => {
+  const now = Date.now()
+  const selected = { ...ROSTER.usage[0]!, fetchedAt: now, lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 20, windowMinutes: 10080, resetsAt: null }] }
+  const sibling = { ...selected, account: 'other@example.com', fetchedAt: now - 2_000_000, lanes: [{ ...selected.lanes[0]!, usedPercent: 90 }] }
+  const view = { ...ROSTER, healthByRuntime: {}, usage: [sibling, selected] } as never
+  expect(agentReadiness([ROSTER.runtimes[0]!], view, { lowerMs: now, upperMs: now + 1 })).toBe('ready')
+})
+
+it('keeps readiness unknown when the selected report is stale or the Host interval is unavailable or crosses freshness', () => {
+  const now = Date.now()
+  const selected = { ...ROSTER.usage[0]!, fetchedAt: now - 1000, staleAfterMs: 2000, lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 20, windowMinutes: 10080, resetsAt: null }] }
+  const sibling = { ...selected, account: 'other@example.com', fetchedAt: now, lanes: [{ ...selected.lanes[0]!, usedPercent: 90 }] }
+  const view = { ...ROSTER, healthByRuntime: {}, usage: [sibling, selected] } as never
+  const agent = [ROSTER.runtimes[0]!]
+  expect(agentReadiness(agent, view, null)).toBe('unknown')
+  expect(agentReadiness(agent, view, { lowerMs: now, upperMs: now + 1001 })).toBe('unknown')
+  expect(agentReadiness(agent, view, { lowerMs: now + 2000, upperMs: now + 2001 })).toBe('unknown')
+  expect(agentReadiness(agent, view)).toBe('ready')
 })
