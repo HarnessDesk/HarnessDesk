@@ -1,0 +1,27 @@
+{
+  "issue": 2227,
+  "candidate": "8ca4527bea82a114200897195fdc90e8770f7135",
+  "base": "8747117c8055af001ab3dc25574272d1d272ac15",
+  "scope": "CurrentHost+30minute renderer offset: qualified Composer warning. Unsupported874Host/8caUI composite: no definitive warning. Synthetic single-account fixture only.",
+  "limitations": "Mixed-account R3 ordering/ranking is unit and actual Store-seam evidence, not a native reproduction. OldHost is a source-built private composite, not a packaged old binary. Earlier60percent-used attempt failed notice threshold and is retained privately.",
+  "shutdown": "Owned SIGTERM routes production app.quit exit0; groups absent. No UI-menu quit or liveprovider/keychain claim.",
+  "head": "8ca4527bea82a114200897195fdc90e8770f7135",
+  "frames": [
+    {
+      "label": "current-host-qualified-warning",
+      "path": "screenshots/issue-2227/8ca4527/current-host-qualified-warning.png",
+      "source": "8ca4527bea82a114200897195fdc90e8770f7135",
+      "sha256": "d3667d54c73a971758a87a4ee19a0d5e449bb336fa97eafa3be75c17b6f86311",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "old-host-no-definitive-warning",
+      "path": "screenshots/issue-2227/8ca4527/old-host-no-definitive-warning.png",
+      "source": "8ca4527bea82a114200897195fdc90e8770f7135",
+      "sha256": "4fb10f5a4ae82c4991b7166c49b2fbf9b8fc8d76f835e81cf9969c4d5d71a9c2",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    }
+  ]
+}
