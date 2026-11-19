@@ -155,9 +155,10 @@ for (const theme of ['light', 'dark'] as const) {
       expect(source).toContain(marker)
       const body = source.replace(marker, `${marker}
         seed.runtimes = seed.runtimes.map(runtime => ({ ...runtime, capabilities: { ...runtime.capabilities, metered: true } }));
-        seed.limits = { windows: [
-          { id: '5-hour', label: '5-hour', usedPercent: 0, windowMinutes: 300, resetsAt: Date.now() + 86400000 },
-          { id: 'weekly-opus', label: 'Weekly · Opus', usedPercent: 100, windowMinutes: 10080, resetsAt: Date.now() + 604800000 }
+        const observedAt = Date.now();
+        seed.limits = { fetchedAt: observedAt, staleAfterMs: 120000, windows: [
+          { id: '5-hour', label: '5-hour', usedPercent: 0, windowMinutes: 300, resetsAt: observedAt + 86400000 },
+          { id: 'weekly-opus', label: 'Weekly · Opus', usedPercent: 100, windowMinutes: 10080, resetsAt: observedAt + 604800000 }
         ] };`)
       await route.fulfill({ response, body })
     })
