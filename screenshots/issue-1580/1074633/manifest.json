@@ -1,0 +1,47 @@
+{
+  "issue": 1580,
+  "base": "8747117c8055af001ab3dc25574272d1d272ac15",
+  "head": "10746339ef6f06b5357e13901a53c51a11fe4c62",
+  "scope": "synthetic real Electron and real Host ledger; rowless days remain unknown, positive scan calendar not implemented",
+  "normal": {
+    "platform": "macOS Node22.23.4",
+    "seconds": 91.82132825000008,
+    "exit": 0
+  },
+  "shutdown": "one SIGTERM to exact child invoking production app.quit; exit0, signalnull, owned group absent; no menu/CmdQ proof",
+  "isolation": "one outer macOS network-deny envelope for driver and descendants; loopback and scoped UNIX only; synthetic homes and fake accounts; Chromium no-sandbox inside outer envelope, not shipped sandbox proof",
+  "frames": [
+    {
+      "label": "before-bars-gap",
+      "path": "screenshots/issue-1580/1074633/before-bars-gap.png",
+      "source": "8747117c8055af001ab3dc25574272d1d272ac15",
+      "sha256": "13c6b71c3d25de6ab68e6ee7958e2f60ac571559f8c1a0ab2578a55fe7b1e1bf",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-bars-gap",
+      "path": "screenshots/issue-1580/1074633/after-bars-gap.png",
+      "source": "10746339ef6f06b5357e13901a53c51a11fe4c62",
+      "sha256": "01cf5ebbd3c5151ecb078fa0838b1e73d439ba9c90492f6759cf10af82f5f721",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-line-gap",
+      "path": "screenshots/issue-1580/1074633/after-line-gap.png",
+      "source": "10746339ef6f06b5357e13901a53c51a11fe4c62",
+      "sha256": "2d0c2f018b9b30430504341c0cb80ee217c0a2e0ead83234e9a46dca4e23eaa4",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-line-zero",
+      "path": "screenshots/issue-1580/1074633/after-line-zero.png",
+      "source": "10746339ef6f06b5357e13901a53c51a11fe4c62",
+      "sha256": "fc0ef582bf7f024acb5cea83e9a7f9aecb42b95aaf193da166993cad4832af3e",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    }
+  ]
+}
