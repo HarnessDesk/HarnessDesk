@@ -1,0 +1,46 @@
+{
+  "issue": 1580,
+  "pr": 2272,
+  "base": "8747117c8055af001ab3dc25574272d1d272ac15",
+  "scope": "actual synthetic Electron and Host; rowless unknown; explicit zero known; positive scan calendar deferred",
+  "normalSeconds": 77.59737141699588,
+  "normalExit": 0,
+  "normalPlatform": "macOS Node22.23.4",
+  "shutdown": "documented signal-initiated app.quit,exit0,signalnull,ownedgroupabsent; not menu/CmdQ",
+  "isolation": "whole driver tree outer OS network deny exceptloopback/scopedUNIX; fake accounts/homes; no liveprovider or shipped Chromium sandbox proof",
+  "head": "194180a4f7b08402101beae7bc1d54baf284a456",
+  "frames": [
+    {
+      "label": "before-bars-gap",
+      "path": "screenshots/pr-2272/194180a/before-bars-gap.png",
+      "source": "8747117c8055af001ab3dc25574272d1d272ac15",
+      "sha256": "e177762ee0985c4c56a9ecee3ffa9c2b8beca1b9c591e372ccbcf330cb6bb989",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-bars-gap",
+      "path": "screenshots/pr-2272/194180a/after-bars-gap.png",
+      "source": "194180a4f7b08402101beae7bc1d54baf284a456",
+      "sha256": "6c2b5e798d12d1406ec325372280c30114dd476cb10fb9fe68c9fd6e8084d527",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-line-gap",
+      "path": "screenshots/pr-2272/194180a/after-line-gap.png",
+      "source": "194180a4f7b08402101beae7bc1d54baf284a456",
+      "sha256": "2d0c2f018b9b30430504341c0cb80ee217c0a2e0ead83234e9a46dca4e23eaa4",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    },
+    {
+      "label": "after-line-zero",
+      "path": "screenshots/pr-2272/194180a/after-line-zero.png",
+      "source": "194180a4f7b08402101beae7bc1d54baf284a456",
+      "sha256": "fc0ef582bf7f024acb5cea83e9a7f9aecb42b95aaf193da166993cad4832af3e",
+      "parentVisuallyInspected": true,
+      "privacyPrePost": true
+    }
+  ]
+}
