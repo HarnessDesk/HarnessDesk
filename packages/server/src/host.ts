@@ -1016,6 +1016,8 @@ export class Host {
   readonly #pendingTranscriptOverlays = new Map<string, PendingSessionOverlay>()
   readonly #conflictingTranscripts = new Map<string, { runtime: RuntimeId; id: SessionId; owner: object; capture: PendingTranscript }>()
   readonly #pendingTranscriptBases = new Map<string, Session>()
+  /** Conversations whose transcript the store confirmed gone; only that lets a recovered entry go (#2288). */
+  readonly #forgottenTranscripts = new Set<string>()
   readonly #recoveredTranscriptBases = new Map<string, { base: import('./transcripts.js').DurableTranscriptBase; saving: Promise<void> | null; runtime: RuntimeId; id: SessionId }>()
   readonly #protectedReadBases = new WeakMap<Session, import('./transcripts.js').DurableTranscriptBase>()
   /** A client may have received a pending projection without changing writable facts. */
@@ -1265,7 +1267,7 @@ export class Host {
     this.registry.onBodyChanged(record => { if (!this.#runtimeFolds.has(recordKey(record))) this.#invalidateTranscriptCache(record) })
     this.registry.onDeleted(record => {
       this.#transcripts.unbindBase(record.session, record.bodyGeneration)
-      this.#forgetRecoveredBody(record.runtime, record.session.id)
+      this.#forgetRecoveredBody(record.runtime, record.session.id, true)
     })
     this.registry.onReconciled((record, previous) => this.#recordRegistryMutation(record, previous))
     this.registry.onDetached((record, previous) => this.#recordRegistryMutation(record, previous))
@@ -1382,6 +1384,10 @@ export class Host {
         if (record) this.#clearSettledHistoryPending(record)
       },
     )
+    this.#transcripts.onForgotten((runtime, id) => {
+      this.#forgottenTranscripts.add(`${runtime}\u0000${String(id)}`)
+      this.#forgetRecoveredBody(runtime, id)
+    })
     this.#sessionIndex = new SessionIndex(join(this.#state.directory, 'sessions.sqlite'), (change) => {
       const firstPage = this.#listSessionIndex({})
       if (change.resolveRepos !== false) for (const row of firstPage.data) this.#sessionIndexRepos.read(row.cwd)
@@ -10819,9 +10825,6 @@ export class Host {
     for (const [what, forget] of forgets) {
       try {
         await forget()
-        // The record left the registry before its transcript was forgotten, so the delete hook kept any recovered
-        // entry then. With the transcript gone and no record to reopen, nothing of it is left to save (#2288).
-        if (what === 'transcript' && !this.registry.forReopen(runtime, id)) this.#forgetRecoveredBody(runtime, id)
       } catch (error) {
         this.#logger.warn('a seat passed over could not be forgotten everywhere', {
           runtime: String(runtime),
@@ -11705,6 +11708,7 @@ export class Host {
     record.transcriptIncomplete = false
     this.#pendingTranscriptOverlays.delete(generation)
     this.#pendingTranscriptBases.delete(generation)
+    this.#forgottenTranscripts.delete(`${record.runtime}\u0000${String(record.session.id)}`)
     this.#recoveredTranscriptBases.set(generation, { base: { kind: 'body', identity: descriptor.durableIdentity }, saving: null, runtime: record.runtime, id: record.session.id })
     this.#recoveryDescriptors.remove(generation)
     this.#descriptorOwners.delete(generation)
@@ -11715,7 +11719,10 @@ export class Host {
 
   #holdProtectedRead(session: Session, base: import('./transcripts.js').DurableTranscriptBase): Session {
     const record = this.registry.upsert(session, this.registry.get(session.runtime, session.id)?.live ?? null)
-    if (!this.#recoveredTranscriptBases.has(record.bodyGeneration)) this.#recoveredTranscriptBases.set(record.bodyGeneration, { base, saving: null, runtime: record.runtime, id: record.session.id })
+    if (!this.#recoveredTranscriptBases.has(record.bodyGeneration)) {
+      this.#forgottenTranscripts.delete(`${record.runtime}\u0000${String(record.session.id)}`)
+      this.#recoveredTranscriptBases.set(record.bodyGeneration, { base, saving: null, runtime: record.runtime, id: record.session.id })
+    }
     return this.#historyPendingView(record, session)
   }
 
@@ -11748,8 +11755,7 @@ export class Host {
     // A save that started while its conversation was being deleted kept the delete's cleanup from dropping its
     // entry. Once it settles, either way, with no record left to reopen and no protected change, drop it (#2288).
     const settled = () => {
-      if (this.#recoveredTranscriptBases.get(generation) !== state || this.registry.forReopen(record.runtime, snapshot.id)) return
-      if (!this.#transcripts.hasProtectedChanges(record.runtime, snapshot.id)) this.#recoveredTranscriptBases.delete(generation)
+      if (this.#recoveredTranscriptBases.get(generation) === state) this.#forgetRecoveredBody(record.runtime, snapshot.id, false, generation)
     }
     state.saving.then(settled, settled)
   }
@@ -11760,15 +11766,21 @@ export class Host {
    * is: it is not settled, and the quit reports it rather than guess.
    */
   /**
-   * A conversation deleted for good leaves no body to save: once its record is out of
-   * the registry and its transcript forgotten, its recovered entry is dropped. A
-   * removal Undo still holds never reaches here, and a transcript the desk kept
-   * with protected changes stays reported.
+   * A conversation deleted for good leaves no body to save, so its recovered
+   * entry goes once three things hold: the store confirmed its transcript gone
+   * (a failed forget never says so), no record is left to reopen (Undo still
+   * holds a removed one), and no save of it is in flight. Each of the three
+   * can come last — the registry's delete, the store's forget, or a save
+   * settling — so each asks again (#2288). `deleting` is the registry's own
+   * delete hook, called before the record leaves it; `only` a settled save's
+   * own generation, whose promise may have rejected.
    */
-  #forgetRecoveredBody(runtime: RuntimeId, id: SessionId): void {
-    if (this.#transcripts.hasProtectedChanges(runtime, id)) return
+  #forgetRecoveredBody(runtime: RuntimeId, id: SessionId, deleting = false, only?: string): void {
+    if (!this.#forgottenTranscripts.has(`${runtime}\u0000${String(id)}`) || this.#transcripts.hasProtectedChanges(runtime, id)) return
+    if (!deleting && this.registry.forReopen(runtime, id)) return
     for (const [generation, entry] of this.#recoveredTranscriptBases) {
-      if (!entry.saving && entry.runtime === runtime && entry.id === id) this.#recoveredTranscriptBases.delete(generation)
+      if (entry.runtime !== runtime || entry.id !== id) continue
+      if (generation === only || !entry.saving) this.#recoveredTranscriptBases.delete(generation)
     }
   }
 

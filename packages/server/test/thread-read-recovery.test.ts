@@ -641,6 +641,16 @@ test('a quit after the recovered conversation was deleted has nothing left to sa
   assert.equal(db.read(created.runtime, created.id), null, 'the deleted conversation is not written back')
 })
 
+test('a quit still reports a recovered conversation whose delete could not forget its transcript', async t => {
+  const root = tempDir('hd-dispose-recovered-forget-refused-')
+  const { host, db, created } = await protectedReadNeverTouchedAgain(root)
+  t.after(() => db.close())
+  // Only a forget the store confirmed lets the recovered entry go (#2288).
+  db.db.exec("CREATE TRIGGER refuse_forget BEFORE DELETE ON sessions BEGIN SELECT RAISE(FAIL, 'synthetic forget refusal'); END")
+  await assert.rejects(host.call('session/delete', { runtime: created.runtime, sessionId: created.id }), /synthetic forget refusal/)
+  await assert.rejects(host.dispose(), /remains unsaved .*\(recovered 1, /)
+})
+
 test('a quit still reports a recovered conversation whose Remove was refused', async t => {
   const root = tempDir('hd-dispose-recovered-removed-')
   const { host, db, created } = await protectedReadNeverTouchedAgain(root)
