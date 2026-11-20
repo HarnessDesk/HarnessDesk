@@ -200,7 +200,11 @@ export class GitSteering {
           return { action: 'own', ticket }
         }
         if (answer === 'allowed' && repository && translated.branch && translated.sha) approved = { repository, branch: translated.branch, sha: translated.sha }
-        if (answer !== 'allowed') { await this.#refuse(scope, command, write, 'The person declined.'); this.port.say(scope, `Not pushed · ${command} · the person declined`); return { action: 'done', ok: false, output: 'HarnessDesk: not pushed — the person declined.' } }
+        if (answer !== 'allowed') {
+          await this.#refuse(scope, command, write, 'The person declined.')
+          if (!push) { this.port.say(scope, `Forge change declined · ${command} · the person declined`); return { action: 'done', ok: false, output: 'HarnessDesk: forge change not made — the person declined.' } }
+          this.port.say(scope, `Not pushed · ${command} · the person declined`); return { action: 'done', ok: false, output: 'HarnessDesk: not pushed — the person declined.' }
+        }
       }
       signal?.throwIfAborted()
       this.port.say(scope, mode === 'redirect' ? `Sent through HarnessDesk · ${command} · your choice for this project` : `Sent through HarnessDesk · ${command} · you approved`)

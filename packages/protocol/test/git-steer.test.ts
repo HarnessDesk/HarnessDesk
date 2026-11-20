@@ -2,6 +2,17 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { parseGitWrite, parseGitCommand } from '../src/git-steer.js'
 
+test('a refused compound keeps what its command was', () => {
+  const credential = parseGitCommand('gh auth token | cat')
+  assert.ok(credential?.kind === 'unmappable' && credential.credential && !credential.forge, JSON.stringify(credential))
+  for (const command of ['gh release create v1; true', 'true && gh pr comment 5 --body hi']) {
+    const forge = parseGitCommand(command)
+    assert.ok(forge?.kind === 'unmappable' && forge.forge && !forge.credential, `${command}: ${JSON.stringify(forge)}`)
+  }
+  const push = parseGitCommand('true && git push origin x')
+  assert.ok(push?.kind === 'unmappable' && !push.forge && !push.credential, JSON.stringify(push))
+})
+
 test('git push argv maps only a single branch push', () => {
   for (const args of [['push'], ['push', '-u', 'origin', 'x'], ['push', 'origin', 'HEAD:x'], ['push', '--force-with-lease', 'origin', 'x'], ['push', 'origin', 'HEAD:refs/heads/x']]) assert.equal(parseGitWrite('git', args)?.kind, 'push')
   for (const args of [['push', '--delete', 'origin', 'x'], ['push', '--tags'], ['push', 'origin', 'x', 'y'], ['push', '--mirror'], ['push', 'origin', ':x'], ['-c', 'alias.x=push', 'push'], ['push', '--receive-pack=evil']]) assert.equal(parseGitWrite('git', args)?.kind, 'unmappable')

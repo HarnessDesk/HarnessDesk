@@ -74,6 +74,9 @@ test('decline and unreachable socket refuse with visible output and exit 1', asy
   const f = await rig(t); f.choose('refused')
   const declined = await f.command('git', ['push', 'origin', 'x'])
   assert.equal(declined.code, 1); assert.match(declined.stdout, /not pushed — the person declined/)
+  // A declined forge change is not called a push.
+  const declinedForge = await f.command('gh', ['pr', 'comment', '5', '--body', 'hi'])
+  assert.equal(declinedForge.code, 1); assert.match(declinedForge.stdout, /forge change not made — the person declined/)
   const unreachable = await f.command('git', ['push'], { HD_TOOLS_SOCKET: join(f.home, 'absent.sock') })
   assert.equal(unreachable.code, 1); assert.match(unreachable.stderr, /go through the git_push tool; use it instead/)
   const unsupported = await f.command('git', ['push', '--tags'])
