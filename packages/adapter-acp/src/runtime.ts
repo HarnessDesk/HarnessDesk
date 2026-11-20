@@ -3,7 +3,7 @@ import { recommendAcpOptions } from './recommendations.js'
 import { randomUUID } from 'node:crypto'
 import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, dirname, extname, isAbsolute, join } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   approvalId,
@@ -132,7 +132,7 @@ import { CliMcp, type AcpMcpCommands } from './mcp.js'
 import { decodeLoadout, loadoutItem, loadoutPart } from './loadout.js'
 import { AcpTasks } from './tasks.js'
 import { usageLimits } from './usage.js'
-import { projectToolItem, type ToolItemState } from './tool-items.js'
+import { patchPermissionWire, projectToolItem, type PermissionWireSnapshot, type ToolItemState } from './tool-items.js'
 import { whichOnPath } from './which.js'
 import { ACP_STEER, ACP_GOAL, supportsSteering, supportsGoals, goalUpdate } from './session-controls.js'
 
@@ -4816,6 +4816,24 @@ const userContentOf = (block: AcpContentBlock): UserContent => {
  * bridges set. An agent that says nothing there is taken at its word: what it
  * replays as a user message is read as one.
  */
+/** OpenCode's execute input preserves workdir instead of injecting cwd. Keep
+ * unproved/conflicting folders unknown; a Command fact must not borrow session scope. */
+const permissionExecutionCwd = (input: unknown, sessionCwd: string): string | undefined => {
+  const args = input !== null && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : undefined
+  if (!args || !Object.hasOwn(args, 'workdir')) return typeof args?.['cwd'] === 'string' ? args['cwd'] : sessionCwd
+  const known = (value: unknown): string | undefined => {
+    // ~ expands in the provider's home, which this session does not establish.
+    if (typeof value !== 'string' || /^~(?:$|[\\/])/.test(value)) return undefined
+    // Do not interpret a foreign platform's absolute path as a local relative one.
+    if (/^[A-Za-z]:[\\/]|^\\\\/.test(value) && !isAbsolute(value)) return undefined
+    if (!isAbsolute(value) && !isAbsolute(sessionCwd)) return undefined
+    return resolve(sessionCwd, value)
+  }
+  const workdir = known(args['workdir'])
+  if (workdir === undefined || Object.hasOwn(args, 'cwd') && known(args['cwd']) !== workdir) return undefined
+  return workdir
+}
+
 /**
  * The question a permission request is really asking, when our Claude bridge
  * says so — in `_meta.harnessdesk.question`, or, for a transport that drops
@@ -5025,6 +5043,7 @@ class AcpSession implements AgentSession {
     if (open) {
       // History keeps no stop reason, so replayed children read as completed.
       this.#finishToolDelegations(open, 'end_turn')
+      open.permissionWires?.clear()
       this.#currentTurn = null
       this.#turns.push({
         id: open.id,
@@ -5642,6 +5661,7 @@ class AcpSession implements AgentSession {
       if (open) {
         // History keeps no stop reason, so replayed children read as completed.
         this.#finishToolDelegations(open, 'end_turn')
+        open.permissionWires?.clear()
         this.#currentTurn = null
         this.#turns.push({
           id: open.id,
@@ -5921,9 +5941,20 @@ class AcpSession implements AgentSession {
     }
   }
 
+  #permissionWire(turn: MutableTurn | null, update: { readonly toolCallId: string; readonly kind?: unknown; readonly rawInput?: unknown }): PermissionWireSnapshot {
+    const wire = patchPermissionWire(turn?.permissionWires?.get(update.toolCallId), update)
+    if (turn) {
+      turn.permissionWires ??= new Map()
+      turn.permissionWires.set(update.toolCallId, wire)
+    }
+    return wire
+  }
+
   #projectTool(turn: MutableTurn, update: AcpToolCallUpdate, call: Extract<AgentItem, { type: 'toolCall' }>): ToolItemState['item'] {
     turn.tools ??= new Map()
-    const state = projectToolItem(call, update, turn.tools.get(update.toolCallId), this.#cwd)
+    // The turn map is canonical even when a permission preceded this notice.
+    // The projector's wire member is a view, never the source for runtime approvals.
+    const state = { ...projectToolItem(call, update, turn.tools.get(update.toolCallId), this.#cwd), permissionWire: this.#permissionWire(turn, update) }
     turn.tools.set(update.toolCallId, state)
     const tools = this.#host.delegationTools
     if (!tools) return state.item
@@ -6201,6 +6232,8 @@ class AcpSession implements AgentSession {
     // A session a stop is closing and reopening has nobody to ask for.
     if (this.#reopenPhase) return Promise.resolve({ outcome: { outcome: 'cancelled' } })
     const id = approvalId(`acp-${request.toolCall.toolCallId}-${Date.now().toString(36)}`)
+    // A question can still replace or clear this tool's permission-input epoch.
+    const wire = this.#permissionWire(this.#currentTurn, request.toolCall)
     // A question is not a permission. Our Claude bridge carries Claude Code's
     // `AskUserQuestion` as a permission request whose options are the
     // answers, with the question beside them; drawn as a permission it would
@@ -6245,6 +6278,15 @@ class AcpSession implements AgentSession {
       })
     }
     const flowBoardTool = this.#host.trustsBridgeProvenance ? flowBoardToolOf(request) : null
+    const input = wire.rawInput
+    const command = input !== null && typeof input === 'object' && !Array.isArray(input)
+      ? (input as { command?: unknown }).command : undefined
+    const kind = wire.kind
+    const cwd = kind === 'execute' ? permissionExecutionCwd(input, this.#cwd)
+      : typeof (input as { cwd?: unknown } | undefined)?.cwd === 'string' ? (input as { cwd: string }).cwd : this.#cwd
+    // Display only a complete bounded execute input; never use it for approval policy.
+    const shownCommand = kind === 'execute' && typeof command === 'string' && command.trim().length > 0 && command.length <= 65_536 ? command : null
+    const title = request.toolCall.title ?? 'The agent asks permission to continue.'
     const approval: Approval = {
       id,
       sessionId: this.id,
@@ -6252,7 +6294,8 @@ class AcpSession implements AgentSession {
       itemId: itemId(request.toolCall.toolCallId),
       requestedAt: Date.now(),
       type: 'permission',
-      summary: request.toolCall.title ?? 'The agent asks permission to continue.',
+      summary: title,
+      ...(shownCommand ? { facts: [{ label: 'Command', value: shownCommand }] } : {}),
       ...(flowBoardTool ? { flowBoardTool } : {}),
       // Why the agent is asking, when the agent said. ACP carries that on the
       // request's own tool call, and reading only the title threw it away:
@@ -6260,7 +6303,7 @@ class AcpSession implements AgentSession {
       // user asked me to write outside the workspace" and the dialog showed
       // `write`. A decision needs the sentence, not the verb.
       ...(permissionReason(request.toolCall) ? { reason: permissionReason(request.toolCall) } : {}),
-      cwd: typeof (request.toolCall.rawInput as { cwd?: unknown } | undefined)?.cwd === 'string' ? (request.toolCall.rawInput as { cwd: string }).cwd : this.#cwd,
+      ...(cwd !== undefined ? { cwd } : {}),
       options: request.options.map((option) => {
         const geminiGrant = this.#host.info.capabilities.perToolMcpApproval && option.kind === 'allow_always'
           ? ({
@@ -6302,6 +6345,7 @@ class AcpSession implements AgentSession {
     this.#runningDelegations = new Map()
     this.#strandDelegations()
     const turn = this.#currentTurn
+    turn?.permissionWires?.clear()
     if (turn && !this.#replaying) this.#finishTurn(turn, 'cancelled')
     this.#abandonPermissions('The conversation closed.')
   }
@@ -6374,6 +6418,7 @@ class AcpSession implements AgentSession {
     const completedAt = Date.now()
     const reason = typeof stopReason === 'string' ? stopReason : stopReason == null ? 'end_turn' : String(stopReason)
     this.#finishToolDelegations(turn, reason)
+    turn.permissionWires?.clear()
     const status =
       reason === 'cancelled' ? 'interrupted' : reason === 'end_turn' ? 'completed' : 'failed'
     const finished: Turn = {
@@ -6424,6 +6469,7 @@ class AcpSession implements AgentSession {
     if (this.#currentTurn?.id !== turn.id) return
     const completedAt = Date.now()
     this.#finishToolDelegations(turn, 'failed')
+    turn.permissionWires?.clear()
     this.#currentTurn = null
     const finished: Turn = {
       id: turn.id,
@@ -6460,6 +6506,8 @@ interface MutableTurn {
   controls?: Set<Promise<unknown>>
   items: AgentItem[]
   tools?: Map<string, ToolItemState>
+  /** Permission requests can precede any tool notice; snapshots never create transcript rows. */
+  permissionWires?: Map<string, PermissionWireSnapshot>
   /** The message id the agent gave the text item last written, when it gave one (`#appendText`). */
   textMessage?: { readonly itemId: ItemId; readonly messageId: string }
   /**

@@ -64,6 +64,15 @@ const titles = (agent: string): Record<Approval['type'], string> => ({
 const commandTitle = (approval: Extract<Approval, { type: 'command' }>): string =>
   approval.kind === 'stdin' ? 'Send this input to the running command?' : 'Run this command?'
 
+/** Escape before sanitizing; only command code preserves newline/tab layout. */
+const escapeApprovalControls = (value: string, { preserveLayout }: { preserveLayout: boolean }): string =>
+  value.replace(/[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/gu, character => {
+    if (preserveLayout && (character === '\n' || character === '\t')) return character
+    const point = character.codePointAt(0)!
+    const hex = point.toString(16)
+    return point <= 0xffff ? `\\u${hex.padStart(4, '0')}` : `\\u{${hex}}`
+  })
+
 /**
  * Where a command runs, the way the rest of the app names a folder: the
  * project's short name, or a home-shortened path, with the full path one
@@ -71,7 +80,9 @@ const commandTitle = (approval: Extract<Approval, { type: 'command' }>): string 
  * the command itself is set as code.
  */
 const FolderMeta = ({ cwd, home, project }: { cwd: string; home: string | null; project: string | null }) => (
-  <ApprovalMeta label="in" kind="folder" title={cwd}>{folderShown(cwd, home, project)}</ApprovalMeta>
+  <ApprovalMeta label="in" kind="folder" title={sanitizeText(escapeApprovalControls(cwd, { preserveLayout: false }))}>
+    {sanitizeText(escapeApprovalControls(folderShown(cwd, home, project), { preserveLayout: false }))}
+  </ApprovalMeta>
 )
 
 const CommandBody = ({ approval, home, project }: {
@@ -113,8 +124,19 @@ const FileChangeBody = ({ approval }: { approval: Extract<Approval, { type: 'fil
   </>
 )
 
-const PermissionBody = ({ approval, hideSummary = false }: {
+/** Escape before sanitizing: terminal spans may contain executable lines. */
+const PermissionCommand = ({ value }: { value: string }) => {
+  const shown = escapeApprovalControls(value, { preserveLayout: true })
+  return <>
+    <ApprovalCode>{sanitizeText(shown)}</ApprovalCode>
+    {shown !== value && <ApprovalReason>Control and invisible characters are shown as Unicode escapes.</ApprovalReason>}
+  </>
+}
+
+const PermissionBody = ({ approval, home, project, hideSummary = false }: {
   approval: Extract<Approval, { type: 'permission' }>
+  home: string | null
+  project: string | null
   hideSummary?: boolean
 }) => (
   <>
@@ -122,7 +144,8 @@ const PermissionBody = ({ approval, hideSummary = false }: {
     {/* Why the agent is asking, when it said. The summary is the tool it wants
         to run; a decision needs the sentence under it — "the file is outside
         the workspace" is the part that answers allow or reject. */}
-    {approval.facts?.map(fact => fact.label === 'Command' ? <ApprovalCode key={fact.label}>{sanitizeText(fact.value)}</ApprovalCode> : <ApprovalMeta key={fact.label} label={fact.label}>{sanitizeText(fact.value)}</ApprovalMeta>)}
+    {approval.facts?.map(fact => fact.label === 'Command' ? <PermissionCommand key={fact.label} value={fact.value} /> : <ApprovalMeta key={fact.label} label={fact.label}>{sanitizeText(fact.value)}</ApprovalMeta>)}
+    {approval.cwd && approval.facts?.some(fact => fact.label === 'Command') && <FolderMeta cwd={approval.cwd} home={home} project={project} />}
     {approval.reason && <ApprovalReason className={styles.reason}>{approval.reason}</ApprovalReason>}
     {(approval.filesystem?.length ?? 0) > 0 && (
       <>
@@ -217,7 +240,7 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false, requester,
   )
   const approval = mine[0]?.approval
   const TITLES = titles(runtime.presentation.name)
-  const title = approval?.type === 'permission' && approval.facts?.length ? approval.summary : approval?.type === 'command' ? commandTitle(approval) : approval ? TITLES[approval.type] : ''
+  const title = approval?.type === 'permission' && approval.facts?.length ? approval.facts.some(fact => fact.label === 'Command' && fact.value === approval.summary) ? 'Run this command?' : approval.summary : approval?.type === 'command' ? commandTitle(approval) : approval ? TITLES[approval.type] : ''
   const [answers, setAnswers] = useState<Record<string, string[]>>({})
   const scope = useRef<HTMLDivElement>(null)
   const docked = placement === 'docked'
@@ -343,7 +366,12 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false, requester,
           )}
           {approval.type === 'fileChange' && <FileChangeBody approval={approval} />}
           {approval.type === 'permission' && <>
-            <PermissionBody approval={approval} hideSummary={explainBoardTool} />
+            <PermissionBody
+              approval={approval}
+              home={home ?? null}
+              project={(key && sessions.get(key)?.cwd) || workspace?.path || null}
+              hideSummary={explainBoardTool}
+            />
             {approvalNote && <ApprovalReason className={styles.reason} title={approvalNote.title}>{approvalNote.text}</ApprovalReason>}
           </>}
           {approval.type === 'userInput' && (

@@ -22,7 +22,7 @@ const until = async (predicate: () => boolean | Promise<boolean>, message: strin
   const end = Date.now() + 10_000
   while (!await predicate()) { assert.ok(Date.now() < end, message); await new Promise(resolve => setTimeout(resolve, 10)) }
 }
-async function fixture(t: { after(fn: () => void | Promise<void>): void }, kind: 'codex' | 'acp' | 'cursor' | 'claude', off: boolean | 'project' = false, approve = false) {
+async function fixture(t: { after(fn: () => void | Promise<void>): void }, kind: 'codex' | 'acp' | 'cursor' | 'claude', off: boolean | 'project' = false, approve = false, answer = true) {
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'hd-steer-runtime-'))), cwd = join(home, 'checkout'), stateDir = join(home, 'state'), remote = join(home, 'remote.git')
   mkdirSync(stateDir); git(home, 'init', '-q', '-b', 'x', cwd); git(home, 'init', '-q', '--bare', remote)
   git(cwd, 'config', 'user.name', 'Jane Doe'); git(cwd, 'config', 'user.email', 'dev@example.com')
@@ -52,7 +52,7 @@ async function fixture(t: { after(fn: () => void | Promise<void>): void }, kind:
       const approval = notification.params.event.approval
       if (approval.type !== 'command' && approval.type !== 'permission') return
       const option = approval.options.find(entry => approve ? entry.id === 'allow' : entry.intent === 'deny')!
-      setImmediate(() => { void host.call('approval/respond', { runtime: runtimeId('fixture'), sessionId: approval.sessionId, approvalId: approval.id, decision: { type: 'option', optionId: option.id } }).catch(error => replyErrors.push(error)) })
+      if (answer) setImmediate(() => { void host.call('approval/respond', { runtime: runtimeId('fixture'), sessionId: approval.sessionId, approvalId: approval.id, decision: { type: 'option', optionId: option.id } }).catch(error => replyErrors.push(error)) })
     }
   })
   t.after(async () => { await gateway.stop(); await host.dispose(); setForgeEngine(null); await kernel.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
@@ -70,6 +70,43 @@ async function fixture(t: { after(fn: () => void | Promise<void>): void }, kind:
   }
   return { host, engine, runtime, session, notifications, turn, cwd, home, remote, store }
 }
+
+for (const mode of ['other folder', 'conflicting folder', 'bridge default'] as const) test(`ACP execution folder reaches ordinary phone admission: ${mode}`, async t => {
+  const f = await fixture(t, 'acp', false, false, false), workdir = join(f.home, 'other-folder')
+  mkdirSync(workdir)
+  const input = mode === 'bridge default' ? { command: 'git status', cwd: f.cwd } :
+    mode === 'conflicting folder' ? { command: 'git status', cwd: f.cwd, workdir } : { command: 'git status', workdir }
+  const spec = { requests: [{ kind: 'execute', title: 'git status', rawInput: input }, { title: 'git status' }],
+    options: [{ optionId: 'yes', name: 'Allow once', kind: 'allow_once' }, { optionId: 'no', name: 'Deny once', kind: 'reject_once' }] }
+  await f.host.call('turn/send', { runtime: runtimeId('fixture'), sessionId: f.session.id, input: [{ type: 'text', text: `wire permission sequence ${JSON.stringify(spec)}` }] })
+  const requested = () => f.notifications.flatMap(message => message.method === 'event' && message.params.event.type === 'approval/requested' ? [message.params.event.approval] : [])
+  for (let i = 0; i < 2; i++) {
+    await until(() => requested().length > i, 'the same current-turn permission is pending')
+    const approval = requested()[i]!
+    const session = `fixture:${f.session.id}`
+    const thread = await f.host.call('workspace/thread/read', { id: session })
+    const ask = thread.turns.find(turn => turn.type === 'approval' && turn.state === 'pending')
+    assert.ok(ask?.type === 'approval')
+    if (mode === 'bridge default') {
+      assert.equal(ask.command, 'git status')
+      await f.host.call('workspace/approval/decide', { id: ask.id, session, allow: true })
+    } else {
+      await assert.rejects(f.host.call('workspace/approval/decide', { id: ask.id, session, allow: true }), /review|sensitive/i)
+      assert.equal(f.host.registry.get(runtimeId('fixture'), f.session.id)?.approvals.size, 1, 'forged Allow has no effect')
+      assert.match(ask.command, /review.*desk/i)
+      await f.host.call('workspace/approval/decide', { id: ask.id, session, allow: false })
+    }
+    assert.ok(approval.type === 'permission')
+    assert.equal(approval.summary, 'git status')
+    assert.deepEqual(approval.facts, [{ label: 'Command', value: 'git status' }], 'unknown folder retains the completeness gate')
+    assert.equal(approval.cwd, mode === 'bridge default' ? f.cwd : mode === 'conflicting folder' ? undefined : workdir)
+  }
+  await until(() => f.notifications.some(message => message.method === 'event' && message.params.event.type === 'turn/completed'), 'the peer received both decisions')
+  const completed = (await f.runtime.readSession(f.session.id)).turns.at(-1)!
+  assert.ok(completed.items.every(item => item.type !== 'command' && item.type !== 'toolCall'))
+  assert.ok(completed.items.some(item => item.type === 'assistantMessage' && item.text.includes(mode === 'bridge default' ? 'yes' : 'no')))
+})
+
 for (const kind of ['codex', 'acp', 'cursor'] as const) {
   test(`${kind}: PATH catches an unapproved push; an absolute-path success gets the outside banner`, { timeout: 30_000 }, async t => {
     const f = await fixture(t, kind)
@@ -149,4 +186,13 @@ test('Never leaves native git unchanged while a pinned outside push is still obs
   await until(async () => (await f.engine.record({ repository: 'acme/widgets', limit: 10 })).some(row => row.op === 'observed'), 'outside record with Never')
   assert.equal(events.some(event => event.type === 'approval/requested' || event.type === 'notice' && event.message.includes('went around')), false)
   assert.equal(await f.host.call('git/record/attribute', { root: f.cwd, branch: 'x', sha: git(f.cwd, 'rev-parse', 'HEAD') }), 'outside')
+})
+
+test('ACP command-specific deny policy sees the original execute title', async t => {
+  const f = await fixture(t, 'acp', true)
+  await f.host.call('app/state/set', { patch: { permissionPolicy: [{ id: 'deny', name: 'Deny synthetic', match: { type: 'permission', pattern: 'echo policy-sentinel' }, action: 'deny' }, { id: 'allow-rest', name: 'Allow other permissions', match: { type: 'permission' }, action: 'approve' }] } })
+  const command = 'echo policy-sentinel'
+  const events = await f.turn('ceiling permission ' + JSON.stringify({ reportOutcome: true, toolCall: { toolCallId: 'policy-command', title: command, kind: 'execute', rawInput: { command } }, options: [{ optionId: 'yes', name: 'Allow once', kind: 'allow_once' }, { optionId: 'no', name: 'Deny once', kind: 'reject_once' }] }))
+  assert.equal(events.some(event => event.type === 'approval/requested'), false, 'policy should answer before publication')
+  assert.ok(events.some(event => event.type === 'turn/completed' && event.turn.items.some(item => item.type === 'assistantMessage' && item.text === JSON.stringify({ outcome: 'selected', optionId: 'no' }))), JSON.stringify(events))
 })

@@ -22,6 +22,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { AcpRuntime, type AcpUsageRecord } from '../src/index.js'
+import type { AcpPermissionRequest, AcpPermissionOutcome } from '@harnessdesk/transport-acp'
 
 /**
  * The ACP adapter against a scripted agent that is a real child process.
@@ -3635,4 +3636,311 @@ test('a failed dedicated ACP worker stop does not retire its owner', async t => 
     await retirement
   }
   assert.deepEqual(deaths, [owner], 'successful disposal retires the original owner')
+})
+
+
+test('an execute permission exposes its exact multiline command without changing choices', async () => {
+  const runtime = make()
+  try {
+    await runtime.start()
+    const tape = record(runtime)
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'multiline command approval' }])
+    const event = await tape.until((one) => one.type === 'approval/requested')
+    assert.equal(event.type, 'approval/requested')
+    if (event.type !== 'approval/requested' || event.approval.type !== 'permission') throw new Error('expected permission')
+    const approval = event.approval
+    assert.equal(approval.summary, "cat > synthetic.txt <<'END'\n  line one\nline two\nEND")
+    assert.deepEqual(approval.facts, [{ label: 'Command', value: "cat > synthetic.txt <<'END'\n  line one\nline two\nEND" }])
+    assert.deepEqual(approval.options.map(({ id, intent }) => [id, intent]), [['yes', 'approve'], ['no', 'deny']])
+    assert.equal(approval.flowBoardTool, undefined)
+    await session.respondToApproval(approval.id, { type: 'option', optionId: 'no' })
+    await tape.until((one) => one.type === 'turn/completed')
+  } finally { await runtime.dispose() }
+})
+
+
+for (const input of ['non-command permission control', 'non-command permission control execute malformed', 'non-command permission control execute oversized']) test(`preserves ${input} as a normal permission`, async () => {
+  const runtime = make()
+  try {
+    await runtime.start()
+    const tape = record(runtime)
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: input }])
+    const event = await tape.until((one) => one.type === 'approval/requested')
+    if (event.type !== 'approval/requested' || event.approval.type !== 'permission') throw new Error('expected permission')
+    assert.equal(event.approval.summary, 'Other tool')
+    assert.equal(event.approval.facts, undefined)
+    assert.equal(event.approval.flowBoardTool, undefined)
+    await session.respondToApproval(event.approval.id, { type: 'option', optionId: 'yes' })
+    await tape.until((one) => one.type === 'turn/completed')
+  } finally { await runtime.dispose() }
+})
+
+test('a partial permission can show the preceding complete execute command', async () => {
+  const runtime = make()
+  try {
+    await runtime.start(); const tape = record(runtime); const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'partial command permission' }])
+    const event = await tape.until(one => one.type === 'approval/requested')
+    if (event.type !== 'approval/requested' || event.approval.type !== 'permission') throw new Error('expected permission')
+    assert.deepEqual(event.approval.facts, [{ label: 'Command', value: "cat > synthetic.txt <<'END'\n  line one\nline two\nEND" }])
+    await session.respondToApproval(event.approval.id, { type: 'option', optionId: 'no' }); await tape.until(one => one.type === 'turn/completed')
+  } finally { await runtime.dispose() }
+})
+
+test('permission input uses whole wire replacements and stays inside its turn', async () => {
+  const runtime = make()
+  try {
+    await runtime.start(); const tape = record(runtime); const session = await runtime.createSession({ cwd: '/tmp/w' })
+    const cases = [
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo first', cwd: '/tmp/first' } }], requests: [{}], expected: ['echo first'], cwds: ['/tmp/first'] },
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo stale', cwd: '/tmp/old' } }, { rawInput: { cwd: '/tmp/new' } }], requests: [{}], expected: [null], cwds: ['/tmp/new'] },
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo stale' } }, { rawInput: null }], requests: [{}], expected: [null], cwds: ['/tmp/w'] },
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo stale' } }, { rawInput: 'invalid' }], requests: [{}], expected: [null], cwds: ['/tmp/w'] },
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo old', cwd: '/tmp/old' } }, { rawInput: { command: 'echo new', cwd: '/tmp/new' } }], requests: [{}], expected: ['echo new'], cwds: ['/tmp/new'] },
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo old' } }, { kind: 'read' }], requests: [{}], expected: [null], cwds: ['/tmp/w'] },
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo old' } }, { sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo repeated' } }], requests: [{}], expected: ['echo repeated'], cwds: ['/tmp/w'] },
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo old' } }], requests: [{ kind: null }, {}], expected: [null, null], cwds: ['/tmp/w', '/tmp/w'] },
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo old' } }], requests: [{ rawInput: { command: 'echo replacement', cwd: '/tmp/new' } }, {}], expected: ['echo replacement', 'echo replacement'], cwds: ['/tmp/new', '/tmp/new'] },
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo old', cwd: '/tmp/old' } }], requests: [{ rawInput: { cwd: '/tmp/new' } }, {}], expected: [null, null], cwds: ['/tmp/new', '/tmp/new'] },
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo old' } }], requests: [{ rawInput: null }, {}], expected: [null, null], cwds: ['/tmp/w', '/tmp/w'] },
+      { updates: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'echo old' } }], requests: [{ kind: 'read' }, {}], expected: [null, null], cwds: ['/tmp/w', '/tmp/w'] },
+      { updates: [], requests: [{ kind: 'execute', rawInput: { command: 'echo direct', cwd: '/tmp/direct' } }, {}], expected: ['echo direct', 'echo direct'], cwds: ['/tmp/direct', '/tmp/direct'] },
+      { updates: [], requests: [{}], expected: [null], cwds: ['/tmp/w'] },
+    ]
+    for (const spec of cases) {
+      await session.send([{ type: 'text', text: `wire permission sequence ${JSON.stringify(spec)}` }])
+      for (let i = 0; i < spec.requests.length; i++) {
+        const event = await tape.until(one => one.type === 'approval/requested')
+        tape.events.splice(tape.events.indexOf(event), 1)
+        if (event.type !== 'approval/requested' || event.approval.type !== 'permission') throw new Error('expected permission')
+        assert.equal(event.approval.facts?.[0]?.value ?? null, spec.expected[i]); assert.equal(event.approval.cwd, spec.cwds[i])
+        await session.respondToApproval(event.approval.id, { type: 'option', optionId: 'no' })
+      }
+      const completed = await tape.until(one => one.type === 'turn/completed'); tape.events.splice(tape.events.indexOf(completed), 1)
+    }
+  } finally { await runtime.dispose() }
+})
+
+for (const spec of [
+  { name: 'omitted and same kind retain input without a transcript tool', after: [{}, { kind: 'execute' }], expected: [['echo direct', '/tmp/direct'], ['echo direct', '/tmp/direct']] },
+  { name: 'changed kind fences input on reentry', after: [{ kind: 'read' }, { kind: 'execute' }, {}], expected: [[null, '/tmp/w'], [null, '/tmp/w'], [null, '/tmp/w']] },
+  { name: 'cleared kind fences input on reentry', after: [{ kind: null }, { kind: 'execute' }, {}], expected: [[null, '/tmp/w'], [null, '/tmp/w'], [null, '/tmp/w']] },
+  { name: 'partial replacement stays whole', after: [{ rawInput: { cwd: '/tmp/new' } }, {}], expected: [[null, '/tmp/new'], [null, '/tmp/new']] },
+  { name: 'fresh replacement survives omission', after: [{ rawInput: { command: 'echo fresh', cwd: '/tmp/new' } }, {}], expected: [['echo fresh', '/tmp/new'], ['echo fresh', '/tmp/new']] },
+  { name: 'null input stays cleared', after: [{ rawInput: null }, {}], expected: [[null, '/tmp/w'], [null, '/tmp/w']] },
+  { name: 'late announcement with omitted input retains permission input', after: [{ updatesBefore: [{ sessionUpdate: 'tool_call', kind: 'execute' }] }, {}], expected: [['echo direct', '/tmp/direct'], ['echo direct', '/tmp/direct']] },
+  { name: 'late update with omitted kind and input retains permission input', after: [{ updatesBefore: [{ title: 'Late tool' }] }, {}], expected: [['echo direct', '/tmp/direct'], ['echo direct', '/tmp/direct']] },
+  { name: 'late null input stays cleared', after: [{ updatesBefore: [{ kind: 'execute', rawInput: null }] }, {}], expected: [[null, '/tmp/w'], [null, '/tmp/w']] },
+  { name: 'late partial input stays whole', after: [{ updatesBefore: [{ kind: 'execute', rawInput: { cwd: '/tmp/late' } }] }, {}], expected: [[null, '/tmp/late'], [null, '/tmp/late']] },
+  { name: 'late changed-kind notices fence input', after: [{ updatesBefore: [{ sessionUpdate: 'tool_call', kind: 'read' }, { kind: 'execute' }] }, {}], expected: [[null, '/tmp/w'], [null, '/tmp/w']] },
+  { name: 'late cleared kind fences input', after: [{ updatesBefore: [{ sessionUpdate: 'tool_call', kind: null }, { kind: 'execute' }] }, {}], expected: [[null, '/tmp/w'], [null, '/tmp/w']] },
+  { name: 'late changed kind accepts fresh input', after: [{ updatesBefore: [{ sessionUpdate: 'tool_call', kind: 'read' }, { kind: 'execute', rawInput: { command: 'echo late', cwd: '/tmp/late' } }] }, {}], expected: [['echo late', '/tmp/late'], ['echo late', '/tmp/late']] },
+  { name: 'late input replacement wins', after: [{ updatesBefore: [{ rawInput: { command: 'echo late', cwd: '/tmp/late' } }] }, {}], expected: [['echo late', '/tmp/late'], ['echo late', '/tmp/late']] },
+]) test(`permission-first input epoch: ${spec.name}`, async () => {
+  const runtime = make()
+  try {
+    await runtime.start(); const tape = record(runtime); const session = await runtime.createSession({ cwd: '/tmp/w' })
+    const sequence = { requests: [{ kind: 'execute', rawInput: { command: 'echo direct', cwd: '/tmp/direct' } }, ...spec.after] }
+    await session.send([{ type: 'text', text: `wire permission sequence ${JSON.stringify(sequence)}` }])
+    const actual = []
+    for (let i = 0; i < sequence.requests.length; i++) {
+      const event = await tape.until(one => one.type === 'approval/requested')
+      tape.events.splice(tape.events.indexOf(event), 1)
+      if (event.type !== 'approval/requested' || event.approval.type !== 'permission') throw new Error('expected permission')
+      actual.push([event.approval.facts?.[0]?.value ?? null, event.approval.cwd])
+      await session.respondToApproval(event.approval.id, { type: 'option', optionId: 'no' })
+    }
+    const completed = await tape.until(one => one.type === 'turn/completed')
+    assert.deepEqual(actual, [['echo direct', '/tmp/direct'], ...spec.expected])
+    if (!spec.after.some(call => 'updatesBefore' in call)) assert.ok(completed.type === 'turn/completed' && completed.turn.items.every(item => item.type !== 'toolCall' && item.type !== 'command'), 'permission snapshots create no transcript tool')
+    if (spec.name === 'late announcement with omitted input retains permission input') {
+      const tool = completed.type === 'turn/completed' && completed.turn.items.find(item => item.id === 'wire-command')
+      assert.ok(tool && tool.type === 'toolCall')
+      assert.equal(tool.args, null, 'permission input does not become transcript arguments')
+    }
+  } finally { await runtime.dispose() }
+})
+
+for (const stopReason of ['end_turn', 'max_tokens']) test(`permission-first snapshots end with their ${stopReason} turn`, async () => {
+  const runtime = make()
+  try {
+    await runtime.start(); const tape = record(runtime); const session = await runtime.createSession({ cwd: '/tmp/w' })
+    for (const [index, spec] of [
+      { stopReason, requests: [{ kind: 'execute', rawInput: { command: 'echo direct', cwd: '/tmp/direct' } }, {}] },
+      { requests: [{}] },
+    ].entries()) {
+      await session.send([{ type: 'text', text: `wire permission sequence ${JSON.stringify(spec)}` }])
+      for (const _ of spec.requests) {
+        const event = await tape.until(one => one.type === 'approval/requested')
+        tape.events.splice(tape.events.indexOf(event), 1)
+        if (event.type !== 'approval/requested' || event.approval.type !== 'permission') throw new Error('expected permission')
+        assert.equal(event.approval.facts?.[0]?.value ?? null, index === 0 ? 'echo direct' : null)
+        assert.equal(event.approval.cwd, index === 0 ? '/tmp/direct' : '/tmp/w')
+        await session.respondToApproval(event.approval.id, { type: 'option', optionId: 'no' })
+      }
+      const completed = await tape.until(one => one.type === 'turn/completed')
+      tape.events.splice(tape.events.indexOf(completed), 1)
+      assert.ok(completed.type === 'turn/completed')
+      assert.equal(completed.turn.status, index === 0 && stopReason !== 'end_turn' ? 'failed' : 'completed')
+      assert.ok(completed.turn.items.every(item => item.type !== 'toolCall' && item.type !== 'command'))
+    }
+  } finally { await runtime.dispose() }
+})
+
+test('permissions without a current turn do not retain a snapshot between requests', async () => {
+  const runtime = make()
+  try {
+    await runtime.start(); const tape = record(runtime); const session = await runtime.createSession({ cwd: '/tmp/w' })
+    const receiver = session as unknown as { requestPermission(request: AcpPermissionRequest): Promise<{ outcome: AcpPermissionOutcome }> }
+    for (const [index, call] of [{ kind: 'execute', rawInput: { command: 'echo idle', cwd: '/tmp/idle' } }, {}].entries()) {
+      const response = receiver.requestPermission({ sessionId: session.id, toolCall: { toolCallId: 'wire-command', title: 'Idle request', ...call }, options: [{ optionId: 'no', name: 'Deny once', kind: 'reject_once' }] })
+      const event = await tape.until(one => one.type === 'approval/requested')
+      tape.events.splice(tape.events.indexOf(event), 1)
+      if (event.type !== 'approval/requested' || event.approval.type !== 'permission') throw new Error('expected idle permission')
+      assert.equal(event.approval.turnId, undefined)
+      assert.equal(event.approval.facts?.[0]?.value ?? null, index === 0 ? 'echo idle' : null)
+      assert.equal(event.approval.cwd, index === 0 ? '/tmp/idle' : '/tmp/w')
+      await session.respondToApproval(event.approval.id, { type: 'option', optionId: 'no' })
+      assert.deepEqual(await response, { outcome: { outcome: 'selected', optionId: 'no' } })
+    }
+    const snapshot = await runtime.readSession(session.id)
+    assert.equal(snapshot.status.type, 'idle')
+    assert.equal(snapshot.turns.length, 0)
+  } finally { await runtime.dispose() }
+})
+
+for (const spec of [
+  { name: 'absolute workdir', input: { command: 'git status', workdir: '/tmp/requested' }, expected: '/tmp/requested' },
+  { name: 'relative workdir', input: { command: 'git status', workdir: 'sub' }, expected: '/tmp/w/sub' },
+  { name: 'parent relative workdir', input: { command: 'git status', workdir: '../sibling' }, expected: '/tmp/sibling' },
+  { name: 'bridge-injected default cwd', input: { command: 'git status', cwd: '/tmp/w' }, expected: '/tmp/w' },
+  { name: 'matching cwd and workdir', input: { command: 'git status', cwd: '/tmp/w/sub', workdir: 'sub' }, expected: '/tmp/w/sub' },
+  { name: 'conflicting cwd and workdir', input: { command: 'git status', cwd: '/tmp/w', workdir: '/tmp/requested' }, expected: undefined },
+  { name: 'malformed workdir', input: { command: 'git status', workdir: null }, expected: undefined },
+  { name: 'unknown provider-home workdir', input: { command: 'git status', workdir: '~/sub' }, expected: undefined },
+  { name: 'empty workdir with injected default', input: { command: 'git status', cwd: '/tmp/w', workdir: '' }, expected: '/tmp/w' },
+]) test(`permission execution folder: ${spec.name} survives first request, omission and late replacement`, async () => {
+  const runtime = make()
+  try {
+    await runtime.start(); const tape = record(runtime); const session = await runtime.createSession({ cwd: '/tmp/w' })
+    const sequence = { requests: [
+      { title: 'git status', kind: 'execute', rawInput: spec.input },
+      { title: 'git status' },
+      { title: 'git status', updatesBefore: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'git status', workdir: '/tmp/late-folder' } }] },
+      { title: 'git status', rawInput: spec.input },
+      { title: 'git status' },
+    ] }
+    await session.send([{ type: 'text', text: `wire permission sequence ${JSON.stringify(sequence)}` }])
+    for (let i = 0; i < sequence.requests.length; i++) {
+      const event = await tape.until(one => one.type === 'approval/requested')
+      tape.events.splice(tape.events.indexOf(event), 1)
+      if (event.type !== 'approval/requested' || event.approval.type !== 'permission') throw new Error('expected permission')
+      assert.equal(event.approval.summary, 'git status')
+      assert.deepEqual(event.approval.facts, [{ label: 'Command', value: 'git status' }])
+      assert.equal(event.approval.cwd, i === 2 ? '/tmp/late-folder' : spec.expected)
+      await session.respondToApproval(event.approval.id, { type: 'option', optionId: 'no' })
+    }
+    await tape.until(one => one.type === 'turn/completed')
+  } finally { await runtime.dispose() }
+})
+
+const epochOldInput = { command: 'echo old', cwd: '/tmp/old' }
+const epochFreshInput = { command: 'echo fresh', cwd: '/tmp/fresh' }
+const epochExecute = { sessionUpdate: 'tool_call', kind: 'execute', rawInput: epochOldInput }
+const epochRead = { sessionUpdate: 'tool_call', kind: 'read', rawInput: epochOldInput }
+const epochQuestion = { question: 'Which library should we use?', header: 'Library', multiSelect: false,
+  options: [{ label: 'date-fns', description: 'Small, tree-shakeable.' }, { label: 'dayjs', description: 'Moment-compatible API.' }] }
+const epochQuestionMeta = { harnessdesk: { question: epochQuestion } }
+for (const permissionFirst of [false, true]) for (const spec of [
+  { name: 'metadata changed kind clears input', question: { _meta: epochQuestionMeta, kind: 'think' }, expected: [null, '/tmp/w'] },
+  { name: 'metadata cleared kind clears input', question: { _meta: epochQuestionMeta, kind: null }, expected: [null, '/tmp/w'] },
+  { name: 'metadata null input clears input', question: { _meta: epochQuestionMeta, rawInput: null }, expected: [null, '/tmp/w'] },
+  { name: 'metadata partial input replaces whole', question: { _meta: epochQuestionMeta, rawInput: { cwd: '/tmp/fresh' } }, expected: [null, '/tmp/fresh'] },
+  { name: 'metadata fresh input replaces whole', question: { _meta: epochQuestionMeta, rawInput: epochFreshInput }, expected: ['echo fresh', '/tmp/fresh'] },
+  { name: 'metadata omitted kind and input retain snapshot', question: { _meta: epochQuestionMeta }, expected: ['echo old', '/tmp/old'] },
+  { name: 'input-shaped changed kind clears input', question: { kind: 'think', rawInput: { questions: [epochQuestion] } }, expected: [null, '/tmp/w'] },
+  { name: 'input-shaped cleared kind clears input', question: { kind: null, rawInput: { questions: [epochQuestion] } }, expected: [null, '/tmp/w'] },
+  { name: 'input-shaped replacement removes command', question: { rawInput: { questions: [epochQuestion] } }, expected: [null, '/tmp/w'] },
+  { name: 'input-shaped same kind accepts fresh input', question: { kind: 'execute', rawInput: { questions: [epochQuestion], ...epochFreshInput } }, expected: ['echo fresh', '/tmp/fresh'] },
+  { name: 'input-shaped fresh input cannot cross kind reentry', question: { kind: 'think', rawInput: { questions: [epochQuestion], ...epochFreshInput } }, expected: [null, '/tmp/w'] },
+]) test(`permission ${permissionFirst ? 'first ' : ''}question epoch: ${spec.name}`, async () => {
+  const runtime = make()
+  try {
+    await runtime.start(); const tape = record(runtime); const session = await runtime.createSession({ cwd: '/tmp/w' })
+    const sequence = { updates: permissionFirst ? [] : [epochExecute], requests: [...(permissionFirst ? [{ kind: 'execute', rawInput: epochOldInput }] : []), spec.question, { kind: 'execute' }, {}],
+      options: [{ optionId: 'no', name: 'Deny once', kind: 'reject_once' },
+        { optionId: 'answer-0', name: 'date-fns', kind: 'allow_once' }, { optionId: 'answer-1', name: 'dayjs', kind: 'allow_once' }] }
+    await session.send([{ type: 'text', text: `wire permission sequence ${JSON.stringify(sequence)}` }])
+    if (permissionFirst) {
+      const first = await tape.until(one => one.type === 'approval/requested')
+      tape.events.splice(tape.events.indexOf(first), 1)
+      if (first.type !== 'approval/requested' || first.approval.type !== 'permission') throw new Error('expected permission before question')
+      assert.deepEqual(first.approval.facts, [{ label: 'Command', value: epochOldInput.command }])
+      assert.equal(first.approval.cwd, epochOldInput.cwd)
+      await session.respondToApproval(first.approval.id, { type: 'option', optionId: 'no' })
+    }
+    const requested = await tape.until(one => one.type === 'approval/requested')
+    tape.events.splice(tape.events.indexOf(requested), 1)
+    if (requested.type !== 'approval/requested' || requested.approval.type !== 'userInput') throw new Error('expected question')
+    const question = requested.approval
+    assert.equal(question.itemId, 'wire-command'); assert.equal(question.tool, 'AskUserQuestion')
+    assert.equal(question.questions[0]?.id, 'q'); assert.equal(question.questions[0]?.question, epochQuestion.question)
+    assert.equal(question.questions[0]?.header, epochQuestion.header); assert.equal(question.questions[0]?.multiSelect, false)
+    assert.deepEqual(question.questions[0]?.options.map(option => [option.id, option.label, option.description]),
+      [['answer-0', 'date-fns', 'Small, tree-shakeable.'], ['answer-1', 'dayjs', 'Moment-compatible API.']])
+    await session.respondToApproval(question.id, { type: 'answers', answers: { q: ['answer-1'] } })
+    const actual = []
+    for (let i = 0; i < 2; i++) {
+      const event = await tape.until(one => one.type === 'approval/requested')
+      tape.events.splice(tape.events.indexOf(event), 1)
+      if (event.type !== 'approval/requested' || event.approval.type !== 'permission') throw new Error('expected execute permission')
+      assert.equal(event.approval.summary, 'Wire command'); assert.equal(event.approval.itemId, 'wire-command')
+      assert.deepEqual(event.approval.options.map(option => [option.id, option.intent, option.grant]),
+        [['no', 'deny', undefined], ['answer-0', 'approve', undefined], ['answer-1', 'approve', undefined]])
+      actual.push([event.approval.facts?.[0]?.value ?? null, event.approval.cwd])
+      await session.respondToApproval(event.approval.id, { type: 'option', optionId: 'no' })
+    }
+    const completed = await tape.until(one => one.type === 'turn/completed')
+    assert.ok(completed.type === 'turn/completed' && completed.turn.items.some(item => item.type === 'assistantMessage' && item.text.includes('answer-1')),
+      'the selected question option reaches the real ACP child unchanged')
+    assert.deepEqual(actual, [spec.expected, spec.expected])
+    if (permissionFirst) assert.ok(completed.type === 'turn/completed' && completed.turn.items.every(item => item.type !== 'toolCall' && item.type !== 'command'), 'question epochs do not invent transcript tools')
+  } finally { await runtime.dispose() }
+})
+
+for (const spec of [
+  { name: 'notification execute/read/execute', updates: [epochExecute, { kind: 'read' }, { kind: 'execute' }], requests: [{}], expected: [[null, '/tmp/w']] },
+  { name: 'notification execute/clear/execute', updates: [epochExecute, { kind: null }, { kind: 'execute' }], requests: [{}], expected: [[null, '/tmp/w']] },
+  { name: 'notification read/execute', updates: [epochRead, { kind: 'execute' }], requests: [{}], expected: [[null, '/tmp/w']] },
+  { name: 'notification untyped/execute', updates: [{ sessionUpdate: 'tool_call', rawInput: epochOldInput }, { kind: 'execute' }], requests: [{}], expected: [[null, '/tmp/w']] },
+  { name: 'notification leaving execute clears cwd immediately', updates: [epochExecute, { kind: 'read' }], requests: [{}], expected: [[null, '/tmp/w']] },
+  { name: 'permission execute/read/execute/omitted', updates: [epochExecute], requests: [{ kind: 'read' }, { kind: 'execute' }, {}], expected: [[null, '/tmp/w'], [null, '/tmp/w'], [null, '/tmp/w']] },
+  { name: 'permission execute/clear/execute/omitted', updates: [epochExecute], requests: [{ kind: null }, { kind: 'execute' }, {}], expected: [[null, '/tmp/w'], [null, '/tmp/w'], [null, '/tmp/w']] },
+  { name: 'permission read/execute/omitted', updates: [epochRead], requests: [{ kind: 'execute' }, {}], expected: [[null, '/tmp/w'], [null, '/tmp/w']] },
+  { name: 'notification read then permission execute', updates: [epochExecute, { kind: 'read' }], requests: [{ kind: 'execute' }, {}], expected: [[null, '/tmp/w'], [null, '/tmp/w']] },
+  { name: 'omitted and same notification kinds retain input', updates: [epochExecute, { title: 'Still the same tool' }, { kind: 'execute' }], requests: [{}], expected: [['echo old', '/tmp/old']] },
+  { name: 'omitted and same permission kinds retain input', updates: [epochExecute], requests: [{}, { kind: 'execute' }, {}], expected: [['echo old', '/tmp/old'], ['echo old', '/tmp/old'], ['echo old', '/tmp/old']] },
+  { name: 'notification changed kind accepts fresh replacement', updates: [epochRead, { kind: 'execute', rawInput: epochFreshInput }], requests: [{}], expected: [['echo fresh', '/tmp/fresh']] },
+  { name: 'permission changed kind accepts fresh replacement', updates: [epochRead], requests: [{ kind: 'execute', rawInput: epochFreshInput }, {}], expected: [['echo fresh', '/tmp/fresh'], ['echo fresh', '/tmp/fresh']] },
+  { name: 'permission explicit null input remains cleared after reentry', updates: [epochExecute], requests: [{ kind: 'read', rawInput: null }, { kind: 'execute' }, {}], expected: [[null, '/tmp/w'], [null, '/tmp/w'], [null, '/tmp/w']] },
+]) test(`permission input epoch: ${spec.name}`, async () => {
+  const runtime = make()
+  try {
+    await runtime.start()
+    const tape = record(runtime)
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: `wire permission sequence ${JSON.stringify(spec)}` }])
+    const actual: (string | null | undefined)[][] = []
+    for (const _request of spec.requests) {
+      const event = await tape.until(one => one.type === 'approval/requested')
+      tape.events.splice(tape.events.indexOf(event), 1)
+      if (event.type !== 'approval/requested' || event.approval.type !== 'permission') throw new Error('expected permission')
+      actual.push([event.approval.facts?.[0]?.value ?? null, event.approval.cwd])
+      await session.respondToApproval(event.approval.id, { type: 'option', optionId: 'no' })
+    }
+    await tape.until(one => one.type === 'turn/completed')
+    assert.deepEqual(actual, spec.expected)
+  } finally { await runtime.dispose() }
 })

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 
 import { itemId, sessionId, type AgentEvent } from '@harnessdesk/protocol'
 import { AcpRuntime } from '../src/index.js'
-import { projectToolItem } from '../src/tool-items.js'
+import { patchPermissionWire, projectToolItem } from '../src/tool-items.js'
 
 const FAKE = fileURLToPath(new URL('./fixtures/tool-items-acp.mjs', import.meta.url))
 const cwd = '/tmp/acp-edit-1670/workspace'
@@ -18,6 +18,50 @@ const finish = (extra: Record<string, unknown> = {}) => ({
   sessionUpdate: 'tool_call_update', toolCallId: 'edit', status: 'completed', ...extra,
 })
 const diff = (path = 'app.js') => ({ type: 'diff', path, oldText: 'return a - b\n', newText: 'return a + b\n' })
+
+for (const kind of ['read', null, undefined]) {
+  test(`permission wire invalidates inherited input on explicit kind ${String(kind)}`, () => {
+    const input = Object.freeze({ command: 'echo old', cwd: '/tmp/old' })
+    const previous = Object.freeze({ kind: 'execute', rawInput: input })
+    const changed = patchPermissionWire(previous, { kind })
+    assert.equal(changed.kind, kind)
+    assert.equal(changed.rawInput, undefined)
+    assert.equal(patchPermissionWire(changed, { kind: 'execute' }).rawInput, undefined)
+    assert.deepEqual(previous, { kind: 'execute', rawInput: input })
+  })
+}
+
+test('permission wire clear kinds invalidate even previously untyped input', () => {
+  const rawInput = { command: 'echo old', cwd: '/tmp/old' }
+  for (const kind of [null, undefined]) {
+    assert.equal(patchPermissionWire({ kind, rawInput }, { kind }).rawInput, undefined)
+  }
+  assert.equal(patchPermissionWire({ rawInput }, { kind: 'execute' }).rawInput, undefined)
+})
+
+test('permission wire keeps omitted and same kinds but replaces input atomically', () => {
+  const rawInput = Object.freeze({ command: 'echo old', cwd: '/tmp/old' })
+  const previous = Object.freeze({ kind: 'execute', rawInput })
+  assert.equal(patchPermissionWire(previous, {}).rawInput, rawInput)
+  assert.equal(patchPermissionWire(previous, { kind: 'execute' }).rawInput, rawInput)
+  for (const replacement of [{ command: 'echo fresh', cwd: '/tmp/new' }, { cwd: '/tmp/new' }, null, undefined, 'invalid']) {
+    assert.equal(patchPermissionWire(previous, { kind: 'read', rawInput: replacement }).rawInput, replacement)
+    assert.equal(patchPermissionWire(previous, { kind: null, rawInput: replacement }).rawInput, replacement)
+  }
+})
+
+test('permission input epochs leave existing transcript input merging unchanged', () => {
+  const args = { command: 'echo old', cwd: '/tmp/old', description: 'Original description' }
+  const call = { id: itemId('epoch'), type: 'toolCall' as const, tool: 'Terminal', source: { kind: 'builtin' as const }, status: 'inProgress' as const, args }
+  const first = projectToolItem(call, { toolCallId: 'epoch', kind: 'execute', rawInput: args }, undefined, '/tmp/session')
+  const changed = projectToolItem(first.call, { toolCallId: 'epoch', kind: 'read' }, first, '/tmp/session')
+  const returned = projectToolItem(changed.call, { toolCallId: 'epoch', kind: 'execute' }, changed, '/tmp/session')
+  assert.deepEqual(returned.call.args, args)
+  assert.equal(returned.permissionWire.rawInput, undefined)
+  const replaced = projectToolItem(first.call, { toolCallId: 'epoch', kind: 'read', rawInput: { description: 'New description' } }, first, '/tmp/session')
+  assert.deepEqual(replaced.call.args, { ...args, description: 'New description' })
+  assert.deepEqual(replaced.permissionWire.rawInput, { description: 'New description' })
+})
 
 test('input patches keep header-shaped hunk content but omit subsequent file headers', () => {
   const patch = '--- a/one\n+++ b/one\n@@ -1,2 +1,2 @@\n--- old text\n+++ new text\n keep\n--- a/two\n+++ b/two\n@@ -1 +1 @@\n-before\n+after\n'

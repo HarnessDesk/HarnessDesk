@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Read the command before allowing access.** Access requests can show the complete command and working folder, with hidden characters made visible. Follow-up requests retain omitted input from the same turn; ordinary phone cards direct requests they cannot show completely to desk review.
+
 - **Your account, desk and app icon each have their own setting.** Edit your account's display name with Save/Cancel, rename this desk under General even while signed out, and change the app and Dock artwork under Appearance. Missing account pictures use a person glyph. Room messages keep their recorded author across account switches; older anonymous messages remain You.
 
 - **Repair an incomplete installation.** If the installed app is missing its interface, it offers Downloads and keeps update checks available instead of asking for a source build.

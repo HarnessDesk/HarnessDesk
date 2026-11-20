@@ -3,12 +3,14 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { createLeadJournal, type LeadJournalRecord } from '@harnessdesk/lead'
+import { createLeadJournal, type LeadJournal, type LeadJournalRecord } from '@harnessdesk/lead'
 import { PhoneSim } from '@harnessdesk/phone-link/sim'
 import { LEAD_LIMITS, parseLeadAcceptanceContract, type PhoneLinkState, type WireNotification } from '@harnessdesk/protocol'
 import { Logger } from '../src/log.js'
 import { dispatch, type HostContext } from '../src/methods/index.js'
 import { PHONE_POLICY, phoneLinkOff, phoneResult, startPhoneLink, type PhoneLinkControl } from '../src/phone-link.js'
+import { LeadPersonActions } from '../src/lead/person-actions.js'
+import { LeadService } from '../src/lead/service.js'
 
 test('repeat history, repeat controls and direct limit raises require their own phone tiers', () => {
   assert.equal(PHONE_POLICY.methods['lead/schedule/read'], 'read')
@@ -34,25 +36,27 @@ const plan = { version: 1 as const, id: 'plan', revision: 1, type: 'plan' as con
 const planClick = { version: 1 as const, cardId: 'plan', cardType: 'plan' as const, expectedRevision: 1, contractDigest: contract.digest, choice: 'approve' as const }
 
 /** The desk's Lead, over real controls and a fake model, reachable the way the host reaches it. */
-const desk = async () => {
+type WorkerActions = (journal: LeadJournal) => { read: () => Promise<readonly unknown[]>; perform: (input: any) => Promise<void>; assertPublic: (value: unknown, revision?: number) => Promise<void> }
+const desk = async (worker?: WorkerActions) => {
   const performed: unknown[] = []
   const presenceCalls: { method: string; device: unknown }[] = []
   const sends: Record<string, unknown>[] = []
   let personActions: any[] = [{ kind: 'worker-approval', id: 'worker', runId: 'run', role: 'code reviewer', request: 'read the git log', choices: ['yes-once', 'yes-goal', 'no'] }, { kind: 'check', id: 'check', runId: 'run', name: 'verify', command: 'node --test' }]
   const records: LeadJournalRecord[] = []
   const journal = await createLeadJournal({ async read() { return records }, async append(record: LeadJournalRecord) { records.push(record) } })
+  const workerActions = worker?.(journal)
   await journal.setPolicy({ version: 1, revision: 1, mode: 'default', rules: [] })
   await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical', caps: contract.caps, freshnessMs: 1000 })
   const broadcasters = new Set<(n: WireNotification) => void>()
   const { LeadControls } = await import('../src/lead/controls.js')
   const controls = new LeadControls({
     journal, project, model: 'fixture-model', now: () => 100, nextId: () => `card-${Math.random()}`,
-    service: { async status() { return { configured: true, protection: 'synthetic' } }, async setKey() {}, async deleteKey() {}, async assertPublic() {},
+    service: { async status() { return { configured: true, protection: 'synthetic' } }, async setKey() {}, async deleteKey() {}, assertPublic: workerActions?.assertPublic ?? (async () => {}),
       async send() { return { status: 'completed', text: 'Ready to inspect' } } },
     push: (notification: WireNotification) => broadcasters.forEach(f => f(notification)),
     decidePerson: async () => {}, decideResult: async () => {},
     revokeApproval: async (input: any) => journal.revokeWorkerApproval(input.id, input.contractDigest),
-    readPersonActions: async () => journal.state.contract ? personActions : [], performAction: async (input: any) => { if (!personActions.some(one => one.id === input.id)) throw Object.assign(new Error('stale'), { wireCode: 'lead-card-stale' }); performed.push({ id: input.id, choice: input.choice }); personActions = personActions.filter(one => one.id !== input.id) },
+    readPersonActions: async () => journal.state.contract ? workerActions ? workerActions.read() : personActions : [], performAction: async (input: any) => { if (workerActions) return workerActions.perform(input); if (!personActions.some(one => one.id === input.id)) throw Object.assign(new Error('stale'), { wireCode: 'lead-card-stale' }); performed.push({ id: input.id, choice: input.choice }); personActions = personActions.filter(one => one.id !== input.id) },
   } as never)
   let attached: PhoneLinkControl | null = null
   const ctx = {
@@ -72,9 +76,9 @@ const desk = async () => {
   return { host, journal, controls, ctx, performed, presenceCalls, sends, broadcast: (n: WireNotification) => broadcasters.forEach(f => f(n)) }
 }
 
-const rig = async (name: string | (() => string) = 'Test desk') => {
+const rig = async (name: string | (() => string) = 'Test desk', worker?: WorkerActions) => {
   const home = await mkdtemp(join(tmpdir(), 'hd-phone-server-'))
-  const d = await desk()
+  const d = await desk(worker)
   const running = await startPhoneLink(d.host as never, new Logger('test', { console: false }), { home, host: '127.0.0.1', includeLoopback: true, name })
   const pair = async (tiers?: readonly import('@harnessdesk/protocol').PhoneTier[]) => {
     const code = await running.control.pairing()
@@ -88,6 +92,105 @@ const rig = async (name: string | (() => string) = 'Test desk') => {
   }
   return { ...d, running, pair, done: async () => { await running.close(); await rm(home, { recursive: true, force: true }) } }
 }
+
+const commandWorker = async (command: string, cwd = project.path) => {
+  const approval: any = { type: 'permission', id: 'command-approval', sessionId: 'worker-session', requestedAt: 1,
+    summary: command, cwd, facts: [{ label: 'Command', value: command }], options: [
+      { id: 'yes', label: 'Allow once', intent: 'approve' }, { id: 'no', label: 'Deny', intent: 'deny' },
+    ] }
+  const responses: any[] = [], record = { runtime: 'fixture', session: { id: 'worker-session', cwd: project.path }, approvals: new Map([['command-approval', approval]]) }
+  const s = await rig('Demo desk', journal => {
+    // Run the real public-key guard; the broker and dormant child are synthetic.
+    const guard = new LeadService({ journal, broker: { async leadStatus() { return { configured: true } }, async resolveLead() { return 'synthetic-broker-key-for-public-guard' } }, createSupervisor: () => ({}) } as never)
+    const state = { get state() { return { ...journal.state, phase: 'running', runs: [{ runId: 'worker-run', teamId: 'worker-team', correlationId: 'worker-start' }], steps: [{ state: 'started', attemptId: 'worker-start' }] } } }
+    const actions = new LeadPersonActions(state as never, { registry: { all: () => [record] }, flowsPlane: { executionOf: () => null }, async call(method: string, params: any) { responses.push({ method, params }); record.approvals.delete(params.approvalId) } } as never,
+      { seats: { all: () => [{ role: 'implement', closed: null, session: { runtime: 'fixture', sessionId: 'worker-session' }, board: 'worker-team' }] } } as never, value => guard.assertPublic(value))
+    return { read: () => actions.read(), perform: input => actions.perform(input), assertPublic: (value, revision) => guard.assertPublic(value, revision) }
+  })
+  try { await s.journal.offerCard(plan); await s.controls.decide(planClick); await s.controls.idle() }
+  catch (error) { await s.done(); throw error }
+  return { ...s, approval, responses, record }
+}
+
+for (const spec of [
+  { name: 'different cwd', command: 'git status', cwd: '/outside/synthetic-folder' },
+  { name: 'outside command path', command: 'cat /outside/synthetic-folder/note.txt', cwd: project.path },
+  { name: 'scrubbed identity', command: 'echo user@example.com', cwd: project.path },
+]) {
+  test(`paired phone Lead Command fact retains complete ${spec.name} on reads and pushed projections`, async () => {
+    const s = await commandWorker(spec.command, spec.cwd)
+    try {
+      const desktop = await s.controls.readThread(), desktopAction = desktop.personActions![0]!
+      assert.ok(desktopAction.kind === 'worker-approval' && desktopAction.choices.includes('yes-once'), 'the complete request remains decidable on the desk')
+      const phone = await s.pair()
+      const read = await phone.request('lead/thread/read', {})
+      assert.equal(read.ok, true, JSON.stringify(read))
+      // lead.md documents complete one-time Lead decisions, unlike the
+      // ordinary worker phone card whose fields cannot show this scope.
+      const action = read.result.personActions[0]
+      assert.deepEqual(action, desktopAction)
+      assert.deepEqual(action.choices, ['yes-once', 'no'])
+      assert.equal(action.details, `Command: ${spec.command}\nWorking folder: ${spec.cwd}`)
+      s.broadcast({ method: 'lead/changed', params: desktop } as never)
+      const pushed = await phone.next(m => m.t === 'evt' && m.topic === 'lead')
+      assert.deepEqual(pushed.data.personActions[0], desktopAction)
+      phone.close()
+    } finally { await s.done() }
+  })
+
+  test(`paired phone Lead Command fact answers complete ${spec.name} once or No, with stale replay refused`, async () => {
+    for (const choice of ['yes-once', 'no']) {
+      const s = await commandWorker(spec.command, spec.cwd)
+      try {
+        const phone = await s.pair(), read = await phone.request('lead/thread/read', {})
+        const input = { id: read.result.personActions[0].id, contractDigest: contract.digest, choice }
+        const answered = await phone.request('lead/action/perform', input)
+        assert.equal(answered.ok, true, JSON.stringify(answered))
+        assert.equal(s.responses.length, 1)
+        assert.equal(s.responses[0]?.params.decision.optionId, choice === 'no' ? 'no' : 'yes')
+        assert.equal(s.record.approvals.size, 0)
+        const stale = await phone.request('lead/action/perform', input)
+        assert.equal(stale.error.code, 'lead-card-stale')
+        assert.equal(s.responses.length, 1)
+        phone.close()
+      } finally { await s.done() }
+    }
+  })
+}
+
+test('paired phone Lead Command fact shows the full working folder for an informed once choice', async () => {
+  const s = await commandWorker('git status')
+  try {
+    const phone = await s.pair(), read = await phone.request('lead/thread/read', {})
+    const action = read.result.personActions[0]
+    assert.deepEqual(action.choices, ['yes-once', 'no'])
+    assert.match(action.details, /Command: git status/)
+    assert.equal(action.details, `Command: git status\nWorking folder: ${project.path}`)
+    const allowed = await phone.request('lead/action/perform', { id: action.id, contractDigest: contract.digest, choice: 'yes-once' })
+    assert.equal(allowed.ok, true, JSON.stringify(allowed))
+    assert.equal(s.responses[0]?.params.decision.optionId, 'yes')
+    phone.close()
+  } finally { await s.done() }
+})
+
+test('paired phone Lead Command fact keeps the public-key guard, desk review and No', async () => {
+  const brokerFixture = 'synthetic-broker-key-for-public-guard', s = await commandWorker(`echo ${brokerFixture}`)
+  try {
+    const phone = await s.pair(), read = await phone.request('lead/thread/read', {})
+    const action = read.result.personActions[0]
+    assert.deepEqual(action.choices, ['no'])
+    assert.match(action.request, /desk/)
+    assert.equal(action.details, undefined)
+    assert.ok(!JSON.stringify(read.result).includes(brokerFixture))
+    const input = { id: action.id, contractDigest: contract.digest, choice: 'yes-once' }
+    const refused = await phone.request('lead/action/perform', input)
+    assert.equal(refused.error.code, 'lead-operation-refused')
+    assert.equal(s.responses.length, 0)
+    assert.equal((await phone.request('lead/action/perform', { ...input, choice: 'no' })).ok, true)
+    assert.equal(s.responses[0]?.params.decision.optionId, 'no')
+    phone.close()
+  } finally { await s.done() }
+})
 
 test('phone response filtering does not remove coincident fields from other domains', () => {
   const value = { recordedStepInFlight: true, other: 'synthetic' }
