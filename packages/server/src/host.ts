@@ -10819,6 +10819,9 @@ export class Host {
     for (const [what, forget] of forgets) {
       try {
         await forget()
+        // The record left the registry before its transcript was forgotten, so the delete hook kept any recovered
+        // entry then. With the transcript gone and no record to reopen, nothing of it is left to save (#2288).
+        if (what === 'transcript' && !this.registry.forReopen(runtime, id)) this.#forgetRecoveredBody(runtime, id)
       } catch (error) {
         this.#logger.warn('a seat passed over could not be forgotten everywhere', {
           runtime: String(runtime),
