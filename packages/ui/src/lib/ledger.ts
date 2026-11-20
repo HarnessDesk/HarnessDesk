@@ -24,17 +24,10 @@ export interface StackedDay {
   readonly tokens: number
   /** Per-agent cost for this day, in the series order of `StackedSeries.keys`. */
   readonly parts: readonly number[]
-  /**
-   * True when this day is before the ledger's own `coverage.earliestDay`, or
-   * the ledger has no rows at all yet — the same "no record yet" rule
-   * `lib/heat.ts` keeps for the calendar. A day like this carries no honest
-   * total: `total` and `parts` are still 0, but a chart must draw it hatched
-   * rather than as an empty, priced day. That distinction — a real zero
-   * against a day the ledger cannot speak to — is the finding the old chart
-   * missed: it drew both the same way, so a fortnight before an agent was
-   * ever added read exactly like a fortnight of quiet work.
-   */
+  /** No recorded row or no available selected metric; the zero total is a placeholder. */
   readonly unknown: boolean
+  /** Explains an unknown value without changing its arithmetic or geometry. */
+  readonly unknownReason?: 'no-record' | 'metric-unavailable'
 }
 
 export interface StackedSeries {
@@ -114,13 +107,6 @@ export const stackDailyMetric = (
     .sort((a, b) => b[1] - a[1])
     .map(([runtime]) => runtime)
 
-  // `undefined` means an old report with no coverage field at all — nothing
-  // is known to be unknown, so an old report hatches nothing. `null` means a
-  // report that knows it has no history yet, and every day without a bucket
-  // is unknown. A finite day is the first one on record, and only the days
-  // before it (that carry no spend) are unknown.
-  const earliest = ledger.coverage?.earliestDay
-
   const start = midnight(now)
   const days: StackedDay[] = []
   let peak = 0
@@ -132,7 +118,8 @@ export const stackDailyMetric = (
     const dayTotal = parts.reduce((sum, part) => sum + part, 0)
     if (dayTotal > peak) peak = dayTotal
     total += dayTotal
-    let unknown = !bucket && earliest !== undefined && (earliest === null || day < earliest)
+    let unknown = !bucket
+    let unknownReason: StackedDay['unknownReason'] = unknown ? 'no-record' : undefined
     // A turns day whose every runtime that actually spent that day is
     // turn-unknown has no honest total at all — not "0 turns", which a
     // turn-known day with genuinely nothing done would also read as. Only
@@ -141,9 +128,12 @@ export const stackDailyMetric = (
     // see this function's own doc comment above.
     if (!unknown && metric === 'turns' && bucket && bucket.size > 0) {
       const allTurnUnknown = [...bucket.keys()].every((runtime) => !turnsKnownFor.has(runtime))
-      if (allTurnUnknown) unknown = true
+      if (allTurnUnknown) {
+        unknown = true
+        unknownReason = 'metric-unavailable'
+      }
     }
-    days.push({ day, total: dayTotal, tokens: tokensByDay.get(day) ?? 0, parts, unknown })
+    days.push({ day, total: dayTotal, tokens: tokensByDay.get(day) ?? 0, parts, unknown, ...(unknownReason ? { unknownReason } : {}) })
   }
   return { days, keys, peak, total }
 }
@@ -153,9 +143,9 @@ export interface PeriodTotal {
   /** "Today", "Last 7 days" — what the figure covers, in the band's own words. */
   readonly label: string
   readonly cost: number
-  /** No day in this figure has been read. */
+  /** No day in this figure has an available value for the selected metric. */
   readonly unknown: boolean
-  /** Days at or after the earliest retained usage record. */
+  /** Metric-available days: recorded rows for Cost/Tokens; excludes all-turn-unknown recorded days for Turns. */
   readonly daysRead: number
 }
 
@@ -167,8 +157,9 @@ export interface PeriodTotal {
  * than being silently truncated into a smaller number wearing a bigger label.
  *
  * All ranges include today, matching the host query and selected figure.
- * These inclusive ranges are still running. Their caller labels them "so far";
- * comparisons belong to previousPeriod, which checks both windows.
+ * These inclusive ranges are still running. Their caller labels them "so far"
+ * only when every day has an available value; partial periods use captions.
+ * Comparisons belong to previousPeriod, which checks both windows.
  */
 export const periodTotals = (
   series: StackedSeries,
@@ -262,7 +253,9 @@ export const previousByRuntime = (
   const end = Math.max(0, wide.days.length - range)
   const start = Math.max(0, end - range)
   const slice = wide.days.slice(start, end)
-  const complete = slice.length === range && slice.every((day) => !day.unknown)
+  const current = wide.days.slice(-range)
+  const complete = slice.length === range && current.length === range
+    && slice.every((day) => !day.unknown) && current.every((day) => !day.unknown)
   const totals = new Map<RuntimeId, number>()
   wide.keys.forEach((key, index) => {
     totals.set(

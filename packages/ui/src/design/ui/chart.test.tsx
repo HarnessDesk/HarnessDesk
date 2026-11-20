@@ -281,6 +281,63 @@ describe('DayColumns', () => {
     expect((column.firstElementChild as HTMLElement).className).toContain('outline-dashed')
   })
 
+  it.each(['bars', 'line'] as const)('keeps per-day unknown labels distinct in %s without changing geometry', mode => {
+    mount(
+      <DayColumns
+        buckets={[
+          { label: 'Mon', total: 5, parts: [5] },
+          { label: 'Tue', total: 0, parts: [0], unknown: true, unknownLabel: 'Turns unavailable' },
+          { label: 'Wed', total: 0, parts: [0], unknown: true },
+          { label: 'Thu', total: 0, parts: [0], unknownLabel: 'Ignore this override' },
+          { label: 'Fri', total: 2, parts: [2] },
+          { label: 'Sat', total: 0, parts: [0], unknown: true, unknownLabel: 'Turns unavailable' },
+        ]}
+        series={[SERIES[0]!]}
+        format={String}
+        label="Turns per day"
+        emptyLabel="No turns yet"
+        mode={mode}
+        today={5}
+        ghost={[4, 8, 6, 0, 4, null]}
+      />,
+    )
+    const list = container.querySelector('ul.sr-only')!
+    expect([...list.children].map(day => day.textContent)).toEqual([
+      'Mon: 5', 'Tue: Turns unavailable', 'Wed: No record yet',
+      'Thu: No turns yet', 'Fri: 2', 'Sat: Turns unavailable',
+    ])
+    for (const [index, label] of [[1, 'Turns unavailable'], [2, 'No record yet'], [3, 'No turns yet']] as const) {
+      act(() => plot().children[index]!.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+      expect(tip()?.textContent).toContain(label)
+      expect(announced()).toBe(`${['Mon', 'Tue', 'Wed', 'Thu'][index]}: ${label}`)
+    }
+    press('Home')
+    press('ArrowRight')
+    expect(announced()).toBe('Tue: Turns unavailable')
+    expect(tip()?.textContent).toContain('Turns unavailable')
+    press('ArrowRight')
+    expect(announced()).toBe('Wed: No record yet')
+    expect(tip()?.textContent).toContain('No record yet')
+    press('End')
+    expect(announced()).toBe('Sat: Turns unavailable')
+    expect(tip()?.textContent).not.toContain('No turns yet')
+    expect(container.textContent).not.toContain('Ignore this override')
+    for (const index of [1, 2, 5]) {
+      expect((plot().children[index]!.firstElementChild as HTMLElement).style.background).toContain('--hd-chart-heat-not-scanned')
+    }
+    if (mode === 'bars') {
+      expect((plot().children[3]!.firstElementChild as HTMLElement).style.height).toBe('0%')
+    } else {
+      expect(container.querySelectorAll('svg path[stroke="var(--hd-accent)"]')).toHaveLength(2)
+      expect(container.querySelectorAll('svg path[stroke-dasharray]')).toHaveLength(2)
+      // Unknown Today and cursor buckets never acquire a known-value point.
+      expect(container.querySelector('svg path[stroke-width="4.5"]')).toBeNull()
+      expect(container.querySelector('svg path[stroke-width="4"]')).toBeNull()
+    }
+    press('Escape')
+    expect(tip()).toBeNull()
+  })
+
   it('draws a dashed ghost line for the previous period and reads it in the tip', () => {
     mount(
       <DayColumns

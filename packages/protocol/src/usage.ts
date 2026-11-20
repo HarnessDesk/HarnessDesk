@@ -171,12 +171,9 @@ export interface SpendCoverage {
    * midnight, epoch milliseconds; `null` when the ledger has nothing for this
    * scope yet.
    *
-   * This is how the Dashboard heatmap tells "no record yet" from a real zero:
-   * a day before `earliestDay` has no record and draws as unknown; a day at
-   * or after it with no row had no recorded use (for session-total runtimes
-   * — OpenCode, Cline — a multi-day session lands on its last day, so a gap
-   * is not proof the agent was idle throughout). Optional so an old report —
-   * which drew every day before its own boot the same way — still validates.
+   * This is a row horizon, not evidence that rowless days were scanned.
+   * Session-total runtimes may put a multi-day session on its last day.
+   * Optional so reports written before this field still validate.
    */
   readonly earliestDay?: number | null
   /**
