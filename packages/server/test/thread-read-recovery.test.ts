@@ -12,6 +12,9 @@ import { Logger } from '../src/log.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
+import type { ConsultPort } from '../src/consult.js'
+import { makeRepo } from './fixtures/evidence-desk.js'
+import { HoldFake } from './fixtures/hold-runtime.js'
 
 for (const source of [false, true]) for (const method of ['session/read', 'workspace/thread/read'] as const) for (const withUsage of [false, true]) {
   if (!source && method === 'workspace/thread/read') continue
@@ -639,6 +642,78 @@ test('a quit after the recovered conversation was deleted has nothing left to sa
   assert.equal(host.registry.get(created.runtime, created.id), undefined)
   await host.dispose()
   assert.equal(db.read(created.runtime, created.id), null, 'the deleted conversation is not written back')
+})
+
+for (const fault of ['none', 'before-forget', 'database-delete'] as const) test(`discarded recovered consult cleanup with ${fault}`, async t => {
+  const repo = await makeRepo('hd-discard-recovered-checkout-'), root = tempDir('hd-discard-recovered-')
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')), builtinAgents: root, catalogRefreshMs: 0 })
+  t.after(() => host.dispose().catch(() => {}))
+  const runtime = new HoldFake()
+  Object.assign(runtime.info.capabilities, { sourceTranscript: true })
+  Object.assign(runtime, { sourceOf: async () => null })
+  host.register(runtime); await host.start()
+  let store!: TranscriptStore
+  const recordWrite = TranscriptStore.prototype.record
+  t.mock.method(TranscriptStore.prototype, 'record', function(this: TranscriptStore, ...args: Parameters<typeof recordWrite>) {
+    store = this; return recordWrite.apply(this, args)
+  })
+  await host.call('workspace/open', { path: repo.dir })
+  // Exercise the Host's real consult open/discard closures, without a Flow's unrelated gates.
+  const port = (host.consultPlane as unknown as { port: ConsultPort }).port
+  const consult = await port.open({ runtime: runtime.info.id }, { cwd: repo.dir, project: null }, new AbortController().signal)
+  const id = sessionId(consult.sessionId)
+  assert.equal(port.isConsult(consult.runtime, consult.sessionId), true)
+  const turn = { id: turnId('one'), status: 'inProgress' as const, items: [] }
+  runtime.emit({ type: 'turn/started', sessionId: id, turn })
+  runtime.emit({ type: 'item/completed', sessionId: id, turnId: turn.id,
+    item: { id: itemId('saved'), type: 'assistantMessage', text: 'saved consult answer' } })
+  runtime.emit({ type: 'turn/completed', sessionId: id, turn: { ...turn, status: 'completed' } })
+  assert.ok(store); await store.flush()
+  const db = new TranscriptDatabase(join(root, 'sessions.sqlite')); t.after(() => db.close())
+  const saved = db.read(runtime.info.id, id); assert.ok(saved)
+  runtime.stored.set(id, [{ ...saved.turns[0]!, items: [...saved.turns[0]!.items,
+    { id: itemId('recent'), type: 'assistantMessage', text: 'recent unsaved consult answer' },
+  ] }])
+  db.db.exec("CREATE TRIGGER refuse_body BEFORE INSERT ON bodies BEGIN SELECT RAISE(FAIL, 'synthetic storage refusal'); END")
+  const read = await host.call('session/read', { runtime: runtime.info.id, sessionId: id })
+  assert.equal(read.historyPending, true)
+  assert.match(JSON.stringify(read.turns), /recent unsaved consult answer/)
+  assert.equal(store.hasProtectedChanges(runtime.info.id, id), true)
+  assert.deepEqual(db.read(runtime.info.id, id)!.turns, saved.turns)
+  if (fault === 'database-delete') db.db.exec("CREATE TRIGGER refuse_forget BEFORE DELETE ON bodies BEGIN SELECT RAISE(FAIL, 'synthetic transcript forget failure'); END")
+
+  let forgetAttempts = 0
+  let forgetError: unknown
+  const forget = TranscriptStore.prototype.forget
+  t.mock.method(TranscriptStore.prototype, 'forget', async function(this: TranscriptStore, ...args: Parameters<typeof forget>) {
+    if (args[0] !== runtime.info.id || args[1] !== id) return forget.apply(this, args)
+    forgetAttempts++
+    assert.equal(host.registry.get(runtime.info.id, id), undefined, 'discard deletes the registry record before forgetting the transcript')
+    assert.equal(this.hasProtectedChanges(runtime.info.id, id), true, 'registry deletion has not dropped protected recovery')
+    try {
+      if (fault === 'before-forget') throw new Error('synthetic transcript forget failure')
+      await forget.apply(this, args)
+    } catch (error) { forgetError = error; throw error }
+    assert.equal(this.hasProtectedChanges(runtime.info.id, id), false)
+  })
+  assert.equal(await port.discard(consult), null)
+  assert.equal(forgetAttempts, 1)
+  assert.equal(host.registry.get(runtime.info.id, id), undefined)
+  assert.equal(store.hasProtectedChanges(runtime.info.id, id), fault === 'before-forget')
+  if (fault !== 'none') {
+    assert.match(String(forgetError), /synthetic transcript forget failure/)
+    await assert.rejects(host.dispose(), (error: Error) => {
+      assert.match(error.message, /remains unsaved .*\(recovered 1, overlays 0, conflicts 0:/)
+      assert.ok(error.message.includes(`${runtime.info.id}/${id}`))
+      if (fault === 'before-forget') assert.match((error.cause as Error | undefined)?.message ?? '', /protected changes that could not be saved/)
+      return true
+    })
+    assert.deepEqual(db.read(runtime.info.id, id)!.turns, saved.turns, 'failed forget preserves the durable body')
+  } else {
+    assert.equal(db.read(runtime.info.id, id), null)
+    await host.dispose()
+    assert.equal(db.read(runtime.info.id, id), null, 'quit does not resurrect the discarded consult')
+  }
 })
 
 test('a quit still reports a recovered conversation whose Remove was refused', async t => {
