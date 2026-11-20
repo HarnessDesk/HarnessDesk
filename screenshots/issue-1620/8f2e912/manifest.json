@@ -1,0 +1,51 @@
+{
+  "kind": "raw unmodified Electron + production Host synthetic ACP evidence",
+  "tree": "ff3e585cc62d5a25f13329ae94464e49d8d003f7",
+  "boundary": "No command execution or real provider. Questions answered with trusted Send, later approvals trusted Deny. Only execute-read-execute control is Deny-only; question-following permissions retain fixture option labels. No current native phone proof. Separate Lead browser fixture capture was refused and no Lead PNG is published.",
+  "imageTransforms": false,
+  "head": "8f2e91227df012039e6353f4423b1a65faa6f4a2",
+  "frames": [
+    {
+      "sha256": "2c716d8759abdb5d6767ba67d344699b5ed7ed758db18294ac5a4cf4035bee15",
+      "path": "screenshots/issue-1620/8f2e912/execute-after-question-input-shaped.png",
+      "width": 2560,
+      "height": 1680,
+      "parentVisuallyInspected": true
+    },
+    {
+      "sha256": "0c34935eb276668a48454af8fc7731004d471ec41d2941b6da901367c04f61cd",
+      "path": "screenshots/issue-1620/8f2e912/execute-after-question-metadata.png",
+      "width": 2560,
+      "height": 1680,
+      "parentVisuallyInspected": true
+    },
+    {
+      "sha256": "d9d814357361c80d53334971119f8a2cd4f03ca32524b2ec7f71385129cccd9b",
+      "path": "screenshots/issue-1620/8f2e912/native-command.png",
+      "width": 2560,
+      "height": 1680,
+      "parentVisuallyInspected": true
+    },
+    {
+      "sha256": "69e681638f77c59d7157af460f0901133f0da91a163f3f057ece310c8f2d0741",
+      "path": "screenshots/issue-1620/8f2e912/native-epoch.png",
+      "width": 2560,
+      "height": 1680,
+      "parentVisuallyInspected": true
+    },
+    {
+      "sha256": "5b632e941ac255771511609b7d2682943bc260e72df35b84d308e4023aeb9d60",
+      "path": "screenshots/issue-1620/8f2e912/question-input-shaped.png",
+      "width": 2560,
+      "height": 1680,
+      "parentVisuallyInspected": true
+    },
+    {
+      "sha256": "8dd916dc9c9ba1574e4498e0c34487818d1398e68380ae9c2d9086014604f4f0",
+      "path": "screenshots/issue-1620/8f2e912/question-metadata.png",
+      "width": 2560,
+      "height": 1680,
+      "parentVisuallyInspected": true
+    }
+  ]
+}
