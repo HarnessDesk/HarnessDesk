@@ -98,6 +98,7 @@ export const ALLOWED = new Map([
   ['docs/built.md', "a maintainer's working file under the gitignored internal/, as the sentence naming it says"],
   ['lead/work.json', "the Lead's work ledger in the desk's state folder, written at run time, not a file in this tree"],
   ['lead/autonomy.json', "the Lead's autonomy settings and rule versions in the desk's state folder, written at run time, not a file in this tree"],
+  ['lead/mention-observer-budget.json', "the Lead's independent mention assessment budget in the desk's state folder, written at run time, not a file in this tree"],
   ['lead/presence.json', "the Lead's presence record in the desk's state folder, written at run time, not a file in this tree"],
   ['lead/memory-store.json', "the Lead's memory store in the desk's state folder, written at run time, not a file in this tree"],
   ['lead/memory-conversation.jsonl', "the Lead's search copy of its conversation in the desk's state folder, written at run time, not a file in this tree"],

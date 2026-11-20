@@ -2604,12 +2604,15 @@ turn is retained for approval before the Lead parks.
 Reads back off to 30 seconds, read once more, then wait for changes.
 
 Settings › Lead always opens its enable control. Once enabled, its groups are Name,
-Provider key, Allowances, Permissions, Triggers and Memory. The chosen name saves immediately and changes
+Provider key, Mention assessments, Allowances, Permissions, Triggers and Memory. The chosen name saves immediately and changes
 no authority. The uncontrolled key input is emptied before its exclusive request,
 including refusal; removing a key asks for confirmation. Changed authority groups
 have a trailing Save. Tightening applies immediately; widening creates a decision
 message and shows Waiting for your approval in the conversation with an Open
 button that lands on that decision. Consent expiry remains a settings fact.
+Mention assessments have a separate daily dollar cap, Off until the person saves
+an amount. The section shows known spend, held funds, unconfirmed amounts and
+remaining funds, and can turn the budget off without changing past receipts.
 
 The followed PR row opens its pull request and shows number, checks, review and
 a branch-ownership chip. Your branch means automatic repairs are paused. Outside

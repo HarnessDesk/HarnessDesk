@@ -425,9 +425,14 @@ it('turns the spending limit Off through its own method, then saves rounds again
 })
 
 it('uses unconstrained Lead settings groups and trailing Save rows', async () => {
-  await mount(); await act(async () => button('Settings').click())
+  const { request } = await mount()
+  request.mockImplementation(async (method) => method === 'lead/mentionBudget/read' ? {
+    enabled: false, dailyCapUsdMicros: 0, day: '2026-11-18', spentUsdMicros: 0, reservedUsdMicros: 0,
+    uncertainUsdMicros: 0, remainingUsdMicros: 0, compacted: { spentUsdMicros: 0, uncertainUsdMicros: 0, periods: [] },
+  } as never : leadProjection() as never)
+  await act(async () => button('Settings').click())
   const groups = [...document.querySelectorAll('[data-slot="rows"]')]
-  expect(groups).toHaveLength(6)
+  expect(groups).toHaveLength(7)
   expect(groups[0]?.textContent).toContain('Enable Lead')
   expect(groups[0]?.parentElement?.getAttribute('data-slot')).not.toBe('section')
   for (const group of groups.slice(1)) {
@@ -437,7 +442,10 @@ it('uses unconstrained Lead settings groups and trailing Save rows', async () =>
     expect(group.hasAttribute('style')).toBe(false)
   }
   expect(leadSettingsSource).not.toMatch(/\b(?:sizing|height|minHeight|maxHeight)\s*[:=]/)
-  for (const name of ['Save permissions', 'Save allowances']) expect(button(name).closest('[data-slot="row"]')).not.toBeNull()
+  const budget = groups.find(group => group.textContent?.includes('Daily amount in dollars'))!
+  for (const name of ['Daily budget', 'Budget day', 'Known spend', 'Held', 'Unconfirmed', 'Remaining']) expect(budget.textContent).toContain(name)
+  for (const name of ['Save permissions', 'Save allowances', 'Save daily budget']) expect(button(name).closest('[data-slot="row"]')).not.toBeNull()
+  expect(budget.contains(button('Save daily budget'))).toBe(false)
 })
 
 it.each(['2', 'Escape'])('guards typed-through %s after explicit decision navigation takes focus', async key => {

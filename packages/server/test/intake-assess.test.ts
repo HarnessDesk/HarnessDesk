@@ -7,8 +7,8 @@ import { observerAssessor, type AssessAccount, type AssessUsage } from '../src/i
 import type { MentionAssessInput } from '../src/intake/mentions.js'
 
 /*
- * The observer model's request is the Lead's spend: it is held against the
- * Lead's limit before it is sent, settled at what the provider reports, and
+ * The observer model's request is held against the independent daily budget
+ * before it is sent, settled at what the provider reports, and
  * counted whole when what it cost cannot be known. Refused, it is not sent.
  */
 
@@ -26,7 +26,7 @@ const ANSWER = JSON.stringify({
 })
 
 /** A scripted provider and a scripted spend limit, each writing what happened into one shared log. */
-const rig = (reply: MessagesHttpResponse | Error, allow = true) => {
+const rig = (reply: MessagesHttpResponse | Error, allow = true, known = true) => {
   const log: string[] = []
   const sent: MessagesHttpRequest[] = []
   const settled: (AssessUsage | 'unknown')[] = []
@@ -45,7 +45,7 @@ const rig = (reply: MessagesHttpResponse | Error, allow = true) => {
       reserved.push({ requestId, inputTokens, maxOutputTokens })
       if (!allow) return null
       return {
-        settle: async (usage) => { log.push('settle'); settled.push(usage) },
+        settle: async (usage) => { log.push('settle'); settled.push(usage); return known },
         unknown: async () => { log.push('unknown'); settled.push('unknown') },
       }
     },
@@ -54,7 +54,7 @@ const rig = (reply: MessagesHttpResponse | Error, allow = true) => {
   return { assess, log, sent, settled, reserved }
 }
 
-test('the observer request is held against the Lead’s limit before it is sent, and settled at what it used', async () => {
+test('the observer request is held against its daily budget before it is sent, and settled at what it used', async () => {
   const r = rig({ status: 200, body: ANSWER })
   const answer = await r.assess(INPUT, new AbortController().signal)
   assert.deepEqual(answer, { decision: 'accept', reason: 'It asks for a fix.' })
@@ -83,4 +83,57 @@ test('a refusal before any processing settles at zero; anything else unknown cou
     assert.equal(await r.assess(INPUT, new AbortController().signal), null)
     assert.deepEqual(r.settled, ['unknown'], `${reply instanceof Error ? reply.message : reply.status}: what it cost cannot be known`)
   }
+})
+
+test('preserves provider cache creation TTL counters for pricing', async () => {
+  const reply = JSON.parse(ANSWER)
+  reply.usage.cache_creation_input_tokens = 17
+  reply.usage.cache_creation = { ephemeral_5m_input_tokens: 12, ephemeral_1h_input_tokens: 5 }
+  const r = rig({ status: 200, body: JSON.stringify(reply) })
+  await r.assess(INPUT, new AbortController().signal)
+  assert.deepEqual(r.settled, [{ inputTokens: 120, outputTokens: 30, cacheReadTokens: 0, cacheWriteTokens: 17, cacheWrite5mTokens: 12, cacheWrite1hTokens: 5 }])
+})
+
+test('missing cache usage counters keep the full hold unconfirmed', async () => {
+  for (const field of ['cache_read_input_tokens', 'cache_creation_input_tokens']) {
+    const reply = JSON.parse(ANSWER)
+    delete reply.usage[field]
+    const r = rig({ status: 200, body: JSON.stringify(reply) })
+    await r.assess(INPUT, new AbortController().signal)
+    assert.deepEqual(r.settled, ['unknown'], `${field} is required to price the response`)
+  }
+})
+
+
+test('unpriceable reported usage remains an unconfirmed assessment', async () => {
+  const r = rig({ status: 200, body: ANSWER }, true, false)
+  let unconfirmed = 0
+  await r.assess(INPUT, new AbortController().signal, { notSent() {}, unconfirmed() { unconfirmed++ } })
+  assert.equal(unconfirmed, 1, 'the durable account refused to price the usage')
+})
+
+test('a refused reservation is proven not sent and does not become unconfirmed', async () => {
+  const r = rig({ status: 200, body: ANSWER }, false)
+  let notSent = 0, unconfirmed = 0
+  assert.equal(await r.assess(INPUT, new AbortController().signal, { notSent() { notSent++ }, unconfirmed() { unconfirmed++ } }), null)
+  assert.equal(notSent, 1); assert.equal(unconfirmed, 0)
+  assert.deepEqual(r.log, ['reserve'])
+})
+
+test('missing key and trusted not-started refusal prove no send, unless settlement is unconfirmed', async () => {
+  let reservations = 0, sent = 0, noSend = 0, uncertain = 0
+  const evidence = { notSent() { noSend++ }, unconfirmed() { uncertain++ } }
+  const missing = observerAssessor({ key: async () => null, model: 'test-model',
+    transport: { async send() { sent++; throw new Error('must not send') } },
+    account: { async reserve() { reservations++; return null } } })
+  assert.equal(await missing(INPUT, new AbortController().signal, evidence), null)
+  assert.deepEqual([noSend, uncertain, reservations, sent], [1, 0, 0, 0])
+  const refused = rig({ status: 400, body: '{}', processing: 'not-started' })
+  noSend = uncertain = 0
+  await refused.assess(INPUT, new AbortController().signal, evidence)
+  assert.deepEqual([noSend, uncertain], [1, 0])
+  const failedSettlement = rig({ status: 400, body: '{}', processing: 'not-started' }, true, false)
+  noSend = uncertain = 0
+  await failedSettlement.assess(INPUT, new AbortController().signal, evidence)
+  assert.deepEqual([noSend, uncertain], [1, 1], 'unconfirmed settlement takes priority over no-send')
 })

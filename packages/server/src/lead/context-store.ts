@@ -72,6 +72,11 @@ export interface LeadContextStoreOptions {
   readonly nextId: () => string
   /** Test seam: a smaller window than the model's. */
   readonly window?: number
+  /** Fault injection for context I/O tests; absent in production. */
+  readonly testIO?: {
+    readonly append?: (file: string, line: string) => Promise<void>
+    readonly afterSnapshotRename?: (name: string) => Promise<void>
+  }
 }
 export type LeadContextSend = (input: LeadMessagesRequest) => Promise<LeadMessagesResult>
 /** `stopped`: the run ended without a checkpoint because the request was refused (budget, a stop) or the host could
@@ -428,8 +433,8 @@ export class LeadContextStore {
     }
     const epoch = this.#epoch + 1
     const turns = await this.#snapshot(NEXT, epoch, screened.messages)
-    await this.options.journal.contextWithheld()
     this.#needsRecovery = true
+    await this.options.journal.contextWithheld()
     this.#epoch = epoch
     this.#turns = turns
     await rename(this.#path(NEXT), this.#path(FILE))
@@ -453,15 +458,27 @@ export class LeadContextStore {
       record = { type: 'record', base: 0, extend: [], turns, measured: null }
       this.#parseRecord({ ...record })
     } catch (error) { this.#known = known; throw error }
+    const alreadyHeld = this.#needsRecovery
+    this.#needsRecovery = true
     if (name === FILE) this.#turns = turns
     const text = `${JSON.stringify(this.#header(epoch))}\n${JSON.stringify(record)}\n`
     const temporary = this.#path(`${name}.tmp`)
     const handle = await open(temporary, 'w', 0o600)
-    try { await handle.writeFile(text); await handle.sync() } finally { await handle.close() }
-    if (name === NEXT) { await rename(temporary, this.#path(NEXT)); return turns }
+    let writeFailed = false
+    try { await handle.writeFile(text); await handle.sync() }
+    catch (error) { writeFailed = true; throw error }
+    finally { try { await handle.close() } catch (error) { if (!writeFailed) throw error } }
+    if (name === NEXT) {
+      await rename(temporary, this.#path(NEXT))
+      await this.options.testIO?.afterSnapshotRename?.(name)
+      this.#needsRecovery = alreadyHeld
+      return turns
+    }
     await rename(temporary, this.#path(FILE))
+    await this.options.testIO?.afterSnapshotRename?.(name)
     this.#fileBytes = Buffer.byteLength(text)
     this.#measured = null
+    this.#needsRecovery = alreadyHeld
     return turns
   }
   /** Never more than the disk bound: older tool results trimmed first, then the oldest turns dropped at a person's
@@ -596,12 +613,21 @@ export class LeadContextStore {
       const known = this.#known
       try { parseLeadContextTurns(this.#bounded(applied)) } finally { this.#known = known }
     }
+    this.#needsRecovery = true
     this.#turns = applied
     if (overhead !== undefined) this.#overhead = overhead
     if (record.measured) this.#measured = record.measured
-    if (this.#fileBytes + Buffer.byteLength(line) > LEAD_CONTEXT.diskBytes) { const measured = this.#measured; await this.#snapshot(FILE); this.#measured = measured; return }
-    await appendFile(this.#path(FILE), line, { mode: 0o600 })
+    if (this.#fileBytes + Buffer.byteLength(line) > LEAD_CONTEXT.diskBytes) {
+      const measured = this.#measured
+      await this.#snapshot(FILE)
+      this.#measured = measured
+      this.#needsRecovery = false
+      return
+    }
+    if (this.options.testIO?.append) await this.options.testIO.append(this.#path(FILE), line)
+    else await appendFile(this.#path(FILE), line, { mode: 0o600 })
     this.#fileBytes += Buffer.byteLength(line)
+    this.#needsRecovery = false
   }
   /** The stored conversation for a child whose copy is from another epoch; null when its copy is current. */
   read(epoch: number, room = READ_BYTES): Promise<{ readonly epoch: number; readonly messages: readonly MessagesTurn[] } | null> {
@@ -795,6 +821,7 @@ export class LeadContextStore {
             Buffer.byteLength(JSON.stringify({ version: 1, screeningVersion: 1, count: stage.count, checkpoints: stage.checkpoints })) > 600_000)
           throw new Error('lead-context-checkpoint-stage')
       }
+      this.#needsRecovery = true
       if (remember) this.#remember(remember)
       this.#softAt = leadNextSoftShare(share)
       await this.#snapshot(NEXT, epoch, turns)
@@ -812,9 +839,13 @@ export class LeadContextStore {
       this.#turns = turns
       await rename(this.#path(NEXT), this.#path(FILE))
       const directory = await open(this.options.directory, 'r')
-      try { await directory.sync() } finally { await directory.close() }
+      let syncFailed = false
+      try { await directory.sync() }
+      catch (error) { syncFailed = true; throw error }
+      finally { try { await directory.close() } catch (error) { if (!syncFailed) throw error } }
       this.#fileBytes = Buffer.byteLength(await readFile(this.#path(FILE), 'utf8'))
       this.#measured = null
+      if (!stage) this.#needsRecovery = false
       if (stage) {
         this.#checkpoints = [...stage.checkpoints]
         this.#count = stage.count

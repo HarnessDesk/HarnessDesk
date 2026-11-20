@@ -195,6 +195,8 @@ export const createLeadState = (source: LeadTransport, available: () => boolean)
     /** Looking at the Lead marks this window as seen; after a long absence the host hands back one digest of what changed. */
     async readAway(options: { readonly active?: boolean; readonly recap?: boolean } = {}) { check(); const view = await transport.request('lead/presence/read', { device: device(), ...options }); applyAway(view); return view },
     async dismissDigest(digest: string) { check(); const view = await transport.request('lead/presence/dismiss', { device: device(), digest }); applyAway(view); return view },
+    async readMentionBudget() { check(); return transport.request('lead/mentionBudget/read', {}) },
+    async configureMentionBudget(dailyCapUsdMicros: number) { check(); return transport.request('lead/mentionBudget/configure', { dailyCapUsdMicros }) },
     async readBrief(): Promise<LeadBriefSettings> { check(); return transport.request('lead/brief/read', {}) },
     async updateBrief(update: { readonly enabled?: boolean; readonly at?: string }): Promise<LeadBriefSettings> { check(); return transport.request('lead/brief/update', update) },
     async readAutonomy(): Promise<LeadAutonomyView> { check(); return settled(transport.request('lead/autonomy/read', {})) },

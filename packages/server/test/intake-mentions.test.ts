@@ -1,25 +1,27 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
 import { createLeadJournal, type LeadJournal, type LeadJournalRecord } from '@harnessdesk/lead'
-import type { PhoneTriageList, TriggerArmPreview, TriggerDecision, TriggerDecisionsPage, TriggerHistoryPage } from '@harnessdesk/protocol'
+import type { PhoneTriageList, TriggerArmPreview, TriggerDecision, TriggerDecisionsPage, TriggerFact, TriggerHistoryPage } from '@harnessdesk/protocol'
 
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { commitTriggers, intakeDesk, REVIEW_FLOW, until, type IntakeDesk } from './fixtures/intake-host.js'
-import { Clocks, Gate, sha } from './fixtures/intake-forge.js'
+import { armOf, Clocks, FakeForge, FakeTimers, Gate, sha } from './fixtures/intake-forge.js'
 import { HoldFake } from './fixtures/hold-runtime.js'
 import { tempDir } from './scratch.js'
 import { writeTriggers } from '../src/authoring/model.js'
 import { Logger } from '../src/log.js'
 import { parseTriggers } from '../src/intake/definition.js'
-import { addressesHandle, asksToStop, parseAssessment, MentionTriage, type MentionAssessInput, type MentionAssessor, type WorkItemsPort } from '../src/intake/mentions.js'
+import { addressesHandle, asksToStop, parseAssessment, MentionTriage, ASSESS_UNCONFIRMED, ASSESS_UNAVAILABLE, type MentionAssessInput, type MentionAssessor, type WorkItemsPort } from '../src/intake/mentions.js'
 import { PHONE_POLICY } from '../src/phone-link.js'
 import { LeadAutomaticGoals } from '../src/lead/automatic-goals.js'
 import { Admission } from '../src/intake/admission.js'
 import { TriggerClosures } from '../src/intake/consent.js'
+import { accountDigest, ForgeSource } from '../src/intake/forge.js'
+import { IntakeMonitor, intakeSources, SourceCursors } from '../src/intake/poll.js'
 
 /*
  * A comment that addresses the desk's handle asks it for work (owner
@@ -53,9 +55,10 @@ ${extra}`
 class FakeAssessor {
   readonly inputs: MentionAssessInput[] = []
   answer: ReturnType<typeof parseAssessment> = { decision: 'accept', reason: 'It asks for a fix on this thread.' }
-  readonly assess: MentionAssessor = async (input) => {
+  hook?: MentionAssessor
+  readonly assess: MentionAssessor = async (input, signal, evidence) => {
     this.inputs.push(input)
-    return this.answer
+    return this.hook ? this.hook(input, signal, evidence) : this.answer
   }
 }
 
@@ -170,6 +173,18 @@ test('the assessment answer is one decision and one sentence: anything else in i
   assert.ok(long && long.reason.length <= 300, 'a reason is clipped to one short sentence')
 })
 
+test('an assessment cannot supply Host-only outcome reasons', () => {
+  for (const reason of [ASSESS_UNCONFIRMED, ASSESS_UNAVAILABLE]) {
+    for (const decision of ['accept', 'ignore', 'stop', 'ask']) {
+      for (const value of [reason, `\u0000\t ${reason}\n\u007f`]) {
+        assert.equal(parseAssessment(JSON.stringify({ decision, reason: value })), null)
+      }
+    }
+    const ordinary = `${reason} More context.`
+    assert.deepEqual(parseAssessment(JSON.stringify({ decision: 'ask', reason: ordinary })), { decision: 'ask', reason: ordinary })
+  }
+})
+
 // ------------------------------------------------------------- the gate
 
 test('a mention from someone not allowed is ignored with the rule named, and the model is never asked', E2E, async (t) => {
@@ -225,7 +240,7 @@ test('the assessment unavailable is a question for the person, never a guess; Re
   await say(d, 1, '@dex could you take a look')
   let [one] = (await decisions(d)).decisions
   assert.deepEqual([one!.decision, one!.by], ['ask', 'assessment'])
-  assert.match(one!.reason, /could not be made/)
+  assert.equal(one!.reason, ASSESS_UNCONFIRMED)
   assert.ok(d.pushed.some((notice) => notice.method === 'trigger/attention'), 'acting, the person is told it waits for them')
 
   d.model.answer = { decision: 'ignore', reason: 'Not a request for work.' }
@@ -2099,4 +2114,263 @@ test('a same-trigger thread linked after an unobserved interval receives that re
   const after = await decisions(d)
   assert.equal(after.threads.find(one => one.id === b.id)?.resumes, 1)
   assert.equal(after.threads.find(one => one.id === a.id)?.resumes, 0)
+})
+
+
+for (const branch of ['observe-stop', 'issue-closed'] as const) for (const protectedCount of [499, 500]) {
+  test(`linked ${branch} decision retries the same fact with ${protectedCount} protected rows`, E2E, async t => {
+    const home = tempDir('hd-linked-decision-capacity-'), path = join(home, LEDGER)
+    const project = '/synthetic/project', repository = 'acme/widgets', firing = 'a'.repeat(64)
+    const clocks = new Clocks(NOON), forge = new FakeForge()
+    const definition = parseTriggers(ASK()).definitions[0]!
+    const base = armOf('ask', { project, baseline: NOON })
+    const arm = { ...base, definition, binding: { ...base.binding, account: accountDigest(ME.id), repository } }
+    const thread = { id: 'thread-linked', project, trigger: 'ask', repository, origin: { kind: 'issue', number: 1 },
+      links: { issues: [1], pulls: [], goals: ['goal-linked'] }, state: 'open', closed: null,
+      issueClosed: branch === 'issue-closed', resumes: 0, observations: 0, openedAt: NOON - 1000, firings: [firing], seen: [] }
+    const old = (i: number, reason: string) => ({ id: `d-linked-old-${i}`, trigger: 'ask', project, repository,
+      thread: { kind: 'issue', number: i + 2 }, comment: { id: String(80000 + i), url: `https://example.com/issue#issuecomment-${80000 + i}`,
+        at: NOON - 1000, author: 'jane-doe', excerpt: '@dex please fix' },
+      decision: 'ask', reason, by: 'assessment', rules: [], mode: 'act', acted: false, work: null, decidedAt: NOON, evaluations: 0 })
+    const seeded = Array.from({ length: protectedCount }, (_, i) => old(i, ASSESS_UNCONFIRMED))
+    if (protectedCount === 499) seeded.push(old(499, 'Ordinary old decision'))
+    await writeFile(path, JSON.stringify({ version: 1, decisions: seeded, threads: [thread],
+      pendingThreads: [{ ...thread, pendingFirings: [firing] }], stopIntents: [],
+      modes: { [`${project}\u0000ask`]: { mode: branch === 'observe-stop' ? 'observe' : 'act', armedAt: NOON } }, assessed: { day: '', count: 0 } }))
+    let effects = 0, offers = 0
+    let offered: TriggerFact | undefined
+    const forbidden = async (): Promise<never> => { effects++; throw new Error('linked rule must be effect-free') }
+    const port = { home, pendingFirings: () => [firing], leadName: () => 'dex', changed() {}, now: () => clocks.wall,
+      assess: forbidden, planStop: forbidden, stopOnce: forbidden, signal: new AbortController().signal }
+    let triage = new MentionTriage(port as never)
+    const monitor = () => new IntakeMonitor({ armed: async () => [arm],
+      sources: intakeSources(new ForgeSource({ run: forge.runner, now: () => clocks.wall })), cursors: new SourceCursors(home),
+      offer: async (one, fact) => { offers++; offered = fact; await triage.judge(one, fact, forbidden) },
+      wall: () => clocks.wall, monotonic: () => clocks.mono, timers: new FakeTimers() })
+    let polling = monitor()
+    t.after(() => polling.close())
+    await polling.baseline(arm)
+    const cursorPath = join(home, 'triggers-cursors.json'), before = await readFile(cursorPath, 'utf8')
+    const at = NOON + 1000, comment = '9999'
+    forge.issues.push({ number: 1, state: branch === 'issue-closed' ? 'closed' : 'open', created: NOON - 1000, updated: at,
+      events: [], comments: [{ id: Number(comment), body: branch === 'observe-stop' ? '@dex stop' : '@dex please follow up', created: at, updated: at, user: ME }] })
+    const snapshots = []
+    for (let poll = 0; poll < 2; poll++) {
+      clocks.advance(10 * 60_000)
+      await polling.tick(clocks.wall)
+      const saved = JSON.parse(await readFile(path, 'utf8'))
+      snapshots.push({ current: saved.decisions.filter((one: TriggerDecision) => one.comment.id === comment).length,
+        seen: saved.threads[0].seen.includes(comment), pendingSeen: saved.pendingThreads[0].seen.includes(comment),
+        cursorMoved: (await readFile(cursorPath, 'utf8')) !== before })
+      assert.deepEqual(saved.decisions.filter((one: TriggerDecision) => one.reason === ASSESS_UNCONFIRMED).map((one: TriggerDecision) => one.id),
+        seeded.slice(0, protectedCount).map(one => one.id), 'every protected identity survives both polls')
+    }
+    assert.equal(effects, 0)
+    const admitted = protectedCount === 499
+    assert.equal(offers, admitted ? 1 : 2, 'the source reoffers an unanswered fact, and deduplicates a covered one')
+    if (admitted) await triage.judge(arm, offered!, forbidden) // Also replay the identical covered fact directly.
+    assert.deepEqual(snapshots, Array.from({ length: 2 }, () => ({ current: admitted ? 1 : 0, seen: admitted, pendingSeen: admitted, cursorMoved: admitted })),
+      'both polls keep coverage and both seen copies behind the durable decision')
+    if (!admitted) {
+      await polling.close()
+      const saved = JSON.parse(await readFile(path, 'utf8'))
+      saved.decisions.shift() // Controlled repair while no triage/monitor is using this ledger.
+      await writeFile(path, JSON.stringify(saved))
+      triage = new MentionTriage(port as never)
+      polling = monitor() // Reuse the persisted cursor; do not baseline again.
+      clocks.advance(10 * 60_000)
+      await polling.tick(clocks.wall)
+    }
+    const saved = JSON.parse(await readFile(path, 'utf8'))
+    const current = saved.decisions.filter((one: TriggerDecision) => one.comment.id === comment)
+    assert.equal(current.length, 1)
+    assert.equal(current[0].decision, branch === 'observe-stop' ? 'stop' : 'ignore')
+    assert.equal(saved.decisions.some((one: TriggerDecision) => one.reason === 'Ordinary old decision'), false)
+    assert.equal(saved.decisions.filter((one: TriggerDecision) => one.reason === ASSESS_UNCONFIRMED).length, 499)
+    assert.deepEqual([saved.threads[0].state, saved.threads[0].issueClosed], ['open', branch === 'issue-closed'])
+    assert.ok(saved.threads[0].seen.includes(comment) && saved.pendingThreads[0].seen.includes(comment))
+    assert.notEqual(await readFile(cursorPath, 'utf8'), before)
+    assert.equal(effects, 0)
+  })
+}
+
+test('unconfirmed assessment decisions survive ordinary history rotation and refuse at capacity', E2E, async t => {
+  const repo = await makeRepo('hd-mention-protected-')
+  await commitTriggers(repo, ASK())
+  const stateDir = tempDir('hd-mention-protected-state-')
+  const make = (i: number, reason: string) => ({ id: `d-protected-${i}`, trigger: 'ask', project: repo.dir, repository: 'acme/widgets',
+    thread: { kind: 'issue', number: i + 1 }, comment: { id: String(80000 + i), url: `https://github.com/acme/widgets/issues/1#issuecomment-${80000 + i}`, at: NOON, author: 'a-teammate', excerpt: '@dex please fix' },
+    decision: 'ask', reason, by: 'assessment', rules: [], mode: 'act', acted: false, work: null, decidedAt: NOON, evaluations: 0 })
+  const seeded = [...Array.from({ length: 499 }, (_, i) => make(i, ASSESS_UNCONFIRMED)), make(499, 'Ordinary old decision')]
+  await writeFile(join(stateDir, LEDGER), JSON.stringify({ version: 1, decisions: seeded, threads: [], modes: {}, assessed: { day: '', count: 0 } }))
+  const d = await desk(t, ASK(), { stateDir, repo })
+  d.model.answer = null
+  await say(d, 1, '@dex please fix this', NAMED)
+  assert.equal(d.model.inputs.length, 1)
+  let ledger = JSON.parse(await readFile(join(stateDir, LEDGER), 'utf8'))
+  assert.equal(ledger.decisions.length, 500)
+  assert.equal(ledger.decisions.filter((one: { reason: string }) => one.reason === ASSESS_UNCONFIRMED).length, 500)
+  assert.equal(ledger.decisions.some((one: { id: string }) => one.id === 'd-protected-499'), false, 'only ordinary history rotates')
+  await say(d, 2, '@dex please fix another', NAMED)
+  assert.equal(d.model.inputs.length, 1, 'full protected history refuses before another effect')
+  ledger = JSON.parse(await readFile(join(stateDir, LEDGER), 'utf8'))
+  assert.equal(ledger.decisions.length, 500)
+  assert.equal(ledger.assessed.count, 1, 'a refused attempt does not consume the daily count')
+})
+
+for (const scenario of ['secret', 'daily-cap'] as const) for (const protectedCount of [499, 500]) {
+  test(`manual ${scenario} decision preserves its cursor with ${protectedCount} protected rows`, E2E, async t => {
+    const repo = await makeRepo('hd-mention-manual-capacity-')
+    await commitTriggers(repo, ASK())
+    const stateDir = tempDir('hd-mention-manual-capacity-state-')
+    const make = (i: number, reason: string) => ({ id: `d-old-${i}`, trigger: 'ask', project: repo.dir, repository: 'acme/widgets',
+      thread: { kind: 'issue', number: i + 1 }, comment: { id: String(80000 + i), url: `https://github.com/acme/widgets/issues/1#issuecomment-${80000 + i}`, at: NOON, author: 'a-teammate', excerpt: '@dex please fix' },
+      decision: 'ask', reason, by: 'assessment', rules: [], mode: 'act', acted: false, work: null, decidedAt: NOON, evaluations: 0 })
+    const seeded = Array.from({ length: protectedCount }, (_, i) => make(i, ASSESS_UNCONFIRMED))
+    if (protectedCount === 499) seeded.push(make(499, 'Ordinary old decision'))
+    await writeFile(join(stateDir, LEDGER), JSON.stringify({ version: 1, decisions: seeded, threads: [], modes: {},
+      assessed: { day: new Date(NOON).toISOString().slice(0, 10), count: scenario === 'daily-cap' ? 200 : 0 } }))
+    const d = await desk(t, ASK(), { stateDir, repo, clocks: new Clocks(NOON) })
+    await act(d)
+    const cursor = join(stateDir, 'triggers-cursors.json')
+    const before = await readFile(cursor, 'utf8')
+    const notices = d.pushed.filter(one => one.method === 'trigger/attention').length
+    const body = scenario === 'secret' ? `@dex rotate ${'ghp_' + 'a'.repeat(36)}` : '@dex please fix the issue'
+    await say(d, 1, body, NAMED)
+    const after = await readFile(cursor, 'utf8')
+    const ledger = JSON.parse(await readFile(join(stateDir, LEDGER), 'utf8'))
+    const current = ledger.decisions.find((one: { comment: { id: string } }) => one.comment.id === String(nextComment))
+    assert.equal(d.model.inputs.length, 0, 'no assessment reaches the model')
+    assert.equal(ledger.decisions.filter((one: { reason: string }) => one.reason === ASSESS_UNCONFIRMED).length, protectedCount)
+    if (protectedCount === 500) {
+      assert.equal(current, undefined, 'full protected history refuses the new decision')
+      assert.equal(after, before, 'the source remains eligible for retry')
+      assert.equal(d.pushed.filter(one => one.method === 'trigger/attention').length, notices, 'no notice claims an unrecorded decision')
+    } else {
+      assert.ok(current, 'the new manual decision is durably retained')
+      assert.equal(current.decision, 'ask')
+      assert.equal(ledger.decisions.some((one: { id: string }) => one.id === 'd-old-499'), false, 'ordinary oldest history rotates')
+      assert.notEqual(after, before, 'the cursor advances after the decision is retained')
+    }
+  })
+}
+
+test('#2070: full protected history keeps a closed firing until its refusal can be recorded', E2E, async t => {
+  let block = true, attempted!: (result: 'saved' | 'refused') => void
+  const attempt = new Promise<'saved' | 'refused'>(resolve => { attempted = resolve })
+  const record = MentionTriage.prototype.recordClosedFiring
+  t.mock.method(MentionTriage.prototype, 'recordClosedFiring', async function (this: MentionTriage, ...args: Parameters<MentionTriage['recordClosedFiring']>) {
+    if (block) throw new Error('hold refusal until restart')
+    try { await record.apply(this, args); attempted('saved') }
+    catch (error) { attempted('refused'); throw error }
+  })
+  const d = await desk(t, LEAD_ASK, { lead: true })
+  await leadOn(t, d)
+  const delivered: string[] = []
+  t.mock.method(LeadAutomaticGoals.prototype, 'offerTrigger', async (input: Parameters<LeadAutomaticGoals['offerTrigger']>[0]) => {
+    delivered.push(input.key); return { delivered: false as const, reason: 'Lead is busy; this firing waits.' }
+  })
+  await act(d); await say(d, 1, '@dex please fix the flaky test')
+  const firing = await firingOf(d, 1)
+  d.forge.issues.find(one => one.number === 1)!.state = 'closed'
+  d.clocks.advance(6 * 60_000); await d.host.intakePlane.tick()
+  assert.equal((await decisions(d)).threads[0]?.state, 'closed')
+  assert.ok(d.host.intakePlane.journal.read().operations.some(one => one.key === firing))
+  await d.stop()
+  const file = join(d.stateDir, LEDGER), saved = JSON.parse(await readFile(file, 'utf8'))
+  const template = saved.decisions[0]
+  assert.ok(template)
+  saved.decisions = Array.from({ length: 500 }, (_, i) => ({ ...template, id: `d-protected-${i}`,
+    comment: { ...template.comment, id: String(80000 + i) }, reason: ASSESS_UNCONFIRMED }))
+  await writeFile(file, JSON.stringify(saved))
+  block = false; delivered.length = 0
+  const restarted = await desk(t, LEAD_ASK, { lead: true, arm: false, repo: d.repo, stateDir: d.stateDir, clocks: d.clocks })
+  assert.equal(await attempt, 'refused', 'no refusal may be reported saved when its row cannot be retained')
+  assert.ok(restarted.host.intakePlane.journal.read().operations.some(one => one.key === firing), 'the firing remains durably pending')
+  const after = JSON.parse(await readFile(file, 'utf8'))
+  assert.equal(after.decisions.length, 500)
+  assert.ok(after.decisions.every((one: { reason: string }) => one.reason === ASSESS_UNCONFIRMED))
+  assert.deepEqual(delivered, [], 'the closed firing never reaches the Lead')
+})
+
+for (const mode of ['not-sent', 'uncertain', 'contradictory', 'throw', 'not-sent-then-throw', 'answer-and-not-sent'] as const) {
+  test(`daily assessment count requires conclusive no-send evidence: ${mode}`, E2E, async t => {
+    const d = await desk(t)
+    d.model.hook = async (_input, _signal, evidence) => {
+      if (mode === 'not-sent' || mode === 'contradictory' || mode === 'not-sent-then-throw' || mode === 'answer-and-not-sent') evidence?.notSent()
+      if (mode === 'uncertain' || mode === 'contradictory') evidence?.unconfirmed()
+      if (mode === 'throw' || mode === 'not-sent-then-throw') throw new Error('synthetic ambiguous failure')
+      return mode === 'answer-and-not-sent' ? { decision: 'ask', reason: 'Please decide.' } : null
+    }
+    await say(d, 1, '@dex please fix this', NAMED)
+    const ledger = JSON.parse(await readFile(join(d.stateDir, LEDGER), 'utf8'))
+    assert.equal(ledger.assessed.count, mode === 'not-sent' ? 0 : 1)
+    if (mode === 'uncertain' || mode === 'contradictory' || mode === 'throw' || mode === 'not-sent-then-throw') assert.equal(ledger.decisions.at(-1).reason, ASSESS_UNCONFIRMED)
+  })
+}
+
+test('a no-send crossing UTC midnight releases its captured day before the next assessment', E2E, async t => {
+  const now = Date.UTC(2026, 0, 1, 23, 58, 0), clocks = new Clocks(now)
+  const d = await desk(t, ASK(), { clocks })
+  let attempts = 0
+  d.model.hook = async (_input, _signal, evidence) => {
+    attempts++
+    if (attempts === 1) { clocks.advance(120000); evidence?.notSent(); return null }
+    return { decision: 'ask', reason: 'Please decide.' }
+  }
+  await say(d, 1, '@dex please fix this', NAMED)
+  let ledger = JSON.parse(await readFile(join(d.stateDir, LEDGER), 'utf8'))
+  assert.deepEqual(ledger.assessed, { day: '2026-01-01', count: 0 }, 'release uses captured day despite midnight')
+  await say(d, 2, '@dex please fix another', NAMED)
+  ledger = JSON.parse(await readFile(join(d.stateDir, LEDGER), 'utf8'))
+  assert.deepEqual(ledger.assessed, { day: '2026-01-02', count: 1 })
+})
+
+test('a failed no-send count write retains the cursor and durable provisional decision', E2E, async t => {
+  const d = await desk(t)
+  const file = join(d.stateDir, LEDGER), saved = join(d.stateDir, 'mentions-held.json')
+  let moved = false
+  d.model.hook = async (_input, _signal, evidence) => {
+    await rename(file, saved); await mkdir(file); moved = true
+    evidence?.notSent(); return null
+  }
+  const cursor = join(d.stateDir, 'triggers-cursors.json'), before = await readFile(cursor, 'utf8')
+  try {
+    await say(d, 1, '@dex please fix this', NAMED)
+    assert.equal(await readFile(cursor, 'utf8'), before, 'the source cursor did not advance')
+    const ledger = JSON.parse(await readFile(saved, 'utf8'))
+    assert.equal(ledger.assessed.count, 1, 'failed refund rename never removes the conservative count')
+    assert.equal(ledger.decisions.at(-1).reason, ASSESS_UNCONFIRMED)
+    assert.equal(d.model.inputs.length, 1)
+  } finally {
+    if (moved) { await rm(file, { recursive: true, force: true }); await rename(saved, file) }
+  }
+  await d.stop()
+  const reopened = await desk(t, ASK(), { stateDir: d.stateDir, repo: d.repo, clocks: d.clocks, forge: d.forge, arm: false })
+  d.clocks.advance(60000); await reopened.host.intakePlane.tick()
+  assert.equal(reopened.model.inputs.length, 0, 'replay cannot resend the uncertain provisional attempt')
+  assert.notEqual(await readFile(cursor, 'utf8'), before, 'the source revisits and accepts the retained provisional decision')
+  const recovered = JSON.parse(await readFile(file, 'utf8'))
+  assert.equal(recovered.assessed.count, 1)
+  assert.equal(recovered.decisions.at(-1).reason, ASSESS_UNCONFIRMED)
+})
+
+test('serialized concurrent mentions keep a sent assessment when another proves no-send', E2E, async t => {
+  const d = await desk(t)
+  let attempts = 0
+  d.model.hook = async (_input, _signal, evidence) => {
+    attempts++
+    if (attempts === 1) { evidence?.notSent(); return null }
+    return { decision: 'ask', reason: 'Please decide.' }
+  }
+  const at = d.clocks.wall + 1000
+  d.forge.issues.push({ number: 1, state: 'open', created: at, updated: at + 1, events: [], comments: [
+    { id: 9501, body: '@dex first request', created: at, updated: at, user: NAMED },
+    { id: 9502, body: '@dex second request', created: at + 1, updated: at + 1, user: NAMED },
+  ] })
+  d.clocks.advance(60000)
+  await Promise.all([d.host.intakePlane.tick(), d.host.intakePlane.tick()])
+  assert.equal(attempts, 2)
+  const ledger = JSON.parse(await readFile(join(d.stateDir, LEDGER), 'utf8'))
+  assert.equal(ledger.assessed.count, 1, 'the proven no-send releases only its own slot')
 })

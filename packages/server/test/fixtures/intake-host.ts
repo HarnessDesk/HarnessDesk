@@ -80,6 +80,8 @@ export const writeAgent = async (stateDir: string, prefer = 'fake'): Promise<voi
 
 /** A started host on `stateDir` (fresh by default) over `repo` (a new one with the triggers committed by default). */
 export const intakeDesk = async (options: {
+  readonly characterizationSeed?: (stateDir: string) => Promise<void>
+  readonly characterizationTransport?: any
   readonly stateDir?: string
   readonly repo?: Repo
   readonly forge?: FakeForge
@@ -114,11 +116,13 @@ export const intakeDesk = async (options: {
   const repo = options.repo ?? await makeRepo('hd-intake-host-')
   if (!options.repo && options.triggers !== null) await commitTriggers(repo, options.triggers ?? TRIGGERS)
   const stateDir = options.stateDir ?? tempDir('hd-intake-host-state-')
+  await options.characterizationSeed?.(stateDir)
   await writeAgent(stateDir, options.prefer)
   const forge = options.forge ?? new FakeForge()
   const clocks = options.clocks ?? new Clocks(Date.now())
   const timers = new ManualTimers()
   const host = new Host({
+    ...(options.characterizationTransport ? { leadMessagesTransport: options.characterizationTransport, credentialCipher: { protection: 'synthetic cipher', encrypt: (plain: string) => Buffer.from(Buffer.from(plain).toString('hex')), decrypt: (blob: Buffer) => Buffer.from(blob.toString(), 'hex').toString() } as never } : {}),
     logger: silent,
     state: new StateStore(join(stateDir, 'state.json')),
     builtinAgents: tempDir('hd-intake-host-builtins-'),

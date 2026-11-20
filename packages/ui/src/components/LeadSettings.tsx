@@ -16,6 +16,7 @@ import { LeadContextSection } from './LeadCheckpoint'
 import { LeadBriefSettingsSection } from './LeadBriefSettings'
 import { LeadMemorySection } from './LeadMemory'
 import { LeadAutonomySection } from './LeadAutonomySettings'
+import { LeadMentionBudget } from './LeadMentionBudget'
 import { LeadRulesSection } from './LeadRulesSettings'
 
 const modes = { plan: 0, default: 1, manage: 2 }
@@ -168,6 +169,7 @@ const EnabledLeadSettingsSection = ({ focus, nonce }: { readonly focus?: string 
     <LeadAutonomySection />
     <LeadRulesSection />
     <LeadContextSection />
+    <LeadMentionBudget />
     <LeadTriggerSettings follow={state.settings.follow} root={state.thread?.project?.path ?? null} update={value => store.lead.updateSettings(value)} onError={error => setError(leadRefusalText(error))} />
     <LeadBriefSettingsSection label={state.settings.name === 'lex' ? 'Lex' : 'Dex'} />
     <LeadPlanSettingsSection focus={focus} label={state.settings.name === 'lex' ? 'Lex' : 'Dex'} />

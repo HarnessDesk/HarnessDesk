@@ -42,6 +42,9 @@ class RigRuntime extends CodexRuntime {
   override async providerAt() { return this.provider }
 }
 export interface LeadRigOptions {
+  readonly characterizationKeep?: boolean
+  readonly characterizationIntake?: import('../../src/host.js').HostOptions['intake']
+  readonly characterizationTransport?: import('@harnessdesk/lead').MessagesTransport
   readonly repeat?: boolean
   readonly enabled?: boolean
   /** Ordinary session tools, with one runtime and no reviewed plan. */
@@ -197,7 +200,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     for (const id of ['rig-writer', 'rig-reviewer']) await chmod(join(home, id, 'sessions'), 0o700).catch(() => {})
     restoreGoalSave?.(); restoreUsage?.()
     try { await host?.dispose(); await extensions?.dispose(); setTeamEngine(null); await storage?.close(); await provider?.close(); for (const socket of bridgeSockets) socket.destroy(); await Promise.all(bridgeServers.map(server => new Promise<void>(resolve => server.close(() => resolve())))) }
-    finally { restoreFakes.reverse().forEach(restore => restore()); restoreEnvironment(); await rm(scratch, { recursive: true, force: true, maxRetries: 5 }) }
+    finally { restoreFakes.reverse().forEach(restore => restore()); restoreEnvironment(); if (!options.characterizationKeep) await rm(scratch, { recursive: true, force: true, maxRetries: 5 }) }
   }
   try {
     await mkdir(home, { recursive: true }); await mkdir(project.path); await mkdir(gates)
@@ -343,6 +346,8 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       const restoring = hostStarts++ > 0
       extensions = new ExtensionKernel()
       host = new Host({ extensions, logger, state: new StateStore(join(home, 'state.json')), leadEnabled: enabled,
+        ...(options.characterizationIntake ? { intake: options.characterizationIntake } : {}),
+        ...(options.characterizationTransport ? { leadMessagesTransport: options.characterizationTransport } : {}),
         catalogRefreshMs: 0, libraryHome: join(home, 'person'),
         ...(options.offlineForge ? { intake: { gh: async (...args: Parameters<NonNullable<NonNullable<import('../../src/host.js').HostOptions['intake']>['gh']>>) => ({ ...await fakeGh(args[0]), timedOut: false, overflow: false }), now: () => forgeClock, monotonic: () => forgeClock, timers: { every() { return 0 }, clear() {} }, usage: async () => ({ samples: [], complete: true }) } } : {}),
         evidence: { gh: options.offlineForge ? fakeGh : options.forgeGh ?? (async args => { if (args.some(arg => ['create', 'merge', 'delete', 'edit', 'comment', 'POST', 'PATCH', 'PUT', 'DELETE'].includes(arg))) forbidden.push(`forge:${args.join(' ')}`); return { stdout: '', stderr: 'No forge in Lead rig', exitCode: 1 } }) },

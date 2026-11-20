@@ -18,6 +18,8 @@ test('repeat history, repeat controls and direct limit raises require their own 
   assert.equal(PHONE_POLICY.methods['lead/thread/read'], 'read')
   assert.equal(PHONE_POLICY.methods['lead/card/decide'], 'answer')
   assert.equal(PHONE_POLICY.methods['lead/settings/update'], undefined)
+  assert.equal(PHONE_POLICY.methods['lead/mentionBudget/read'], undefined)
+  assert.equal(PHONE_POLICY.methods['lead/mentionBudget/configure'], undefined)
   assert.equal(PHONE_POLICY.methods['lead/spendLimit/set'], 'answer')
   // The phone reads the autonomy table and flips a switch; it never edits the rules or a deadline.
   assert.equal(PHONE_POLICY.methods['lead/autonomy/read'], 'read')
@@ -344,5 +346,18 @@ test('local metadata and newly issued pairing codes follow the current desk name
     assert.equal(s.running.control.state().deskName, 'Travel desk')
     const second = await PhoneSim.fromCode((await s.running.control.pairing()).url)
     assert.equal(second.offer?.name, 'Travel desk')
+  } finally { await s.done() }
+})
+
+// Keep this boundary independent of the other desktop-only methods.
+test('observer budget reads and configuration stay off the paired phone surface', async () => {
+  const s = await rig()
+  try {
+    const phone = await s.pair()
+    for (const method of ['lead/mentionBudget/read', 'lead/mentionBudget/configure']) {
+      const reply = await phone.request(method, {})
+      assert.equal(reply.error.code, 'notOnPhoneSurface', method)
+    }
+    phone.close()
   } finally { await s.done() }
 })

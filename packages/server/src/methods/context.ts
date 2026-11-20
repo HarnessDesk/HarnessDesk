@@ -200,6 +200,8 @@ export interface HostContext {
   leadCardDecide(params: HostParams<'lead/card/decide'>): Promise<HostResult<'lead/card/decide'>>
   leadApprovalRevoke(params: HostParams<'lead/approval/revoke'>): Promise<HostResult<'lead/approval/revoke'>>
   leadActionPerform(params: HostParams<'lead/action/perform'>): Promise<HostResult<'lead/action/perform'>>
+  mentionBudgetRead(): Promise<HostResult<'lead/mentionBudget/read'>>
+  mentionBudgetConfigure(params: HostParams<'lead/mentionBudget/configure'>): Promise<HostResult<'lead/mentionBudget/configure'>>
   leadSettingsRead(): Promise<HostResult<'lead/settings/read'>>
   leadSettingsUpdate(params: HostParams<'lead/settings/update'>): Promise<HostResult<'lead/settings/update'>>
   leadStop(params: HostParams<'lead/stop'>): Promise<HostResult<'lead/stop'>>

@@ -11,6 +11,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Repair an incomplete installation.** If the installed app is missing its interface, it offers Downloads and keeps update checks available instead of asking for a source build.
 
+- **Set a separate allowance for mention assessments.** Automatic mention assessments now have their own daily allowance in Settings › Lead, separate from goal spending. They start Off until you set a cap.
+
 - **Old quota readings no longer look current.** The account menu stops showing stale percentages as current allowance and labels the last known figures with their age. Usage refreshes through an existing agent process when supported, without starting a conversation; repeated requests share a read and failures back off. An independent account reads its own cache, and a previous login's cache cannot supply its allowance.
 
 - **Keep steered replies readable after reopening.** Matching prose replayed in separate turns no longer repeats messages from the saved conversation. If the histories cannot be matched safely, the saved copy stays protected with its history warning.

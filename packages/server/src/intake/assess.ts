@@ -16,10 +16,9 @@ import { parseAssessment, type MentionAssessor } from './mentions.js'
  * refused or failed request, or an answer that is not exactly that, is no
  * answer — the request waits for the person.
  *
- * Its spend is the Lead's: each request is held against the Lead's spend
- * limit, journaled, before it is sent, and settled at what the provider says
- * it used — or counted whole when that cannot be known. A limit that refuses
- * the hold means the request is not sent, and waits for the person too.
+ * Its independent daily budget holds each request before it is sent. A refused
+ * hold leaves the request for the person; reported usage settles the receipt,
+ * and an unknown outcome retains the authorized hold.
  */
 
 const MAX_RESPONSE = 64 * 1024
@@ -40,17 +39,19 @@ export interface AssessUsage {
   readonly outputTokens: number
   readonly cacheReadTokens: number
   readonly cacheWriteTokens: number
+  readonly cacheWrite5mTokens?: number
+  readonly cacheWrite1hTokens?: number
 }
 
-/** One observer request's hold on the Lead's spend limit. */
+/** One observer request's independent budget hold. */
 export interface AssessCharge {
   /** It used this: the hold is settled at it. */
-  settle(usage: AssessUsage): Promise<void>
+  settle(usage: AssessUsage): Promise<boolean | void>
   /** What it cost cannot be known: the whole hold is counted. */
   unknown(): Promise<void>
 }
 
-/** The Lead's spend limit, which the observer model spends against like the Lead's own requests. */
+/** The independent mention assessment budget. */
 export interface AssessAccount {
   /** Holds the most one request can cost, journaled under its id; null when the limit refuses it, so it is not sent. */
   reserve(requestId: string, inputTokens: number, maxOutputTokens: number): Promise<AssessCharge | null>
@@ -67,10 +68,15 @@ const usageOf = (decoded: unknown): AssessUsage | null => {
   const fields = usage as Record<string, unknown>
   const input = count(fields['input_tokens'])
   const output = count(fields['output_tokens'])
-  const read = fields['cache_read_input_tokens'] === undefined ? 0 : count(fields['cache_read_input_tokens'])
-  const write = fields['cache_creation_input_tokens'] === undefined ? 0 : count(fields['cache_creation_input_tokens'])
+  const read = count(fields['cache_read_input_tokens'])
+  const write = count(fields['cache_creation_input_tokens'])
   if (input === null || output === null || read === null || write === null) return null
-  return { inputTokens: input, outputTokens: output, cacheReadTokens: read, cacheWriteTokens: write }
+  const creation = fields['cache_creation']
+  const ttl = typeof creation === 'object' && creation !== null ? creation as Record<string, unknown> : null
+  const five = ttl ? count(ttl['ephemeral_5m_input_tokens']) : null
+  const hour = ttl ? count(ttl['ephemeral_1h_input_tokens']) : null
+  return { inputTokens: input, outputTokens: output, cacheReadTokens: read, cacheWriteTokens: write,
+    ...(five !== null ? { cacheWrite5mTokens: five } : {}), ...(hour !== null ? { cacheWrite1hTokens: hour } : {}) }
 }
 
 export const observerAssessor = (options: {
@@ -79,19 +85,23 @@ export const observerAssessor = (options: {
   readonly key: () => Promise<string | null>
   readonly model: string
   readonly account: AssessAccount
-}): MentionAssessor => async (input, signal) => {
+}): MentionAssessor => async (input, signal, evidence) => {
   const key = await options.key().catch(() => null)
-  if (!key) return null
+  if (!key) { evidence?.notSent(); return null }
   const body = JSON.stringify({
     model: options.model, max_tokens: MAX_TOKENS, system: ASSESSMENT_SYSTEM,
     messages: [{ role: 'user', content: JSON.stringify({ request: input }) }],
   })
-  if (leadContainsSecret(input, key)) return null
+  if (leadContainsSecret(input, key)) { evidence?.notSent(); return null }
   const requestId = `mention-assess:${randomUUID()}`
   // A token is never shorter than a byte, so the body's length bounds what it can bill as input.
   const charge = await options.account.reserve(requestId, Buffer.byteLength(body), MAX_TOKENS).catch(() => null)
-  if (!charge) return null
-  const settle = (usage: AssessUsage | null): Promise<void> => (usage ? charge.settle(usage) : charge.unknown()).catch(() => {})
+  if (!charge) { evidence?.notSent(); return null }
+  const settle = async (usage: AssessUsage | null): Promise<void> => {
+    if (!usage) evidence?.unconfirmed()
+    try { if (usage) { if (await charge.settle(usage) === false) evidence?.unconfirmed() } else await charge.unknown() }
+    catch { evidence?.unconfirmed() }
+  }
   let response: Awaited<ReturnType<MessagesTransport['send']>>
   try {
     response = await options.transport.send({
@@ -106,6 +116,7 @@ export const observerAssessor = (options: {
   // Refused before any processing, it was never billed.
   if (response.status >= 400 && response.status < 500 && response.processing === 'not-started') {
     await settle(ZERO)
+    evidence?.notSent()
     return null
   }
   let decoded: unknown = null

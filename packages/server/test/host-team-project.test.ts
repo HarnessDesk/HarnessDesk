@@ -143,6 +143,10 @@ for (const changed of ['none', 'untracked', 'ignored', 'committed'] as const) te
     throw new Error('The test conversation could not open.')
   }
   d = await desk(t, runtime)
+  if (changed === 'none') {
+    // Keep the free-port premise separate from concurrent default-lane probes.
+    await d.host.call('lane/preferences/set', { start: 24000, width: 20, browserProfile: true })
+  }
   if (changed === 'ignored') {
     await writeFile(join(d.root, '.gitignore'), '*.ignored\n')
     await d.repo.git('add', '.gitignore')
@@ -153,7 +157,7 @@ for (const changed of ['none', 'untracked', 'ignored', 'committed'] as const) te
   assert.equal(run.state, 'stalled')
   const lanes = await d.host.call('lane/list', {}) as readonly Lane[]
   assert.equal(lanes.length, 1)
-  assert.equal(lanes[0]?.state, changed === 'none' ? 'released' : 'retained')
+  assert.equal(lanes[0]?.state, changed === 'none' ? 'released' : 'retained', run.reason ?? '')
   assert.doesNotMatch(run.reason ?? '', /Lane [0-9a-f-]+/)
   const view = await d.host.call('goal/read', { goal: run.goal }) as GoalView
   assert.deepEqual(view.members.filter(member => member.closed === null), [])

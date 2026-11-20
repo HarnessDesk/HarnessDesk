@@ -1152,6 +1152,8 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'lead/card/decide': parseLeadCardDecision,
   'lead/approval/revoke': parseLeadApprovalRevoke,
   'lead/action/perform': parseLeadActionInput,
+  'lead/mentionBudget/read': parseLeadEmpty,
+  'lead/mentionBudget/configure': shape({ dailyCapUsdMicros: nonNegativeSafeInteger }),
   'lead/settings/read': parseLeadEmpty,
   // This parser admits only dex/lex for name; the owner keeps credentials exclusive.
   'lead/settings/update': parseLeadSettingsUpdate,

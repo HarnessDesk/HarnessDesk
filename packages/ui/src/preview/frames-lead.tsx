@@ -73,8 +73,11 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
   const autonomyView = (): LeadAutonomyView => ({ version: 1 as const, modes, observed, deadline: null, changes, ...(proposals.length ? { proposals: [...proposals].reverse() } : {}),
     rules: LEAD_RULE_SECTIONS.map(id => { const one = sectionView(id); return { id, title: one.title, text: one.text, custom: one.custom, version: one.version, ...(one.history[0] ? { changedAt: one.history[0].at } : {}) } }) })
   const emit = (next: LeadWindowProjection) => { current = next; store.lead.changed({ method: 'lead/changed', params: current }) }
+  let mentionCap = 0
   store.transport.request = (async (method: HostMethodName, input: unknown) => {
     const params = input as Record<string, any>
+    if (method === 'lead/mentionBudget/configure') mentionCap = params.dailyCapUsdMicros
+    if (method === 'lead/mentionBudget/read' || method === 'lead/mentionBudget/configure') return { dailyCapUsdMicros: mentionCap, enabled: mentionCap > 0, day: '2026-11-18', spentUsdMicros: 0, reservedUsdMicros: 0, uncertainUsdMicros: 0, remainingUsdMicros: mentionCap }
     if (method === 'lead/settings/update') {
       const revision = current.revision + 1, cards = [...current.thread.cards]
       let settings = { ...current.settings }

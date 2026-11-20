@@ -321,10 +321,24 @@ sent once, as data, to the Lead's provider for a one-sentence assessment: the
 trigger id, its handle and what it opens, the repository, the thread's kind,
 number and title, and the comment's author and text. A comment that looks
 like it contains a credential is never sent, and at most 200 are sent a day.
-Each such request is held against the Lead's spend limit before it is sent:
-a reserve, then a settle at the usage the provider reports (or the whole hold
-when that cannot be known), are written to the Lead's journal like the Lead's
-own requests. With no Lead goal open, or the limit reached, nothing is sent.
+Each such request is held against a separate daily mention assessment budget before
+it is sent. The budget is Off until a person chooses a cap in desktop Settings ›
+Lead. The host keeps the cap and request receipts in `lead/mention-observer-budget.json`:
+request IDs, model and captured price schedule, bounds, period and amounts, but
+no comments, credentials or provider payloads. A companion SQLite lock file
+coordinates desk processes; it stores no assessment content. A settlement records reported
+usage; an unknown outcome counts the authorized hold as unconfirmed. A durable
+manual decision is recorded before dispatch, so a crash does
+not automatically send the same comment again. Up to 500 unconfirmed decisions
+are protected from history rotation; if protected history is full, new decision
+records and forge-stop reservations are refused, and the source cursor stays put.
+Existing records remain available for review. Explicit Re-evaluate remains a new person request.
+The hold is admission accounting, not a guarantee about invoices outside the reported usage
+contract. Days use the host's local date and are assigned when the request starts;
+a clock moving backwards does not create fresh credit. Existing Lead goal amounts
+and old holds remain in the Lead journal. The phone cannot configure this budget.
+When the budget is Off, unavailable or exhausted, nothing is sent and the person
+decides.
 The paired phone reads the decisions list (`phone/triage/list`) read-only, with
 the armed mention triggers beside it: each one's id, project folder name,
 repository, mode on this machine, `from`, and its named people and bots (forge
