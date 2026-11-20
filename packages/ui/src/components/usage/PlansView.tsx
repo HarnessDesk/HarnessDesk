@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 
+import { useHostTime } from '../../state/host-time-context'
 import type { AppSnapshot } from '../../state/store'
 import type { RuntimeId, RuntimeInfo, UsagePreference, UsageReport } from '@harnessdesk/protocol'
 
@@ -53,6 +54,7 @@ export const PlansView = ({
   /** Opens an account's own Plan card in Settings — the Key body's "Set a budget", the money row's "Fee not set" (review of #1069, B5). */
   onOpenPlanSettings: (runtime: RuntimeId) => void
 }) => {
+  const hostTime = useHostTime()
   const [filter, setFilter] = useState<ShapeFilter>('all')
   // A stable function identity, so `planRows` below does not recompute on
   // every render — it used to be a fresh closure each time, which meant a
@@ -69,7 +71,7 @@ export const PlansView = ({
   // the filter counts and the row list used to read the raw reports a
   // second time, which could disagree with what the table actually drew for
   // a borrowed (unverified) sign-in (review of #1069, B3).
-  const rows = useMemo(() => planRows(reports, now, preferenceFor), [reports, now, preferenceFor])
+  const rows = useMemo(() => planRows(reports, now, preferenceFor, hostTime), [reports, now, preferenceFor, hostTime])
 
   const represented = new Set(rows.map(row => row.report.runtime))
   const scopedSilent = silent.filter((agent) => (scoped === null || scoped.id === agent.info.id) && !represented.has(agent.info.id))

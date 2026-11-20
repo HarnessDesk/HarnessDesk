@@ -174,6 +174,8 @@ export class FakeHostSocket {
   #turnsQueued = 0
   #pendingApproval: (() => void) | null = null
   #closed = false
+  // Each socket is one fake Host connection; its clock epoch stays fixed for its lifetime.
+  readonly #clockEpoch = crypto.randomUUID()
   #room: StagedRoom | null = null
 
   constructor(_url: string) {
@@ -227,6 +229,17 @@ export class FakeHostSocket {
     }
     const { id, method } = message
     const params = message.params ?? {}
+
+    if (method === 'host/hello') {
+      const recorded = RESPONSES[method]
+      const result = (recorded?.result ?? {}) as Record<string, unknown>
+      this.#reply(id, { ok: true, result: { ...result, capabilities: { ...(result.capabilities as Record<string, unknown> | undefined), hostClock: true } } })
+      return
+    }
+    if (method === 'host/clock') {
+      this.#replyRaw(id, { ok: true, result: { hostNowMs: Date.now(), clockEpoch: this.#clockEpoch } })
+      return
+    }
 
     if (method === 'turn/queue') {
       this.#reply(id, { ok: true, result: {} })

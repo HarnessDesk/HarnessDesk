@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest'
 
 import { runtimeId, type UsageLane, type UsageReport } from '@harnessdesk/protocol'
 
-import { Card } from './shared'
+import { Card, Runway } from './shared'
+import { HostTimeProvider } from '../../state/host-time-context'
 
 /**
  * A pin picks which window a card leads with; it never changes the account's
@@ -109,4 +110,19 @@ it('uses the row inset only for Settings usage cards', () => {
   expect(settings.querySelector('[data-slot="card"]')?.getAttribute('style')).toContain('--card-content-inset:var(--hd-inset-row)')
   expect(dashboard.querySelector('[data-slot="card"]')?.getAttribute('style')).toContain('--card-content-inset:var(--hd-inset-card)')
   expect([...settings.querySelectorAll('[data-slot="card-content"]')].length).toBeGreaterThanOrEqual(2)
+})
+
+
+it('renders Host-time runway for a narrow interval and withholds it across a reset', () => {
+  const reading = report([lane({ id: 'session', usedPercent: 60 })])
+  const render = (interval: { lowerMs: number; upperMs: number } | null) => renderToStaticMarkup(
+    <HostTimeProvider interval={interval}>
+      <Runway reports={[reading]} now={NOW + 30 * 60_000} accountsByRuntime={{}} accountPrefs={{}} />
+    </HostTimeProvider>,
+  )
+  const narrow = render({ lowerMs: NOW, upperMs: NOW + 1 })
+  expect(narrow).toContain('Will it last')
+  expect(narrow).toContain('burn-down')
+  expect(render(null)).not.toContain('burn-down')
+  expect(render({ lowerMs: NOW + 4 * HOUR - 1, upperMs: NOW + 4 * HOUR + 1 })).not.toContain('burn-down')
 })

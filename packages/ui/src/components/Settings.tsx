@@ -1613,9 +1613,9 @@ export const Settings = ({ route, onRoute, onSignIn }: {
 export const SettingsNavigation = ({ section, onSection, onBack }: {
   section: Section; onSection: (section: Section) => void; onBack: () => void
 }) => {
-  const snapshot = useSnapshot(), runtime = useRuntime()
+  const snapshot = useSnapshot(), runtime = useRuntime(), store = useStore()
   const [query, setQuery] = useState('')
-  const groups = filterSettingsGroups(settingsGroups(snapshot, runtime), query)
+  const groups = filterSettingsGroups(settingsGroups(snapshot, runtime, store.hostTime?.() ?? null), query)
   return <LeftColumnSettings onKeyDown={moveSettingsNavigationFocus} header={<>
     <LeftColumnRow label="Back" icon={<ArrowLeftIcon size={16} />} onClick={onBack} />
     <LeftColumnHead search={<Search value={query} onChange={setQuery}

@@ -3,7 +3,7 @@ import { usageIsFresh, type AccountStatus, type RuntimeHealth, type RuntimeId, t
 import type { Tone } from './limits'
 import { prefsForUsage, shownAccountLabel, type AccountPrefsMap } from './accounts'
 import { READINESS_LABEL, readinessOf } from './readiness'
-import { describeReport, formatWhen, toneForRemaining, usageStandingOf, workingAccount, type LaneView, type UsagePreference } from './usage'
+import { describeReport, describeHostReport, formatWhen, toneForRemaining, usageStandingOf, workingAccount, type LaneView, type UsagePreference } from './usage'
 
 /**
  * What the strip in the conversation header draws, whatever the size of the
@@ -118,6 +118,7 @@ export interface StripInput {
    */
   readonly sessionRuntime: RuntimeId | null
   readonly now: number
+  readonly hostTime?: import('./host-clock').HostTimeInterval | null
   /** Settings › General › Hide account addresses: accounts by name only. */
   readonly hideAddresses?: boolean
 }
@@ -130,8 +131,10 @@ const meterFor = (
   report: UsageReport,
   now: number,
   preference: UsagePreference,
+  hostTime?: import('./host-clock').HostTimeInterval | null,
 ): StripMeter | null => {
-  const view = describeReport(report, { now, maxLanes: 1, preference })
+  now = hostTime?.lowerMs ?? now
+  const view = hostTime === undefined ? describeReport(report, { now, maxLanes: 1, preference }) : describeHostReport(report, hostTime, { maxLanes: 1, preference })
   const lane = view.hero
   // No lane is no bar. A permanent row of dashes teaches people to stop
   // looking, and the screen is where "why is this one missing" is answered.
@@ -140,7 +143,8 @@ const meterFor = (
   // A 34px bar has no room for "as of 25 minutes ago", so the strip decides nothing on them: it neither counts nor
   // promotes the account as out, and says no figure or Back time from the kept lane.
   const standing = usageStandingOf(report, now)
-  const unread = standing.status === 'unknown' || report.error !== null || !usageIsFresh(report, now)
+  const upperStanding = hostTime ? usageStandingOf(report, hostTime.upperMs) : standing
+  const unread = standing.status === 'unknown' || report.error !== null || view.stale || standing.status !== upperStanding.status
   // The balance decided (the source hit its credits): the healthy window beside it is no figure to show.
   const onCredits = !unread && standing.lane === null && (standing.status === 'out' || standing.status === 'overdrawn')
   const spent = !unread && !onCredits && lane.remainingPercent <= 0
@@ -148,6 +152,7 @@ const meterFor = (
   // the standing knows; the headline's own reset can come hours earlier.
   const backAt = standing.status === 'out' ? standing.backAt : lane.resetsAt
   const name = info.presentation.name
+  const backLabel = backAt !== null && backAt > now && (hostTime === undefined || (hostTime !== null && backAt > hostTime.upperMs && formatWhen(backAt, now) === formatWhen(backAt, hostTime.upperMs))) ? formatWhen(backAt, now) : null
   return {
     runtime: report.runtime,
     info,
@@ -165,7 +170,7 @@ const meterFor = (
     // Out of quota is the one state where the percentage is not the useful
     // number. When it comes back is — as a time, which stays true without a
     // refresh, where "3h" was already wrong by the time it was read.
-    figure: unread ? '—' : onCredits ? (standing.status === 'overdrawn' ? 'overdrawn' : 'no credits') : spent ? (backAt !== null && backAt > now ? `back ${formatWhen(backAt, now)}` : 'out') : `${lane.remainingPercent}%`,
+    figure: unread ? '—' : onCredits ? (standing.status === 'overdrawn' ? 'overdrawn' : 'no credits') : spent ? (backLabel ? `back ${backLabel}` : 'out') : `${lane.remainingPercent}%`,
     // Low as the standing says it, too: a healthy headline can sit in front of a Weekly that is the low one.
     low: !unread && (onCredits || spent || lane.remainingPercent < LOW || standing.status === 'low'),
     out: !unread && (onCredits || view.blocked),
@@ -227,11 +232,11 @@ const entryFor = (info: RuntimeInfo, input: StripInput): Entry => {
   const preferenceFor = (report: UsageReport): UsagePreference =>
     prefsForUsage(report.runtime, report.account, input.accountsByRuntime, input.accountPrefs) ?? {}
   const meters = reports
-    .map((report) => meterFor(info, report, input.now, preferenceFor(report)))
+    .map((report) => meterFor(info, report, input.now, preferenceFor(report), input.hostTime))
     .filter((meter): meter is StripMeter => meter !== null)
   // The account that decides, not the first one that happened to arrive — and one whose read failed only when no
   // account has a current reading: a cached 90% is not a reason to stand in front of a live 40%.
-  const live = reports.filter((report) => report.error === null && usageIsFresh(report, input.now) && usageStandingOf(report, input.now).status !== 'unknown')
+  const live = reports.filter((report) => report.error === null && (input.hostTime === undefined ? usageIsFresh(report, input.now) : !describeHostReport(report, input.hostTime).stale) && usageStandingOf(report, input.hostTime?.lowerMs ?? input.now).status !== 'unknown')
   const decided = workingAccount(live.length > 0 ? live : reports, preferenceFor)
   const meter =
     meters.find((entry) => entry.report === decided) ?? meters.find((entry) => !entry.unread) ?? meters[0] ?? null

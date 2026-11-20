@@ -1,6 +1,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { HostTimeProvider } from '../state/host-time-context'
 
 import type { RateLimits } from '@harnessdesk/protocol'
 
@@ -133,4 +134,50 @@ it('says when a window refills in the shared meter countdown column', () => {
   const row = meter?.closest('[data-slot="usage-meter-row"]')
   expect(row?.textContent).toBe('Weekly60% leftin 2 h 14 m')
   expect(row?.lastElementChild?.textContent).toBe('in 2 h 14 m')
+})
+
+
+it.each([-30, 30])('uses Host interval for account limit countdown at %s minute renderer skew', offset => {
+  const hostNow = Date.now()
+  const reading = limits({ fetchedAt: hostNow - 1000, staleAfterMs: 120_000, windows: [{ label: 'Weekly', usedPercent: 40, resetsAt: hostNow + 2 * 3_600_000 + 14 * 60_000 }] as never })
+  vi.spyOn(Date, 'now').mockReturnValue(hostNow + offset * 60_000)
+  act(() => root.render(<HostTimeProvider interval={{ lowerMs: hostNow, upperMs: hostNow + 1 }}><UsageSection limits={reading} name="Codex" /></HostTimeProvider>))
+  expect(container.textContent).toContain('in 2 h 14 m')
+  vi.restoreAllMocks()
+})
+
+it('withholds a countdown for an unsupported Host and a reset-straddling interval', () => {
+  const hostNow = Date.now()
+  const reading = limits({ fetchedAt: hostNow - 1000, staleAfterMs: 120_000, windows: [{ label: 'Weekly', usedPercent: 40, resetsAt: hostNow + 50 }] as never })
+  for (const interval of [null, { lowerMs: hostNow, upperMs: hostNow + 100 }]) {
+    act(() => root.render(<HostTimeProvider interval={interval}><UsageSection limits={reading} name="Codex" /></HostTimeProvider>))
+    expect(container.querySelector('[data-slot="usage-meter-row"]')?.textContent).toContain('—')
+    if (interval === null) expect(container.textContent).toContain('Currentness unverified')
+  }
+})
+
+
+it.each(['missing', 'straddled'])('retains dated windows but withholds currentness for %s Host time', kind => {
+  const now = Date.now()
+  const reading = limits({ fetchedAt: now - 119_950, staleAfterMs: 120_000, windows: [{ label: '5-hour', usedPercent: 60, windowMinutes: 300, resetsAt: now + 139 * 60_000 }] })
+  const interval = kind === 'missing' ? null : { lowerMs: now, upperMs: now + 100 }
+  vi.spyOn(Date, 'now').mockReturnValue(now + 30 * 60_000)
+  act(() => root.render(<HostTimeProvider interval={interval}><UsageSection limits={reading} name="Codex" /></HostTimeProvider>))
+  expect(container.textContent).toContain('5-hour')
+  expect(container.textContent).toContain('40%')
+  expect(container.textContent).toContain('Currentness unverified')
+  expect(container.textContent).not.toContain('resets')
+  vi.restoreAllMocks()
+})
+
+
+it('shows undated limits as unverified even with a verified Host clock', () => {
+  const now = Date.now()
+  const reading = limits({ reached: 'other', windows: [{ label: '5-hour', usedPercent: 60, windowMinutes: 300, resetsAt: now + 139 * 60_000 }] })
+  act(() => root.render(<HostTimeProvider interval={{ lowerMs: now, upperMs: now + 1 }}><UsageSection limits={reading} name="Codex" /></HostTimeProvider>))
+  expect(container.textContent).toContain('5-hour')
+  expect(container.textContent).toContain('40%')
+  expect(container.textContent).toContain('Currentness unverified')
+  expect(container.textContent).not.toContain('New turns will fail')
+  expect(container.textContent).not.toContain('in 2 h')
 })

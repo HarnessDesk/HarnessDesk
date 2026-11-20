@@ -25,7 +25,24 @@ for (const theme of ['light', 'dark'] as const) test(`Dashboard numbers in ${the
   await expect(remaining).toContainText(/Runs out ~[^,]*\d:\d{2}\s?[AP]M, before its [^.]*\d:\d{2}\s?[AP]M reset/)
   await expect(dashboard).toContainText('Usage cost')
   await expect(dashboard.locator('[aria-label="What it cost, in brief"]')).not.toContainText('Selected')
-  // A read older than this window still says when it was made: the time today, else the day (#2118).
-  await expect(page.getByText(/^From a cached read · (?:\d{1,2}:\d{2}\s[AP]M|[A-Z][a-z]{2} \d{1,2}(?:, \d{4})?)$/)).toBeVisible()
+  // The Host-relative age remains visible; renderer startup time cannot establish cache provenance.
+  await expect(page.getByText('Read 3h ago', { exact: true })).toBeVisible()
   await page.screenshot({ path: `/tmp/dashboard-d10/after-${theme}.png` })
+})
+
+
+test('Dashboard keeps a three-hour-old reading unverified when its validity is five minutes', async ({ page }) => {
+  await page.goto('/preview.html')
+  await page.evaluate(async () => {
+    const { mountDashboardD10 } = await import('/src/preview/dashboard-d10-fixture.tsx' as string)
+    const container = document.createElement('div')
+    container.id = 'root'
+    document.body.replaceChildren(container)
+    mountDashboardD10(container, { staleAfterMs: 5 * 60_000 })
+  })
+  const remaining = page.locator('[data-page-destination="dashboard"]:visible').getByRole('region', { name: 'What is left', exact: true })
+  await expect(remaining).toContainText('Currentness unverified')
+  await expect(remaining).toContainText('11%')
+  await expect(remaining).toContainText('89%')
+  await expect(remaining).not.toContainText(/Lasts to its|Runs out ~/)
 })

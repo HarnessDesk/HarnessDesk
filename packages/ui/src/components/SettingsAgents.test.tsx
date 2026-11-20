@@ -21,7 +21,7 @@ import { accountKey } from '../lib/accounts'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, AppStore, type AppSnapshot } from '../state/store'
 import { AddAgentsTestPage as AddAgents } from '../test-support/settings-page'
-import { AddAgents as ControlledAddAgents } from './SettingsAgents'
+import { AddAgents as ControlledAddAgents, agentReadiness } from './SettingsAgents'
 import { SettingsTestScope } from '../test-support/settings-page'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -437,6 +437,7 @@ const mountList = async (
     transport: { request: vi.fn(async () => null) },
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
+    hostTime: () => ({ lowerMs: Date.now(), upperMs: Date.now() }),
     loadAccounts: async () => {},
     // What an agent's own page asks for beyond the list's needs. Stubbed to
     // nothing so a test can mount the page and override only what it is about.
@@ -1647,7 +1648,7 @@ it('prefers the account that resets soonest, hides the hand moves, and says whic
   const setAccountPool = vi.fn()
   const now = Date.now()
   const lane = (usedPercent: number, resetsIn: number) => ({ id: 'session', label: '5h', usedPercent, windowMinutes: 300, resetsAt: now + resetsIn })
-  const fresh = { fetchedAt: now, staleAfterMs: 900_000, error: null }
+  const fresh = { fetchedAt: now, staleAfterMs: 900_000, error: null, source: { kind: 'runtime', label: 'fixture' } }
   await mountList({
     accountPools: { alpha: { pace: 'soonest' } },
     usage: [
@@ -1744,7 +1745,7 @@ it('an identity with no report of its own does not borrow another identity\'s st
       ...ROSTER.accountsByRuntime,
       beta: signedIn([{ kind: 'agent', label: 'Jane Doe' }, { kind: 'externalKey', label: 'API key' }], ['apiKey']),
     },
-    usage: [{ runtime: 'beta', account: 'Jane Doe', plan: null, lanes: [{ label: 'weekly', usedPercent: 100 }], reached: 'weekly' }] as never,
+    usage: [{ runtime: 'beta', account: 'Jane Doe', plan: null, lanes: [{ id: 'weekly', label: 'weekly', usedPercent: 100, windowMinutes: null, resetsAt: null }], reached: 'weekly', fetchedAt: Date.now(), staleAfterMs: 300_000, error: null, source: { kind: 'runtime', label: 'fixture' } }] as never,
   })
   const lines = [...line('Beta').querySelectorAll('[data-slot="desc-line"]')].map((node) => node.textContent ?? '')
   expect(lines.find((text) => text.includes('Jane Doe'))).toMatch(/Limit/)
@@ -1822,4 +1823,24 @@ it('an agent page is the default while new sessions run as any of its accounts',
   // the Accounts section's to say.
   expect(container.textContent).not.toContain('Use for new sessions')
   expect(container.textContent).toContain('Default')
+})
+
+it('qualifies readiness using the selected working account rather than a stale sibling report', () => {
+  const now = Date.now()
+  const selected = { ...ROSTER.usage[0]!, fetchedAt: now, lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 20, windowMinutes: 10080, resetsAt: null }] }
+  const sibling = { ...selected, account: 'other@example.com', fetchedAt: now - 2_000_000, lanes: [{ ...selected.lanes[0]!, usedPercent: 90 }] }
+  const view = { ...ROSTER, healthByRuntime: {}, usage: [sibling, selected] } as never
+  expect(agentReadiness([ROSTER.runtimes[0]!], view, { lowerMs: now, upperMs: now + 1 })).toBe('ready')
+})
+
+it('keeps readiness unknown when the selected report is stale or the Host interval is unavailable or crosses freshness', () => {
+  const now = Date.now()
+  const selected = { ...ROSTER.usage[0]!, fetchedAt: now - 1000, staleAfterMs: 2000, lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 20, windowMinutes: 10080, resetsAt: null }] }
+  const sibling = { ...selected, account: 'other@example.com', fetchedAt: now, lanes: [{ ...selected.lanes[0]!, usedPercent: 90 }] }
+  const view = { ...ROSTER, healthByRuntime: {}, usage: [sibling, selected] } as never
+  const agent = [ROSTER.runtimes[0]!]
+  expect(agentReadiness(agent, view, null)).toBe('unknown')
+  expect(agentReadiness(agent, view, { lowerMs: now, upperMs: now + 1001 })).toBe('unknown')
+  expect(agentReadiness(agent, view, { lowerMs: now + 2000, upperMs: now + 2001 })).toBe('unknown')
+  expect(agentReadiness(agent, view)).toBe('ready')
 })

@@ -1,11 +1,19 @@
 import { describe, expect, it } from 'vitest'
 
-import { describeLimits, formatReset, usageReadingTone } from './limits'
+import { describeLimits, hostLimits, retainedLimits, formatReset, usageReadingTone } from './limits'
 
 const NOON = new Date('2026-08-22T12:00:00').getTime()
 const weekly = { id: 'weekly', label: 'Weekly', usedPercent: 99, windowMinutes: 10080, resetsAt: NOON + 86_400_000 }
 
 describe('describeLimits', () => {
+  it('retains undated limits but does not qualify them with Host time', () => {
+    const limits = { lanes: [weekly], reached: 'weekly' }
+    expect(retainedLimits(limits, NOON)?.windows[0]?.usedPercent).toBe(99)
+    expect(hostLimits(limits, { lowerMs: NOON, upperMs: NOON + 1 })).toBeNull()
+    for (const fetchedAt of [0, NaN, Infinity]) expect(hostLimits({ ...limits, fetchedAt }, { lowerMs: NOON, upperMs: NOON + 1 })).toBeNull()
+    expect(hostLimits({ ...limits, fetchedAt: NOON - 1, staleAfterMs: 120_000 }, { lowerMs: NOON, upperMs: NOON + 1 })).not.toBeNull()
+  })
+
   it('does not present undated, expired or future dated observations as current allowance', () => {
     for (const fetchedAt of [0, NaN, NOON + 1, NOON - 120_000]) {
       expect(describeLimits({ lanes: [weekly], fetchedAt, staleAfterMs: 120_000 }, NOON)).toBeNull()

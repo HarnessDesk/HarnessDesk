@@ -317,6 +317,8 @@ import { defaultArea, permits } from '../panels/views'
 import { applyLoginAwaitsCode, applyLoginCompleted, startedLogin, type LoginState } from './login'
 import { readCustomPresets, type AgentPreset } from './presets'
 import { Transport, transportUrl } from '../lib/transport'
+import { HostClockController } from './host-clock'
+import type { HostTimeInterval } from '../lib/host-clock'
 
 /** How many decisions Agents may have waiting on composers at once; the oldest give way. */
 const AGENT_NOTICE_LIMIT = 6
@@ -938,6 +940,11 @@ export class AppStore {
   }
 
   readonly transport: Transport
+  readonly #hostClock: HostClockController
+  #clockListening = false
+  readonly #clockVisibility = () => { if (document.visibilityState !== 'hidden') this.#hostClock.resume() }
+
+  hostTime(): HostTimeInterval | null { return this.#hostClock.read() }
   readonly lead: ReturnType<typeof createLeadState>
   readonly phone: ReturnType<typeof createPhoneState>
   /** Carry-on questions of Team and Flow seats, answered from the Team's `limit` notice. */
@@ -2196,6 +2203,8 @@ export class AppStore {
       onStatus: (status) => {
         const previous = this.#snapshot.status
         if (status !== 'open') {
+          this.#hostClock.disconnect()
+          if (status === 'closed' && this.#clockListening) { document.removeEventListener('visibilitychange', this.#clockVisibility); window.removeEventListener('focus', this.#clockVisibility); this.#clockListening = false }
           this.#transcriptChange++
           for (const key of this.#transcriptCursors.keys()) this.#transcriptRecoveryBlocked.add(key)
           this.#transcriptAuthority.clear()
@@ -2214,6 +2223,7 @@ export class AppStore {
         } else {
           this.#patch({ status })
           if (previous === 'reconnecting') {
+            void this.#negotiateClock()
             const adjacent = this.#snapshot.adjacentSession
             if (adjacent) { const { runtime, id } = splitSessionKey(adjacent.key); void this.openAdjacentSession(id, runtime) }
             void this.#refreshLeadAvailability()
@@ -2232,6 +2242,7 @@ export class AppStore {
         }
       },
     })
+    this.#hostClock = new HostClockController(() => this.transport.request('host/clock', {}), () => this.#patch({}))
     this.lead = createLeadState(this.transport, () => this.#snapshot.leadAvailable)
     this.phone = createPhoneState(this.transport)
     this.phone.subscribe(() => { const phoneLink = this.#snapshot.features?.mobile === true && !this.#snapshot.features.problem; if (phoneLink !== this.#snapshot.phoneLink) this.#patch({ phoneLink }) })
@@ -2339,10 +2350,21 @@ export class AppStore {
     try { await this.loadFeatures() } catch { /* Remain disabled until the host answers. */ }
   }
 
+  async #negotiateClock(): Promise<void> {
+    const generation = this.#chatConnectionGeneration
+    try {
+      const hello = await this.transport.request('host/hello', { clientVersion: '0.1.0' })
+      if (generation === this.#chatConnectionGeneration && this.transport.status === 'open') this.#hostClock.connect(hello.capabilities?.hostClock === true)
+    } catch { /* Unsupported or disconnected: keep the estimate unverified. */ }
+  }
+
   async connect(): Promise<void> {
+    if (!this.#clockListening) { document.addEventListener('visibilitychange', this.#clockVisibility); window.addEventListener('focus', this.#clockVisibility); this.#clockListening = true }
     this.transport.connect()
     await this.#waitForOpen()
+    const generation = this.#chatConnectionGeneration
     const hello = await this.transport.request('host/hello', { clientVersion: '0.1.0' })
+    if (generation === this.#chatConnectionGeneration && this.transport.status === 'open') this.#hostClock.connect(hello.capabilities?.hostClock === true)
     this.#patch({
       runtimes: hello.runtimes,
       activeRuntime: this.#snapshot.activeRuntime ?? hello.runtimes[0]?.id ?? null,

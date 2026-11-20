@@ -78,6 +78,41 @@ describe('the account pool', () => {
     await vi.waitFor(() => expect(store.getSnapshot().activeRuntime).toBe('codex-3'))
   })
 
+  it('uses renderer time in the current automatic resolver when Host-era readings have aged', async () => {
+    const hostNow = Date.now()
+    const first = report(30, 'codex-2', 10 * 60_000)
+    const second = report(40, 'codex-3', 60 * 60_000)
+    const active = report(100, 'codex', 6 * 3_600_000)
+    push({ method: 'runtime/added', params: { info: { id: runtimeId('codex-3'), name: 'Agent', slot: { agent: runtimeId('codex') }, presentation: { name: 'Agent' }, capabilities: {} } } } as unknown as WireNotification)
+    await store.loadAccounts()
+    preferences = { activeRuntime: 'codex', accountPools: { codex: { whenOut: 'next', pace: 'soonest', order: ['codex', 'codex-3', 'codex-2'] } } }
+    await store.loadPreferences()
+    vi.spyOn(Date, 'now').mockReturnValue(hostNow + 30 * 60_000)
+    push({ method: 'usage/updated', params: { report: first } })
+    push({ method: 'usage/updated', params: { report: second } })
+    push({ method: 'usage/updated', params: { report: active } })
+    await vi.waitFor(() => expect(store.getSnapshot().activeRuntime).toBe('codex-3'))
+    vi.restoreAllMocks()
+  })
+
+  it('uses the manual next account even if that account has no usage report', async () => {
+    push({ method: 'runtime/added', params: { info: { id: runtimeId('codex-3'), name: 'Agent', slot: { agent: runtimeId('codex') }, presentation: { name: 'Agent' }, capabilities: {} } } } as unknown as WireNotification)
+    await store.loadAccounts()
+    preferences = { activeRuntime: 'codex', accountPools: { codex: { whenOut: 'next', order: ['codex', 'codex-2', 'codex-3'] } } }
+    await store.loadPreferences()
+    push({ method: 'usage/updated', params: { report: report(30, 'codex-3') } })
+    push({ method: 'usage/updated', params: { report: report(100, 'codex') } })
+    await vi.waitFor(() => expect(store.getSnapshot().activeRuntime).toBe('codex-2'))
+  })
+
+  it('retains separate account reports on the same runtime in arrival order', () => {
+    const first = { ...report(100, 'codex'), account: 'selected' }
+    const second = { ...report(20, 'codex'), account: 'other', fetchedAt: first.fetchedAt - 120_000 }
+    push({ method: 'usage/updated', params: { report: first } })
+    push({ method: 'usage/updated', params: { report: second } })
+    expect(store.getSnapshot().usage.map(item => [item.runtime, item.account])).toEqual([['codex', 'selected'], ['codex', 'other']])
+  })
+
   it('stays put when the rule is to ask', async () => {
     preferences = { activeRuntime: 'codex', accountPools: { codex: { whenOut: 'ask' } } }
     await store.loadPreferences()

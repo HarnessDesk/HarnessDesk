@@ -154,7 +154,7 @@ test('a phone cannot reach settings, the window, or anything the table leaves ou
   const s = await rig()
   try {
     const phone = await s.pair()
-    for (const method of ['lead/settings/update', 'phone/allow', 'phone/revoke', 'phone/pairing', 'flow/start-goal', 'session/start', 'host/hello', 'approval/respond', 'evidence/check/run']) {
+    for (const method of ['lead/settings/update', 'phone/allow', 'phone/revoke', 'phone/pairing', 'flow/start-goal', 'session/start', 'host/hello', 'host/clock', 'approval/respond', 'evidence/check/run']) {
       const reply = await phone.request(method, {})
       assert.equal(reply.error.code, 'notOnPhoneSurface', method)
     }

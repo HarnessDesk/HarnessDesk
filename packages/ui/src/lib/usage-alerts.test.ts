@@ -22,13 +22,8 @@ const id = (value: string): RuntimeId => value as RuntimeId
 const nameFor = (runtime: RuntimeId, account: string | null = null): string =>
   `${String(runtime).startsWith('codex') ? 'OpenAI Codex' : 'Claude Code'}${account ? ` (${account})` : ''}`
 
-/*
- * Two accounts of one agent are two runtimes, which is the shape the host
- * emits: `accounts.add` returns a runtime of its own and the host caches one
- * report per runtime id. A fixture giving two reports the *same* id is a shape
- * nothing can produce, and it was the only shape the account tests had (round
- * 2 of #216).
- */
+/* Separate runtime slots are the usual account shape. The Store can also
+ * retain reports for different account identities on the same runtime. */
 const runtime = (runtimeId: string, agent: string): RuntimeInfo =>
   ({ id: id(runtimeId), name: 'OpenAI Codex', slot: { agent: id(agent) } }) as unknown as RuntimeInfo
 const RUNTIMES: readonly RuntimeInfo[] = [

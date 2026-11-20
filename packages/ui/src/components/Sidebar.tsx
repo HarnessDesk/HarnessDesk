@@ -10,7 +10,7 @@ import { sidebarPlacement } from '../state/workbench'
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 
 import { SidebarNotices, useAccountQuotaWarning, useInboxMessages } from './Notices'
-import { usageIsFresh, type Account, type RuntimeId, type RuntimeInfo, type UsageReport } from '@harnessdesk/protocol'
+import { type Account, type RuntimeId, type RuntimeInfo, type UsageReport } from '@harnessdesk/protocol'
 import { useActiveSession, useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
 import type { AppStore } from '../state/store'
 import { AgentIcon, BranchIcon, CaretIcon, CrossIcon, FolderOpenIcon, PlusIcon, SearchIcon, SettingsIcon, SignInIcon, SignOutIcon, TeamIcon, UsageIcon, UserIcon } from './Icons'
@@ -51,7 +51,7 @@ import { HarnessMark, RuntimeMark } from './BrandIcons'
 import { HarnessDeskSignInPending, HarnessDeskSignOut, useHarnessDeskAccountAction } from './HarnessDeskAccount'
 import { Clipped, EmptyState } from '../design'
 import type { Section } from './Settings'
-import { describeReport, describeLane, formatAge, formatMoney, reportNeedsYou, workingAccount } from '../lib/usage'
+import { describeHostReport, formatMoney, reportNeedsYou, workingAccount } from '../lib/usage'
 import { usageReadingTone } from '../lib/limits'
 import { usageAccount } from '../lib/usage-alerts'
 import { useInboxWaiting } from './use-inbox-waiting'
@@ -126,8 +126,9 @@ export const Sidebar = ({
   const [starting, setStarting] = useState<boolean>(false)
   const listRef = useRef<HTMLDivElement>(null)
   const now = Date.now()
-  // Only accounts the person has to act on; low and short are notes the Dashboard shows, not needs.
-  const lowAgents = snapshot.usage.filter((report) => reportNeedsYou(report, now)).length
+  const hostTime = store.hostTime?.() ?? null
+  // Only verified current readings can claim that an account needs attention.
+  const lowAgents = snapshot.usage.filter(report => report.error?.needsSignIn === true || (hostTime !== null && !describeHostReport(report, hostTime).stale && reportNeedsYou(report, hostTime.lowerMs) && reportNeedsYou(report, hostTime.upperMs))).length
 
   // Debounced so typing does not fire a search per keystroke against the runtime.
   useEffect(() => {
@@ -404,10 +405,11 @@ export const AccountFooter = ({
   const deskSignedIn = deskAccount?.status === 'signedIn'
   const hide = snapshot.hideAccountAddresses
 
+  const hostTime = store.hostTime?.() ?? null
   const seats: Seat[] = snapshot.runtimes.flatMap((info): Seat[] => {
     const status = snapshot.accountsByRuntime[info.id] ?? null
     const usage = snapshot.usage.filter((report) => report.runtime === info.id)
-    const state = readinessOf({
+    const rawState = readinessOf({
       registered: true,
       // Every seat's own health: a dead agent used to sit here looking
       // normal unless it happened to be the active one.
@@ -416,6 +418,8 @@ export const AccountFooter = ({
       accounts: info.capabilities.account,
       usage,
     })
+    const selected = workingAccount(usage)
+    const state = selected && describeHostReport(selected, hostTime).stale && (rawState === 'ready' || rawState === 'limit') ? 'unknown' : rawState
     const accounts = status?.accounts ?? []
     const current = info.id === snapshot.activeRuntime
     const answered = status !== null
@@ -437,11 +441,11 @@ export const AccountFooter = ({
           answered,
           figure: usage[0]
             ? (() => {
-                const lane = describeReport(usage[0] as UsageReport, { now: Date.now(), maxLanes: 1 }).hero
-                return lane?.known && lane.remainingPercent !== null ? `${lane.remainingPercent}%` : null
+                const lane = describeHostReport(usage[0] as UsageReport, hostTime, { maxLanes: 1 }).hero
+                return !describeHostReport(usage[0] as UsageReport, hostTime).stale && lane?.known && lane.remainingPercent !== null ? `${lane.remainingPercent}%` : null
               })()
             : null,
-          tone: usage[0] ? describeReport(usage[0], { now: Date.now(), maxLanes: 1 }).tone : 'good',
+          tone: usage[0] ? describeHostReport(usage[0], hostTime, { maxLanes: 1 }).tone : 'good',
           current,
           report: usage[0] ?? null,
           preference: undefined,
@@ -454,7 +458,7 @@ export const AccountFooter = ({
         usage.find((entry) => usageAccount(entry) === account.label.trim()) ??
         (accounts.length === 1 ? usage[0] : null)
       const preference = snapshot.accountPrefs[key]
-      const view = report ? describeReport(report, { now: Date.now(), maxLanes: 1, preference }) : null
+      const view = report ? describeHostReport(report, hostTime, { maxLanes: 1, preference }) : null
       const lane = view?.hero ?? null
       return {
         key,
@@ -465,7 +469,7 @@ export const AccountFooter = ({
         sub: (hide ? accountName(account, snapshot.accountPrefs[key], info.presentation.name, snapshot.hideAccountAddresses) : accountIdentity(account)) || info.presentation.name,
         state,
         answered: true,
-        figure: lane?.known && lane.remainingPercent !== null ? `${lane.remainingPercent}%` : null,
+        figure: view && !view.stale && lane?.known && lane.remainingPercent !== null ? `${lane.remainingPercent}%` : null,
         tone: view?.blocked ? ('bad' as const) : (lane?.tone ?? ('good' as const)),
         current,
         report: report ?? null,
@@ -651,7 +655,8 @@ const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime?: RuntimeId) => 
     return () => { window.clearInterval(timer); window.removeEventListener('focus', read) }
   }, [usageOpen, store])
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 60_000); return () => window.clearInterval(timer) }, [])
-  const view = describeStrip({ runtimes: snapshot.runtimes, usage: snapshot.usage, accountsByRuntime: snapshot.accountsByRuntime,
+  const hostTime = store.hostTime?.() ?? null
+  const view = describeStrip({ hostTime, runtimes: snapshot.runtimes, usage: snapshot.usage, accountsByRuntime: snapshot.accountsByRuntime,
     accountPrefs: snapshot.accountPrefs, health: snapshot.health, activeRuntime: snapshot.activeRuntime, sessionRuntime: null, now,
     hideAddresses: snapshot.hideAccountAddresses })
   const current = view.anchor?.kind === 'meter' ? view.anchor.meter : null
@@ -670,7 +675,7 @@ const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime?: RuntimeId) => 
   }
   return <Submenu icon={<UsageIcon size={16} />} label="Usage" icons="all" onOpenChange={setUsageOpen}
     value={current ? <Text role="muted" tone={usageReadingTone(current.tone)} numeric>{current.figure.endsWith('%') ? `${current.figure} left` : current.figure}</Text> : undefined}>
-    {current ? <SeatUsageFacts meter={current} now={now} account={current.report.account && shownAccountLabel(current.runtime, current.report.account, snapshot)} /> : <MenuNote>No usage reported for this account.</MenuNote>}
+    {current ? <SeatUsageFacts meter={current} now={now} hostTime={hostTime} account={current.report.account && shownAccountLabel(current.runtime, current.report.account, snapshot)} /> : <MenuNote>No usage reported for this account.</MenuNote>}
     {view.anchor?.kind === 'signIn' && <MenuItem icon={<RuntimeMark runtime={view.anchor.info} size={16} />}
       label={`Sign in to ${view.anchor.info.presentation.name}`}
       onSelect={() => { if (view.anchor?.kind === 'signIn') onSignIn(view.anchor.info.id) }} />}
@@ -690,17 +695,18 @@ const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime?: RuntimeId) => 
   </Submenu>
 }
 
-const SeatUsageFacts = ({ meter, now, account }: { meter: StripMeter; now: number; account: string | null }) => <div data-usage-details>
+const SeatUsageFacts = ({ meter, now, hostTime, account }: { meter: StripMeter; now: number; hostTime: import('../lib/host-clock').HostTimeInterval | null; account: string | null }) => <div data-usage-details>
   <MenuLabel size="compact">{meter.name}{meter.report.planLabel ?? meter.report.plan ? ` · ${meter.report.planLabel ?? meter.report.plan}` : ''}</MenuLabel>
   {account && <MenuNote><Text as="div" role="meta" truncate title={account}>{account}</Text></MenuNote>}
-  {(!usageIsFresh(meter.report, now) || meter.report.error) && <MenuNote>{meter.report.error ? "Couldn't refresh · last known values" : 'Outdated reading · last known values'}</MenuNote>}
+  {(describeHostReport(meter.report, hostTime).stale || meter.report.error) && <MenuNote>{meter.report.error ? "Couldn't refresh · last known values" : 'Currentness unverified · last known values'}</MenuNote>}
   <MenuFacts rows={meter.report.lanes.map(raw => {
-    const lane = describeLane(raw, now, meter.report.lanes)
+    const lane = describeHostReport(meter.report, hostTime, { maxLanes: meter.report.lanes.length }).all.find(item => item.id === raw.id)
+    if (!lane) return { id: raw.id, name: raw.label, percent: null, countdown: '—', tone: 'neutral' as const, barless: true }
     return { id: lane.id, name: lane.title, percent: lane.remainingPercent,
       countdown: lane.gatedUntil === null ? lane.resetCountdown : `blocked ${lane.gatedFor ?? '—'}`,
       countdownTitle: lane.gatedUntil !== null ? `blocked until ${lane.gatedClock}` : lane.resetClock ? `resets ${lane.resetClock}` : undefined,
       tone: lane.tone === 'bad' ? 'danger' as const : lane.tone === 'warn' ? 'warning' as const : 'neutral' as const, barless: true }
   })} />
   <MenuNote>{[meter.report.spend?.todayCost != null ? `${formatMoney(meter.report.spend.todayCost, meter.report.spend.currency)} today` : null,
-    meter.report.source.label, formatAge(meter.report.fetchedAt, now)].filter(Boolean).join(' · ')}</MenuNote>
+    meter.report.source.label, describeHostReport(meter.report, hostTime).age].filter(Boolean).join(' · ')}</MenuNote>
 </div>

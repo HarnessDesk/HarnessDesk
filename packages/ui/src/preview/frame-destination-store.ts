@@ -8,6 +8,8 @@ import { destinationOf } from '../state/destinations'
 import { captureHealth, provenancePage, sceneCommit } from './provenance-fixture'
 export const frameDestinationStore = (fixture: AppStore, { workspaceOutsideGit = false } = {}): AppStore => {
   const store = new AppStore('ws://localhost:0/')
+  // The preview destination shares its fixture's explicit clock.
+  store.hostTime = () => fixture.hostTime()
   const seed: AppSnapshot = fixture.getSnapshot()
   const view = focusedPane(seed.layout).view
   const current = destinationOf(view.kind === 'conversation' || view.kind === 'room' ? view : { kind: 'conversation', session: null })

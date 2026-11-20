@@ -536,6 +536,8 @@ export const FrameWall = () => {
       const healthByRuntime = { ...snapshot.healthByRuntime }
       delete healthByRuntime[ids[5]!]
       Object.assign(snapshot, {
+        // This roster illustrates ready accounts; its inherited readings are up to 20 minutes old.
+        usage: snapshot.usage.map(report => ({ ...report, staleAfterMs: 30 * 60_000 })),
         runtimes,
         activeRuntime: ids[0],
         skills: [{

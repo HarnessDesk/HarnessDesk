@@ -99,7 +99,7 @@ const usageReport = (runtime: RuntimeId, lanes: readonly UsageLane[]): UsageRepo
     error: null,
   }) as unknown as UsageReport
 
-const mount = (overrides: Partial<AppSnapshot> = {}) => {
+const mount = (overrides: Partial<AppSnapshot> = {}, clock: { lowerMs: number; upperMs: number } | null | undefined = undefined) => {
   const selectRuntime = vi.fn(async () => {})
   const signOutAgent = vi.fn(async () => {})
   const onOpenSettings = vi.fn()
@@ -124,6 +124,7 @@ const mount = (overrides: Partial<AppSnapshot> = {}) => {
   } as AppSnapshot
   const loadUsage = vi.fn().mockResolvedValue(undefined)
   const store = {
+    hostTime: () => clock === undefined ? ({ lowerMs: Date.now(), upperMs: Date.now() }) : clock,
     loadUsage,
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
@@ -147,7 +148,7 @@ it('marks old quota as historical and only asks for readings when Usage opens', 
   expect(loadUsage).not.toHaveBeenCalled()
   expect(usageTrigger().textContent).not.toContain('100% left')
   const details = openUsage()
-  expect(details.textContent).toContain('Outdated reading · last known values')
+  expect(details.textContent).toContain('Currentness unverified · last known values')
   expect(loadUsage).toHaveBeenCalledTimes(1)
 })
 
@@ -221,6 +222,36 @@ const click = (element: Element): void => {
     element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   })
 }
+
+it('does not present an unverified account percentage in the new-session picker', () => {
+  const reading = usageReport(CLAUDE, [lane({ id: 'weekly', usedPercent: 20 })])
+  mount({ usage: [reading] }, null)
+  click(row())
+  click(document.querySelector('[role="menuitem"][data-current]')!)
+  const seat = seatNamed('olivia@acme.dev')
+  expect(seat).toBeDefined()
+  expect(seat?.textContent).not.toContain('80%')
+})
+
+it('keeps a current percentage in the new-session picker', () => {
+  const now = Date.now()
+  const reading = usageReport(CLAUDE, [lane({ id: 'weekly', usedPercent: 20 })])
+  mount({ usage: [reading] }, { lowerMs: now, upperMs: now + 1 })
+  click(row())
+  click(document.querySelector('[role="menuitem"][data-current]')!)
+  expect(seatNamed('olivia@acme.dev')?.textContent).toContain('80%')
+})
+
+it('does not present an unverified percentage for a runtime without accounts', () => {
+  const withoutAccounts = { ...claude, capabilities: { ...claude.capabilities, account: false } }
+  const reading = usageReport(CLAUDE, [lane({ id: 'weekly', usedPercent: 20 })])
+  mount({ runtimes: [codex, withoutAccounts], accountsByRuntime: { [CODEX]: signedIn('shane@example.com'), [CLAUDE]: { accounts: [], signInMethods: [] } }, usage: [reading] }, null)
+  click(row())
+  click(document.querySelector('[role="menuitem"][data-current]')!)
+  const seat = [...document.querySelectorAll('[role="menuitem"]:has([data-menu-account-name])')].reverse().find(item => item.textContent?.includes('Claude Code'))
+  expect(seat).toBeDefined()
+  expect(seat?.textContent).not.toContain('80%')
+})
 
 it('shows the desk identity and names the default agent on hover', () => {
   mount()
@@ -1165,4 +1196,15 @@ it('with addresses hidden, the seat menu names accounts and never draws an addre
   // The names are still there to choose by.
   expect(document.body.textContent).toContain('Shane-Claude')
   expect(document.body.textContent).toContain('shane')
+})
+
+it('keeps the selected working account ready despite a stale sibling report', () => {
+  const now = Date.now()
+  const selected = { ...usageReport(keeper.id, [lane({ id: 'weekly', usedPercent: 20 })]), fetchedAt: now }
+  const sibling = { ...usageReport(keeper.id, [lane({ id: 'weekly', usedPercent: 90 })]), account: 'other@example.com', fetchedAt: now - 2_000_000 }
+  mount({ runtimes: [keeper], activeRuntime: keeper.id, accountsByRuntime: { [keeper.id]: { accounts: [], signInMethods: [] } }, usage: [sibling, selected] }, { lowerMs: now, upperMs: now + 1 })
+  click(row())
+  click(document.querySelector('[role="menuitem"][data-current]')!)
+  const item = [...document.querySelectorAll('[role="menuitem"]')].find(el => /^Cline/.test(el.textContent?.trim() ?? ''))
+  expect(item && identityOf(item)).toBe('Ready')
 })

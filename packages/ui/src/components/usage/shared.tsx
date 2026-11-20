@@ -7,6 +7,7 @@ import { dashboardReadLabel } from '../../lib/dashboard-read'
 import { prefsForUsage, runtimeTint, type AccountPrefs, type AccountPrefsMap } from '../../lib/accounts'
 import { formatTokens } from '../../lib/context-usage'
 import { useAccountLabel } from '../../state/context'
+import { useHostTime } from '../../state/host-time-context'
 import { agentCoverage, ledgerRuntimeIds } from '../../lib/overview-strip'
 import {
   alignGhost,
@@ -32,6 +33,7 @@ import {
   describeLane,
   describeLaneReset,
   describeReport,
+  describeHostReport,
   drawnReport,
   formatAge,
   formatCountdown,
@@ -199,16 +201,18 @@ export const stateOf = (report: UsageReport, view: ReportView): Readiness => {
 }
 
 /** One account with one agent: what it has left, and how we know. */
-export const HistoricalReading = ({ history, now }: { history: NonNullable<UsageReport['historical']>; now: number }) => (
-  <DashboardLanes>
+export const HistoricalReading = ({ history, now }: { history: NonNullable<UsageReport['historical']>; now: number }) => {
+  const hostTime = useHostTime()
+  const age = hostTime === undefined ? formatAge(history.fetchedAt, now) : hostTime && formatAge(history.fetchedAt, hostTime.lowerMs) === formatAge(history.fetchedAt, hostTime.upperMs) ? formatAge(history.fetchedAt, hostTime.lowerMs) : 'read time unverified'
+  return <DashboardLanes>
     <Separator />
-    <Text as="div" role="meta">Earlier saved reading · {new Date(history.fetchedAt).toLocaleString()} · {formatAge(history.fetchedAt, now)} · account unverified</Text>
+    <Text as="div" role="meta">Earlier saved reading · {new Date(history.fetchedAt).toLocaleString()} · {age} · account unverified</Text>
     {history.lanes.map(lane => (
       <Text key={lane.id} as="div" role="muted">{lane.label}{lane.windowMinutes !== null ? ` (${lane.windowMinutes} min)` : ''}: {lane.usageKnown === false || lane.placeholder ? 'usage unknown' : `${lane.usedPercent}% used`}{lane.resetsAt !== null ? ` · recorded reset ${new Date(lane.resetsAt).toLocaleString()}` : ''}</Text>
     ))}
     {history.credits && <Text as="div" role="muted">Earlier balance: {history.credits.unlimited ? 'unlimited' : history.credits.remaining === null ? 'unknown' : `${history.credits.remaining} ${history.credits.unit}`}</Text>}
   </DashboardLanes>
-)
+}
 
 export const Card = ({
   report,
@@ -245,7 +249,10 @@ export const Card = ({
   // `report.unverified.error`, drawn in the note, never `report.error`.
   const drawn = drawnReport(report)
   const borrowed = drawn !== report
-  const view: ReportView = describeReport(drawn, { now, maxLanes: 3, preference })
+  const hostTime = useHostTime()
+  const usageNow = hostTime === undefined ? now : hostTime?.lowerMs ?? report.fetchedAt
+  now = usageNow
+  const view: ReportView = hostTime === undefined ? describeReport(drawn, { now, maxLanes: 3, preference }) : describeHostReport(drawn, hostTime, { maxLanes: 3, preference })
   const plan = report.planLabel ?? planLabel(report.plan)
   const spend = report.spend
   // A prepaid balance is something to say, so an agent that has one is not
@@ -257,6 +264,9 @@ export const Card = ({
   const silent = isSilentUsage(report)
   const standing = silent ? { ...usageStandingOf(report, now), status: 'unknown' as const } : usageStandingOf(report, now)
   const own = borrowed ? usageStandingOf(drawn, now) : standing
+  const upperOwn = hostTime ? usageStandingOf(drawn, hostTime.upperMs) : own
+  const upperStanding = hostTime ? usageStandingOf(report, hostTime.upperMs) : standing
+  const uncertainStanding = hostTime !== undefined && (view.stale || own.status !== upperOwn.status || standing.status !== upperStanding.status)
   // When the balance decided (the source hit its credits), a healthy window's figure, meter and reset would
   // contradict the chip: the balance is the headline then, and the window stays a row below.
   const balanceDecides = balance !== null && own.lane === null && (own.status === 'out' || own.status === 'overdrawn')
@@ -264,7 +274,9 @@ export const Card = ({
   // A pin picks the headline; the standing is the account's own. When the standing is about another window, the
   // sentence names that window rather than borrowing the headline's reset, and says only what is urgent about it.
   const elsewhere = Boolean(hero) && own.lane !== null && own.lane.id !== hero?.id
-  const said = hero ? standingSentence(own, now) : null
+  const lowerSaid = hero && !uncertainStanding ? standingSentence(own, usageNow) : null
+  const upperSaid = hero && hostTime && !uncertainStanding ? standingSentence(upperOwn, hostTime.upperMs) : lowerSaid
+  const said = lowerSaid === upperSaid ? lowerSaid : null
   const sentence = !elsewhere
     ? said
     : said && (own.status === 'short' || own.status === 'out')
@@ -318,12 +330,19 @@ export const Card = ({
   // or usually does and did not this time.
   const note = silent
     ? { text: 'Nothing came back when it was last asked.' }
+    : uncertainStanding && !drawn.error
+      ? { text: 'Currentness unverified — last known values', tone: 'warn' as const }
     : borrowed && !drawn.error && view.blocked
       ? {
           text: `Everything is spent on the ${account ?? 'other sign-in'} — ${agent} may be signed in as another account`,
           tone: 'warn' as const,
         }
-      : noteOf(drawn, view, balance, Boolean(spend), now)
+      : (() => {
+          const lower = noteOf(drawn, view, balance, Boolean(spend), now)
+          if (!hostTime) return lower
+          const upper = noteOf(drawn, view, balance, Boolean(spend), hostTime.upperMs)
+          return JSON.stringify(lower) === JSON.stringify(upper) ? lower : null
+        })()
 
   return (
     <SurfaceCard
@@ -334,7 +353,7 @@ export const Card = ({
       {/* The canonical card inset holds the recorded heading and its state. */}
       <DashboardAccountHead mark={info ? <RuntimeMark runtime={info} size={15} /> : undefined}
         name={agent} agent={account ?? undefined}
-        states={<>{shapeChip}{plan && <Chip tone="neutral" label={plan} title={report.plan ?? undefined} />}<Chip tone={STANDING_TONE[standing.status]} label={silent ? NOT_REPORTING_LABEL : STANDING_LABEL[standing.status]} stale={kept} /></>} />
+        states={<>{shapeChip}{plan && <Chip tone="neutral" label={plan} title={report.plan ?? undefined} />}<Chip tone={uncertainStanding ? 'warning' : STANDING_TONE[standing.status]} label={silent ? NOT_REPORTING_LABEL : uncertainStanding ? 'Unverified' : STANDING_LABEL[standing.status]} stale={kept} /></>} />
 
       {moneyRow}
 
@@ -384,7 +403,7 @@ export const Card = ({
       </DashboardAccountBody>
 
       <DashboardAccountFoot source={speaks ? report.source.label : ''} stale={view.stale || kept}
-        age={(hero || kept) && speaks ? <Text role="meta" tone={view.stale || kept ? 'warning' : 'neutral'}>· {dashboardReadLabel(drawn.fetchedAt, now, performance.timeOrigin)}</Text> : undefined}
+        age={(hero || kept) && speaks ? <Text role="meta" tone={view.stale || kept ? 'warning' : 'neutral'}>· {hostTime === undefined ? dashboardReadLabel(drawn.fetchedAt, now, performance.timeOrigin) : view.age}</Text> : undefined}
         actions={        <Popover
           label={<MoreIcon size={14} />}
           title={`What to do about ${agent}`}
@@ -475,13 +494,11 @@ export const Runway = ({
   accountPrefs: AccountPrefsMap
 }) => {
   const label = useAccountLabel()
+  const hostTime = useHostTime()
   const many = reports.length > 1
   const cards = reports.flatMap((report) => {
-    const view = describeReport(report, {
-      now,
-      maxLanes: 8,
-      preference: prefsForUsage(report.runtime, report.account, accountsByRuntime, accountPrefs),
-    })
+    const options = { maxLanes: 8, preference: prefsForUsage(report.runtime, report.account, accountsByRuntime, accountPrefs) }
+    const view = hostTime === undefined ? describeReport(report, { now, ...options }) : describeHostReport(report, hostTime, options)
     return view.all
       .filter((lane) => lane.burn !== null)
       .slice(0, many ? 2 : 3)
@@ -495,7 +512,7 @@ export const Runway = ({
             key={`${report.runtime}:${report.account ?? ''}:${lane.id}`}
             lane={lane}
             account={account}
-            now={now}
+            now={hostTime?.lowerMs ?? now}
           />
         ))} />
     </Section>

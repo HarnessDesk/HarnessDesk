@@ -941,6 +941,12 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
 
 /** The smallest store the mounted screens call. */
 class PreviewStore {
+  /** Preview fixtures share the renderer's explicit synthetic clock. */
+  hostTime(): { lowerMs: number; upperMs: number } {
+    const now = Date.now()
+    return { lowerMs: now, upperMs: now }
+  }
+
   /** The same unavailable facade as a flag-off real desk; opt-in fixtures replace it. */
   readonly lead = createLeadState({ request: (method, params) => this.transport.request(method, params) as never }, () => this.getSnapshot().leadAvailable)
 

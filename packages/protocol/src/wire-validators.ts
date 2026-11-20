@@ -1190,6 +1190,11 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   ...authoringValidators,
   ...insightValidators,
   'host/hello': shape({ clientVersion: isString }),
+  'host/clock': (value, path = '') => {
+    const input = isObject(value, path)
+    if (Object.keys(input).length !== 0) throw new ValidationError(path, 'expected empty parameters')
+    return {}
+  },
 
   'runtime/resources': shape({}),
   'runtime/recycle': shape({ runtime: isString }),

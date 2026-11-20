@@ -78,6 +78,7 @@ const makeStore = (): AppStore => {
     workSubject: () => fixedSubject(snapshot.layout),
     transport: { request: vi.fn(async () => null) },
     loadAccounts: vi.fn(async () => {}),
+    hostTime: () => ({ lowerMs: Date.now(), upperMs: Date.now() }),
     loadUsage: vi.fn(async () => {}),
     refreshUsage: vi.fn(async () => {}),
     ledger: vi.fn(async () => null),
@@ -137,7 +138,7 @@ const railButton = (label: string): HTMLButtonElement => {
 
 describe('the Dashboard first body row lists views', () => {
   it.each([
-    [-3 * 3_600_000, 'From a cached read'],
+    [-3 * 3_600_000, 'Read 3h ago'],
     [60_000, 'Read 2m ago'],
   ])('qualifies a reading from %s ms after this desk opened', async (offset, expected) => {
     const startedAt = performance.timeOrigin
@@ -146,7 +147,62 @@ describe('the Dashboard first body row lists views', () => {
     Object.assign(store.getSnapshot(), { usage: store.getSnapshot().usage.map(report => ({ ...report, fetchedAt: startedAt + offset })) })
     await render('overview', store)
     expect(document.body.textContent).toContain(expected)
-    if (offset < 0) expect(document.body.textContent).not.toContain('Read 3h ago')
+  })
+
+  it.each([-30, 30])('uses Host time with a renderer wall offset of %s minutes', async offset => {
+    const hostNow = Date.now()
+    const store = makeStore()
+    store.hostTime = () => ({ lowerMs: hostNow, upperMs: hostNow + 1 })
+    Object.assign(store.getSnapshot(), { usage: store.getSnapshot().usage.map(report => ({ ...report, fetchedAt: hostNow - 60_000 })) })
+    vi.spyOn(Date, 'now').mockReturnValue(hostNow + offset * 60_000)
+    await render('overview', store)
+    expect(document.body.textContent).toContain('Read 1m ago')
+  })
+
+  it.each([-30, 30])('keeps a Short reading, summary, and Plans count at %s minute wall skew with a silent runtime', async offset => {
+    const hostNow = Date.now()
+    const store = makeStore()
+    const reading = { ...reportFor(low, 90), fetchedAt: hostNow - 60_000 }
+    Object.assign(store.getSnapshot(), { usage: [reading], usageAsked: [good.id] })
+    store.hostTime = () => ({ lowerMs: hostNow, upperMs: hostNow + 1 })
+    vi.spyOn(Date, 'now').mockReturnValue(hostNow + offset * 60_000)
+    await render('overview', store)
+    expect(host.textContent).toContain('Low Agent is running low.')
+    expect(railButton('Plans').textContent).toContain('1 low')
+    const card = [...host.querySelectorAll('article')].find(node => node.textContent?.includes('Low Agent'))
+    expect(card?.textContent).toContain('Short')
+    expect(store.getSnapshot().usage[0]).toBe(reading)
+    expect(store.getSnapshot().usage[0]?.fetchedAt).toBe(reading.fetchedAt)
+  })
+
+  it('updates the Plans count and summary when the first Host sample arrives', async () => {
+    const hostNow = Date.now()
+    const store = makeStore()
+    let snapshot = { ...store.getSnapshot(), usage: [{ ...reportFor(low, 90), fetchedAt: hostNow - 60_000 }], usageAsked: [good.id] }
+    let interval: { lowerMs: number; upperMs: number } | null = null
+    const listeners = new Set<() => void>()
+    store.getSnapshot = () => snapshot
+    store.subscribe = listener => { listeners.add(listener); return () => listeners.delete(listener) }
+    store.hostTime = () => interval
+    await render('overview', store)
+    expect(railButton('Plans').textContent).not.toContain('1 low')
+    expect(host.textContent).not.toContain('Low Agent is running low.')
+    await act(async () => { interval = { lowerMs: hostNow, upperMs: hostNow + 1 }; snapshot = { ...snapshot }; listeners.forEach(listener => listener()) })
+    expect(railButton('Plans').textContent).toContain('1 low')
+    expect(host.textContent).toContain('Low Agent is running low.')
+    const card = [...host.querySelectorAll('article')].find(node => node.textContent?.includes('Low Agent'))
+    expect(card?.textContent).toContain('Short')
+  })
+
+  it('shows an unverified read when the Host has no clock capability', async () => {
+    const store = makeStore()
+    Object.assign(store.getSnapshot(), { usage: [reportFor(low, 90)], usageAsked: [good.id] })
+    store.hostTime = () => null
+    await render('overview', store)
+    expect(document.body.textContent).toContain('Read time unverified')
+    expect(document.body.textContent).toContain('Unverified')
+    expect(host.textContent).not.toContain('Low Agent is running low.')
+    expect(railButton('Plans').textContent).not.toContain('1 low')
   })
 
   it.each([true, false])('includes a healthy account with limits (native metering: %s)', async metered => {
@@ -212,10 +268,10 @@ describe('the header’s account scope', () => {
       fetchedAt: report.runtime === low.id ? startedAt - 3_600_000 : startedAt + 60_000,
     })) })
     await render('overview', store)
-    expect(document.body.textContent).toContain('From a cached read')
+    expect(document.body.textContent).toContain('Read 1h ago')
     await chooseAccount('Good Agent')
     expect(document.body.textContent).toContain('Read 2m ago')
-    expect(document.body.textContent).not.toContain('From a cached read')
+    expect(document.body.textContent).not.toContain('Read 1h ago')
   })
 
   it('scopes whichever view is open, not only the one it was chosen from', async () => {

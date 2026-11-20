@@ -45,8 +45,8 @@ import {
   registryOrder,
   registrySentence,
 } from '../lib/acp-registry'
-import { describeLimits, formatReset } from '../lib/limits'
-import { formatResetCountdown, pacingNote, usageAskedOf } from '../lib/usage'
+import { describeLimits, hostLimits, retainedLimits, formatReset } from '../lib/limits'
+import { describeHostReport, formatResetCountdown, pacingNote, usageAskedOf, workingAccount } from '../lib/usage'
 import { isBlocking, READINESS_LABEL, readinessOf, worstReadiness, type Readiness } from '../lib/readiness'
 import { splitHealth, type Unavailable } from '../lib/health'
 import { shortPath } from '../lib/paths'
@@ -60,6 +60,8 @@ import { firstInPool, inPoolOrder, isPaced, movedInPool, WHEN_OUT, WHEN_OUT_LABE
 import { describeUpdate, describeVersion } from '../lib/versions'
 import { copyReason, describeCopy, describeFallback, installSummary, standingChip, pinHolds } from '../lib/installs'
 import { useSnapshot, useStore } from '../state/context'
+import { HostTimeProvider, useHostTime } from '../state/host-time-context'
+import type { HostTimeInterval } from '../lib/host-clock'
 import type { AppSnapshot } from '../state/store'
 import { RuntimeMark } from './BrandIcons'
 import {
@@ -141,6 +143,7 @@ type AgentsView = Pick<
 export const agentReadiness = (
   siblings: readonly RuntimeInfo[],
   view: AgentsView,
+  interval?: HostTimeInterval | null,
 ): Readiness => {
   const answered = siblings
     .map((entry): Readiness | null => {
@@ -149,15 +152,17 @@ export const agentReadiness = (
       if (entry.slot?.gateway) return 'ready'
       const status = view.accountsByRuntime[entry.id] ?? null
       if ((status?.accounts.length ?? 0) === 0) return null
-      return readinessOf({
-        registered: true,
-        health,
-        account: status,
-        usage: view.usage.filter((report) => report.runtime === entry.id),
-      })
+      const usage = view.usage.filter((report) => report.runtime === entry.id)
+      const readiness = readinessOf({ registered: true, health, account: status, usage })
+      const selected = workingAccount(usage)
+      return interval !== undefined && selected && describeHostReport(selected, interval).stale &&
+        (readiness === 'ready' || readiness === 'limit') ? 'unknown' : readiness
     })
     .filter((state): state is Readiness => state !== null)
-  if (answered.length > 0) return worstReadiness(answered)
+  if (answered.length > 0) {
+    const worst = worstReadiness(answered)
+    return interval !== undefined && worst === 'ready' && answered.includes('unknown') ? 'unknown' : worst
+  }
   // Nothing signed in anywhere — or not yet known which. An agent that runs
   // without an account is ready like that; one still waiting on any sibling's
   // `runtime/account` has not said it needs a credential, only that it has
@@ -186,9 +191,9 @@ export const agentReadiness = (
  * account the agent holds. `siblings` is looked up rather than passed because
  * the detail pages are reached by id and hold one runtime, not the group.
  */
-export const defaultChipState = (info: RuntimeInfo, snapshot: AppSnapshot): Readiness => {
+export const defaultChipState = (info: RuntimeInfo, snapshot: AppSnapshot, interval?: HostTimeInterval | null): Readiness => {
   const group = agentGroups(snapshot.runtimes).find((entry) => agentKey(entry.info) === agentKey(info))
-  return agentReadiness(group?.siblings ?? [info], snapshot)
+  return agentReadiness(group?.siblings ?? [info], snapshot, interval)
 }
 
 /**
@@ -224,13 +229,18 @@ export const agentMatches = (
  * reading #85 was about, was visible in one place only (#182).
  */
 export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name: string }) => {
-  const view = describeLimits(limits)
+  const hostTime = useHostTime()
+  const qualified = hostTime === undefined ? describeLimits(limits) : hostLimits(limits, hostTime)
+  const view = hostTime === undefined ? qualified : qualified ?? retainedLimits(limits, limits?.fetchedAt ?? 0)
+  const upper = hostTime ? describeLimits(limits, hostTime.upperMs) : null
+  const blocked = hostTime === undefined ? qualified?.blocked : qualified && JSON.stringify(qualified.blocked) === JSON.stringify(upper?.blocked) ? qualified.blocked : null
   return (
     <>
       <SectionHead level="label" name="Usage" />
-      {view?.blocked && (
+      {hostTime !== undefined && !qualified && view && <Text role="meta">Currentness unverified</Text>}
+      {blocked && (
         <Text role="muted" as="p" tone="danger" >
-          {view.blocked.title} — {view.blocked.detail}
+          {blocked.title} — {blocked.detail}
         </Text>
       )}
       {/* One card: the windows and the balance are one section's rows. Two
@@ -241,7 +251,7 @@ export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name
       {view && (view.windows.length > 0 || view.credits) ? (
         <Rows>
           {view.windows.map((window) => (
-            <UsageMeter key={window.label} window={window} />
+            <UsageMeter key={window.label} window={window} verified={hostTime === undefined || Boolean(qualified)} />
           ))}
           {view.credits && (
             <Row
@@ -277,9 +287,16 @@ export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name
  * under a fifth, red when spent. The figure is said, not implied: a bare
  * "48%" reads as spent to half the people who see it.
  */
-export const UsageMeter = ({ window }: { window: UsageWindow }) => {
+export const UsageMeter = ({ window, verified = true }: { window: UsageWindow; verified?: boolean }) => {
   const remaining = Math.max(0, Math.round(100 - window.usedPercent))
-  return <Row title={<UsageMeterRow name={window.label} percent={remaining} countdown={formatResetCountdown(window.resetsAt === null ? null : window.resetsAt - Date.now())} countdownTitle={window.resetsAt === null ? undefined : `resets ${formatReset(window.resetsAt)}`} label={`${window.label} remaining`} standalone />} />
+  const hostTime = useHostTime()
+  const now = hostTime?.lowerMs ?? Date.now()
+  const lower = window.resetsAt === null ? '—' : formatResetCountdown(window.resetsAt - now)
+  const upper = window.resetsAt === null || !hostTime ? null : formatResetCountdown(window.resetsAt - hostTime.upperMs)
+  const valid = verified && (hostTime === undefined || (hostTime !== null && window.resetsAt !== null && window.resetsAt > hostTime.upperMs && lower === upper))
+  const title = valid && window.resetsAt !== null && (hostTime === undefined || (hostTime && formatReset(window.resetsAt, hostTime.lowerMs) === formatReset(window.resetsAt, hostTime.upperMs)))
+    ? `resets ${formatReset(window.resetsAt, now)}` : undefined
+  return <Row title={<UsageMeterRow name={window.label} percent={remaining} countdown={valid ? lower : '—'} countdownTitle={title} label={`${window.label} remaining`} standalone />} />
 }
 
 /**
@@ -443,7 +460,7 @@ const HealthBlock = ({ health }: { health: Unavailable }) => {
  * lane and is not the account's figure. Rounded the way `describeLane`
  * rounds, so this and the Dashboard cannot disagree about the same account.
  */
-const accountStanding = (entry: RuntimeInfo, account: Account, snapshot: AppSnapshot, now: number) => {
+const accountStanding = (entry: RuntimeInfo, account: Account, snapshot: AppSnapshot, interval: HostTimeInterval | null) => {
   const key = accountKey(entry.id, account)
   const own = snapshot.usage.filter((report) => report.runtime === entry.id)
   // A report that names no matching account is this account's only when the
@@ -453,13 +470,25 @@ const accountStanding = (entry: RuntimeInfo, account: Account, snapshot: AppSnap
   const report = own.find((item) => usageAccount(item) === account.label.trim()) ?? (single ? own[0] : undefined)
   const binding = report ? bindingLane(report.lanes, snapshot.accountPrefs[key]) : null
   const remaining = binding === null ? null : remainingOf(binding)
+  const view = report ? describeHostReport(report, interval, { maxLanes: report.lanes.length, preference: snapshot.accountPrefs[key] }) : null
+  const unverified = view?.stale === true
+  const lane = binding ? view?.all.find(item => item.id === binding.id) : null
   return {
     key,
     report,
-    blocked: report ? isBlocked(report) : false,
+    unverified,
+    blocked: report && !unverified ? isBlocked(report) : false,
     left: remaining === null ? null : Math.round(remaining),
-    reset: binding && report ? describeLaneReset(describeLane(binding, now, report.lanes)) : '',
+    reset: lane && !unverified ? describeLaneReset(lane) : '',
   }
+}
+
+const hostUseFirst = (report: UsageReport, interval: HostTimeInterval | null) => {
+  if (!interval || describeHostReport(report, interval).stale) return null
+  const lower = useFirstNote(report, interval.lowerMs)
+  const upper = useFirstNote(report, interval.upperMs)
+  return lower && JSON.stringify(lower) === JSON.stringify(upper) &&
+    formatReset(lower.resetsAt, interval.lowerMs) === formatReset(lower.resetsAt, interval.upperMs) ? lower : null
 }
 
 /**
@@ -491,6 +520,7 @@ const AgentRow = ({
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const hostTime = store.hostTime?.() ?? null
   const status = snapshot.accountsByRuntime[info.id]
   const build = describeVersion(info)?.replace(`${info.presentation.name} `, '') ?? null
   const ordered = inPoolOrder(siblings, snapshot.accountPools[agentKey(info)], { reports: snapshot.usage, now: Date.now() })
@@ -530,7 +560,7 @@ const AgentRow = ({
             </DescLine>
           )
         }
-        const { key, blocked, left, reset } = accountStanding(entry, account, snapshot, now)
+        const { key, blocked, left, reset, unverified } = accountStanding(entry, account, snapshot, hostTime)
         const name = accountName(account, snapshot.accountPrefs[key], entry.presentation.name, snapshot.hideAccountAddresses)
         const identity = shownIdentity(account, snapshot)
         const hit = query !== '' && `${name} ${identity ?? ''}`.toLowerCase().includes(query)
@@ -548,6 +578,7 @@ const AgentRow = ({
             ) : left !== null ? (
               <Text role="meta" ink="muted" numeric>{left}% left</Text>
             ) : null}
+            {unverified && <Text role="meta" ink="muted">Unverified</Text>}
             {reset && <Text role="meta" ink="muted">{reset}</Text>}
           </DescLine>
         )
@@ -633,6 +664,7 @@ const AgentAccounts = ({
 
   const store = useStore()
   const snapshot = useSnapshot()
+  const hostTime = store.hostTime?.() ?? null
   const [namingAccount, setNamingAccount] = useState(false)
   const [addingGateway, setAddingGateway] = useState(false)
   const [adding, setAdding] = useState(false)
@@ -829,8 +861,8 @@ const AgentAccounts = ({
               />
             )
           }
-          const { key, blocked, left, report, reset } = accountStanding(entry, account, snapshot, now)
-          const useFirst = report ? useFirstNote(report, Date.now()) : null
+          const { key, blocked, left, report, reset, unverified } = accountStanding(entry, account, snapshot, hostTime)
+          const useFirst = report ? hostUseFirst(report, hostTime) : null
           const name = accountName(account, snapshot.accountPrefs[key], entry.presentation.name, snapshot.hideAccountAddresses)
           const identity = shownIdentity(account, snapshot)
           return (
@@ -862,10 +894,11 @@ const AgentAccounts = ({
               control={
                 <>
                   {blocked && <Chip state="limit" />}
+                  {unverified && <Text role="meta" ink="muted">Unverified</Text>}
                   {/* Allowance that expires unspent: more than half is left and
                       the window is about to refill. The reset is the title. */}
                   {useFirst && (
-                    <Chip tone="neutral" size="sm" title={`${Math.round(useFirst.remainingPercent)}% left, resets ${formatReset(useFirst.resetsAt)}`}>
+                    <Chip tone="neutral" size="sm" title={`${Math.round(useFirst.remainingPercent)}% left, resets ${formatReset(useFirst.resetsAt, hostTime?.lowerMs)}`}>
                       Use it first
                     </Chip>
                   )}
@@ -1529,7 +1562,7 @@ const AccountDetail = ({
   // runtime the same single report (BLOCKING 3). The Plan card below never
   // reads `report.billing` at all; it reads its own stored entry.
   const report = snapshot.usage.find((entry) => entry.runtime === info.id && usageAccount(entry) === account.label.trim())
-  const state: Readiness = report && isBlocked(report) ? 'limit' : 'ready'
+  const state: Readiness = report && describeHostReport(report, store.hostTime?.() ?? null).stale ? 'unknown' : report && isBlocked(report) ? 'limit' : 'ready'
   const accountWide = report?.lanes.some((lane) => lane.placeholder !== true && !lane.scope) ?? false
   const usageOptions = [
     { value: '', label: 'Automatic' },
@@ -1625,7 +1658,7 @@ const AccountDetail = ({
                  reading the list and the agent's page give (#131). */
               <Text as="span" role="row">
                 Start on this account
-                <Chip state={defaultChipState(info, snapshot)} label="Default" />
+                <Chip state={defaultChipState(info, snapshot, store.hostTime?.() ?? null)} label="Default" />
               </Text>
             ) : (
               'Start on another account'
@@ -1681,7 +1714,7 @@ const AccountDetail = ({
         </Rows>
       </Section>
 
-      <UsageSection limits={limits} name={info.presentation.name} />
+      <HostTimeProvider interval={store.hostTime?.() ?? null}><UsageSection limits={limits} name={info.presentation.name} /></HostTimeProvider>
 
       <PlanSection runtime={info.id} account={account.label.trim()} report={report} isKey={isKey} />
 
@@ -2063,15 +2096,16 @@ const AgentUsage = ({ siblings }: { siblings: readonly RuntimeInfo[] }) => {
   const snapshot = useSnapshot()
   const ids = new Set(siblings.map((entry) => entry.id))
   const now = Date.now()
+  const hostTime = store.hostTime?.() ?? null
   // The Dashboard's own list, narrowed to this runtime's accounts: the same accounts, the same readings, and "not
   // reporting" for one nothing has read. An account whose usage the person stopped tracking is left out on both.
-  const reports = trackedUsage(snapshot.runtimes, snapshot.usage, snapshot.usageOff, now, usageAskedOf(snapshot.usageAsked)).filter((report) => ids.has(report.runtime))
+  const reports = trackedUsage(snapshot.runtimes, snapshot.usage, snapshot.usageOff, hostTime?.lowerMs ?? now, usageAskedOf(snapshot.usageAsked)).filter((report) => ids.has(report.runtime))
   if (reports.length === 0) return null
   return (
     <>
       <SectionHead level="label" name="Usage" />
       <div aria-label="Usage by account">
-        <DashboardAccounts accounts={reports.map((report) => (
+        <HostTimeProvider interval={hostTime}><DashboardAccounts accounts={reports.map((report) => (
           <UsageCard
             contentInset="row"
             key={`${report.runtime}:${report.account ?? ''}`}
@@ -2082,7 +2116,7 @@ const AgentUsage = ({ siblings }: { siblings: readonly RuntimeInfo[] }) => {
             onRefresh={() => void store.refreshUsage(report.runtime)}
             onStopTracking={() => store.setUsageTracked(report.runtime, false)}
           />
-        ))} />
+        ))} /></HostTimeProvider>
       </div>
     </>
   )
@@ -2168,7 +2202,7 @@ const AgentDetail = ({
           // Default when new sessions run as any of its accounts: which one
           // is the Accounts section's to say, and the pool's to move.
           control={snapshot.runtimes.some((entry) => entry.id === snapshot.activeRuntime && agentKey(entry) === agentKey(info))
-            ? <Chip state={defaultChipState(info, snapshot)} label="Default" />
+            ? <Chip state={defaultChipState(info, snapshot, store.hostTime?.() ?? null)} label="Default" />
             : <Button variant="outline" size="sm" onClick={() => void store.selectRuntime(firstInPool(
                 inPoolOrder(snapshot.runtimes.filter((entry) => agentKey(entry) === agentKey(info)), snapshot.accountPools[agentKey(info)], { reports: snapshot.usage, now: Date.now() }),
                 snapshot,
@@ -2193,7 +2227,7 @@ const AgentDetail = ({
       <AgentAccounts
         info={siblings[0] ?? info}
         siblings={siblings}
-        state={agentReadiness(siblings, snapshot)}
+        state={agentReadiness(siblings, snapshot, store.hostTime?.() ?? null)}
         now={now}
         onOpenAccount={onOpenAccount}
         onSignIn={onSignIn}
@@ -2322,18 +2356,22 @@ export const RuntimesSection = ({
   const openAccount = (runtime: RuntimeId, key: string): void => setView({ kind: 'account', runtime, key })
 
   const groups = useMemo(() => agentGroups(snapshot.runtimes), [snapshot.runtimes])
-  const pacing = useMemo(
-    () => pacingNote(snapshot.usage, (report) => snapshot.runtimes.find((entry) => entry.id === report.runtime)?.presentation.name ?? 'Runtime', Date.now()),
-    [snapshot.usage, snapshot.runtimes],
-  )
+  const hostTime = store.hostTime?.() ?? null
+  const pacing = useMemo(() => {
+    if (!hostTime || snapshot.usage.some(report => describeHostReport(report, hostTime).stale)) return null
+    const nameFor = (report: UsageReport) => snapshot.runtimes.find(entry => entry.id === report.runtime)?.presentation.name ?? 'Runtime'
+    const lower = pacingNote(snapshot.usage, nameFor, hostTime.lowerMs)
+    const upper = pacingNote(snapshot.usage, nameFor, hostTime.upperMs)
+    return lower === upper ? lower : null
+  }, [snapshot.usage, snapshot.runtimes, hostTime?.lowerMs, hostTime?.upperMs])
   const needle = query.trim().toLowerCase()
 
   const listed = useMemo(
     () =>
       groups
-        .map((group) => ({ ...group, state: agentReadiness(group.siblings, snapshot) }))
+        .map((group) => ({ ...group, state: agentReadiness(group.siblings, snapshot, hostTime) }))
         .filter((group) => agentMatches(group.siblings, snapshot, needle)),
-    [groups, snapshot, needle],
+    [groups, snapshot, needle, hostTime?.lowerMs, hostTime?.upperMs],
   )
   /* Split by what each agent needs from you. The reason anyone opens this
      page is usually one agent of many that will not take a turn, and sorting

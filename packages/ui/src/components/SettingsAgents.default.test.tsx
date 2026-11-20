@@ -49,6 +49,8 @@ const signedOut: AccountStatus = { accounts: [], signInMethods: [] } as unknown 
 const lane = (over: Partial<UsageLane> & Pick<UsageLane, 'id' | 'usedPercent'>): UsageLane =>
   ({ label: 'Weekly', windowMinutes: 10080, resetsAt: null, ...over }) as UsageLane
 
+const FIXTURE_NOW = Date.now()
+
 /** One account, its account-wide weekly gone — `limit`, which health cannot see. */
 const spent: UsageReport = {
   runtime: CLAUDE,
@@ -59,12 +61,12 @@ const spent: UsageReport = {
   spend: null,
   reached: 'weekly',
   source: { kind: 'runtime', label: 'its own API' },
-  fetchedAt: 0,
+  fetchedAt: FIXTURE_NOW,
   staleAfterMs: 600000,
   error: null,
 } as unknown as UsageReport
 
-const mount = async (over: Partial<AppSnapshot>): Promise<AppStore> => {
+const mount = async (over: Partial<AppSnapshot>, hostClock: { lowerMs: number; upperMs: number } | null = { lowerMs: FIXTURE_NOW, upperMs: FIXTURE_NOW }): Promise<AppStore> => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -74,6 +76,7 @@ const mount = async (over: Partial<AppSnapshot>): Promise<AppStore> => {
     ...over,
   } as unknown as AppSnapshot
   const store = {
+    hostTime: () => hostClock,
     transport: { request: vi.fn(async () => null) },
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
@@ -220,6 +223,12 @@ it('a default whose plan window is spent says so on all three surfaces', async (
   const states = await everySurface()
   expect(new Set(states).size).toBe(1)
   expect(states[0]).toBe('limit')
+})
+
+it('keeps a spent default unverified on all surfaces without Host time', async () => {
+  await mount({ accountsByRuntime: { [CLAUDE]: signedIn }, usage: [spent] } as unknown as Partial<AppSnapshot>, null)
+  const states = await everySurface()
+  expect(new Set(states)).toEqual(new Set(['unknown']))
 })
 
 it('a default that cannot start is broken on all three, as it always was', async () => {

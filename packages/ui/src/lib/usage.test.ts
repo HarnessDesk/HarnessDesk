@@ -8,6 +8,7 @@ import {
   accountActivitySummary,
   byUrgency,
   describeReport,
+  describeHostReport,
   drawnReport,
   formatAge,
   formatCountdown,
@@ -1037,5 +1038,64 @@ describe('the countdown the Lead is told (#2174)', () => {
     expect(formatResetCountdown).toBe(protocol.formatResetCountdown)
     expect(formatCountdownShort).toBe(protocol.formatCountdownShort)
     expect(formatResetCountdown(21.14 * DAY)).toBe(`in ${protocol.formatResetIn(21.14 * DAY)}`)
+  })
+})
+
+
+describe('Host time usage presentation', () => {
+  it.each(['straddled', 'expired'])('withholds reset wording when freshness is %s', kind => {
+    const reading = report({ fetchedAt: NOON - 1000, staleAfterMs: 1050, lanes: [lane({ id: 'weekly', usedPercent: 100, resetsAt: NOON + 3 * DAY })], reached: 'weekly' })
+    const interval = kind === 'straddled' ? { lowerMs: NOON, upperMs: NOON + 100 } : { lowerMs: NOON + 100, upperMs: NOON + 200 }
+    const view = describeHostReport(reading, interval)
+    expect(view.stale).toBe(true)
+    for (const item of [view.hero, view.reachedLane, ...view.lanes, ...view.all].filter(Boolean)) {
+      expect(item).toMatchObject({ countdown: null, shortCountdown: null, resetCountdown: '—', resetClock: null, remainingPercent: 0 })
+    }
+    expect(reading.fetchedAt).toBe(NOON - 1000)
+  })
+
+  it('retains reset wording when both endpoints see a fresh reading', () => {
+    const reading = report({ lanes: [lane({ id: 'weekly', usedPercent: 50, resetsAt: NOON + 3 * DAY })] })
+    const view = describeHostReport(reading, { lowerMs: NOON, upperMs: NOON + 1 })
+    expect(view.stale).toBe(false)
+    expect(view.hero?.resetCountdown).not.toBe('—')
+    expect(view.hero?.resetClock).not.toBeNull()
+  })
+  it('qualifies freshness across the entire interval and leaves unsupported time unverified', () => {
+    const reading = report({ fetchedAt: NOON - MINUTE })
+    for (const offset of [-30 * MINUTE, 30 * MINUTE]) {
+      expect(describeReport(reading, { now: NOON + offset }).stale).toBe(true)
+      expect(describeHostReport(reading, { lowerMs: NOON, upperMs: NOON + 100 }).stale).toBe(false)
+    }
+    expect(describeHostReport(reading, null)).toMatchObject({ stale: true, age: 'read time unverified' })
+    expect(describeHostReport(reading, { lowerMs: NOON + 3 * MINUTE, upperMs: NOON + 4 * MINUTE }).stale).toBe(true)
+  })
+  it('keeps a stable narrow-interval burn and pace at Host time', () => {
+    const reading = report({ lanes: [lane({ id: 'weekly', usedPercent: 70, windowMinutes: 10_080, resetsAt: NOON + 3 * DAY })] })
+    const expected = describeReport(reading, { now: NOON })
+    const actual = describeHostReport(reading, { lowerMs: NOON, upperMs: NOON + 1 })
+    expect(expected.pace).not.toBeNull()
+    expect(actual.pace?.text).toBe(expected.pace?.text)
+    expect(actual.hero?.burn?.status).toBe(expected.hero?.burn?.status)
+    expect(actual.hero?.burn).not.toBeNull()
+  })
+  it('withholds chart geometry that differs across a wide but fresh interval', () => {
+    const reading = report({ staleAfterMs: DAY, lanes: [lane({ id: 'weekly', usedPercent: 70, windowMinutes: 10_080, resetsAt: NOON + 3 * DAY })] })
+    const actual = describeHostReport(reading, { lowerMs: NOON, upperMs: NOON + HOUR })
+    expect(actual.stale).toBe(false)
+    expect(actual.hero?.burn).toBeNull()
+  })
+  it('withholds burn and pace when the interval crosses a reset', () => {
+    const reading = report({ lanes: [lane({ id: 'weekly', usedPercent: 70, windowMinutes: 10_080, resetsAt: NOON + 50 })] })
+    const actual = describeHostReport(reading, { lowerMs: NOON, upperMs: NOON + 100 })
+    expect(actual.hero?.burn).toBeNull()
+    expect(actual.pace).toBeNull()
+  })
+  it('does not present a countdown when uncertainty straddles a reset', () => {
+    const reading = report({ lanes: [lane({ id: 'weekly', usedPercent: 100, resetsAt: NOON + 50 })] })
+    const view = describeHostReport(reading, { lowerMs: NOON, upperMs: NOON + 100 })
+    expect(view.stale).toBe(true)
+    expect(view.hero?.countdown).toBeNull()
+    expect(view.hero?.resetClock).toBeNull()
   })
 })

@@ -4,7 +4,7 @@ import { answeredWithNothing, bindingLane, isSilentUsage, usageShapeOf } from '@
 import { paidForAccount, cycleStartFromLanes, periodBounds } from './paid'
 import { paidRatio } from './overview-strip'
 import { formatTokens } from './context-usage'
-import { balanceOf, DEFAULT_RANGE, describeReport, drawnReport, formatMoney, usageStandingOf, type ReportView } from './usage'
+import { balanceOf, DEFAULT_RANGE, describeReport, describeHostReport, drawnReport, formatMoney, usageStandingOf, type ReportView } from './usage'
 import { paletteTone, type Tone } from './limits'
 
 /**
@@ -157,7 +157,7 @@ export const leftOf = (shape: RowShape, report: UsageReport, view: ReportView): 
   }
 }
 
-export type RowStatus = 'ready' | 'low' | 'short' | 'out' | 'overdrawn' | 'overage' | 'unlimited' | 'unknown' | 'notReporting'
+export type RowStatus = 'ready' | 'low' | 'short' | 'out' | 'overdrawn' | 'overage' | 'unlimited' | 'unknown' | 'unverified' | 'notReporting'
 
 export const STATUS_LABEL: Readonly<Record<RowStatus, string>> = {
   ready: 'Ready',
@@ -169,6 +169,7 @@ export const STATUS_LABEL: Readonly<Record<RowStatus, string>> = {
   unlimited: 'Ready',
   // A read that failed or came back without usable figures reported something: Unknown, never Not reporting.
   unknown: 'Unknown',
+  unverified: 'Unverified',
   notReporting: 'Not reporting',
 }
 
@@ -181,6 +182,7 @@ export const STATUS_TONE: Readonly<Record<RowStatus, Tone>> = {
   overage: 'warn',
   unlimited: 'good',
   unknown: 'good',
+  unverified: 'warn',
   notReporting: 'good',
 }
 
@@ -369,7 +371,8 @@ export interface PlanRow {
  * `Card`'s own `stateOf` keeps. Borrowed and not blocked, it reads the raw
  * report's own (empty) lanes rather than the drawn ones.
  */
-export const describeRow = (report: UsageReport, now: number, preference?: UsagePreference): PlanRow => {
+export const describeRow = (report: UsageReport, now: number, preference?: UsagePreference, hostTime?: import('./host-clock').HostTimeInterval | null): PlanRow => {
+  now = hostTime?.lowerMs ?? now
   const drawn = drawnReport(report)
   const borrowed = drawn !== report
   const shape = primaryShapeOf(drawn)
@@ -381,9 +384,13 @@ export const describeRow = (report: UsageReport, now: number, preference?: Usage
   const standing = borrowed || preference?.pinLaneId ? null : usageStandingOf(report, now)
   const deciding =
     (standing?.status === 'short' || standing?.status === 'low') && standing.lane && !standing.lane.scope ? standing.lane.id : null
-  const view = describeReport(drawn, { now, maxLanes: 3, preference: deciding ? { ...preference, pinLaneId: deciding } : preference })
-  const statusView = borrowed ? describeReport(report, { now, maxLanes: 0 }) : view
-  const status = statusOf(report, shape, statusView, now)
+  const options = { maxLanes: 3, preference: deciding ? { ...preference, pinLaneId: deciding } : preference }
+  const view = hostTime === undefined ? describeReport(drawn, { now, ...options }) : describeHostReport(drawn, hostTime, options)
+  const statusView = borrowed ? (hostTime === undefined ? describeReport(report, { now, maxLanes: 0 }) : describeHostReport(report, hostTime, { maxLanes: 0 })) : view
+  const statusNow = hostTime === null ? report.fetchedAt : now
+  const baseStatus = statusOf(report, shape, statusView, statusNow)
+  const upperStatus = hostTime ? statusOf(report, shape, statusView, hostTime.upperMs) : baseStatus
+  const status = hostTime !== undefined && (statusView.stale || baseStatus !== upperStatus) && baseStatus !== 'unknown' && baseStatus !== 'notReporting' ? 'unverified' : baseStatus
   // Unknown has no figure to draw and sorts on none; a kept reading draws its last good figure.
   const left = status === 'unknown' ? { percent: null } : leftOf(shape, drawn, view)
   return {
@@ -428,7 +435,7 @@ const rankOf = (row: PlanRow): number => {
   return row.shape === 'none' ? 1_001 : 1_000
 }
 
-const SEVERITY_RANK: Readonly<Record<RowStatus, number>> = { out: 0, overdrawn: 1, short: 2, low: 3, unknown: 4, overage: 5, ready: 6, unlimited: 7, notReporting: 8 }
+const SEVERITY_RANK: Readonly<Record<RowStatus, number>> = { out: 0, overdrawn: 1, short: 2, low: 3, unknown: 4, unverified: 4, overage: 5, ready: 6, unlimited: 7, notReporting: 8 }
 
 const tiebreak = (a: PlanRow, b: PlanRow): number =>
   SEVERITY_RANK[a.status] - SEVERITY_RANK[b.status] ||
@@ -520,4 +527,5 @@ export const planRows = (
   reports: readonly UsageReport[],
   now: number,
   preferenceFor: (report: UsageReport) => UsagePreference = () => ({}),
-): readonly PlanRow[] => sortRows(reports.map((report) => describeRow(report, now, preferenceFor(report))))
+  hostTime?: import('./host-clock').HostTimeInterval | null,
+): readonly PlanRow[] => sortRows(reports.map((report) => describeRow(report, now, preferenceFor(report), hostTime)))

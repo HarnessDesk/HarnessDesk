@@ -5,9 +5,9 @@ import type { MainPageInput } from '../app/main-page-entries'
 import type { InsightReport, LedgerReport, RuntimeId, UsageReport } from '@harnessdesk/protocol'
 import { trackedUsage } from '@harnessdesk/protocol'
 
-import { byUrgency, costClause, runway, usageAskedOf } from '../lib/usage'
-import { dashboardReadLabel } from '../lib/dashboard-read'
+import { byUrgency, costClause, runway, usageAskedOf, formatAge, describeHostReport } from '../lib/usage'
 import { useSnapshot, useStore } from '../state/context'
+import { HostTimeProvider } from '../state/host-time-context'
 import { Page, PageOptions, PageExplanation } from '../design'
 import { DashboardBar } from '../panels/dashboard-bar'
 import { useDestinationPage } from '../panels/destination-page'
@@ -45,6 +45,7 @@ export const DashboardPage = ({ view, scope, onView, onScope, onSignIn, onOpenPl
   const store = useStore()
   const snapshot = useSnapshot()
   const [now, setNow] = useState(() => Date.now())
+  const hostTime = store.hostTime?.() ?? null
   useEffect(() => setNow(Date.now()), [snapshot.usage])
   const [pivot, setPivot] = useState<Pivot>('runtime')
   const [range, setRange] = useState<number>(DEFAULT_RANGE)
@@ -197,10 +198,13 @@ export const DashboardPage = ({ view, scope, onView, onScope, onSignIn, onOpenPl
   const agentTints = useMemo(() => tintsForRoster(snapshot.runtimes), [snapshot.runtimes])
 
   // Every registered agent gets a card, whether or not it reported anything.
-  const everyReport = useMemo(
-    () => byUrgency([...trackedUsage(snapshot.runtimes, snapshot.usage, snapshot.usageOff, now, usageAskedOf(snapshot.usageAsked))], now),
-    [snapshot.runtimes, snapshot.usage, snapshot.usageOff, snapshot.usageAsked, now],
-  )
+  const everyReport = useMemo(() => {
+    const readings = [...trackedUsage(snapshot.runtimes, snapshot.usage, snapshot.usageOff, hostTime?.lowerMs ?? now, usageAskedOf(snapshot.usageAsked))]
+    if (!hostTime || readings.some(report => describeHostReport(report, hostTime).stale)) return readings
+    const lower = byUrgency(readings, hostTime.lowerMs)
+    const upper = byUrgency(readings, hostTime.upperMs)
+    return lower.every((report, index) => report === upper[index]) ? lower : readings
+  }, [snapshot.runtimes, snapshot.usage, snapshot.usageOff, snapshot.usageAsked, now, hostTime?.lowerMs, hostTime?.upperMs])
 
   // Every view reads the same scope, applied here once.
   const reports = useMemo(
@@ -211,17 +215,18 @@ export const DashboardPage = ({ view, scope, onView, onScope, onSignIn, onOpenPl
   const attention = useMemo(
     () =>
       reports.filter((report) =>
-        reportNeedsAttention(report, now),
+        hostTime !== null && !describeHostReport(report, hostTime).stale && reportNeedsAttention(report, hostTime.lowerMs) && reportNeedsAttention(report, hostTime.upperMs),
       ),
-    [reports, now],
+    [reports, hostTime?.lowerMs, hostTime?.upperMs],
   )
 
-  const summary = useMemo(
-    () => runway(reports, (report) => nameOf(report.runtime), now),
-    // `nameOf` closes over the runtime map, which is what actually changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [reports, byId, now],
-  )
+  const summary = useMemo(() => {
+    const empty = { exhausted: [], low: [], metered: 0, total: reports.length, nextReturn: null, headline: null, detail: '' }
+    if (!hostTime || reports.some(report => describeHostReport(report, hostTime).stale)) return empty
+    const lower = runway(reports, report => nameOf(report.runtime), hostTime.lowerMs)
+    const upper = runway(reports, report => nameOf(report.runtime), hostTime.upperMs)
+    return JSON.stringify(lower) === JSON.stringify(upper) ? lower : empty
+  }, [reports, byId, hostTime?.lowerMs, hostTime?.upperMs])
 
   /** Every tracked agent nobody has signed in — Plans lists each; Overview counts them. */
   const silent = useMemo(
@@ -273,10 +278,10 @@ export const DashboardPage = ({ view, scope, onView, onScope, onSignIn, onOpenPl
   }))]
   // An unavailable route keeps its identity until the user chooses a scope.
   if (scope !== null && !scopeItems.some(item => item.value === scope)) scopeItems.push({ value: scope, label: 'Unavailable account' })
-  return <Page width="wide">
+  return <HostTimeProvider interval={hostTime}><Page width="wide">
     <PageOptions title="Dashboard" choices={[{ id: 'scope', label: 'Scope the dashboard to one account', mode: 'menu',
       value: scope ?? '', items: scopeItems, change: value => onScope(value ? value as RuntimeId : null) }]}
-      read={oldest === null ? null : dashboardReadLabel(oldest, now, performance.timeOrigin)}
+      read={oldest === null ? null : hostTime && formatAge(oldest, hostTime.lowerMs) === formatAge(oldest, hostTime.upperMs) ? `Read ${formatAge(oldest, hostTime.lowerMs)}` : 'Read time unverified'}
       action={{ label: refreshing ? 'Refreshing…' : 'Refresh', disabled: refreshing, run: () => void refresh() }} />
     <DashboardBar view={view} attention={attention.length} changeView={onView} />
     {blurb && <PageExplanation>{blurb}</PageExplanation>}
@@ -379,7 +384,7 @@ export const DashboardPage = ({ view, scope, onView, onScope, onSignIn, onOpenPl
               onRangeChange={days => setInsightRange({ root: projectRoot, days })}
             />
           )}
-  </Page>
+  </Page></HostTimeProvider>
 }
 
 export const DashboardEntry = ({ page, visit, onSignIn }: MainPageInput) => {
