@@ -7,6 +7,7 @@ import { tempDir } from './scratch.js'
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { LeadPersonActions } from '../src/lead/person-actions.js'
 import { initialLeadState, reduceLeadRecord } from '@harnessdesk/lead'
+import { parseLeadWindowProjection } from '@harnessdesk/protocol'
 import { leadApprovalCards } from '../src/lead/projection.js'
 
 const digest = 'a'.repeat(64)
@@ -354,6 +355,39 @@ test('a redundant command fact retains the existing once-only Lead decision', as
   await assert.rejects(s.actions.perform({ id: action.id, contractDigest: digest, choice: 'yes-goal' }))
   await s.actions.perform({ id: action.id, contractDigest: digest, choice: 'yes-once' })
   assert.equal(s.calls[0]?.params.decision.optionId, 'allow-once')
+})
+
+for (const [name, cwd, readable] of [
+  ['lone high surrogate', '/workspace/\ud800', false],
+  ['lone low surrogate', '/workspace/\udc00', false],
+  ['well-formed surrogate pair', '/workspace/🐈', true],
+] as const) test(`surrogate permission cwd keeps the Lead projection readable: ${name}`, async () => {
+  const s = rig(); s.approval.summary = 'echo ok'
+  Object.assign(s.approval, { cwd, facts: [{ label: 'Command', value: 'echo ok' }] })
+  const actions = await s.actions.read()
+  // Exercise the same final parser as Lead controls, before checking the fallback.
+  const projection = parseLeadWindowProjection({ version: 1, revision: 0,
+    thread: { version: 1, id: 'lead', revision: 0, state: 'running', project: null, olderMessages: 0, messages: [], cards: [] },
+    settings: { version: 1, name: 'dex', model: 'fixture', key: { configured: false, protection: 'unavailable' },
+      policy: { version: 1, revision: 0, mode: 'default', rules: [] }, caps: { usdMicros: 5_000_000, rounds: 3 } },
+    requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, personActions: actions })
+  const action = projection.personActions?.[0]
+  assert.equal(projection.personActions?.length, 1)
+  assert.equal(action?.id, actions[0]?.id)
+  assert.ok(action?.kind === 'worker-approval')
+  assert.deepEqual(action.choices, readable ? ['yes-once', 'no'] : ['no'])
+  if (readable) {
+    assert.equal(action.details, `Command: echo ok\nWorking folder: ${cwd}`)
+  } else {
+    assert.equal(action.details, undefined)
+    assert.match(action.request, /full request is on the desk/)
+    await assert.rejects(s.actions.perform({ id: action.id, contractDigest: digest, choice: 'yes-once' }))
+  }
+  await assert.rejects(s.actions.perform({ id: action.id, contractDigest: digest, choice: 'yes-goal' }))
+  assert.equal(await s.actions.autoAnswer('fixture', 'session', 'approval'), false)
+  assert.equal(s.calls.length, 0)
+  await s.actions.perform({ id: action.id, contractDigest: digest, choice: 'no' })
+  assert.equal(s.calls[0]?.params.decision.optionId, 'deny')
 })
 
 test('nonredundant or unsafe permission command facts remain desk-only', async () => {

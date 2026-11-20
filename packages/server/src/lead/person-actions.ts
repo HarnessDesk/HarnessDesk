@@ -67,7 +67,7 @@ export class LeadPersonActions {
         const rawDiff = approval.type === 'fileChange' && approval.changes.length === 1 ? approval.changes[0]!.diff : undefined
         const scope = [approval.reason, ...(approval.extraGrants ?? []).map(fact => `${fact.label}: ${fact.value}`)].filter(Boolean).join('\n')
         const redundantCommand = approval.type === 'permission' && !approval.gateway && !approval.flowBoardTool && !approval.filesystem?.length && !approval.network?.length &&
-          approval.facts?.length === 1 && approval.facts[0]?.label === 'Command' && approval.facts[0].value === approval.summary && !!approval.summary.trim() && !!approval.cwd?.trim() && !/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(approval.cwd)
+          approval.facts?.length === 1 && approval.facts[0]?.label === 'Command' && approval.facts[0].value === approval.summary && !!approval.summary.trim() && !!approval.cwd?.trim() && !/[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(approval.cwd)
         const content = approval.type === 'command' ? `Command: ${approval.command}\nWorking folder: ${approval.cwd}${approval.kind === 'stdin' ? `\nInput: ${approval.input ?? ''}` : ''}` :
           approval.type === 'permission' && redundantCommand ? `Command: ${approval.summary}\nWorking folder: ${approval.cwd}` : rawDiff
         const details = [content, scope].filter(value => value !== undefined && value !== '').join('\n') || undefined

@@ -511,8 +511,9 @@ const runPrompt = async (id, params) => {
     const spec = JSON.parse(text.slice('wire permission sequence '.length))
     for (const event of spec.updates ?? []) update(state.id, { sessionUpdate: event.sessionUpdate ?? 'tool_call_update', toolCallId: 'wire-command', ...event })
     for (const call of spec.requests) {
-      const { outcome } = await request('session/request_permission', { sessionId: state.id, toolCall: { toolCallId: 'wire-command', title: 'Wire command', ...call },
-        options: [{ optionId: 'no', name: 'Deny once', kind: 'reject_once' }] })
+      const { _meta, ...toolCall } = call
+      const { outcome } = await request('session/request_permission', { sessionId: state.id, toolCall: { toolCallId: 'wire-command', title: 'Wire command', ...toolCall },
+        options: spec.options ?? [{ optionId: 'no', name: 'Deny once', kind: 'reject_once' }], ...(_meta ? { _meta } : {}) })
       say(outcome.outcome === 'selected' ? outcome.optionId : 'cancelled')
     }
     return reply(id, { stopReason: 'end_turn' })

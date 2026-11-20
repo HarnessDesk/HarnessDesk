@@ -3726,6 +3726,57 @@ const epochOldInput = { command: 'echo old', cwd: '/tmp/old' }
 const epochFreshInput = { command: 'echo fresh', cwd: '/tmp/fresh' }
 const epochExecute = { sessionUpdate: 'tool_call', kind: 'execute', rawInput: epochOldInput }
 const epochRead = { sessionUpdate: 'tool_call', kind: 'read', rawInput: epochOldInput }
+const epochQuestion = { question: 'Which library should we use?', header: 'Library', multiSelect: false,
+  options: [{ label: 'date-fns', description: 'Small, tree-shakeable.' }, { label: 'dayjs', description: 'Moment-compatible API.' }] }
+const epochQuestionMeta = { harnessdesk: { question: epochQuestion } }
+for (const spec of [
+  { name: 'metadata changed kind clears input', question: { _meta: epochQuestionMeta, kind: 'think' }, expected: [null, '/tmp/w'] },
+  { name: 'metadata cleared kind clears input', question: { _meta: epochQuestionMeta, kind: null }, expected: [null, '/tmp/w'] },
+  { name: 'metadata null input clears input', question: { _meta: epochQuestionMeta, rawInput: null }, expected: [null, '/tmp/w'] },
+  { name: 'metadata partial input replaces whole', question: { _meta: epochQuestionMeta, rawInput: { cwd: '/tmp/fresh' } }, expected: [null, '/tmp/fresh'] },
+  { name: 'metadata fresh input replaces whole', question: { _meta: epochQuestionMeta, rawInput: epochFreshInput }, expected: ['echo fresh', '/tmp/fresh'] },
+  { name: 'metadata omitted kind and input retain snapshot', question: { _meta: epochQuestionMeta }, expected: ['echo old', '/tmp/old'] },
+  { name: 'input-shaped changed kind clears input', question: { kind: 'think', rawInput: { questions: [epochQuestion] } }, expected: [null, '/tmp/w'] },
+  { name: 'input-shaped cleared kind clears input', question: { kind: null, rawInput: { questions: [epochQuestion] } }, expected: [null, '/tmp/w'] },
+  { name: 'input-shaped replacement removes command', question: { rawInput: { questions: [epochQuestion] } }, expected: [null, '/tmp/w'] },
+  { name: 'input-shaped same kind accepts fresh input', question: { kind: 'execute', rawInput: { questions: [epochQuestion], ...epochFreshInput } }, expected: ['echo fresh', '/tmp/fresh'] },
+  { name: 'input-shaped fresh input cannot cross kind reentry', question: { kind: 'think', rawInput: { questions: [epochQuestion], ...epochFreshInput } }, expected: [null, '/tmp/w'] },
+]) test(`permission question epoch: ${spec.name}`, async () => {
+  const runtime = make()
+  try {
+    await runtime.start(); const tape = record(runtime); const session = await runtime.createSession({ cwd: '/tmp/w' })
+    const sequence = { updates: [epochExecute], requests: [spec.question, { kind: 'execute' }, {}],
+      options: [{ optionId: 'no', name: 'Deny once', kind: 'reject_once' },
+        { optionId: 'answer-0', name: 'date-fns', kind: 'allow_once' }, { optionId: 'answer-1', name: 'dayjs', kind: 'allow_once' }] }
+    await session.send([{ type: 'text', text: `wire permission sequence ${JSON.stringify(sequence)}` }])
+    const requested = await tape.until(one => one.type === 'approval/requested')
+    tape.events.splice(tape.events.indexOf(requested), 1)
+    if (requested.type !== 'approval/requested' || requested.approval.type !== 'userInput') throw new Error('expected question')
+    const question = requested.approval
+    assert.equal(question.itemId, 'wire-command'); assert.equal(question.tool, 'AskUserQuestion')
+    assert.equal(question.questions[0]?.id, 'q'); assert.equal(question.questions[0]?.question, epochQuestion.question)
+    assert.equal(question.questions[0]?.header, epochQuestion.header); assert.equal(question.questions[0]?.multiSelect, false)
+    assert.deepEqual(question.questions[0]?.options.map(option => [option.id, option.label, option.description]),
+      [['answer-0', 'date-fns', 'Small, tree-shakeable.'], ['answer-1', 'dayjs', 'Moment-compatible API.']])
+    await session.respondToApproval(question.id, { type: 'answers', answers: { q: ['answer-1'] } })
+    const actual = []
+    for (let i = 0; i < 2; i++) {
+      const event = await tape.until(one => one.type === 'approval/requested')
+      tape.events.splice(tape.events.indexOf(event), 1)
+      if (event.type !== 'approval/requested' || event.approval.type !== 'permission') throw new Error('expected execute permission')
+      assert.equal(event.approval.summary, 'Wire command'); assert.equal(event.approval.itemId, 'wire-command')
+      assert.deepEqual(event.approval.options.map(option => [option.id, option.intent, option.grant]),
+        [['no', 'deny', undefined], ['answer-0', 'approve', undefined], ['answer-1', 'approve', undefined]])
+      actual.push([event.approval.facts?.[0]?.value ?? null, event.approval.cwd])
+      await session.respondToApproval(event.approval.id, { type: 'option', optionId: 'no' })
+    }
+    const completed = await tape.until(one => one.type === 'turn/completed')
+    assert.ok(completed.type === 'turn/completed' && completed.turn.items.some(item => item.type === 'assistantMessage' && item.text.includes('answer-1')),
+      'the selected question option reaches the real ACP child unchanged')
+    assert.deepEqual(actual, [spec.expected, spec.expected])
+  } finally { await runtime.dispose() }
+})
+
 for (const spec of [
   { name: 'notification execute/read/execute', updates: [epochExecute, { kind: 'read' }, { kind: 'execute' }], requests: [{}], expected: [[null, '/tmp/w']] },
   { name: 'notification execute/clear/execute', updates: [epochExecute, { kind: null }, { kind: 'execute' }], requests: [{}], expected: [[null, '/tmp/w']] },

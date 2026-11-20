@@ -6201,6 +6201,10 @@ class AcpSession implements AgentSession {
     // A session a stop is closing and reopening has nobody to ask for.
     if (this.#reopenPhase) return Promise.resolve({ outcome: { outcome: 'cancelled' } })
     const id = approvalId(`acp-${request.toolCall.toolCallId}-${Date.now().toString(36)}`)
+    // A question can still replace or clear this tool's permission-input epoch.
+    const priorTool = this.#currentTurn?.tools?.get(request.toolCall.toolCallId)
+    const wire = patchPermissionWire(priorTool?.permissionWire, request.toolCall)
+    if (priorTool) this.#currentTurn?.tools?.set(request.toolCall.toolCallId, { ...priorTool, permissionWire: wire })
     // A question is not a permission. Our Claude bridge carries Claude Code's
     // `AskUserQuestion` as a permission request whose options are the
     // answers, with the question beside them; drawn as a permission it would
@@ -6245,9 +6249,6 @@ class AcpSession implements AgentSession {
       })
     }
     const flowBoardTool = this.#host.trustsBridgeProvenance ? flowBoardToolOf(request) : null
-    const priorTool = this.#currentTurn?.tools?.get(request.toolCall.toolCallId)
-    const wire = patchPermissionWire(priorTool?.permissionWire, request.toolCall)
-    if (priorTool) this.#currentTurn?.tools?.set(request.toolCall.toolCallId, { ...priorTool, permissionWire: wire })
     const input = wire.rawInput
     const command = input !== null && typeof input === 'object' && !Array.isArray(input)
       ? (input as { command?: unknown }).command : undefined
