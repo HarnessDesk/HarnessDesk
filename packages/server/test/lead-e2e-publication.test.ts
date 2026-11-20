@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { writeSync } from 'node:fs'
 import { join } from 'node:path'
 import { leadHandbackTerminal } from '@harnessdesk/lead'
 import { EvidenceStore } from '../src/evidence/store.js'
 import { createLeadRig } from './fixtures/lead-rig.js'
+import { publicationStages } from './fixtures/publication-stages.js'
 
 // Every case owns the actual host, child, restricted door, journal and Flow engine.
 // These assertions must also hold when guards are deliberately removed locally.
@@ -41,62 +43,77 @@ const publishReviewedResult = async (rig: LeadRig) => {
 
 for (const restart of [false, true]) test(`E3/E4 ${restart ? 'across host restart' : 'in one sitting'}: person PR creation, one same-Team repair, green evidence and external merge`, { timeout: 240_000 }, async t => {
   const started = Date.now()
+  let currentRig: LeadRig | undefined
+  const stages = publicationStages(t.signal, phase => {
+    const state = currentRig?.journal.state
+    const result = currentRig?.pending('result')
+    const snapshot = { journal: state && { seq: state.seq, phase: state.phase, reason: state.managementReason,
+      ownedPush: state.ownedPush?.stage, pr: state.pr, handbacks: state.handbacks.map(op => ({ stage: op.stage, head: op.head, publishedHead: op.publishedHead })) },
+      result: result ? { id: result.id, revision: result.revision } : null, childLive: currentRig?.childLive,
+      children: currentRig?.children.map(child => ({ pid: child.pid, exitCode: child.exitCode, signalCode: child.signalCode, killed: child.killed })) }
+    writeSync(2, `lead-publication ${restart ? 'restart' : 'one-sitting'} ${Date.now() - started}ms ${phase} ${JSON.stringify(snapshot)}\n`)
+  })
+  t.after(() => stages.dispose())
   // A healthy walk waits about 10s for any one step, even on CI. A wait as long
   // as the case's own 240s ceiling meant a stalled repair was cut by the runner
   // before the rig could say which state it was stuck in; 120s still leaves a
   // slow step a dozen times its usual time, and a stall names itself.
-  const rig = await createLeadRig({ publication: true, offlineForge: true, holdWorkers: true, waitMs: 120_000 })
-  t.after(() => rig.dispose())
+  const rig = await stages.run('rig', () => createLeadRig({ publication: true, offlineForge: true, holdWorkers: true, waitMs: 120_000 }))
+  currentRig = rig
+  t.after(() => stages.run('cleanup', () => rig.dispose()))
   const offline = rig.offline
   assert.ok(offline, 'the rig exposes an offline fake forge and local bare remote')
   let recoveredHost = false
   const waitForObservedResult = (label: string, ready?: () => boolean) => observedResult(rig, label, recoveredHost, ready)
-  await publishReviewedResult(rig)
+  await stages.run('initial-publication', () => publishReviewedResult(rig))
   t.diagnostic(`initial reviewed PR published after ${Date.now() - started}ms`)
   const initial = structuredClone(rig.journal.state.pr)!, team = rig.journal.state.runs[0]!.teamId
   assert.equal(rig.journal.state.phase, 'following')
-  assert.equal((await offline.read()).pulls.length, 1)
-  await offline.failChecks(); await offline.poll()
-  await rig.waitFor(() => rig.journal.state.handbacks.length === 1, 'same-Team hand-back')
+  assert.equal((await stages.run('forge-read', () => offline.read())).pulls.length, 1)
+  await stages.run('failed-checks', () => offline.failChecks())
+  await stages.run('failed-check-poll', () => offline.poll())
+  await stages.run('handback', () => rig.waitFor(() => rig.journal.state.handbacks.length === 1, 'same-Team hand-back'))
   const operation = rig.journal.state.handbacks[0]!
   assert.equal(operation.teamId, team); assert.equal(operation.runId, rig.journal.state.runs[0]!.runId)
   const repairStarted = Date.now()
-  try { await rig.waitFor(() => rig.journal.state.handbacks[0]?.stage === 'awaiting-ci', 'reviewed host push') }
+  try { await stages.run('reviewed-push', () => rig.waitFor(() => rig.journal.state.handbacks[0]?.stage === 'awaiting-ci', 'reviewed host push')) }
   finally { t.diagnostic(`reviewed host push wait took ${Date.now() - repairStarted}ms; stage=${rig.journal.state.handbacks[0]?.stage}`) }
   if (restart) {
-    await rig.interruptAt('host-restart')
+    await stages.run('host-restart', () => rig.interruptAt('host-restart'))
     recoveredHost = true
     assert.equal(rig.journal.state.handbacks[0]?.stage, 'awaiting-ci', 'restart retains the published head and CI wait')
     assert.equal(rig.journal.state.budget?.stop, null, 'restored fake runtimes retain known spend before recovery')
   }
   const repaired = rig.journal.state.pr!.head
   assert.notEqual(repaired, initial.head)
-  await offline.poll()
+  await stages.run('duplicate-poll', () => offline.poll())
   assert.equal(rig.journal.state.handbacks.length, 1, 'duplicate polling opens no extra round')
-  await offline.passChecks()
+  await stages.run('pass-checks', () => offline.passChecks())
   // Supplemental PR reads are budgeted across polls; drive the fake clock
   // until this exact head's green check has actually been observed.
-  for (let poll = 0; poll < 8 && rig.journal.state.pr?.check?.state !== 'passed'; poll++) await offline.poll()
+  for (let poll = 0; poll < 8 && rig.journal.state.pr?.check?.state !== 'passed'; poll++) await stages.run(`green-poll-${poll}`, () => offline.poll())
   const repairReady = () => {
     const state = rig.journal.state, op = state.handbacks.at(-1), pr = state.pr
     return op?.key === operation.key && leadHandbackTerminal(op) && op.publishedHead === repaired && state.ciPassed.includes(repaired) &&
       pr?.head === repaired && pr.check?.head === repaired && pr.check.state === 'passed'
   }
-  await rig.waitFor(repairReady, 'terminal hand-back and durable green CI on the repaired head')
-  const evidence = await new EvidenceStore(join(rig.home, 'evidence')).read(rig.project.path, 'evidence')
+  await stages.run('terminal-handback', () => rig.waitFor(repairReady, 'terminal hand-back and durable green CI on the repaired head'))
+  const evidence = await stages.run('green-evidence', () => new EvidenceStore(join(rig.home, 'evidence')).read(rig.project.path, 'evidence'))
   assert.equal(evidence.skipped, 0)
   const green = evidence.lines.flatMap(line => line.type === 'evidence' && line.record.intake?.goal === team && line.record.fact.kind === 'ci' && line.record.fact.at === repaired ? [line.record.fact] : [])
   assert.equal(green.length, 1, 'one durable green CI fact for this Team and published head')
   assert.ok(green[0]!.kind === 'ci' && green[0]!.checks.some(check => check.name === 'CI passed' && check.state === 'passed'))
   // Green forge state alone does not mean the child consumed the repair's final
   // notifications. Finish that observation before re-reading the pending card.
-  await waitForObservedResult('fresh post-green result after final repair observations', repairReady)
-  await rig.decide(rig.pending('result')!, 'accept')
+  await stages.run('post-green-result', () => waitForObservedResult('fresh post-green result after final repair observations', repairReady))
+  await stages.run('accept', () => rig.decide(rig.pending('result')!, 'accept'))
   assert.equal(rig.journal.state.phase, 'following')
-  await offline.mergeExternally(); await offline.poll()
+  await stages.run('external-merge', () => offline.mergeExternally())
+  await stages.run('merge-poll', () => offline.poll())
   assert.equal(rig.journal.state.phase, 'accepted'); assert.equal(rig.journal.state.pr?.state, 'merged')
-  await rig.assertAccounting(); await rig.assertNoForbiddenEffects()
-  assert.equal((await offline.pushes()).length, 2)
+  await stages.run('accounting', () => rig.assertAccounting())
+  await stages.run('forbidden-effects', () => rig.assertNoForbiddenEffects())
+  assert.equal((await stages.run('pushes-read', () => offline.pushes())).length, 2)
 })
 
 test('a Lead request that starts while a repair push is admitted does not park the repair on the person', { timeout: 240_000 }, async t => {
