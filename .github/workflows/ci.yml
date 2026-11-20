@@ -10,7 +10,7 @@ on:
   pull_request:
     # Only full-ci admits label events; other labels skip with non-authoritative names.
     types: [opened, synchronize, reopened, labeled]
-  # Runs started by hand always prove the full suite.
+  # Other manual branches still prove the full suite; this private diagnostic branch never emits landing proof.
   workflow_dispatch:
 
 # Each development push checks its own range, so give it a separate group:
@@ -29,7 +29,7 @@ concurrency:
 jobs:
   changes:
     name: "${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && 'Label ignored: inputs' || 'UI integration inputs' }}"
-    if: github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'full-ci'
+    if: ${{ (github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'full-ci') && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/diagnose-2289-browser') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -174,6 +174,7 @@ jobs:
   # A separate check names the tier without changing branch protection's check
   # names. land-safe matches this proof to the required checks' check-suite id.
   ci-tier:
+    if: ${{ !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/diagnose-2289-browser') }}
     name: "${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && 'Label ignored' || 'CI tier' }}: ${{ needs.changes.outputs.tier }}"
     needs: changes
     runs-on: ubuntu-latest
@@ -195,6 +196,7 @@ jobs:
   # Each job repeats the checkout, install and build, about a minute, in
   # parallel; `verify` at the end keeps the one name branch protection reads.
   node-tests:
+    if: ${{ !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/diagnose-2289-browser') }}
     name: Node tests ${{ matrix.job }}
     needs: changes
     runs-on: ubuntu-latest
@@ -253,6 +255,7 @@ jobs:
           if-no-files-found: ignore
 
   ui-typecheck:
+    if: ${{ !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/diagnose-2289-browser') }}
     name: UI typecheck and desktop tests
     needs: changes
     runs-on: ${{ fromJSON(needs.changes.outputs.linux) }}
@@ -291,7 +294,7 @@ jobs:
   ui-unit-tests:
     name: UI unit tests shard ${{ matrix.shard }}/${{ needs.changes.outputs.unit_shard_count }}
     needs: changes
-    if: needs.changes.outputs.unit_mode != 'none'
+    if: ${{ (needs.changes.outputs.unit_mode != 'none') && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/diagnose-2289-browser') }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -338,7 +341,7 @@ jobs:
     name: UI tests
     runs-on: ubuntu-latest
     needs: [changes, ui-typecheck, ui-unit-tests]
-    if: always() && (github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'full-ci')
+    if: ${{ (always() && (github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'full-ci')) && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/diagnose-2289-browser') }}
     timeout-minutes: 5
     steps:
       - name: Require typecheck, desktop and the selected unit tests
@@ -361,6 +364,7 @@ jobs:
           exit 1
 
   gates:
+    if: ${{ !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/diagnose-2289-browser') }}
     name: Gates
     needs: changes
     runs-on: ${{ fromJSON(needs.changes.outputs.linux) }}
@@ -467,7 +471,7 @@ jobs:
         run: node script/check-verify-steps.mjs
 
   ios-native-tests:
-    if: github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'full-ci'
+    if: ${{ (github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'full-ci') && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/diagnose-2289-browser') }}
     name: Swift simulator tests
     runs-on: macos-15
     timeout-minutes: 10
@@ -482,7 +486,7 @@ jobs:
     name: "${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && 'Label ignored: Build, typecheck, test' || 'Build, typecheck, test' }}"
     runs-on: ubuntu-latest
     needs: [node-tests, ui-tests, gates, ios-native-tests]
-    if: always() && (github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'full-ci')
+    if: ${{ (always() && (github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'full-ci')) && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/diagnose-2289-browser') }}
     timeout-minutes: 5
 
     steps:
@@ -507,7 +511,7 @@ jobs:
     runs-on: macos-15
     needs: verify
     timeout-minutes: 30
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    if: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/diagnose-2289-browser') }}
 
     steps:
       - uses: actions/checkout@v7
@@ -536,7 +540,7 @@ jobs:
   # the next pull request that happens to select a static spec.
   ui-system-build:
     needs: changes
-    if: needs.changes.outputs.browser == 'all'
+    if: ${{ (needs.changes.outputs.browser == 'all') && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/diagnose-2289-browser') }}
     name: UI system pages
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -589,7 +593,7 @@ jobs:
 
   ui-system-browser:
     needs: [changes, ui-system-build]
-    if: needs.changes.outputs.browser == 'all'
+    if: ${{ (needs.changes.outputs.browser == 'all') && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/diagnose-2289-browser') }}
     name: UI system browser integration shard ${{ matrix.shard }}/${{ needs.changes.outputs.shard_count }}
     runs-on: ubuntu-latest
     strategy:
@@ -682,7 +686,7 @@ jobs:
   ui-impact-map:
     name: UI impact map
     needs: [changes, ui-system-browser]
-    if: needs.changes.outputs.record == 'true' && needs.ui-system-browser.result == 'success'
+    if: ${{ (needs.changes.outputs.record == 'true' && needs.ui-system-browser.result == 'success') && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/diagnose-2289-browser') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -715,7 +719,7 @@ jobs:
 
   ui-system-server:
     needs: changes
-    if: needs.changes.outputs.browser == 'server'
+    if: ${{ (needs.changes.outputs.browser == 'server') && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/diagnose-2289-browser') }}
     name: UI system server-facing browser specs
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -759,7 +763,7 @@ jobs:
   site-demo-engines:
     name: Site demo Firefox and WebKit
     needs: changes
-    if: github.event_name == 'pull_request' || needs.changes.outputs.tier == 'full'
+    if: ${{ (github.event_name == 'pull_request' || needs.changes.outputs.tier == 'full') && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/diagnose-2289-browser') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -790,7 +794,7 @@ jobs:
     name: "${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && 'Label ignored: UI system browser integration' || 'UI system browser integration' }}"
     runs-on: ubuntu-latest
     needs: [changes, ui-system-build, ui-system-browser, ui-system-server, site-demo-engines]
-    if: always() && (github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'full-ci')
+    if: ${{ (always() && (github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'full-ci')) && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/diagnose-2289-browser') }}
     timeout-minutes: 5
 
     steps:
@@ -837,7 +841,7 @@ jobs:
   ui-system-native:
     name: UI system native smoke
     needs: changes
-    if: needs.changes.outputs.native == 'true'
+    if: ${{ (needs.changes.outputs.native == 'true') && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/diagnose-2289-browser') }}
     runs-on: macos-15
     timeout-minutes: 20
 
@@ -870,7 +874,7 @@ jobs:
     name: "${{ github.event.action == 'labeled' && github.event.label.name != 'full-ci' && 'Label ignored: UI system native integration' || 'UI system native integration' }}"
     runs-on: ubuntu-latest
     needs: [changes, ui-system-native]
-    if: always() && (github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'full-ci')
+    if: ${{ (always() && (github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'full-ci')) && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/diagnose-2289-browser') }}
     timeout-minutes: 5
 
     steps:
@@ -905,11 +909,7 @@ jobs:
   proof:
     name: Tree proof
     needs: [changes, verify, ui-system-browser-integration, ui-system-native-integration]
-    if: >-
-      always() && needs.changes.outputs.tier == 'full' && needs.changes.outputs.browser == 'all'
-      && needs.changes.outputs.browser_specs == 'all' && needs.changes.outputs.native == 'true'
-      && needs.verify.result == 'success' && needs.ui-system-browser-integration.result == 'success'
-      && needs.ui-system-native-integration.result == 'success'
+    if: ${{ (always() && needs.changes.outputs.tier == 'full' && needs.changes.outputs.browser == 'all' && needs.changes.outputs.browser_specs == 'all' && needs.changes.outputs.native == 'true' && needs.verify.result == 'success' && needs.ui-system-browser-integration.result == 'success' && needs.ui-system-native-integration.result == 'success') && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/diagnose-2289-browser') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -928,3 +928,82 @@ jobs:
           name: proven-tree-${{ steps.tree.outputs.tree }}
           path: output/proof/
           retention-days: 14
+
+  browser-diagnostics-2289:
+    name: "DIAGNOSTIC ONLY: PR2289 original browser shard 1/12"
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/diagnose-2289-browser' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    timeout-minutes: 40
+    env:
+      UI_SYSTEM_MATRIX: pr
+      UI_SYSTEM_SPECS: all
+      UI_SYSTEM_PAGES: prebuilt
+      HD_BROWSER_DIAGNOSTICS: '1'
+      DEBUG: pw:browser
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.4.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26.13.1
+          cache: pnpm
+      - name: Verify diagnostic-only source delta
+        run: |
+          git fetch --no-tags --depth=1 origin b6eb13c7d873b7ee90b09b1221949628d38eda44
+          mkdir -p output/playwright/ui-system/diagnostics
+          git diff --name-only b6eb13c7d873b7ee90b09b1221949628d38eda44 HEAD > output/playwright/ui-system/diagnostics/source-delta.txt
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
+          const allowed = new Set(['.github/workflows/ci.yml','e2e/ui-system/browser-diagnostics.ts','e2e/ui-system/catalogue-sweep.ts','e2e/ui-system/preview-coverage.spec.ts','playwright.ui-system.config.ts','script/diagnostics/2289-shard1-deal.json']);
+          const paths = readFileSync('output/playwright/ui-system/diagnostics/source-delta.txt','utf8').trim().split('\n').filter(Boolean);
+          assert.ok(paths.length > 0); assert.deepEqual(paths.filter(path => !allowed.has(path)), []);
+          NODE
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build:node
+      - run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 10
+      - name: Fetch and verify the original immutable UI pages artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/HarnessDesk/HarnessDesk/actions/artifacts/14620216716/zip > output/playwright/ui-system/diagnostics/original-ui-system-pages.zip
+          echo '666c2ca637b77668fd0dada9abaadd86439f12fa4623ac342315bd349fa14a0c  output/playwright/ui-system/diagnostics/original-ui-system-pages.zip' | sha256sum --check
+          test ! -e packages/ui/dist-e2e/preview.html
+          mkdir -p packages/ui/dist-e2e
+          unzip -q output/playwright/ui-system/diagnostics/original-ui-system-pages.zip -d packages/ui/dist-e2e
+          test -f packages/ui/dist-e2e/preview.html
+          test -f packages/ui/dist-e2e/design.html
+      - name: Preserve original deal and static/dev worker geometry
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'; import { readFileSync, writeFileSync } from 'node:fs'; import os from 'node:os';
+          import { plan, selectedSpecs, recordedSeconds } from './script/ci-browser-shards.mjs';
+          import { planRun, ciBrowserWorkers } from './script/ui-system-run.mjs';
+          const root = process.cwd(), expected = JSON.parse(readFileSync('script/diagnostics/2289-shard1-deal.json','utf8'));
+          const specs = plan(selectedSpecs(root,'all'),recordedSeconds(root,'pr'),12)[0].specs.map(spec=>'e2e/ui-system/'+spec);
+          assert.deepEqual(specs,expected.specs);
+          const run = planRun(root,{specs,env:process.env}); assert.deepEqual(run.split,expected.split); assert.deepEqual(run.build,[]); assert.equal(run.error,null);
+          assert.equal(ciBrowserWorkers(os.availableParallelism(),true),3); assert.equal(ciBrowserWorkers(os.availableParallelism(),false),2);
+          assert.ok(!process.env.PLAYWRIGHT_UI_SYSTEM_WORKERS); assert.ok(!process.env.UPDATE_METRICS); assert.ok(!process.env.UPDATE_ALIGNMENT);
+          writeFileSync('output/playwright/ui-system/diagnostics/original-deal.json',JSON.stringify({expected,actual:run.split,parallelism:os.availableParallelism(),node:process.version},null,2),{flag:'wx'});
+          NODE
+          ( set -o noclobber; { node --version; pnpm exec playwright --version; uname -a; cat /etc/os-release; } > output/playwright/ui-system/diagnostics/runner-context.txt )
+      - name: Run the complete original shard with observational diagnostics
+        env:
+          UI_SYSTEM_SERVER: dev
+        run: |
+          mapfile -t specs < <(UI_SYSTEM_MATRIX=pr UI_SYSTEM_SPECS=all node script/ci-browser-shards.mjs 1/12)
+          test "${#specs[@]}" -gt 0
+          node script/ui-system-run.mjs "${specs[@]}"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: diagnostic-only-2289-browser-shard1
+          path: output/playwright/ui-system/
+          retention-days: 3
+          if-no-files-found: warn

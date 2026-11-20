@@ -1,0 +1,75 @@
+{
+  "originalRun": 44717710107,
+  "originalCheckout": "b6eb13c7d873b7ee90b09b1221949628d38eda44",
+  "sourceEquivalentPlannerBase": "ba1d3984fe779237ab8df081d7a62ea99f054fdb",
+  "matrix": "pr",
+  "selection": "all",
+  "deal": "1/12",
+  "specs": [
+    "e2e/ui-system/clock-readiness.spec.ts",
+    "e2e/ui-system/css-cascade.spec.ts",
+    "e2e/ui-system/defaults-recovery.spec.ts",
+    "e2e/ui-system/editor-mode-switch.spec.ts",
+    "e2e/ui-system/frame-contract-info-cards.spec.ts",
+    "e2e/ui-system/frame-contract-nonwork-leads-wide.spec.ts",
+    "e2e/ui-system/frame-contract-popup-settings.spec.ts",
+    "e2e/ui-system/frame-contract-popup-work.spec.ts",
+    "e2e/ui-system/frame-fix10.spec.ts",
+    "e2e/ui-system/frame-state-repairs.spec.ts",
+    "e2e/ui-system/optional-judge.spec.ts",
+    "e2e/ui-system/preview-coverage.spec.ts",
+    "e2e/ui-system/project-entry.spec.ts",
+    "e2e/ui-system/reading-column-edges.spec.ts",
+    "e2e/ui-system/room-member-titles.spec.ts",
+    "e2e/ui-system/row-menu-focus.spec.ts",
+    "e2e/ui-system/settings-lead-scroll.spec.ts",
+    "e2e/ui-system/settings-usage-divider.spec.ts",
+    "e2e/ui-system/surfaces.spec.ts",
+    "e2e/ui-system/team-start-edit-preview.spec.ts",
+    "e2e/ui-system/template-contest-journey.spec.ts"
+  ],
+  "split": {
+    "static": [
+      "e2e/ui-system/css-cascade.spec.ts",
+      "e2e/ui-system/defaults-recovery.spec.ts",
+      "e2e/ui-system/editor-mode-switch.spec.ts",
+      "e2e/ui-system/frame-contract-info-cards.spec.ts",
+      "e2e/ui-system/frame-contract-nonwork-leads-wide.spec.ts",
+      "e2e/ui-system/frame-contract-popup-settings.spec.ts",
+      "e2e/ui-system/frame-contract-popup-work.spec.ts",
+      "e2e/ui-system/frame-fix10.spec.ts",
+      "e2e/ui-system/frame-state-repairs.spec.ts",
+      "e2e/ui-system/optional-judge.spec.ts",
+      "e2e/ui-system/reading-column-edges.spec.ts",
+      "e2e/ui-system/room-member-titles.spec.ts",
+      "e2e/ui-system/row-menu-focus.spec.ts",
+      "e2e/ui-system/settings-lead-scroll.spec.ts",
+      "e2e/ui-system/settings-usage-divider.spec.ts",
+      "e2e/ui-system/surfaces.spec.ts"
+    ],
+    "dev": [
+      "e2e/ui-system/clock-readiness.spec.ts",
+      "e2e/ui-system/preview-coverage.spec.ts",
+      "e2e/ui-system/project-entry.spec.ts",
+      "e2e/ui-system/team-start-edit-preview.spec.ts",
+      "e2e/ui-system/template-contest-journey.spec.ts"
+    ]
+  },
+  "originalCounts": {
+    "static": {
+      "tests": 115,
+      "workers": 3
+    },
+    "dev": {
+      "tests": 204,
+      "workers": 2
+    }
+  },
+  "plannerInputs": {
+    "script/ci-browser-shards.mjs": "93e042d94072d5f6f7ee13a7fcfb0e964e84a14d3412e9ef0f120cb4e5f77aa0",
+    "e2e/ui-system/durations.json": "7c6b80a1ac656b5a8196f11eae2659dbc9833edcbc2a809bf8e811f388bcc896",
+    "e2e/ui-system/durations.pr.json": "a9527acac3f0e5ed688f91e25781246b0d77cc10effd2698df280d44d8570904",
+    "script/ui-system-run.mjs": "fdef9ac4b3f90875e508ecbe0022c95cff661874661acb3a6f92646ad0bee5df",
+    "script/ci-server-split.mjs": "d16dc386d2dac2a719aedc1c38af3adc651b0fe9d8af8a6c4f457b6360ec4e21"
+  }
+}

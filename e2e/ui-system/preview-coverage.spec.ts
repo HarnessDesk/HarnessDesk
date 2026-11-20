@@ -277,7 +277,11 @@ const sweepSelectsForCoverage = (
   page: Page,
   { delayedRevealProbe = false }: { delayedRevealProbe?: boolean } = {},
 ): Promise<{ covered: readonly string[]; delayedReveal: boolean | null; stateElementsVisited: number }> =>
-  page.evaluate(async ({ delayedRevealProbe }) => {
+  page.evaluate(async ({ delayedRevealProbe, diagnostics }) => {
+    const mark = (stage: string, details: Record<string, unknown> = {}) => {
+      if (diagnostics) console.info('HD_COVERAGE_DIAGNOSTIC ' + JSON.stringify({ stage, pageMs: performance.now(), ...details }))
+    }
+    mark('sweep-start')
     const mod = (await import('/src/preview/coverage-registry.ts')) as {
       coverageRegistry: readonly { file: string; exports: Readonly<Record<string, unknown>> }[]
       isVisualComponentExport: (name: string, value: unknown) => boolean
@@ -298,6 +302,7 @@ const sweepSelectsForCoverage = (
     let collections = 0, stateElementsVisited = 0
     const collect = (roots: readonly ParentNode[] = [document]): void => {
       collections++
+      mark('collect-start', { collection: collections, roots: roots.length, covered: covered.size })
       // Keep this set local to a collection: each dial value is a distinct
       // page state and can reveal a different mounted subtree.
       const seenFibers = new Set<unknown>()
@@ -313,6 +318,7 @@ const sweepSelectsForCoverage = (
         if (root instanceof Element) elements.add(root)
         for (const element of root.querySelectorAll('*')) elements.add(element)
       }
+      mark('collect-expanded', { collection: collections, elements: elements.size })
       for (const el of elements) {
         if (collections > 1) stateElementsVisited++
         const key = Object.keys(el).find(k => k.startsWith('__reactFiber$'))
@@ -381,6 +387,7 @@ const sweepSelectsForCoverage = (
         }
       }
       for (const fiber of seenFibers as Set<any>) inspect(fiber.child)
+      mark('collect-end', { collection: collections, covered: covered.size, stateElementsVisited })
     }
     // React receives the `change` synchronously, then may place an effect's
     // state-gated subtree in the next render. Two animation frames make that
@@ -425,28 +432,35 @@ const sweepSelectsForCoverage = (
     const observer = new MutationObserver(observe)
     observer.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true })
     const selects = probe ? [probe.select] : [...document.querySelectorAll('select')]
-    for (const select of selects) {
+    mark('dial-inventory', { selects: selects.length, options: selects.map(select => select.options.length) })
+    for (const [selectIndex, select] of selects.entries()) {
       const values = [...select.options].map((option) => option.value)
       const neutral = values[0]
-      for (const value of values) {
+      for (const [optionIndex, value] of values.entries()) {
+        const detail = { selectIndex, optionIndex }
+        mark('dial-set', detail)
         changed.clear()
         setValue(select, value)
         await settle()
+        mark('dial-settled', detail)
         observe(observer.takeRecords())
         const specimen = select.closest('[data-frame-id]') ?? (select.parentElement === document.body ? select : select.parentElement ?? select)
         collect([specimen, ...changed].filter(element => element.isConnected))
+        mark('dial-collected', { ...detail, specimen: specimen.getAttribute('data-frame-id'), changedRoots: changed.size, collections, stateElementsVisited, covered: covered.size })
       }
       if (select.value !== neutral && neutral !== undefined) {
+        mark('dial-reset', { selectIndex })
         setValue(select, neutral)
         await settle()
       }
     }
     observer.disconnect()
+    mark('sweep-end', { collections, stateElementsVisited, covered: covered.size })
     const delayedReveal = probe ? !probe.reveal.hidden : null
     probe?.select.remove()
     probe?.reveal.remove()
     return { covered: [...covered], delayedReveal, stateElementsVisited }
-  }, { delayedRevealProbe })
+  }, { delayedRevealProbe, diagnostics: process.env.HD_BROWSER_DIAGNOSTICS === '1' })
 
 test('a dial sweep visits only changed specimens after its initial inventory', async ({ page }) => {
   await page.goto('/preview.html')

@@ -119,6 +119,7 @@ export default defineConfig({
     viewport: { width: 1440, height: 900 },
     colorScheme: 'light',
     reducedMotion: 'reduce',
+    ...(process.env.HD_BROWSER_DIAGNOSTICS === '1' ? { launchOptions: { args: ['--enable-logging=stderr'] } } : {}),
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
