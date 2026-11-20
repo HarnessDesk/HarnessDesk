@@ -268,6 +268,21 @@ export const sentenceOf = (error: WireError): string => {
   return `${message} — ${details}`
 }
 
+/**
+ * The named fields of an error object cut short in transit: an agent's detail
+ * is truncated after its JSON is written, so it no longer parses. Its readable
+ * string fields are kept and the rest of the fragment is dropped.
+ */
+const salvaged = (text: string): Record<string, string> => {
+  const fields: Record<string, string> = {}
+  for (const [, key, raw] of text.matchAll(/"(message|errorName|name|code|reason)"\s*:\s*"((?:[^"\\]|\\.)*)"/g)) {
+    if (key && raw !== undefined && !(key in fields)) {
+      try { fields[key] = JSON.parse(`"${raw}"`) as string } catch { fields[key] = raw }
+    }
+  }
+  return fields
+}
+
 const wordOf = (value: unknown): string =>
   typeof value === 'string' ? value.trim() : typeof value === 'number' ? String(value) : ''
 
@@ -281,7 +296,8 @@ const detailWords = (details: unknown): string => {
   if (typeof details === 'string') {
     const text = details.trim()
     if (!text.startsWith('{')) return text
-    try { value = JSON.parse(text) } catch { return text }
+    // Text that only opens with a brace, and holds no JSON field, is prose: kept as it is.
+    try { value = JSON.parse(text) } catch { if (!/"\s*:/.test(text)) return text; value = salvaged(text) }
   }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return ''
   const fields = value as Record<string, unknown>

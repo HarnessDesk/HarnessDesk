@@ -4,6 +4,13 @@ import { runtimeId } from '@harnessdesk/protocol'
 import { rejectionFor, sentenceOf } from './transport'
 
 describe('sentenceOf', () => {
+  it('reads a JSON detail cut short in transit by its named fields, never its fragment', () => {
+    const cut = `{"errorName":"LocationNotFoundError","context":"${'x'.repeat(380)}`
+    expect(sentenceOf({ code: 'internal', message: 'Internal service failure', details: cut })).toBe('Internal service failure — LocationNotFoundError')
+    expect(sentenceOf({ code: 'internal', message: 'Failed', details: '{"context":"' + 'y'.repeat(390) })).toBe('Failed')
+    expect(sentenceOf({ code: 'internal', message: 'Failed', details: '{not json at all}' })).toBe('Failed — {not json at all}')
+  })
+
   it('adds the reason the agent gave, because the message alone says nothing', () => {
     expect(
       sentenceOf({
