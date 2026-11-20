@@ -1,0 +1,71 @@
+{
+  "scope": "Six raw actual Electron + production Host frames and two explicitly separate browser production Spend component fixtures. Synthetic ledger only, no live provider or scan-completeness proof. Raw original bytes, canonical privacy audits and lifecycle cleanup retained.",
+  "fixtureIdentity": "Demo desk",
+  "head": "d2c3c5ed5011e12f83a21d8b4c2875d2749c9adf",
+  "frames": [
+    {
+      "path": "screenshots/issue-1580/d2c3c5e/native-before-unavailable-turns-bars-today-unavailable.png",
+      "sha256": "576d7e04cd19ab4eabe28f4b6b923ad6d36ae6bc35ff71754cd788a61eee3578",
+      "sourceHead": "37819f9b7ef298706c51282adc497d5132008a8c",
+      "sourceTree": "c4dff3dcd44b47c9b654b8149b405bcc5d61d551",
+      "surface": "actual production Electron + Host",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-1580/d2c3c5e/native-after-unavailable-turns-bars-today-unavailable.png",
+      "sha256": "a8f8abdcd6f8e7c541bf767098bf4a52d58aaa02740960304e66a1a7afc77bb9",
+      "sourceHead": "d2c3c5ed5011e12f83a21d8b4c2875d2749c9adf",
+      "sourceTree": "150af98a8f64299e4094460ed67c162124115713",
+      "surface": "actual production Electron + Host",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-1580/d2c3c5e/native-before-unavailable-turns-line-today-unavailable.png",
+      "sha256": "3ada7aa248245cc661367a9bea88649609cf253c7fd10e0fe2e8c99407e07731",
+      "sourceHead": "37819f9b7ef298706c51282adc497d5132008a8c",
+      "sourceTree": "c4dff3dcd44b47c9b654b8149b405bcc5d61d551",
+      "surface": "actual production Electron + Host",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-1580/d2c3c5e/native-after-unavailable-turns-line-today-unavailable.png",
+      "sha256": "542fcdc6886fb21e5056367af07fa38f25cdba8187d435e8a0d623be6db6646e",
+      "sourceHead": "d2c3c5ed5011e12f83a21d8b4c2875d2749c9adf",
+      "sourceTree": "150af98a8f64299e4094460ed67c162124115713",
+      "surface": "actual production Electron + Host",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-1580/d2c3c5e/native-after-rowless-turns-bars-today-rowless.png",
+      "sha256": "dba9d183c5ea83b3c654d57f034fad4d047f8dec095b185b2ef1c2b56a2eee71",
+      "sourceHead": "d2c3c5ed5011e12f83a21d8b4c2875d2749c9adf",
+      "sourceTree": "150af98a8f64299e4094460ed67c162124115713",
+      "surface": "actual production Electron + Host",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-1580/d2c3c5e/native-after-zero-turns-bars-today-zero.png",
+      "sha256": "962c4ee3b4d2272518cb33fab3fb14c33c1c3b945fce9526a648f70d13e61b91",
+      "sourceHead": "d2c3c5ed5011e12f83a21d8b4c2875d2749c9adf",
+      "sourceTree": "150af98a8f64299e4094460ed67c162124115713",
+      "surface": "actual production Electron + Host",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-1580/d2c3c5e/component-before-all-unavailable.png",
+      "sha256": "3dfcbd811e0a60161bf44752e1574077fde67f67163d311f55430125b4eaea3b",
+      "sourceHead": "37819f9b7ef298706c51282adc497d5132008a8c",
+      "sourceTree": "c4dff3dcd44b47c9b654b8149b405bcc5d61d551",
+      "surface": "separate browser production Spend component fixture; no Host/provider",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-1580/d2c3c5e/component-after-all-unavailable.png",
+      "sha256": "bc44528fbf9fe01d46ccc5877bb697abfcea668e6cce05c25df3c55822c9f307",
+      "sourceHead": "d2c3c5ed5011e12f83a21d8b4c2875d2749c9adf",
+      "sourceTree": "150af98a8f64299e4094460ed67c162124115713",
+      "surface": "separate browser production Spend component fixture; no Host/provider",
+      "parentVisuallyInspected": true
+    }
+  ]
+}
