@@ -32,12 +32,17 @@ export const ToolBody = ({ children }: { children: ReactNode }) => useContext(Se
  * `SectionHead` has no edge of its own and lands on the card's border;
  * `e2e/ui-system/tool-section-inset.spec.ts` measures every card it reaches.
  */
-export const ToolSection = ({ label, children, action, value, fold, defaultOpen = true, pinHead }: {
+export const ToolSection = ({ label, children, action, value, valueTitle, fold, defaultOpen = true, pinHead }: {
   label: string
   children?: ReactNode
   action?: ReactNode
   /** The card's summary, read whether or not it is open: a state, a count. */
   value?: ReactNode
+  /**
+   * The summary in full when `value` is a short form of it: shown on hover, and
+   * what the fold button is described by, so a screen reader hears it too.
+   */
+  valueTitle?: string
   /** The card folds to its header; `defaultOpen` says how it starts. */
   fold?: boolean
   defaultOpen?: boolean
@@ -60,12 +65,12 @@ export const ToolSection = ({ label, children, action, value, fold, defaultOpen 
     return () => node.removeEventListener(REVEAL_FOLDED_EVENT, reveal)
   }, [fold])
   const summary = value !== undefined && value !== null
-    ? <span id={`${bodyId}-summary`} data-slot="tool-section-value" title={typeof value === 'string' ? value : undefined}
+    ? <span id={`${bodyId}-summary`} data-slot="tool-section-value" title={valueTitle ?? (typeof value === 'string' ? value : undefined)}
       className="ms-auto min-w-0 max-w-1/2 shrink-0 truncate tabular-nums"><Text role="muted" ink="secondary" truncate className="block"><ChipLook.Provider value="quiet">{value}</ChipLook.Provider></Text></span> : null
   return <section ref={card} data-slot="tool-section" data-folded={shown ? undefined : ''} aria-label={label}
     className="min-w-0 rounded-(--hd-panel-card-radius) border border-(--hd-panel-card-border) bg-(--hd-panel-card-fill) py-(--hd-panel-card-pad-y) [[data-slot=tool-section]+&]:shadow-[inset_0_1px_0_var(--hd-panel-card-rule)]">
     <GroupLabel as="div" surface="tool" data-pinned={pinHead ? '' : undefined} className={pinHead ? 'sticky top-[var(--tool-pin-top,0)] z-(--hd-z-sticky) bg-(--hd-panel-card-fill)' : undefined}>
-      {fold ? <Button variant="ghost" size="content-min" bordered={false} data-slot="tool-section-fold" aria-label={label} aria-describedby={summary ? `${bodyId}-summary` : undefined} aria-expanded={open} aria-controls={bodyId}
+      {fold ? <Button variant="ghost" size="content-min" bordered={false} data-slot="tool-section-fold" aria-label={label} aria-describedby={summary ? `${bodyId}-summary${valueTitle ? '-full' : ''}` : undefined} aria-expanded={open} aria-controls={bodyId}
         className="hd-no-drag min-w-0 flex-1 shrink justify-start gap-(--hd-space-1) text-left aria-expanded:bg-transparent aria-expanded:hover:bg-(--hd-hover)" onClick={() => setOpen(value => !value)}>
         {/* The chevron follows the label, and open has no fill: the chevron
             already says open, and a lit header read as a menu left open. */}
@@ -73,6 +78,7 @@ export const ToolSection = ({ label, children, action, value, fold, defaultOpen 
       </Button> : <><Text role="row" ink="primary" truncate title={label}>{label}</Text>{summary}</>}
       {action && <span data-slot="tool-section-actions" data-edge-pull-slot="" className={`${fold || summary ? '' : 'ms-auto '}flex shrink-0 items-center gap-(--hd-space-1)`}>{action}</span>}
     </GroupLabel>
+    {summary && valueTitle && <span id={`${bodyId}-summary-full`} hidden>{valueTitle}</span>}
     {children !== undefined && children !== null && <div id={bodyId} data-slot="tool-section-body" hidden={!shown} className="mt-(--hd-space-1) min-w-0">{children}</div>}
   </section>
 }
