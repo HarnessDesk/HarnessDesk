@@ -3811,6 +3811,41 @@ test('permissions without a current turn do not retain a snapshot between reques
   } finally { await runtime.dispose() }
 })
 
+for (const spec of [
+  { name: 'absolute workdir', input: { command: 'git status', workdir: '/tmp/requested' }, expected: '/tmp/requested' },
+  { name: 'relative workdir', input: { command: 'git status', workdir: 'sub' }, expected: '/tmp/w/sub' },
+  { name: 'parent relative workdir', input: { command: 'git status', workdir: '../sibling' }, expected: '/tmp/sibling' },
+  { name: 'bridge-injected default cwd', input: { command: 'git status', cwd: '/tmp/w' }, expected: '/tmp/w' },
+  { name: 'matching cwd and workdir', input: { command: 'git status', cwd: '/tmp/w/sub', workdir: 'sub' }, expected: '/tmp/w/sub' },
+  { name: 'conflicting cwd and workdir', input: { command: 'git status', cwd: '/tmp/w', workdir: '/tmp/requested' }, expected: undefined },
+  { name: 'malformed workdir', input: { command: 'git status', workdir: null }, expected: undefined },
+  { name: 'unknown provider-home workdir', input: { command: 'git status', workdir: '~/sub' }, expected: undefined },
+  { name: 'empty workdir with injected default', input: { command: 'git status', cwd: '/tmp/w', workdir: '' }, expected: '/tmp/w' },
+]) test(`permission execution folder: ${spec.name} survives first request, omission and late replacement`, async () => {
+  const runtime = make()
+  try {
+    await runtime.start(); const tape = record(runtime); const session = await runtime.createSession({ cwd: '/tmp/w' })
+    const sequence = { requests: [
+      { title: 'git status', kind: 'execute', rawInput: spec.input },
+      { title: 'git status' },
+      { title: 'git status', updatesBefore: [{ sessionUpdate: 'tool_call', kind: 'execute', rawInput: { command: 'git status', workdir: '/tmp/late-folder' } }] },
+      { title: 'git status', rawInput: spec.input },
+      { title: 'git status' },
+    ] }
+    await session.send([{ type: 'text', text: `wire permission sequence ${JSON.stringify(sequence)}` }])
+    for (let i = 0; i < sequence.requests.length; i++) {
+      const event = await tape.until(one => one.type === 'approval/requested')
+      tape.events.splice(tape.events.indexOf(event), 1)
+      if (event.type !== 'approval/requested' || event.approval.type !== 'permission') throw new Error('expected permission')
+      assert.equal(event.approval.summary, 'git status')
+      assert.deepEqual(event.approval.facts, [{ label: 'Command', value: 'git status' }])
+      assert.equal(event.approval.cwd, i === 2 ? '/tmp/late-folder' : spec.expected)
+      await session.respondToApproval(event.approval.id, { type: 'option', optionId: 'no' })
+    }
+    await tape.until(one => one.type === 'turn/completed')
+  } finally { await runtime.dispose() }
+})
+
 const epochOldInput = { command: 'echo old', cwd: '/tmp/old' }
 const epochFreshInput = { command: 'echo fresh', cwd: '/tmp/fresh' }
 const epochExecute = { sessionUpdate: 'tool_call', kind: 'execute', rawInput: epochOldInput }

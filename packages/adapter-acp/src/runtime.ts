@@ -3,7 +3,7 @@ import { recommendAcpOptions } from './recommendations.js'
 import { randomUUID } from 'node:crypto'
 import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, dirname, extname, isAbsolute, join } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   approvalId,
@@ -4816,6 +4816,24 @@ const userContentOf = (block: AcpContentBlock): UserContent => {
  * bridges set. An agent that says nothing there is taken at its word: what it
  * replays as a user message is read as one.
  */
+/** OpenCode's execute input preserves workdir instead of injecting cwd. Keep
+ * unproved/conflicting folders unknown; a Command fact must not borrow session scope. */
+const permissionExecutionCwd = (input: unknown, sessionCwd: string): string | undefined => {
+  const args = input !== null && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : undefined
+  if (!args || !Object.hasOwn(args, 'workdir')) return typeof args?.['cwd'] === 'string' ? args['cwd'] : sessionCwd
+  const known = (value: unknown): string | undefined => {
+    // ~ expands in the provider's home, which this session does not establish.
+    if (typeof value !== 'string' || /^~(?:$|[\\/])/.test(value)) return undefined
+    // Do not interpret a foreign platform's absolute path as a local relative one.
+    if (/^[A-Za-z]:[\\/]|^\\\\/.test(value) && !isAbsolute(value)) return undefined
+    if (!isAbsolute(value) && !isAbsolute(sessionCwd)) return undefined
+    return resolve(sessionCwd, value)
+  }
+  const workdir = known(args['workdir'])
+  if (workdir === undefined || Object.hasOwn(args, 'cwd') && known(args['cwd']) !== workdir) return undefined
+  return workdir
+}
+
 /**
  * The question a permission request is really asking, when our Claude bridge
  * says so — in `_meta.harnessdesk.question`, or, for a transport that drops
@@ -6264,6 +6282,8 @@ class AcpSession implements AgentSession {
     const command = input !== null && typeof input === 'object' && !Array.isArray(input)
       ? (input as { command?: unknown }).command : undefined
     const kind = wire.kind
+    const cwd = kind === 'execute' ? permissionExecutionCwd(input, this.#cwd)
+      : typeof (input as { cwd?: unknown } | undefined)?.cwd === 'string' ? (input as { cwd: string }).cwd : this.#cwd
     // Display only a complete bounded execute input; never use it for approval policy.
     const shownCommand = kind === 'execute' && typeof command === 'string' && command.trim().length > 0 && command.length <= 65_536 ? command : null
     const title = request.toolCall.title ?? 'The agent asks permission to continue.'
@@ -6283,7 +6303,7 @@ class AcpSession implements AgentSession {
       // user asked me to write outside the workspace" and the dialog showed
       // `write`. A decision needs the sentence, not the verb.
       ...(permissionReason(request.toolCall) ? { reason: permissionReason(request.toolCall) } : {}),
-      cwd: typeof (input as { cwd?: unknown } | undefined)?.cwd === 'string' ? (input as { cwd: string }).cwd : this.#cwd,
+      ...(cwd !== undefined ? { cwd } : {}),
       options: request.options.map((option) => {
         const geminiGrant = this.#host.info.capabilities.perToolMcpApproval && option.kind === 'allow_always'
           ? ({
