@@ -411,7 +411,7 @@ it('reports a defaults resolver rejection from a live option update', async () =
   vi.spyOn(store, 'newSessionDefaultsFor').mockRejectedValue(new Error('Recommendation unavailable.'))
   const notice = vi.spyOn(store, 'resultNotice')
   ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onEvent(runtime, { type: 'session/options', sessionId: id, options: declared })
-  await vi.waitFor(() => expect(notice).toHaveBeenCalledWith('warning', 'Recommendation unavailable.'))
+  await vi.waitFor(() => expect(notice).toHaveBeenCalledWith('warning', "Couldn't load the agent's options: Recommendation unavailable."))
 })
 
 it('validates saved picks again at session creation before sending any start options', async () => {
@@ -489,7 +489,7 @@ it('reports a refused recommendation during composer refresh without rejecting t
   vi.spyOn(store, 'newSessionDefaultsFor').mockRejectedValue(new Error('The runtime refused its recommendation.'))
   const notice = vi.spyOn(store, 'resultNotice')
   await expect(store.loadDraftOptions()).resolves.toBeUndefined()
-  expect(notice).toHaveBeenCalledWith('warning', 'The runtime refused its recommendation.')
+  expect(notice).toHaveBeenCalledWith('warning', "Couldn't load the agent's options: The runtime refused its recommendation.")
 })
 
 /* An agent that is signed out refuses this read in so many words, and its
@@ -518,7 +518,7 @@ it('still raises a sign-in refusal from an agent the desk shows as signed in', a
   vi.spyOn(store, 'newSessionDefaultsFor').mockRejectedValue(new Error(refusal))
   const notice = vi.spyOn(store, 'resultNotice')
   await store.loadDraftOptions()
-  expect(notice).toHaveBeenCalledWith('warning', refusal)
+  expect(notice).toHaveBeenCalledWith('warning', `Couldn't load the agent's options: ${refusal}`)
 })
 
 
@@ -553,4 +553,21 @@ it.each([['_permissions', 'gone'], ['model', 'gone'], ['thought_level', 'gone'],
   await expect(store.newSessionDefaultsFor(runtime)).rejects.toThrow('did not accept its recommended Pick')
   await store.newSession({ runtime, cwd: '/workspace' })
   expect(request.mock.calls.some(([method]) => method === 'session/create')).toBe(false)
+})
+
+it('names the agent and the action when loading its new-session options fails (#2281)', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  Object.assign(store.getSnapshot(), {
+    activeRuntime: runtime,
+    runtimes: [{ id: runtime, name: 'Test Agent', presentation: { name: 'Test Agent' } }],
+  })
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+    if (method === 'runtime/sessionDefaults') {
+      throw new Error('Internal service failure — LocationNotFoundError')
+    }
+    return {}
+  }) as never)
+  await store.loadDraftOptions()
+  expect(store.getSnapshot().notices.at(-1)?.message)
+    .toBe("Couldn't load Test Agent's options: Internal service failure — LocationNotFoundError")
 })

@@ -42,6 +42,23 @@ describe('sentenceOf', () => {
       }),
     ).toBe('bad')
   })
+
+  it('reads an agent error object instead of printing it as JSON (#2281)', () => {
+    const base = { code: 'internal', message: 'Internal service failure' }
+    expect(sentenceOf({ ...base, details: '{"errorName":"LocationNotFoundError"}' }))
+      .toBe('Internal service failure — LocationNotFoundError')
+    expect(sentenceOf({ ...base, details: { message: 'No such folder', name: 'LocationNotFoundError', code: 'ENOENT' } as never }))
+      .toBe('Internal service failure — No such folder (LocationNotFoundError, ENOENT)')
+    expect(sentenceOf({ ...base, details: '{"message":"Internal service failure","errorName":"X"}' }))
+      .toBe('Internal service failure (X)')
+  })
+
+  it('drops a detail with nothing readable in it, and keeps plain text', () => {
+    const base = { code: 'internal', message: 'Internal error' }
+    expect(sentenceOf({ ...base, details: '{}' })).toBe('Internal error')
+    expect(sentenceOf({ ...base, details: { nested: { a: 1 } } as never })).toBe('Internal error')
+    expect(sentenceOf({ ...base, details: 'the query closed' })).toBe('Internal error — the query closed')
+  })
 })
 
 describe('rejectionFor', () => {

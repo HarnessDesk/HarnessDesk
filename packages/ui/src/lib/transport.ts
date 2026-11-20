@@ -260,15 +260,40 @@ export const rejectionFor = (error: WireError): Error =>
  * the same banner ending in why it failed is.
  */
 export const sentenceOf = (error: WireError): string => {
-  const details =
-    typeof error?.details === 'string'
-      ? error.details.trim()
-      : typeof error?.details === 'number' || typeof error?.details === 'boolean'
-        ? String(error.details).trim()
-        : null
   const message = typeof error?.message === 'string' ? error.message : 'Request failed'
+  const details = detailWords(error?.details)
   if (!details || details === message) return message
+  // The detail can open with the message's own words: print them once.
+  if (details.startsWith(`${message} (`)) return details
   return `${message} — ${details}`
+}
+
+const wordOf = (value: unknown): string =>
+  typeof value === 'string' ? value.trim() : typeof value === 'number' ? String(value) : ''
+
+/**
+ * The readable part of an error's detail. An agent's error object reaches the
+ * host as JSON text; people get its message and name, never the braces.
+ */
+const detailWords = (details: unknown): string => {
+  if (typeof details === 'number' || typeof details === 'boolean') return String(details)
+  let value: unknown = details
+  if (typeof details === 'string') {
+    const text = details.trim()
+    if (!text.startsWith('{')) return text
+    try { value = JSON.parse(text) } catch { return text }
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return ''
+  const fields = value as Record<string, unknown>
+  const said = wordOf(fields.message)
+  const named = wordOf(fields.errorName) || wordOf(fields.name)
+  const code = wordOf(fields.code)
+  const reason = wordOf(fields.reason)
+  const lead = said || reason
+  const tags = [named, code].filter((tag, at, all) => tag && tag !== lead && all.indexOf(tag) === at)
+  if (!lead) return tags.join(', ')
+  const body = said && reason && reason !== said ? `${said}: ${reason}` : lead
+  return tags.length > 0 ? `${body} (${tags.join(', ')})` : body
 }
 
 /**
