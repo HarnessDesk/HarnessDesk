@@ -11745,6 +11745,13 @@ export class Host {
       }
       else if (record.running.size === 0) this.#saveRecoveredTranscript(record)
     })()
+    // A save that started while its conversation was being deleted kept the delete's cleanup from dropping its
+    // entry. Once it settles, either way, with no record left to reopen and no protected change, drop it (#2288).
+    const settled = () => {
+      if (this.#recoveredTranscriptBases.get(generation) !== state || this.registry.forReopen(record.runtime, snapshot.id)) return
+      if (!this.#transcripts.hasProtectedChanges(record.runtime, snapshot.id)) this.#recoveredTranscriptBases.delete(generation)
+    }
+    state.saving.then(settled, settled)
   }
 
   /**
