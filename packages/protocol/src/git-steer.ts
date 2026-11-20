@@ -5,7 +5,10 @@ export interface GitWritePreferences { readonly steer: GitSteerMode; readonly re
 export type GitWrite =
   | { readonly kind: 'push'; readonly remote?: string; readonly source?: string; readonly branch?: string; readonly upstream: boolean; readonly force: boolean }
   | { readonly kind: 'forge'; readonly tool: string; readonly args: Readonly<Record<string, string | number | boolean>>; readonly bodyFile?: string; readonly fill?: boolean }
-  | { readonly kind: 'unmappable'; readonly reason: string; readonly tool?: string }
+  | { readonly kind: 'unmappable'; readonly reason: string; readonly tool?: string; readonly credential?: true; readonly forge?: true }
+/** The refusal of a command that would read a forge credential. It is neither a push nor a forge write, so the caller words it as its own kind. */
+export const CREDENTIAL_REFUSAL = 'HarnessDesk does not hand out forge credentials; use the pr_* tools for forge work.'
+const refuseCredential = (): GitWrite => ({ kind: 'unmappable', reason: CREDENTIAL_REFUSAL, credential: true })
 const refuse = (reason: string, tool?: string): GitWrite => ({ kind: 'unmappable', reason: `${reason} Use git_push or the pr_* tools instead.`, ...(tool ? { tool } : {}) })
 export function gitWritePreferences(value: unknown): GitWritePreferences {
   const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {}
@@ -84,6 +87,7 @@ export function parseGitWrite(binary: string, argv: readonly string[], alias?: G
     return { kind: 'push', ...(remote ? { remote } : {}), ...(source ? { source } : {}), ...(branch ? { branch } : {}), upstream, force }
   }
   if (name !== 'gh') return null
+  const refuseGh = (reason: string): GitWrite => ({ kind: 'unmappable', reason: `${reason} Use git_push or the pr_* tools instead.`, forge: true })
   const valueFlags = new Set(['--subject', '-t', '--title', '-b', '--body', '-F', '--body-file', '-R', '--repo', '-B', '--base', '--match-head-commit', '-X', '--method', '-p', '--preview', '-f', '--raw-field', '--field', '--input', '-H', '--header', '--hostname', '--jq', '-q', '--template', '--author', '--assignee', '--reviewer', '--label', '--milestone', '--project'])
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!
@@ -91,12 +95,13 @@ export function parseGitWrite(binary: string, argv: readonly string[], alias?: G
     if (valueFlags.has(arg)) { i++; continue }
     if (arg === '-h' || arg === '--help') return null
   }
-  if (argv[0] === 'api') return argv.some(arg => arg.startsWith('-f') || arg.startsWith('-F') || /^(?:--field|--raw-field|--input)(?:=|$)/.test(arg)) || argv.some((arg, i) => (arg === '-X' || arg === '--method') && argv[i + 1]?.toUpperCase() !== 'GET' || /^(?:-X|--method=)(?!GET$).+/.test(arg)) ? refuse('Forge API writes cannot be translated safely.') : null
-  if (!['pr', 'issue', 'release', 'repo', 'search', 'auth', 'version', 'help', 'status', 'browse', 'run', 'workflow', 'extension', 'label', 'project', 'cache', 'codespace', 'gist', 'gpg-key', 'ssh-key', 'ruleset'].includes(argv[0] ?? '')) return refuse('An unresolved forge alias cannot be translated safely.')
+  if (argv[0] === 'auth' && (argv[1] === 'token' || argv[1] === 'git-credential')) return refuseCredential()
+  if (argv[0] === 'api') return argv.some(arg => arg.startsWith('-f') || arg.startsWith('-F') || /^(?:--field|--raw-field|--input)(?:=|$)/.test(arg)) || argv.some((arg, i) => (arg === '-X' || arg === '--method') && argv[i + 1]?.toUpperCase() !== 'GET' || /^(?:-X|--method=)(?!GET$).+/.test(arg)) ? refuseGh('Forge API writes cannot be translated safely.') : null
+  if (!['pr', 'issue', 'release', 'repo', 'search', 'auth', 'version', 'help', 'status', 'browse', 'run', 'workflow', 'extension', 'label', 'project', 'cache', 'codespace', 'gist', 'gpg-key', 'ssh-key', 'ruleset'].includes(argv[0] ?? '')) return refuseGh('An unresolved forge alias cannot be translated safely.')
   const groupIndex = argv.findIndex(arg => arg === 'pr' || arg === 'issue')
   const group = argv[groupIndex], verb = argv[groupIndex + 1]
   if (!(group === 'pr' && ['create', 'edit', 'merge', 'comment', 'review'].includes(verb ?? '') || group === 'issue' && verb === 'comment')) {
-    return ['view', 'list', 'status', 'diff', 'checks'].includes(argv[1] ?? '') || ['version', 'help', 'status', 'search', 'browse'].includes(argv[0] ?? '') ? null : refuse('This forge mutation cannot be translated safely.')
+    return ['view', 'list', 'status', 'diff', 'checks'].includes(argv[1] ?? '') || ['version', 'help', 'status', 'search', 'browse'].includes(argv[0] ?? '') ? null : refuseGh('This forge mutation cannot be translated safely.')
   }
   const tool = group === 'issue' ? 'issue_comment' : `pr_${verb === 'edit' ? 'update' : verb}`
   const refuseForge = (reason: string) => refuse(reason, tool)

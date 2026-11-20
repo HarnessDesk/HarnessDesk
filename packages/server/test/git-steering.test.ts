@@ -134,6 +134,33 @@ test('forge translation reads body files, fill text and head-bound merge argumen
   assert.deepEqual(f.tools[2], { name: 'pr_merge', args: { number: 42, method: 'rebase', head } })
 })
 
+test('a refusal is worded by what the command was: a push, a forge change or a credential read', async t => {
+  const f = await rig(t)
+  const credential = await f.command('gh', ['auth', 'token', '--hostname', 'github.com'])
+  assert.equal(credential.code, 1)
+  assert.match(credential.stdout, /^HarnessDesk: refused — HarnessDesk does not hand out forge credentials; use the pr_\* tools for forge work\.$/m)
+  assert.ok(f.rows.includes('Refused · gh auth token --hostname github.com · HarnessDesk does not hand out forge credentials; use the pr_* tools for forge work.'), JSON.stringify(f.rows))
+  assert.equal(f.tools.length, 0); assert.equal(f.questions.length, 0)
+  const helper = await f.command('gh', ['auth', 'git-credential', 'get'])
+  assert.equal(helper.code, 1); assert.match(helper.stdout, /^HarnessDesk: refused — /m)
+  assert.equal(f.tools.length, 0)
+  const forge = await f.command('gh', ['release', 'create', 'v1'])
+  assert.equal(forge.code, 1); assert.match(forge.stdout, /HarnessDesk: forge change refused — This forge mutation cannot be translated safely\./)
+  assert.ok(f.rows.some(row => row.startsWith('Forge change refused · gh release create v1 · This forge mutation cannot be translated safely.')), JSON.stringify(f.rows))
+  const push = await f.command('git', ['push', '--tags'])
+  assert.equal(push.code, 1); assert.match(push.stdout, /HarnessDesk: not pushed — Unsupported push option/)
+  assert.ok(f.rows.some(row => row.startsWith('Not pushed · git push --tags · Unsupported push option')), JSON.stringify(f.rows))
+  assert.equal(f.tools.length, 0)
+})
+test('a forge change that was invoked and failed is a failure, not a refusal', async t => {
+  const f = await rig(t), said: string[] = []
+  const failing = new GitSteering(join(f.home, 'failing'), f.gateway, { preferences: () => ({ gitWrites: { steer: 'redirect' } }), projectOf: async () => f.cwd, scope: async () => f.scope,
+    admit: async () => {}, ask: async () => 'allowed', invoke: async () => ({ ok: false, error: 'The forge said no.' }), say: (_scope, row) => { said.push(row) } })
+  const reply = await failing.steer(f.scope, 'gh issue comment 42 --body hi')
+  assert.equal(reply.action, 'done'); assert.equal(reply.ok, false)
+  assert.equal(reply.output, 'HarnessDesk: forge change failed — The forge said no.')
+  assert.ok(said.includes('Forge change failed · gh issue comment 42 --body [body omitted] · The forge said no.'), JSON.stringify(said))
+})
 test('the ceiling refuses own git before a steering choice is offered', async t => {
   const f = await rig(t); f.admit(false); f.choose('standing')
   const result = await f.command('git', ['push', 'origin', 'x'])

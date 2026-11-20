@@ -215,7 +215,12 @@ export class GitSteering {
     } catch (error) {
       const reason = redactGitCommand(error instanceof Error ? error.message : String(error))
       if (!invoked) await this.#refuse(scope, command, write, reason)
-      this.port.say(scope, `Git write refused · ${command} · ${reason}`)
+      // Say what the command was: a credential read, a forge change, or a push; one that ran and failed is a failure, not a refusal.
+      const forgeKind = write.kind === 'forge' || write.kind === 'unmappable' && (write.tool || write.forge)
+      if (invoked && forgeKind) { this.port.say(scope, `Forge change failed · ${command} · ${reason}`); return { action: 'done', ok: false, output: `HarnessDesk: forge change failed — ${reason}` } }
+      if (write.kind === 'unmappable' && write.credential) { this.port.say(scope, `Refused · ${command} · ${reason}`); return { action: 'done', ok: false, output: `HarnessDesk: refused — ${reason}` } }
+      if (forgeKind) { this.port.say(scope, `Forge change refused · ${command} · ${reason}`); return { action: 'done', ok: false, output: `HarnessDesk: forge change refused — ${reason}` } }
+      this.port.say(scope, `Not pushed · ${command} · ${reason}`)
       return { action: 'done', ok: false, output: `HarnessDesk: not pushed — ${reason}` }
     }
   }
