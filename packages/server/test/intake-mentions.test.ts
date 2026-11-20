@@ -5,11 +5,11 @@ import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
 import { createLeadJournal, type LeadJournal, type LeadJournalRecord } from '@harnessdesk/lead'
-import type { PhoneTriageList, TriggerArmPreview, TriggerDecision, TriggerDecisionsPage, TriggerHistoryPage } from '@harnessdesk/protocol'
+import type { PhoneTriageList, TriggerArmPreview, TriggerDecision, TriggerDecisionsPage, TriggerFact, TriggerHistoryPage } from '@harnessdesk/protocol'
 
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { commitTriggers, intakeDesk, REVIEW_FLOW, until, type IntakeDesk } from './fixtures/intake-host.js'
-import { Clocks, Gate, sha } from './fixtures/intake-forge.js'
+import { armOf, Clocks, FakeForge, FakeTimers, Gate, sha } from './fixtures/intake-forge.js'
 import { HoldFake } from './fixtures/hold-runtime.js'
 import { tempDir } from './scratch.js'
 import { writeTriggers } from '../src/authoring/model.js'
@@ -20,6 +20,8 @@ import { PHONE_POLICY } from '../src/phone-link.js'
 import { LeadAutomaticGoals } from '../src/lead/automatic-goals.js'
 import { Admission } from '../src/intake/admission.js'
 import { TriggerClosures } from '../src/intake/consent.js'
+import { accountDigest, ForgeSource } from '../src/intake/forge.js'
+import { IntakeMonitor, intakeSources, SourceCursors } from '../src/intake/poll.js'
 
 /*
  * A comment that addresses the desk's handle asks it for work (owner
@@ -2102,6 +2104,83 @@ test('a same-trigger thread linked after an unobserved interval receives that re
   assert.equal(after.threads.find(one => one.id === a.id)?.resumes, 0)
 })
 
+
+for (const branch of ['observe-stop', 'issue-closed'] as const) for (const protectedCount of [499, 500]) {
+  test(`linked ${branch} decision retries the same fact with ${protectedCount} protected rows`, E2E, async t => {
+    const home = tempDir('hd-linked-decision-capacity-'), path = join(home, LEDGER)
+    const project = '/synthetic/project', repository = 'acme/widgets', firing = 'a'.repeat(64)
+    const clocks = new Clocks(NOON), forge = new FakeForge()
+    const definition = parseTriggers(ASK()).definitions[0]!
+    const base = armOf('ask', { project, baseline: NOON })
+    const arm = { ...base, definition, binding: { ...base.binding, account: accountDigest(ME.id), repository } }
+    const thread = { id: 'thread-linked', project, trigger: 'ask', repository, origin: { kind: 'issue', number: 1 },
+      links: { issues: [1], pulls: [], goals: ['goal-linked'] }, state: 'open', closed: null,
+      issueClosed: branch === 'issue-closed', resumes: 0, observations: 0, openedAt: NOON - 1000, firings: [firing], seen: [] }
+    const old = (i: number, reason: string) => ({ id: `d-linked-old-${i}`, trigger: 'ask', project, repository,
+      thread: { kind: 'issue', number: i + 2 }, comment: { id: String(80000 + i), url: `https://example.com/issue#issuecomment-${80000 + i}`,
+        at: NOON - 1000, author: 'jane-doe', excerpt: '@dex please fix' },
+      decision: 'ask', reason, by: 'assessment', rules: [], mode: 'act', acted: false, work: null, decidedAt: NOON, evaluations: 0 })
+    const seeded = Array.from({ length: protectedCount }, (_, i) => old(i, ASSESS_UNCONFIRMED))
+    if (protectedCount === 499) seeded.push(old(499, 'Ordinary old decision'))
+    await writeFile(path, JSON.stringify({ version: 1, decisions: seeded, threads: [thread],
+      pendingThreads: [{ ...thread, pendingFirings: [firing] }], stopIntents: [],
+      modes: { [`${project}\u0000ask`]: { mode: branch === 'observe-stop' ? 'observe' : 'act', armedAt: NOON } }, assessed: { day: '', count: 0 } }))
+    let effects = 0, offers = 0
+    let offered: TriggerFact | undefined
+    const forbidden = async (): Promise<never> => { effects++; throw new Error('linked rule must be effect-free') }
+    const port = { home, pendingFirings: () => [firing], leadName: () => 'dex', changed() {}, now: () => clocks.wall,
+      assess: forbidden, planStop: forbidden, stopOnce: forbidden, signal: new AbortController().signal }
+    let triage = new MentionTriage(port as never)
+    const monitor = () => new IntakeMonitor({ armed: async () => [arm],
+      sources: intakeSources(new ForgeSource({ run: forge.runner, now: () => clocks.wall })), cursors: new SourceCursors(home),
+      offer: async (one, fact) => { offers++; offered = fact; await triage.judge(one, fact, forbidden) },
+      wall: () => clocks.wall, monotonic: () => clocks.mono, timers: new FakeTimers() })
+    let polling = monitor()
+    t.after(() => polling.close())
+    await polling.baseline(arm)
+    const cursorPath = join(home, 'triggers-cursors.json'), before = await readFile(cursorPath, 'utf8')
+    const at = NOON + 1000, comment = '9999'
+    forge.issues.push({ number: 1, state: branch === 'issue-closed' ? 'closed' : 'open', created: NOON - 1000, updated: at,
+      events: [], comments: [{ id: Number(comment), body: branch === 'observe-stop' ? '@dex stop' : '@dex please follow up', created: at, updated: at, user: ME }] })
+    const snapshots = []
+    for (let poll = 0; poll < 2; poll++) {
+      clocks.advance(10 * 60_000)
+      await polling.tick(clocks.wall)
+      const saved = JSON.parse(await readFile(path, 'utf8'))
+      snapshots.push({ current: saved.decisions.filter((one: TriggerDecision) => one.comment.id === comment).length,
+        seen: saved.threads[0].seen.includes(comment), pendingSeen: saved.pendingThreads[0].seen.includes(comment),
+        cursorMoved: (await readFile(cursorPath, 'utf8')) !== before })
+      assert.deepEqual(saved.decisions.filter((one: TriggerDecision) => one.reason === ASSESS_UNCONFIRMED).map((one: TriggerDecision) => one.id),
+        seeded.slice(0, protectedCount).map(one => one.id), 'every protected identity survives both polls')
+    }
+    assert.equal(effects, 0)
+    const admitted = protectedCount === 499
+    assert.equal(offers, admitted ? 1 : 2, 'the source reoffers an unanswered fact, and deduplicates a covered one')
+    if (admitted) await triage.judge(arm, offered!, forbidden) // Also replay the identical covered fact directly.
+    assert.deepEqual(snapshots, Array.from({ length: 2 }, () => ({ current: admitted ? 1 : 0, seen: admitted, pendingSeen: admitted, cursorMoved: admitted })),
+      'both polls keep coverage and both seen copies behind the durable decision')
+    if (!admitted) {
+      await polling.close()
+      const saved = JSON.parse(await readFile(path, 'utf8'))
+      saved.decisions.shift() // Controlled repair while no triage/monitor is using this ledger.
+      await writeFile(path, JSON.stringify(saved))
+      triage = new MentionTriage(port as never)
+      polling = monitor() // Reuse the persisted cursor; do not baseline again.
+      clocks.advance(10 * 60_000)
+      await polling.tick(clocks.wall)
+    }
+    const saved = JSON.parse(await readFile(path, 'utf8'))
+    const current = saved.decisions.filter((one: TriggerDecision) => one.comment.id === comment)
+    assert.equal(current.length, 1)
+    assert.equal(current[0].decision, branch === 'observe-stop' ? 'stop' : 'ignore')
+    assert.equal(saved.decisions.some((one: TriggerDecision) => one.reason === 'Ordinary old decision'), false)
+    assert.equal(saved.decisions.filter((one: TriggerDecision) => one.reason === ASSESS_UNCONFIRMED).length, 499)
+    assert.deepEqual([saved.threads[0].state, saved.threads[0].issueClosed], ['open', branch === 'issue-closed'])
+    assert.ok(saved.threads[0].seen.includes(comment) && saved.pendingThreads[0].seen.includes(comment))
+    assert.notEqual(await readFile(cursorPath, 'utf8'), before)
+    assert.equal(effects, 0)
+  })
+}
 
 test('unconfirmed assessment decisions survive ordinary history rotation and refuse at capacity', E2E, async t => {
   const repo = await makeRepo('hd-mention-protected-')

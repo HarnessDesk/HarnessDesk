@@ -330,6 +330,12 @@ const historySlots = (decisions: readonly StoredDecision[], stops: readonly Stop
   return stops.length + decisions.filter(one => !linked.has(one.id)).length
 }
 
+/** Reservation and trimming must agree on which ordinary history may rotate. */
+const historyEvictionIndex = (decisions: readonly StoredDecision[], stops: readonly StopIntent[], retainDecisionId?: string): number => {
+  const linked = new Set(stops.flatMap(one => one.decisionId ? [one.decisionId] : []))
+  return decisions.findIndex(one => one.id !== retainDecisionId && !linked.has(one.id) && one.reason !== ASSESS_UNCONFIRMED)
+}
+
 const stopProgress = (stop: StopIntent): TriggerStopProgress => ({
   queuedCancelled: stop.receipts.queued.length, runsMarkedStopped: stop.receipts.runs.length,
   interruptRequestsIssued: stop.receipts.interrupts.length, leadRunsMarkedStopped: stop.receipts.leadRuns.length,
@@ -595,9 +601,8 @@ export class MentionTriage {
       if (pendingFirings.length) anchors.set(thread.id, { ...thread, pendingFirings })
     }
     const decisions = [...next.decisions]
-    const linked = new Set(next.stopIntents.flatMap(one => one.decisionId ? [one.decisionId] : []))
     while (historySlots(decisions, next.stopIntents) > TRIGGER_DECISIONS_KEPT) {
-      const index = decisions.findIndex(one => one.id !== retainDecisionId && !linked.has(one.id) && one.reason !== ASSESS_UNCONFIRMED)
+      const index = historyEvictionIndex(decisions, next.stopIntents, retainDecisionId)
       if (index < 0) throw new Error('Protected mention history is full. Review unconfirmed assessments or stop work directly.')
       decisions.splice(index, 1)
     }
@@ -755,6 +760,11 @@ export class MentionTriage {
     const worst: StopIntent = { ...stop, state: 'unconfirmed', receipts: { queued: stop.queuedTargets, runs: stop.runTargets,
       interrupts: stop.interruptTargets, leadRuns: stop.leadRunTargets, leadPlan: stop.leadPlanTarget !== null } }
     const stops = [...ledger.stopIntents, worst]
+    // A loaded ledger is within the shared cap; one new stop needs at most
+    // one ordinary slot. Refuse before an intent write can become uncertain.
+    if (historySlots(ledger.decisions, stops) > TRIGGER_DECISIONS_KEPT && historyEvictionIndex(ledger.decisions, stops) < 0) {
+      return this.#raiseCapacity(stop)
+    }
     // Reserve space for a later ordinary success row as well as every receipt.
     if (!isStopIntent(worst) || Buffer.byteLength(JSON.stringify(worst)) > 1024 * 1024 ||
       Buffer.byteLength(JSON.stringify({ ...ledger, stopIntents: stops })) + 16 * 1024 > GOAL_DOCUMENT_LIMIT) {
@@ -996,8 +1006,8 @@ export class MentionTriage {
             reason: asked,
             rules: [{ id: 'addressed', passed: true, detail: `Addresses @${handle}.` }, allowed, { id: 'stop-word', passed: true, detail: 'Asks the work on this thread to stop.' }],
           }
-          await this.#thread(linked.id, (one) => ({ ...one, seen: remember(one.seen, id) }))
           await this.#record(arm, fact, verdict, mode, false, null)
+          await this.#thread(linked.id, (one) => ({ ...one, seen: remember(one.seen, id) }))
           return
         }
         // Discussion on the thread asks the desk for nothing: only a comment that addresses the handle resumes the work.
@@ -1006,9 +1016,9 @@ export class MentionTriage {
           return
         }
         if (linked.issueClosed) {
-          await this.#thread(linked.id, one => ({ ...one, seen: remember(one.seen, id) }))
           await this.#record(arm, fact, { decision: 'ignore', by: 'rules', reason: `${threadWords(linked.origin.kind, linked.origin.number)} is already closed.`,
             rules: [{ id: 'addressed', passed: true, detail: `Addresses @${handle}.` }, allowed, { id: 'handled', passed: false, detail: 'The issue is already closed.' }] }, mode, false, null)
+          await this.#thread(linked.id, one => ({ ...one, seen: remember(one.seen, id) }))
           return
         }
         if (mode !== 'act') return

@@ -4,8 +4,9 @@ import { readFileSync } from 'node:fs'
 import { chmod, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { MentionTriage } from '../src/intake/mentions.js'
+import { ASSESS_UNCONFIRMED, MentionTriage } from '../src/intake/mentions.js'
 import { tempDir } from './scratch.js'
+import { noAdmission, seedStopCapacity, stopArm, stopFact, stopRun } from './fixtures/mention-stop-capacity.js'
 
 const project = '/synthetic/project', trigger = 'ask', repository = 'demo/project'
 const firing = 'a'.repeat(64)
@@ -21,6 +22,48 @@ const intent = (comment: string, state = 'inFlight') => {
 const file = (stopIntents: unknown[]) => ({ version: stopIntents.length ? 2 : 1, decisions: [], threads: [], pendingThreads: [], stopIntents, modes: {}, assessed: { day: '', count: 0 } })
 const triage = (home: string, calls: { stops: number }) => new MentionTriage({ home, pendingFirings: () => [],
   stop: async () => { calls.stops++; throw new Error('stop must not be replayed') }, changed() {}, now: () => 20 } as never)
+
+for (const protectedCount of [499, 500]) for (const complete of [false, true]) {
+  test(`shared stop history with ${protectedCount} assessments and complete=${complete} reserves before effects`, async () => {
+    const home = tempDir('hd-stop-shared-capacity-'), path = join(home, 'triggers-mentions.json')
+    const before = await seedStopCapacity(home, protectedCount)
+    let acquired = 0, released = 0, effects = 0
+    const port = { home, pendingFirings: () => [], leadName: () => 'dex', changed() {}, now: () => 20,
+      closeThread: async (close: () => Promise<void>) => close(), signal: new AbortController().signal,
+      planStop: async () => { acquired++; return { queuedTargets: [], runTargets: [stopRun], interruptTargets: [], leadRunTargets: [], leadPlanTarget: null,
+        releaseUncommitted: () => { released++ } } },
+      stopOnce: async (_work: unknown, _reason: string, _plan: unknown, receipt: (effect: unknown) => Promise<void>) => {
+        effects++; await receipt({ kind: 'run', target: stopRun }); return { complete }
+      } }
+    let instance = new MentionTriage(port as never)
+    if (protectedCount === 500) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        await assert.rejects(instance.judge(stopArm, stopFact, noAdmission), /cannot safely hold|Protected mention history/)
+        assert.equal(acquired, attempt)
+        assert.equal(released, attempt, 'each definite shared-capacity refusal releases its own plan')
+        assert.equal(effects, 0)
+        assert.equal(await readFile(path, 'utf8'), before, 'no intent, thread fence or seen marker was committed')
+      }
+      const repaired = JSON.parse(before); repaired.decisions.shift()
+      await writeFile(path, JSON.stringify(repaired))
+      instance = new MentionTriage(port as never)
+    }
+    await instance.judge(stopArm, stopFact, noAdmission)
+    await instance.judge(stopArm, stopFact, noAdmission)
+    assert.equal(effects, 1)
+    assert.equal(acquired, protectedCount === 500 ? 3 : 1)
+    assert.equal(released, protectedCount === 500 ? 2 : 0)
+    const saved = JSON.parse(await readFile(path, 'utf8'))
+    assert.deepEqual(saved.decisions.filter((one: { reason: string }) => one.reason === ASSESS_UNCONFIRMED).map((one: { id: string }) => one.id),
+      JSON.parse(before).decisions.filter((one: { reason: string }) => one.reason === ASSESS_UNCONFIRMED).slice(protectedCount === 500 ? 1 : 0).map((one: { id: string }) => one.id))
+    assert.equal(saved.decisions.some((one: { reason: string }) => one.reason === 'Ordinary old decision'), false)
+    assert.equal(saved.stopIntents.length, 1)
+    assert.equal(saved.stopIntents[0].state, complete ? 'consumed' : 'unconfirmed')
+    assert.deepEqual(saved.stopIntents[0].receipts.runs, [stopRun])
+    assert.equal(saved.decisions.length, complete ? 500 : 499)
+    assert.equal(saved.stopIntents[0].decisionId, complete ? saved.decisions.at(-1).id : null, 'a consumed stop shares its decision slot')
+  })
+}
 
 test('concurrent reads recover an interrupted stop once, without repeating effects', async () => {
   const home = tempDir('hd-stop-recovery-'), path = join(home, 'triggers-mentions.json'), calls = { stops: 0 }

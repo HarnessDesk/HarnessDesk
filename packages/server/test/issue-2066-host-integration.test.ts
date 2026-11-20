@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { dirname, join } from 'node:path'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { execFileSync, fork } from 'node:child_process'
+import { mkdir, open, readFile, rm, writeFile } from 'node:fs/promises'
+import { execFileSync, fork, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { once } from 'node:events'
+import { fileURLToPath } from 'node:url'
 import { canBeginLeadGoal, createLeadJournal } from '@harnessdesk/lead'
+import { LeadSupervisor } from '@harnessdesk/lead/supervisor'
 import { LeadFileJournal } from '../src/lead/journal.js'
 import { createLeadRig } from './fixtures/lead-rig.js'
 import { FakeForge, Clocks } from './fixtures/intake-forge.js'
@@ -14,6 +17,130 @@ import { makeRepo } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
 import { MentionObserverBudget } from '../src/lead/mention-observer-budget.js'
 import { CarryOnService } from '../src/carry-on/service.js'
+import { MentionTriage } from '../src/intake/mentions.js'
+import { noAdmission, seedStopCapacity, stopArm, stopFact, stopProject, stopRun, stopTrigger } from './fixtures/mention-stop-capacity.js'
+
+/** Direct triage-to-supervisor bridge: the Host's freezeLeadStop adapter is source-traced, not exercised here. */
+const mentionHoldRig = async (home: string) => {
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  const policies: (string | undefined)[] = []
+  const children: ChildProcessWithoutNullStreams[] = []
+  const holds: NonNullable<ReturnType<LeadSupervisor['holdMentionExit']>>[] = []
+  let acquired = 0, released = 0, effects = 0
+  const supervisor = new LeadSupervisor({ journal,
+    bootstrap: async () => ({ key: 'synthetic-mention-hold', descriptor: { home, pid: process.pid, startedAt: 1,
+      hostVersion: 'test', protocolVersion: 1, socketPath: join(home, 'unused.sock') }, project: { id: 'synthetic', path: stopProject }, prices: {} }),
+    connectDesk: async () => null, resolveTool: noAdmission, freezePlan: async value => value, readEvidence: noAdmission,
+    onExit: (_reason, policy) => { policies.push(policy) }, startupMs: 1000, shutdownMs: 30,
+    spawn: (binary, args, options) => {
+      const entry = fileURLToPath(new URL('./fixtures/mention-hold-child.js', import.meta.url))
+      const child = spawn(binary, [...args.slice(0, -1), `--allow-fs-read=${entry}`, entry], options) as ChildProcessWithoutNullStreams
+      children.push(child); return child
+    } })
+  await supervisor.ensure() // The real Node 26 capability probe and an owned child process.
+  const path = join(home, 'triggers-mentions.json')
+  const port = { home, pendingFirings: () => [], leadName: () => 'dex', changed() {}, now: () => 20,
+    closeThread: async (close: () => Promise<void>) => close(), signal: new AbortController().signal,
+    planStop: async () => {
+      const hold = supervisor.holdMentionExit()
+      assert.ok(hold, 'a new stop can acquire this exact live child')
+      holds.push(hold); acquired++
+      return { queuedTargets: [], runTargets: [stopRun], interruptTargets: [], leadRunTargets: [], leadPlanTarget: null,
+        releaseUncommitted: () => { released++; hold.resolve('ordinary') } }
+    },
+    stopOnce: async (_work: unknown, _reason: string, _plan: unknown, receipt: (effect: unknown) => Promise<void>) => {
+      effects++
+      let saved = JSON.parse(await readFile(path, 'utf8'))
+      assert.equal(saved.stopIntents[0].state, 'inFlight', 'stop authority precedes effects')
+      const hold = holds.at(-1)!
+      assert.throws(() => hold.requestStop(), /child-changed/)
+      await receipt({ kind: 'run', target: stopRun })
+      saved = JSON.parse(await readFile(path, 'utf8'))
+      assert.deepEqual(saved.stopIntents[0].receipts.runs, [stopRun])
+      hold.resolve('one-shot')
+      assert.throws(() => hold.requestStop(), /child-changed/, 'policy alone does not authorize a shutdown')
+      hold.authorizeStop(); hold.requestStop()
+      assert.throws(() => hold.requestStop(), /child-changed/, 'one shutdown per captured child')
+      await hold.done
+      return { complete: true }
+    } }
+  return { supervisor, journal, policies, children, holds, port, counts: () => ({ acquired, released, effects }),
+    close: async () => {
+      for (const hold of holds) hold.resolve('ordinary')
+      await supervisor.stop()
+      for (const child of children) assert.ok(child.exitCode !== null || child.signalCode !== null, 'every owned process has exited')
+    } }
+}
+
+for (const outcome of ['retry', 'exit'] as const) test(`shared assessment capacity releases the real child hold before ${outcome}`, { timeout: 120000 }, async () => {
+  const home = tempDir('hd-mention-child-capacity-'), path = join(home, 'triggers-mentions.json')
+  const before = await seedStopCapacity(home, 500), rig = await mentionHoldRig(home)
+  try {
+    const triage = new MentionTriage(rig.port as never)
+    await assert.rejects(triage.judge(stopArm, stopFact, noAdmission), /cannot safely hold|Protected mention history/)
+    assert.equal(await readFile(path, 'utf8'), before)
+    assert.equal(rig.counts().effects, 0)
+    if (outcome === 'retry') {
+      const fresh = rig.supervisor.holdMentionExit()
+      try { assert.ok(fresh, 'capacity refusal must release the actual supervisor latch') }
+      finally { fresh?.resolve('ordinary') }
+      await assert.rejects(triage.judge(stopArm, stopFact, noAdmission), /cannot safely hold/)
+      assert.deepEqual(rig.counts(), { acquired: 2, released: 2, effects: 0 })
+      assert.equal(await readFile(path, 'utf8'), before)
+      const saved = JSON.parse(before); saved.decisions.shift()
+      await writeFile(path, JSON.stringify(saved))
+      const restarted = new MentionTriage(rig.port as never)
+      await restarted.judge(stopArm, stopFact, noAdmission)
+      await restarted.judge(stopArm, stopFact, noAdmission)
+      assert.deepEqual(rig.counts(), { acquired: 3, released: 2, effects: 1 })
+      assert.deepEqual(rig.policies, ['one-shot'])
+      const after = JSON.parse(await readFile(path, 'utf8'))
+      assert.equal(after.stopIntents[0].state, 'consumed')
+      assert.equal(after.decisions.length, 500)
+      assert.equal(after.decisions.at(-1).id, after.stopIntents[0].decisionId)
+    } else {
+      const child = rig.children[0]!, exited = once(child, 'exit')
+      child.kill('SIGTERM'); await exited
+      await rig.supervisor.stop() // RED: pid is gone, but running.done still waits on the leaked hold.
+      await rig.holds[0]!.done
+      assert.deepEqual(rig.policies, ['ordinary'])
+      assert.deepEqual(rig.counts(), { acquired: 1, released: 1, effects: 0 })
+    }
+    await rig.journal.recover(async () => []) // Child-live is cleared only after the real exit latch.
+    assert.equal(rig.supervisor.live, false)
+  } finally { await rig.close() }
+})
+
+test('post-rename atomicJson uncertainty keeps the actual child hold conservative', { timeout: 120000 }, async t => {
+  const home = tempDir('hd-mention-child-write-'), path = join(home, 'triggers-mentions.json')
+  await seedStopCapacity(home, 499)
+  const rig = await mentionHoldRig(home)
+  const directory = await open(home, 'r'), prototype = Object.getPrototypeOf(directory) as typeof directory
+  const original = prototype.sync
+  await directory.close()
+  let injected = 0
+  const fault = t.mock.method(prototype, 'sync', async function (this: typeof directory) {
+    if ((await this.stat()).isDirectory()) { injected++; throw new Error('synthetic post-rename directory sync failure') }
+    return original.call(this)
+  })
+  try {
+    const triage = new MentionTriage(rig.port as never)
+    await assert.rejects(triage.judge(stopArm, stopFact, noAdmission), /post-rename directory sync failure/)
+    fault.mock.restore()
+    assert.equal(injected, 1)
+    assert.deepEqual(rig.counts(), { acquired: 1, released: 0, effects: 0 })
+    const saved = JSON.parse(await readFile(path, 'utf8'))
+    assert.equal(saved.stopIntents[0].state, 'inFlight', 'rename committed even though atomicJson rejected')
+    assert.equal(saved.threads[0].state, 'closed')
+    assert.equal(rig.supervisor.holdMentionExit(), null, 'an actual uncertain write must retain its hold')
+    await assert.rejects(rig.journal.recover(async () => []), /live-child/)
+    const child = rig.children[0]!, exited = once(child, 'exit')
+    child.kill('SIGTERM'); await exited
+    await assert.rejects(rig.supervisor.stop(), /shutdown-timeout/)
+    assert.deepEqual(rig.policies, [], 'cleanup cannot choose ordinary after an uncertain commit')
+    assert.equal((await triage.page(stopProject, stopTrigger, null)).unconfirmedStops?.[0]?.state, 'unconfirmed', 'the failed writer re-reads and recovers the committed intent')
+  } finally { fault.mock.restore(); await rig.close() }
+})
 
 const trigger = `- id: ask
   on: mention
