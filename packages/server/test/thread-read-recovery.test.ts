@@ -638,7 +638,8 @@ test('a quit that cannot save a recovered body names the conversation and the co
   await assert.rejects(host.dispose(), (error: Error) => {
     assert.match(error.message, /^Conversation activity remains unsaved because its saved history is unavailable\. /)
     assert.match(error.message, new RegExp(`\\(recovered 1, overlays 0, conflicts 0: ${escape(`${created.runtime}/${created.id}`)}\\)$`))
-    assert.ok(error.cause, 'the storage refusal is kept as the cause')
+    // A refused write resolves and leaves the body pending, so the cause is the flush's refusal of the protected write.
+    assert.match((error.cause as Error | undefined)?.message ?? '', /protected changes that could not be saved/)
     return true
   })
   assert.deepEqual(db.read(created.runtime, created.id)!.turns, saved.turns, 'the refused save left the old body')

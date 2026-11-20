@@ -11754,7 +11754,11 @@ export class Host {
     return this.#recoveredSavesSettled()
   }
 
-  /** Await every recovered save, including one a finished save starts; returns the first rejection. */
+  /**
+   * Await every recovered save, including one a finished save starts. Returns the
+   * first save that threw; a write the store refused resolves and leaves its body
+   * recovered, which the quit then reports.
+   */
   async #recoveredSavesSettled(): Promise<unknown> {
     const awaited = new Set<Promise<void>>()
     let failure: unknown
