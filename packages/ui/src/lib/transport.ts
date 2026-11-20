@@ -275,10 +275,34 @@ export const sentenceOf = (error: WireError): string => {
  */
 const salvaged = (text: string): Record<string, string> => {
   const fields: Record<string, string> = {}
-  for (const [, key, raw] of text.matchAll(/"(message|errorName|name|code|reason)"\s*:\s*"((?:[^"\\]|\\.)*)"/g)) {
-    if (key && raw !== undefined && !(key in fields)) {
-      try { fields[key] = JSON.parse(`"${raw}"`) as string } catch { fields[key] = raw }
+  const named = new Set(['message', 'errorName', 'name', 'code', 'reason'])
+  // Walk the fragment's own level only, as JSON.parse would: a nested object's fields are not the error's.
+  let depth = 0, at = 0, key: string | null = null
+  const stringAt = (from: number): [string, number] | null => {
+    let end = from + 1
+    while (end < text.length && text[end] !== '"') end += text[end] === '\\' ? 2 : 1
+    if (end >= text.length) return null
+    try { return [JSON.parse(text.slice(from, end + 1)) as string, end + 1] } catch { return null }
+  }
+  while (at < text.length) {
+    const char = text[at]!
+    if (char === '"') {
+      const read = stringAt(at)
+      if (!read) break
+      const [value, next] = read
+      at = next
+      while (text[at] === ' ' || text[at] === '\n' || text[at] === '\t' || text[at] === '\r') at++
+      if (depth === 1 && key === null && text[at] === ':') { key = value; at++; continue }
+      if (depth === 1 && key !== null && named.has(key) && !(key in fields)) fields[key] = value
+      key = null
+      continue
     }
+    if (char === '{' || char === '[') depth++
+    else if (char === '}' || char === ']') depth--
+    else if (char === ',') { if (depth === 1) key = null }
+    // A value that is not a string (a number, true, null) ends this key at its own level.
+    else if (depth === 1 && key !== null && !/\s/.test(char)) key = null
+    at++
   }
   return fields
 }

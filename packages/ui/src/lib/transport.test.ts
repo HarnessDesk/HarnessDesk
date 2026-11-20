@@ -9,6 +9,9 @@ describe('sentenceOf', () => {
     expect(sentenceOf({ code: 'internal', message: 'Internal service failure', details: cut })).toBe('Internal service failure — LocationNotFoundError')
     expect(sentenceOf({ code: 'internal', message: 'Failed', details: '{"context":"' + 'y'.repeat(390) })).toBe('Failed')
     expect(sentenceOf({ code: 'internal', message: 'Failed', details: '{not json at all}' })).toBe('Failed — {not json at all}')
+    const nested = `{"errorName":"LocationNotFoundError","context":{"message":"Project loaded","code":"project-42"},"pad":"${'z'.repeat(380)}`
+    expect(sentenceOf({ code: 'internal', message: 'Internal service failure', details: nested })).toBe('Internal service failure — LocationNotFoundError')
+    expect(sentenceOf({ code: 'internal', message: 'Failed', details: `{"count":3,"message":"No such folder","code":"ENOENT","pad":"${'z'.repeat(390)}` })).toBe('Failed — No such folder (ENOENT)')
   })
 
   it('adds the reason the agent gave, because the message alone says nothing', () => {
