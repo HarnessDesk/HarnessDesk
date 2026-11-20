@@ -228,6 +228,14 @@ a sitting, and that entry is where it is kept current.
 acp`, and reads its key from `~/.dsh/.credentials.yaml`. See
 `docs/decisions.md#deepseek-runs-on-dshs-own-acp-server-and-its-tools-arrive-with-the-session`.)*
 
+In DeepSeek Harness 0.2.2-rc.5, automatic web search uses server-side search on
+DeepSeek's official and account model routes. That search is billed in model
+tokens. Other routes default to the DeepSeek Search API. Server-side search has
+its own base URL, so a deployment using a gateway for model requests must
+configure the search endpoint separately to route searches through that gateway.
+An explicit search provider still takes precedence. HarnessDesk displays usage
+reported over ACP. [DeepSeek Harness upgrade guide](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.5/docs/upgrade-guide/v0.2.2-rc.4/web-search-deepseek-model-default/guide.md)
+
 ### Traps and boundaries
 
 - **Package tag lag:** On Grok Build, npm's `latest` dist-tag can lag the
@@ -513,6 +521,12 @@ The wrapper subclasses the bridge, adds the effort, auto-compact and output
 style controls, records selected settings in `~/.harnessdesk/claude-acp/`,
 and identifies as `bridge 0.1.0`. The "Default" selection passes no
 `--effort` parameter, allowing Claude Code's terminal defaults to govern.
+When changing a control restarts a conversation's Claude process, the bridge
+reapplies the active model if Claude still offers it and accepts the selection.
+The bridge sets `CLAUDE_CODE_DISABLE_SHELL_HEAD_START=1` in Claude's child
+environment and generated flag settings to opt out of speculative shell
+startup. An explicit CLI `--settings` file retains Claude's normal settings
+precedence. [Claude Code v2.1.327 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.327)
 
 Model catalogue lists cannot be unified across runtimes: the same underlying
 weights are exposed as `claude-fable-5[1m]` in Claude Code,

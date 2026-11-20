@@ -152,7 +152,7 @@ const asStreamed = (usage) => ({ ...usage, output_tokens: 1 })
  * reads the words from, then the assistant message. No `result` — the turn
  * goes on, which is how the real CLI narrates between tool calls.
  */
-const narrate = (text) => {
+const narrate = (text, responseModel = 'fake') => {
   log('narrate begin')
   const usage = usageOf()
   // The bridge asks for partial messages and takes assistant text from the
@@ -160,7 +160,7 @@ const narrate = (text) => {
   const messageId = `msg_${Date.now()}`
   const messageUuid = `uuid-${messageId}`
   const stream = (event) => send({ type: 'stream_event', event, session_id: sessionId, parent_tool_use_id: null, uuid: messageUuid })
-  stream({ type: 'message_start', message: { id: messageId, role: 'assistant', model: 'fake', content: [], usage: asStreamed(usage) } })
+  stream({ type: 'message_start', message: { id: messageId, role: 'assistant', model: responseModel, content: [], usage: asStreamed(usage) } })
   stream({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } })
   stream({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } })
   stream({ type: 'content_block_stop', index: 0 })
@@ -172,7 +172,7 @@ const narrate = (text) => {
       id: messageId,
       type: 'message',
       role: 'assistant',
-      model: 'fake',
+      model: responseModel,
       content: [{ type: 'text', text }],
       stop_reason: 'end_turn',
       stop_sequence: null,
@@ -187,8 +187,8 @@ const narrate = (text) => {
   return usage
 }
 
-const reply = (text) => {
-  const usage = narrate(text)
+const reply = (text, { responseModel = 'fake', childModelUsage = {} } = {}) => {
+  const usage = narrate(text, responseModel)
   log('reply result begin')
   send({
     type: 'result',
@@ -201,7 +201,7 @@ const reply = (text) => {
     session_id: sessionId,
     total_cost_usd: spent,
     usage,
-    modelUsage: { fake: { contextWindow: 200000, ...totals } },
+    modelUsage: { ...childModelUsage, [responseModel]: { contextWindow: 200000, ...totals } },
     permission_denials: [],
     stop_reason: 'end_turn',
     uuid: `result-${Date.now()}`,
@@ -616,6 +616,10 @@ rl.on('line', (line) => {
         return
       }
       case 'set_model':
+        if (resumed && process.env.FAKE_CLAUDE_REFUSE_RESUMED_MODEL_SWITCH === '1') {
+          refuse('Model switch blocked by a PreModelSwitch hook: fixture refusal')
+          return
+        }
         model = request.model ?? model
         respond({})
         return
@@ -634,6 +638,10 @@ rl.on('line', (line) => {
     send(message)
     log('echoed user')
     const text = textOf(message.message).trim()
+    if (text === 'bridge shell head start') {
+      reply(`shell-head-start=${process.env.CLAUDE_CODE_DISABLE_SHELL_HEAD_START ?? 'unset'}`)
+      return
+    }
     if (text === 'bridge wait for steer') { narrate('waiting for direction'); return }
     if (text.startsWith('git-steer-run ')) {
       const request = JSON.parse(text.slice('git-steer-run '.length)), quote = value => "'" + value.replaceAll("'", "'\\''") + "'"
@@ -768,7 +776,13 @@ rl.on('line', (line) => {
       })
       finish('toolu_kid_a')
       finish('toolu_kid_b')
-      reply('both sub-agents reported back')
+      reply('both sub-agents reported back', {
+        responseModel: 'fake-sonnet',
+        childModelUsage: {
+          'fake-haiku': { contextWindow: 100000, inputTokens: 200, outputTokens: 100, cacheReadInputTokens: 1800, cacheCreationInputTokens: 0 },
+          'fake-opus': { contextWindow: 1000000, inputTokens: 200, outputTokens: 300, cacheReadInputTokens: 0, cacheCreationInputTokens: 1800 },
+        },
+      })
       return
     }
     if (/^readimage\b/.test(text)) {

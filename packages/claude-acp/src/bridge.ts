@@ -314,13 +314,49 @@ export const optionsIn = (meta: Meta): Record<string, string> => {
 }
 export const readCeilingAllowsMode = (ceiling: string | undefined, mode: string): boolean =>
   ceiling !== 'read' || mode === 'default' || mode === 'plan'
-const parsedSettings = (raw: unknown): Record<string, unknown> => {
-  if (typeof raw !== 'string' || raw === '') return {}
-  try { const parsed: unknown = JSON.parse(raw); return typeof parsed === 'object' && parsed !== null ? parsed as Record<string, unknown> : {} } catch { return {} }
+const settingsObject = (value: unknown): Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+
+const inlineFlagSettings = (value: string): Record<string, unknown> | undefined => {
+  if (!value.trimStart().startsWith('{')) return undefined
+  try { return settingsObject(JSON.parse(value)) } catch { return undefined }
 }
-export const withOptions = (meta: Meta, values: Record<string, string>, abort: AbortController, cwd?: string): Record<string, unknown> => {
+
+const flagSettingsOf = (value: unknown, cwd?: string): Record<string, unknown> => {
+  if (typeof value !== 'string' || value === '') return settingsObject(value)
+  return inlineFlagSettings(value) ?? settingsObject(JSON.parse(readFileSync(resolve(cwd ?? process.cwd(), value), 'utf8')))
+}
+
+const SHELL_APPROVAL_ENV = { CLAUDE_CODE_DISABLE_SHELL_HEAD_START: '1' }
+
+const withShellApproval = (meta: Meta, cwd?: string) => {
   const claudeCode = (meta?.['claudeCode'] ?? {}) as { options?: Record<string, unknown> }
-  const options: Record<string, unknown> = { ...(claudeCode.options ?? {}), abortController: abort }
+  const configured = claudeCode.options ?? {}
+  const extraArgs = { ...((configured['extraArgs'] as Record<string, string | null> | undefined) ?? {}) }
+  const options: Record<string, unknown> & { settings?: Record<string, unknown> } = {
+    ...configured,
+    env: { ...(configured['env'] as NodeJS.ProcessEnv | undefined), ...SHELL_APPROVAL_ENV },
+  }
+  const rawSettings = extraArgs['settings']
+  const flagSettings = configured['settings'] != null
+    ? flagSettingsOf(configured['settings'], cwd)
+    : rawSettings ? inlineFlagSettings(rawSettings) : {}
+  // Keep an explicit CLI settings file as a path. The SDK would serialize
+  // its contents into the process arguments if we made it an object.
+  if (flagSettings === undefined) return { ...claudeCode, options }
+  // Claude applies settings env after the child environment.
+  options.settings = { ...flagSettings, env: { ...settingsObject(flagSettings['env']), ...SHELL_APPROVAL_ENV } }
+  delete extraArgs['settings']
+  if (Object.keys(extraArgs).length > 0) options['extraArgs'] = extraArgs
+  else delete options['extraArgs']
+  return { ...claudeCode, options }
+}
+
+export const withOptions = (meta: Meta, values: Record<string, string>, abort: AbortController, cwd?: string): Record<string, unknown> => {
+  const claudeCode = withShellApproval(meta, cwd)
+  const { options } = claudeCode
+  const settings = options.settings ?? { env: { ...SHELL_APPROVAL_ENV } }
+  options['abortController'] = abort
   const environment = environmentIn(meta)
   if (environment) {
     options['env'] = childEnvironment(
@@ -335,15 +371,11 @@ export const withOptions = (meta: Meta, values: Record<string, string>, abort: A
   if (autocompact && autocompact !== DEFAULT) extraArgs['autocompact'] = autocompact
   else delete extraArgs['autocompact']
   const style = values[OUTPUT_STYLE_OPTION_ID]
-  const settings = parsedSettings(extraArgs['settings'])
-  if (style && style !== DEFAULT) extraArgs['settings'] = JSON.stringify({ ...settings, outputStyle: style })
-  else if ('outputStyle' in settings) {
-    const { outputStyle: _outputStyle, ...rest } = settings
-    if (Object.keys(rest).length > 0) extraArgs['settings'] = JSON.stringify(rest)
-    else delete extraArgs['settings']
+  if (style === DEFAULT) delete settings['outputStyle']
+  else if (style) {
+    settings['outputStyle'] = style
+    options.settings = settings
   }
-  if (Object.keys(extraArgs).length > 0) options['extraArgs'] = extraArgs
-  else delete options['extraArgs']
   if (values['ceiling'] === 'read') {
     options['allowDangerouslySkipPermissions'] = false
     options['permissionMode'] = 'default'
@@ -352,20 +384,10 @@ export const withOptions = (meta: Meta, values: Record<string, string>, abort: A
       ...((options['disallowedTools'] as string[] | undefined) ?? []),
       'Write', 'Edit', 'MultiEdit', 'NotebookEdit',
     ])]
-    const configuredSettings = options['settings']
-    let flagSettings: Record<string, unknown> = {}
-    if (typeof configuredSettings === 'string') {
-      try {
-        flagSettings = JSON.parse(configuredSettings) as Record<string, unknown>
-      } catch {
-        flagSettings = JSON.parse(readFileSync(resolve(cwd ?? process.cwd(), configuredSettings), 'utf8')) as Record<string, unknown>
-      }
-    } else if (typeof configuredSettings === 'object' && configuredSettings !== null && !Array.isArray(configuredSettings)) {
-      flagSettings = configuredSettings as Record<string, unknown>
-    }
     // The SDK's flag-settings tier is applied before the CLI starts hooks.
     // SDK callback hooks (including our PreToolUse ceiling guard) remain active.
-    options['settings'] = { ...flagSettings, disableAllHooks: true }
+    settings['disableAllHooks'] = true
+    options.settings = settings
     const settingSources = options['settingSources']
     options['settingSources'] = Array.isArray(settingSources)
       ? settingSources.filter((source) => source === 'user')
@@ -378,12 +400,15 @@ export const withOptions = (meta: Meta, values: Record<string, string>, abort: A
       PreToolUse: [...preToolUse, { hooks: [readCeilingHook] }],
     }
   }
+  if (options.settings) delete extraArgs['settings']
+  if (Object.keys(extraArgs).length > 0) options['extraArgs'] = extraArgs
+  else delete options['extraArgs']
   const steering = (options['env'] as NodeJS.ProcessEnv | undefined)?.['HD_GIT_STEER'] ?? process.env['HD_GIT_STEER']
   if (steering === 'ask' || steering === 'redirect') {
     const hooks = (options['hooks'] ?? {}) as Record<string, unknown>
     options['hooks'] = { ...hooks, PreToolUse: [...((hooks['PreToolUse'] as unknown[] | undefined) ?? []), { hooks: [(input: Parameters<typeof gitSteeringHook>[0]) => gitSteeringHook(input, options['env'] as NodeJS.ProcessEnv | undefined)] }] }
   }
-  const next: Record<string, unknown> = { ...(meta ?? {}), claudeCode: { ...claudeCode, options, emitRawSDKMessages: true } }
+  const next: Record<string, unknown> = { ...(meta ?? {}), claudeCode: { ...claudeCode, emitRawSDKMessages: true } }
   if (values['ceiling'] === 'read') {
     const harnessdesk = (next['harnessdesk'] ?? {}) as Record<string, unknown>
     next['harnessdesk'] = { ...harnessdesk, ceiling: 'read' }
@@ -780,6 +805,7 @@ const rereadReplayed = (params: SessionNotification, loading: LoadReplay): Sessi
 export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
   readonly #usageReader = new UsageReader()
   readonly #controls = new Map<string, StoredControlsWithRuntime>()
+  readonly #optionChanges = new Map<string, Promise<unknown>>()
   readonly #rawToolResults = new Map<string, Map<string, RawToolResult>>()
   readonly #tasks = new Map<string, TaskRegistry>()
   readonly #delegations = new Map<string, DelegationRegistry>()
@@ -1005,9 +1031,10 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     const recovery = this.#controls.get(request.sessionId)?.resumeBeforePrompt
     if (recovery) request = { ...recovery, ...request, _meta: request._meta ?? recovery._meta }
     const remembered = { ...this.#readControls(request.sessionId), ...optionsIn(request._meta) }
-    // Only a read seat needs its ceiling re-applied here; every other resume
-    // stays exactly the wrapper's own.
-    if (remembered['ceiling'] !== 'read') return super.resumeSession(request)
+    if (remembered['ceiling'] !== 'read') {
+      const claudeCode = withShellApproval(request._meta, request.cwd)
+      return super.resumeSession({ ...request, _meta: { ...request._meta, claudeCode } })
+    }
     const response = await super.resumeSession({ ...request, _meta: withOptions(request._meta, remembered, new AbortController(), request.cwd) })
     try {
       await this.#forceReadPermissionMode(request.sessionId, remembered)
@@ -1065,7 +1092,19 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     const decorated = decorateSessionOptions(result, (this.sessions[result.sessionId]?.modelInfos ?? []) as readonly ModelInfo[])
     return environmentAck({ ...decorated, configOptions: [...(decorated.configOptions ?? []), ...customOptions(stored)] }, environmentIn(params._meta))
   }
-  override async setSessionConfigOption(params: SetSessionConfigOptionRequest): Promise<SetSessionConfigOptionResponse> {
+  async #serializeOptions<T>(sessionId: string, change: () => Promise<T>): Promise<T> {
+    const pending = this.#optionChanges.get(sessionId) ?? Promise.resolve()
+    const result = pending.then(change, change)
+    this.#optionChanges.set(sessionId, result)
+    try { return await result }
+    finally { if (this.#optionChanges.get(sessionId) === result) this.#optionChanges.delete(sessionId) }
+  }
+  override setSessionConfigOption(params: SetSessionConfigOptionRequest): Promise<SetSessionConfigOptionResponse> {
+    // A picker choice must queue behind a respawn that would restore an older
+    // model, even after the replacement query is visible to upstream.
+    return this.#serializeOptions(params.sessionId, () => this.#setOption(params))
+  }
+  async #setOption(params: SetSessionConfigOptionRequest): Promise<SetSessionConfigOptionResponse> {
     if (!CONTROL_IDS.includes(params.configId as typeof CONTROL_IDS[number])) {
       const response = await super.setSessionConfigOption(params)
       const stored = this.#controls.get(params.sessionId)
@@ -1111,8 +1150,11 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     }
     const response = await super.prompt(params)
     if (stored && stored.values[OUTPUT_STYLE_OPTION_ID] !== stored.spawned[OUTPUT_STYLE_OPTION_ID] && stored.prompted) {
-      await this.#recreate(params.sessionId, stored)
-      stored.spawned = { ...stored.values }
+      await this.#serializeOptions(params.sessionId, async () => {
+        if (stored.values[OUTPUT_STYLE_OPTION_ID] === stored.spawned[OUTPUT_STYLE_OPTION_ID]) return
+        await this.#recreate(params.sessionId, stored)
+        stored.spawned = { ...stored.values }
+      })
     }
     if (!response.usage) return response
     return {
@@ -1247,6 +1289,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     const session = this.sessions[sessionId]
     if (!session) throw RequestError.invalidParams(`Session not found: ${sessionId}`)
     const creation = session.creationParams
+    const model = session.configOptions.find(option => option.id === 'model')
     await super.closeSession({ sessionId })
     // `resume: sessionId` is added to whatever `claudeCode.options` already
     // held — never in its place. Phase 12's own fields (`skills`, `plugins`,
@@ -1256,19 +1299,29 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     // it does not ask this Agent what it wishes for today.
     const frozenClaudeCode = (stored.meta?.['claudeCode'] as Record<string, unknown> | undefined) ?? {}
     const frozenOptions = (frozenClaudeCode['options'] as Record<string, unknown> | undefined) ?? {}
-    const response = await super.resumeSession({
+    await super.resumeSession({
       sessionId,
       cwd: stored.cwd,
       ...(creation?.mcpServers ? { mcpServers: creation.mcpServers } : {}),
       _meta: withOptions({ ...(stored.meta ?? {}), claudeCode: { ...frozenClaudeCode, options: { ...frozenOptions, resume: sessionId } } }, stored.values, new AbortController(), stored.cwd),
     })
     await this.#forceReadPermissionMode(sessionId, stored.values)
+    // Resume reads the last model in the transcript. A picker change can be
+    // newer than that turn, so restore the live selection through ACP.
+    const resumed = this.sessions[sessionId]
+    const resumedModel = resumed?.configOptions.find(option => option.id === 'model')
+    if (resumed && model?.type === 'select' && model.currentValue !== resumedModel?.currentValue) {
+      if (resumedModel?.type === 'select' && resumedModel.options.some(choice => 'value' in choice && choice.value === model.currentValue)) {
+        try { await super.setSessionConfigOption({ sessionId, configId: 'model', value: model.currentValue }) }
+        catch (error) { this.#log(`claude-acp: could not restore model for ${sessionId}: ${String(error)}`) }
+      }
+      await this.client.sessionUpdate({ sessionId, update: { sessionUpdate: 'config_option_update', configOptions: resumed.configOptions } })
+    }
     const current = this.#controls.get(sessionId)
     if (current) {
       current.styles = await optionStyles(this, sessionId)
       this.#controls.set(sessionId, current)
     }
-    void response
   }
 
   async #forceReadPermissionMode(sessionId: string, values: Record<string, string>): Promise<void> {
