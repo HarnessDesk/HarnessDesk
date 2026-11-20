@@ -1288,3 +1288,27 @@ for (const mode of ['title', 'delta', 'base-next', 'external', 'generation', 'ep
     }
   })
 }
+
+test('a timed sweep that finds the body reopened drops nothing and confirms no forget (#2292)', async t => {
+  const { home, store, db } = await fixture(t)
+  const body = session([turn('one', [message('answer', 'kept')])])
+  store.record(body, { now: true })
+  await store.flush()
+  const forgotten: string[] = []
+  store.onForgotten((runtime, id) => forgotten.push(`${runtime}/${id}`))
+  const setRemovedAt = (at: number | null) => {
+    const writer = new DatabaseSync(join(home, 'sessions.sqlite'))
+    try { writer.prepare('UPDATE sessions SET removed_at=? WHERE runtime=? AND id=?').run(at, body.runtime, body.id) } finally { writer.close() }
+  }
+  const stored = () => { const reader = db(); try { return reader.prepare('SELECT count(*) AS n FROM bodies WHERE runtime=? AND id=?').get(body.runtime, body.id)?.n } finally { reader.close() } }
+  // Reopened while the sweep waited: no longer removed.
+  setRemovedAt(null)
+  await store.forget(body.runtime, body.id, { removedBefore: Date.now() })
+  assert.deepEqual(forgotten, [], 'a skipped sweep confirms nothing')
+  assert.equal(stored(), 1, 'the reopened body is kept')
+  // Removed long enough ago: the sweep drops it, and says so once.
+  setRemovedAt(1)
+  await store.forget(body.runtime, body.id, { removedBefore: Date.now() })
+  assert.deepEqual(forgotten, [`${body.runtime}/${body.id}`])
+  assert.equal(stored(), 0)
+})

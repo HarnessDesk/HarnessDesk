@@ -252,11 +252,12 @@ export class TranscriptDatabase {
     this.#fingerprints.set(key, next)
   }
 
-  forget(runtime: RuntimeId, id: SessionId, options: { deleteIndex?: boolean; removedBefore?: number } = {}): void {
-    transaction(this.db, () => {
+  /** Drops the body, unless a timed sweep finds it no longer removed early enough; says whether it dropped (#2292). */
+  forget(runtime: RuntimeId, id: SessionId, options: { deleteIndex?: boolean; removedBefore?: number } = {}): boolean {
+    const dropped = transaction(this.db, () => {
       if (options.removedBefore !== undefined) {
         const at = this.db.prepare('SELECT removed_at FROM sessions WHERE runtime=? AND id=?').get(runtime, id)?.removed_at
-        if (at == null || Number(at) > options.removedBefore) return
+        if (at == null || Number(at) > options.removedBefore) return false
       }
       dropSessionBody(this.db, runtime, id)
       if (options.deleteIndex) {
@@ -264,8 +265,10 @@ export class TranscriptDatabase {
         this.db.prepare('INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT DO NOTHING').run(`deleted:${JSON.stringify([runtime, id])}`, '1')
         for (const prefix of ['pending', 'removed-origin']) this.db.prepare('DELETE FROM meta WHERE key=?').run(`${prefix}:${JSON.stringify([runtime, id])}`)
       }
+      return true
     })
-    this.#fingerprints.delete(JSON.stringify([runtime, id]))
+    if (dropped) this.#fingerprints.delete(JSON.stringify([runtime, id]))
+    return dropped
   }
 
   /** Sizing reads counters, never payloads. Full and live bodies are retained. */
