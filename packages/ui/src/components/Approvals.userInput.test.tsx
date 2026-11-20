@@ -410,6 +410,59 @@ it.each([
   expect(container.querySelector('pre')?.textContent).toBe('git status')
 })
 
+it.each([
+  ['bidi controls', '\u202enoitcudorp\u202c', '\\u202enoitcudorp\\u202c'],
+  ['newline and tab', 'line\nbreak\tname', 'line\\u000abreak\\u0009name'],
+  ['C0 controls', '\u0000\u0008\r\u001f\u007f', '\\u0000\\u0008\\u000d\\u001f\\u007f'],
+  ['C1 controls', '\u0085\u009b', '\\u0085\\u009b'],
+  ['format controls', '\u200b\ufeff\u{e0001}', '\\u200b\\ufeff\\u{e0001}'],
+  ['line and paragraph separators', '\u2028\u2029', '\\u2028\\u2029'],
+  ['unpaired surrogates', '\ud800x\udfff', '\\ud800x\\udfff'],
+])('exposes folder %s in permission text and title without changing the approval', (_name, raw, shown) => {
+  const cwd = `/work/storefront/${raw}`
+  const command = 'git status'
+  const facts = Object.freeze([Object.freeze({ label: 'Command', value: command })])
+  const approval = Object.freeze({ ...boardApproval('Execute tool', SESSION_SET), cwd, facts })
+  const store = mount(approval, info, {
+    home: '/work',
+    sessions: new Map([[KEY, {
+      id: SESSION as never, runtime: RUNTIME, cwd: '/work/storefront', status: { type: 'idle' as const },
+      createdAt: 0, updatedAt: 0, turns: [], itemsLoaded: true,
+    }]]),
+  })
+
+  const folder = container.querySelector('[data-slot="approval-meta"][data-kind="folder"]')
+  // Soft assertions retain both visible-text and full-title failures in RED.
+  expect.soft(folder?.textContent).toBe(`instorefront/${shown}`)
+  expect.soft(folder?.getAttribute('title')).toBe(`/work/storefront/${shown}`)
+  expect.soft(folder?.textContent).not.toMatch(/[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u)
+  expect.soft(folder?.getAttribute('title')).not.toMatch(/[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u)
+  expect(container.querySelector('pre')?.textContent).toBe(command)
+  expect(container.querySelector('h2')?.textContent).toBe('Execute tool')
+  expect(store.getSnapshot().approvals[0]?.approval).toBe(approval)
+  expect(approval.cwd).toBe(cwd)
+  expect(approval.facts).toBe(facts)
+  expect(approval.facts[0]?.value).toBe(command)
+})
+
+it('exposes folder controls for an ordinary command approval using the same folder display', () => {
+  const cwd = '/work/storefront/\u202enoitcudorp\u202c'
+  const command = 'git status'
+  const approval: Extract<Approval, { type: 'command' }> = Object.freeze({
+    id: 'command-folder' as never, sessionId: SESSION as never, requestedAt: 0,
+    type: 'command', command, cwd, actions: [], options: SESSION_SET,
+  })
+  const store = mount(approval, info, { home: '/work' })
+
+  const folder = container.querySelector('[data-slot="approval-meta"][data-kind="folder"]')
+  expect.soft(folder?.textContent).toBe('in~/storefront/\\u202enoitcudorp\\u202c')
+  expect.soft(folder?.getAttribute('title')).toBe('/work/storefront/\\u202enoitcudorp\\u202c')
+  expect(container.querySelector('pre')?.textContent).toBe(command)
+  expect(store.getSnapshot().approvals[0]?.approval).toBe(approval)
+  expect(approval.cwd).toBe(cwd)
+  expect(approval.command).toBe(command)
+})
+
 it('keeps a permission command without cwd free of an inferred session folder', () => {
   mount({ ...boardApproval('Execute tool', SESSION_SET), facts: [{ label: 'Command', value: 'git status' }] })
   expect(container.querySelector('[data-kind="folder"]')).toBeNull()
