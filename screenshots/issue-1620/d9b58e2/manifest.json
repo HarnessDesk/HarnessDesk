@@ -1,0 +1,23 @@
+{
+  "scope": "Raw synthetic actual-app command disclosure comparison. No command execution or live provider. Normal path ellipsis preserved; full title separately checked. Canonical audits, source/compiled hashes and quit cleanup verified.",
+  "fixtureIdentity": "Demo desk",
+  "head": "d9b58e260788c6b7b8dd6c1adc807ec3646a47fb",
+  "frames": [
+    {
+      "path": "screenshots/issue-1620/d9b58e2/before-native-command.png",
+      "sha256": "63c077c0fb7694c48dcbacc951f4623302b8f96bc8bc234a073a3aff7372d36f",
+      "sourceHead": "dd42f6b9cd3eee49e9c36cad461c974a04c27dc0",
+      "sourceTree": "78029cb27eca2d153618be13d0c61f5e26e05777",
+      "surface": "actual production Electron + Host with display-only synthetic ACP; trusted Deny",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-1620/d9b58e2/after-native-command.png",
+      "sha256": "3012782d90254bae8ca9e2b7debcedc7f8dc52f291d5f9fc48c56ab987942eb0",
+      "sourceHead": "d9b58e260788c6b7b8dd6c1adc807ec3646a47fb",
+      "sourceTree": "feabb81a4d9339b812cf967b8943914d8eacd31d",
+      "surface": "actual production Electron + Host with display-only synthetic ACP; trusted Deny",
+      "parentVisuallyInspected": true
+    }
+  ]
+}
