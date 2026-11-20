@@ -1,0 +1,39 @@
+{
+  "scope": "Raw actual Electron and Host with synthetic account and constant30minute renderer offset. Dated readings versus undated limits, canonical audits, exact source/compiled hashes and normalquit cleanup verified. No physical OSclockstep or live-provider parity proof.",
+  "fixtureIdentity": "Demo desk",
+  "head": "094f16fc51f42a7b6179ada61970b74e7bbf92cc",
+  "frames": [
+    {
+      "path": "screenshots/issue-2227/094f16f/dashboard.png",
+      "sha256": "83f8abdbd6203a2829509b304d978ca26ff5375443c8517119c573280990e7f6",
+      "sourceHead": "094f16fc51f42a7b6179ada61970b74e7bbf92cc",
+      "sourceTree": "c83628e73e9db4d9207a6602e3b8c60b8f54af0e",
+      "surface": "actual production Electron + Host with constant renderer skew; synthetic dated versus undated reports",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-2227/094f16f/settings.png",
+      "sha256": "8792093e42959d7061e89897c0ba29861d13c2bf6b7f900c5473ff9a16991bdb",
+      "sourceHead": "094f16fc51f42a7b6179ada61970b74e7bbf92cc",
+      "sourceTree": "c83628e73e9db4d9207a6602e3b8c60b8f54af0e",
+      "surface": "actual production Electron + Host with constant renderer skew; synthetic dated versus undated reports",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-2227/094f16f/account-detail.png",
+      "sha256": "57cb48f667a2d03377b1796c2a0d441522f11e24f469253a6aff5e779a30c179",
+      "sourceHead": "094f16fc51f42a7b6179ada61970b74e7bbf92cc",
+      "sourceTree": "c83628e73e9db4d9207a6602e3b8c60b8f54af0e",
+      "surface": "actual production Electron + Host with constant renderer skew; synthetic dated versus undated reports",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-2227/094f16f/composer-context.png",
+      "sha256": "a7eaac511ce3b3dd94da978de043994550a13ef34c268fd6dfb56787909f366f",
+      "sourceHead": "094f16fc51f42a7b6179ada61970b74e7bbf92cc",
+      "sourceTree": "c83628e73e9db4d9207a6602e3b8c60b8f54af0e",
+      "surface": "actual production Electron + Host with constant renderer skew; synthetic dated versus undated reports",
+      "parentVisuallyInspected": true
+    }
+  ]
+}
