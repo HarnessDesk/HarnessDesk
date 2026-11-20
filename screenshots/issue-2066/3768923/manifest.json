@@ -1,0 +1,16 @@
+{
+  "kind": "raw actual Electron+Host defaultOff acceptance at current mergedbase3768",
+  "tree": "f77d3fb4fe02328cd1d48537a4ba80ba5121fdd1",
+  "boundary": "Basic current defaultOff only; no provider, billing, native500/model-marker fault or historicalUI equality claim. Fresh build includes new development changes.",
+  "imageTransforms": false,
+  "head": "3768923989524c3bb294c1d2512b70ab85694892",
+  "frames": [
+    {
+      "sha256": "0ffbdb48462d2f3af09fc353954b5f31ecf2d895302e3bd9223c7aeb748a1f1c",
+      "path": "screenshots/issue-2066/3768923/after-default-off.png",
+      "width": 2560,
+      "height": 1680,
+      "parentVisuallyInspected": true
+    }
+  ]
+}
