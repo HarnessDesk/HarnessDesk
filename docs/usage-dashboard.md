@@ -1120,8 +1120,10 @@ too. The window's own total is the headline above them and is never repeated
 as a third tile.
 
 **Every “Last N days” figure includes today.** The shorter figures and the
-selected range sum the same local-day buckets. They carry **so far** because
-the last day is still running, and those partial tiles have no comparison
+selected range sum the same local-day buckets. When every day has a recorded
+row, the shorter figures carry **so far** because the last day is still running.
+A partly recorded period instead names its **days with history**; a period
+with no rows says **No record yet**. These rolling tiles have no comparison
 percentage. The selected range can still name its separate previous-period
 comparison. Days without a recorded row are gaps in both chart modes; an explicitly
 recorded zero remains zero. Row dates do not establish scan coverage, so the
