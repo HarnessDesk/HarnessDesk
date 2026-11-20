@@ -3,7 +3,8 @@ import { HostClockEstimator } from './host-clock'
 import { hostLimits } from './limits'
 
 const sample = (hostNowMs = 100_000, clockEpoch = 'epoch') => ({ hostNowMs, clockEpoch })
-const timing = (sentMonoMs = 10, receivedMonoMs = 110, receivedWallMs = 1_000_000, generation = 1) => ({ generation, sentMonoMs, receivedMonoMs, receivedWallMs })
+const timing = (sentMonoMs = 10, receivedMonoMs = 110, receivedWallMs = 1_000_000, generation = 1,
+  sentWallMs = receivedWallMs - (receivedMonoMs - sentMonoMs)) => ({ generation, sentMonoMs, sentWallMs, receivedMonoMs, receivedWallMs })
 const read = (monoMs = 110, wallMs = 1_000_000, generation = 1) => ({ generation, monoMs, wallMs })
 const estimator = () => { const clock = new HostClockEstimator(); clock.reset(1); return clock }
 
@@ -20,6 +21,97 @@ describe('HostClockEstimator', () => {
       const clock = estimator()
       expect(clock.accept(sample(), timing(10, 10 + rtt))).toBe(true)
       expect(clock.read(read(10 + rtt))).toEqual({ lowerMs: 100_000, upperMs: 100_001 + rtt })
+    }
+  })
+  it.each(['initial', 'reset', 'invalidate'].flatMap(phase => [-1000, 1000].map(shift => ({ phase, shift }))))(
+    'contains a $shift ms in-flight shared wall step on the first sample after $phase', ({ phase, shift }) => {
+      const clock = estimator()
+      if (phase !== 'initial') {
+        expect(clock.accept(sample(), timing(0, 0, 100_000))).toBe(true)
+        if (phase === 'reset') clock.reset(2)
+        else clock.invalidate()
+      }
+      const generation = phase === 'reset' ? 2 : 1
+      // The Host stamps before the shared clock moves during the return trip.
+      expect(clock.accept(sample(), timing(10, 20, 100_010 + shift, generation, 100_000))).toBe(true)
+      for (const elapsed of [0, 100]) {
+        const interval = clock.read(read(20 + elapsed, 100_010 + shift + elapsed, generation))
+        expect(interval).not.toBeNull()
+        for (const hostNow of [100_010 + shift + elapsed, 100_010 + elapsed]) {
+          expect(interval!.lowerMs).toBeLessThanOrEqual(hostNow)
+          expect(interval!.upperMs).toBeGreaterThanOrEqual(hostNow)
+        }
+      }
+    },
+  )
+  it.each([-2000, 2000])('contains an in-flight wall step at the %i ms admission limit', shift => {
+    const clock = estimator()
+    expect(clock.accept(sample(), timing(10, 20, 100_010 + shift, 1, 100_000))).toBe(true)
+    const interval = clock.read(read(20, 100_010 + shift))!
+    expect(interval.lowerMs).toBeLessThanOrEqual(100_010 + shift)
+    expect(interval.upperMs).toBeGreaterThanOrEqual(100_010 + shift)
+  })
+  it.each([-2001, 2001])('rejects a first-probe %i ms wall discontinuity beyond the admission limit', shift => {
+    const clock = estimator()
+    expect(clock.accept(sample(), timing(10, 20, 100_010 + shift, 1, 100_000))).toBe(false)
+    expect(clock.read(read(20, 100_010 + shift))).toBeNull()
+  })
+  it.each([-1, 1])('retains in-flight uncertainty in the cumulative budget for direction %i', direction => {
+    const clock = estimator()
+    expect(clock.accept(sample(), timing(10, 20, 100_010 + 750 * direction, 1, 100_000))).toBe(true)
+    expect(clock.read(read(1020, 101_010 + 1750 * direction))).not.toBeNull()
+    // Adjacent reads and post-receipt drift are individually below two seconds,
+    // but the uncertainty from the request plus this later drift is 2001 ms.
+    expect(clock.read(read(2020, 102_010 + 2001 * direction))).toBeNull()
+  })
+  it.each([-1000, 1000])('does not cancel request uncertainty when a later %i ms step reverses', shift => {
+    const clock = estimator()
+    // Here the Host stamps after the in-flight step; a reverse step after
+    // receipt cannot erase the uncertainty about where that stamp occurred.
+    expect(clock.accept(sample(100_000 + shift), timing(10, 20, 100_010 + shift, 1, 100_000))).toBe(true)
+    const interval = clock.read(read(120, 100_110))
+    expect(interval).not.toBeNull()
+    for (const hostNow of [100_110, 100_110 + shift]) {
+      expect(interval!.lowerMs).toBeLessThanOrEqual(hostNow)
+      expect(interval!.upperMs).toBeGreaterThanOrEqual(hostNow)
+    }
+  })
+  it('resolves in-flight uncertainty with a compatible subsequent steady sample', () => {
+    const clock = estimator()
+    expect(clock.accept(sample(), timing(10, 20, 101_010, 1, 100_000))).toBe(true)
+    expect(clock.accept(sample(100_100), timing(110, 120, 101_110, 1, 101_100))).toBe(true)
+    expect(clock.read(read(120, 101_110))).toEqual({ lowerMs: 100_100, upperMs: 100_111 })
+  })
+  it.each([
+    { boundary: 'reset', shift: 1000 },
+    { boundary: 'expiry', shift: 1000 },
+    { boundary: 'observation', shift: -1000 },
+  ])('withholds limits when an in-flight step straddles their $boundary', ({ boundary, shift }) => {
+    const limits = {
+      fetchedAt: boundary === 'observation' ? 99_500 : 99_000,
+      staleAfterMs: boundary === 'expiry' ? 1500 : 10_000,
+      lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 99, windowMinutes: 10080,
+        resetsAt: boundary === 'reset' ? 100_500 : 200_000 }],
+    }
+    const steady = estimator()
+    expect(steady.accept(sample(), timing(10, 20, 100_010, 1, 100_000))).toBe(true)
+    expect(hostLimits(limits, steady.read(read(20, 100_010)))).not.toBeNull()
+    const clock = estimator()
+    expect(clock.accept(sample(), timing(10, 20, 100_010 + shift, 1, 100_000))).toBe(true)
+    expect(hostLimits(limits, clock.read(read(20, 100_010 + shift)))).toBeNull()
+  })
+  it('rejects invalid send-wall timing and overflowing in-flight discrepancies', () => {
+    for (const [sentWall, receivedWall] of [[NaN, 100_010], [Infinity, 100_010], [-Infinity, 100_010], [Number.MAX_VALUE, -Number.MAX_VALUE]]) {
+      const clock = estimator()
+      expect(clock.accept(sample(), timing(10, 20, receivedWall, 1, sentWall))).toBe(false)
+      expect(clock.read(read(20, receivedWall))).toBeNull()
+    }
+  })
+  it('rejects initial uncertainty that crosses representable Host dates', () => {
+    for (const hostNow of [0, 8_640_000_000_000_000 - 501]) {
+      const clock = estimator()
+      expect(clock.accept(sample(hostNow), timing(10, 20, 101_010, 1, 100_000))).toBe(false)
+      expect(clock.read(read(20, 101_010))).toBeNull()
     }
   })
   it.each([-1000, 1000])('contains same-OS and remote Host time after a %i ms wall step', shift => {

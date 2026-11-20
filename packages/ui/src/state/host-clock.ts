@@ -79,13 +79,14 @@ export class HostClockController {
     this.pending = token
     const generation = this.generation
     const sentMonoMs = performance.now()
+    const sentWallMs = Date.now()
     this.timeout = setTimeout(() => {
       this.timeout = null
       if (this.pending === token) this.fence()
     }, 5_000)
     void this.request().then(sample => {
       if (this.pending !== token || generation !== this.generation) return
-      this.hasSample = this.estimator.accept(sample, { generation, sentMonoMs, receivedMonoMs: performance.now(), receivedWallMs: Date.now() })
+      this.hasSample = this.estimator.accept(sample, { generation, sentMonoMs, sentWallMs, receivedMonoMs: performance.now(), receivedWallMs: Date.now() })
       this.changed()
     }, () => {
       if (this.pending === token && generation === this.generation) this.fence()
