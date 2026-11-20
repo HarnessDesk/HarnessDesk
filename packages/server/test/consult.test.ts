@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
-import { readdir, readFile, writeFile } from 'node:fs/promises'
+import { readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { test, type TestContext } from 'node:test'
 
 import type { GoalView, Intent, SessionSummary, WireNotification } from '@harnessdesk/protocol'
@@ -67,9 +68,9 @@ interface Asking {
 }
 
 /** A desk with a running fixer seat that may (or may not) ask `holdfake`, and a window listening to everything. */
-const asking = async (t: TestContext, source = ASKS, options: { readonly kept?: number; readonly also?: readonly string[] } = {}): Promise<Asking> => {
+const asking = async (t: TestContext, source = ASKS, options: { readonly kept?: number; readonly also?: readonly string[]; readonly afterCommit?: () => void; readonly beforeHost?: (stateDir: string) => Promise<void>; readonly registerHostCleanup?: (host: Desk['host']) => void } = {}): Promise<Asking> => {
   const timers = manualTimers()
-  const d = await desk(t, undefined, { consultTimers: timers, ...(options.kept !== undefined ? { consultsRetiredKept: options.kept } : {}) })
+  const d = await desk(t, undefined, { consultTimers: timers, ...(options.kept !== undefined ? { consultsRetiredKept: options.kept } : {}), ...(options.afterCommit ? { consultAuthorityAfterCommit: options.afterCommit } : {}), ...(options.beforeHost ? { beforeHost: options.beforeHost } : {}), ...(options.registerHostCleanup ? { registerHostCleanup: options.registerHostCleanup } : {}) })
   const holds = new HoldFake('holdfake')
   d.host.register(holds)
   await holds.start()
@@ -329,13 +330,14 @@ const admitRead = (a: Asking, runtime: string, sessionId: string) => a.d.host.ce
 })
 
 test('round 3: a consult is closed the moment it answers, before its discard: a discard that never settles leaves nothing of it admissible', E2E, async (t) => {
-  const a = await asking(t)
+  const a = await asking(t, ASKS, { kept: 0 })
   answerWith(a.holds, '4')
   let deleting = false
   ;(a.holds as { deleteSession: HoldFake['deleteSession'] }).deleteSession = () => { deleting = true; return new Promise(() => {}) }
   const pending = a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'q', context: null }, a.caller)
   await whenChanged(a.d, () => (deleting ? true : null), 'the discard is under way, and never ends')
   const consult = String(a.holds.held[0]!.id)
+  assert.deepEqual(a.d.host.consultAuthorityHotCounts, { families: 0, keys: 0 })
   assert.deepEqual(await admitRead(a, 'holdfake', consult), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL }, 'refused while the discard hangs')
   for (const one of [...a.timers.live.values()].filter((timer) => timer.ms === 10_000)) one.fire()
   assert.equal((await pending).text, '4', 'the ask still ends at its cleanup bound')
@@ -363,17 +365,148 @@ test('round 3: an id a closed consult once had is a new consult when the runtime
   assert.deepEqual(await admitRead(a, 'holdfake', id), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL }, 'and is refused once it, too, has ended')
 })
 
-test('round 3: closed consults retire, and only the oldest beyond the bound is forgotten', E2E, async (t) => {
+test('round 3: closed consults retire into exact cold authority', E2E, async (t) => {
   const a = await asking(t, ASK_TWICE('holdfake'), { kept: 1 })
   answerWith(a.holds, '4')
   for (const question of ['one', 'two', 'three']) await a.d.host.consultPlane.ask({ agent: 'holdfake', question, context: null }, a.caller)
   const [first, second, third] = a.holds.held.map((one) => String(one.id))
-  // Bound at one: the two older consults are forgotten, the last is still refused.
+  // Bound at one: the two older consults retain their refusal in the cold index.
   assert.deepEqual(await admitRead(a, 'holdfake', third!), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
   for (const id of [first!, second!]) {
-    const admission = await admitRead(a, 'holdfake', id)
-    assert.equal(!admission.admitted && admission.refusal === CONSULT_CLOSED_REFUSAL, false, id)
+    assert.deepEqual(await admitRead(a, 'holdfake', id), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL }, id)
   }
+})
+
+test('lost authority file latches refusal and preserves hot families', E2E, async (t) => {
+  const a = await asking(t, ASK_TWICE('holdfake'), { kept: 0 })
+  const directory = join(a.d.stateDir, 'consult-authority')
+  const [file] = await readdir(directory)
+  await unlink(join(directory, file!))
+  answerWith(a.holds, '4')
+  await a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'one', context: null }, a.caller)
+  assert.equal(a.d.host.consultAuthorityHotCounts.families, 1)
+  assert.deepEqual(await admitRead(a, 'holdfake', 'unrelated'), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
+})
+
+test('uncertain archive commit retains hot facts and latches refusal', E2E, async (t) => {
+  const a = await asking(t, ASK_TWICE('holdfake'), { kept: 0, afterCommit: () => { throw new Error('uncertain commit') } })
+  answerWith(a.holds, '4')
+  await a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'one', context: null }, a.caller)
+  assert.equal(a.d.host.consultAuthorityHotCounts.families, 1)
+  assert.deepEqual(await admitRead(a, 'holdfake', 'unrelated'), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
+  const [file] = await readdir(join(a.d.stateDir, 'consult-authority'))
+  const db = new DatabaseSync(join(a.d.stateDir, 'consult-authority', file!), { readOnly: true })
+  try { assert.equal(db.prepare('SELECT count(*) AS n FROM members').get()?.n, 1) } finally { db.close() }
+})
+
+test('host authority open failure refuses all tool admissions', E2E, async (t) => {
+  const a = await asking(t, ASKS, { kept: 0, beforeHost: async dir => { await writeFile(join(dir, 'consult-authority'), 'blocks directory creation') } })
+  answerWith(a.holds, '4')
+  await a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'one', context: null }, a.caller)
+  assert.equal(a.d.host.consultAuthorityHotCounts.families, 1)
+  assert.deepEqual(await admitRead(a, 'holdfake', 'independent'), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
+})
+
+test('host lookup query failure latches after schema damage', E2E, async (t) => {
+  const a = await asking(t, ASKS, { kept: 0 })
+  answerWith(a.holds, '4')
+  await a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'one', context: null }, a.caller)
+  const directory = join(a.d.stateDir, 'consult-authority')
+  const [file] = await readdir(directory)
+  const db = new DatabaseSync(join(directory, file!))
+  try { db.exec('DROP TABLE members') } finally { db.close() }
+  assert.deepEqual(await admitRead(a, 'holdfake', 'unknown'), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
+  assert.deepEqual(await admitRead(a, 'holdfake', String(a.holds.held[0]!.id)), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
+})
+
+test('host replacement of authority file refuses and does not delete replacement', E2E, async (t) => {
+  const a = await asking(t, ASKS, { kept: 0, registerHostCleanup: () => {} })
+  const directory = join(a.d.stateDir, 'consult-authority')
+  const [file] = await readdir(directory)
+  const path = join(directory, file!)
+  await rename(path, `${path}.old`)
+  await writeFile(path, 'replacement')
+  assert.deepEqual(await admitRead(a, 'holdfake', 'independent'), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
+  await a.d.host.dispose()
+  assert.equal(await readFile(path, 'utf8'), 'replacement')
+})
+
+test('host cold late-child write failure latches refusal for registered independents', E2E, async (t) => {
+  const a = await asking(t, ASKS, { kept: 0 })
+  let child = ''
+  a.holds.onSend = session => { void (async () => {
+    const registered = await a.holds.createSession({ cwd: a.holds.createOptions[0]!.cwd })
+    child = String(registered.id)
+    a.holds.emit({ type: 'item/completed', sessionId: session.id, turnId: 'spawn' as never, item: { id: 'spawn' as never, type: 'subagent', action: 'spawn', status: 'completed', members: [{ sessionId: child }] } })
+    ;(session as HoldSession).finish('4')
+  })() }
+  await a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'one', context: null }, a.caller)
+  const independent = await a.holds.createSession({ cwd: a.holds.createOptions[0]!.cwd })
+  assert.deepEqual(await admitRead(a, 'holdfake', String(independent.id)), { admitted: true })
+  const directory = join(a.d.stateDir, 'consult-authority')
+  const [file] = await readdir(directory)
+  const db = new DatabaseSync(join(directory, file!))
+  try {
+    db.exec("CREATE TRIGGER fail_late BEFORE INSERT ON members BEGIN SELECT RAISE(ABORT, 'late write failure'); END")
+    a.holds.emit({ type: 'item/completed', sessionId: child as never, turnId: 'late' as never, item: { id: 'late' as never, type: 'subagent', action: 'spawn', status: 'completed', members: [{ sessionId: 'late-child' }] } })
+    assert.deepEqual(await admitRead(a, 'holdfake', 'late-child'), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
+    assert.deepEqual(await admitRead(a, 'holdfake', String(independent.id)), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
+    assert.equal(db.prepare("SELECT count(*) AS n FROM members WHERE key LIKE '%late-child%'").get()?.n, 0)
+  } finally { db.close() }
+})
+
+test('hosts sharing a state directory retain separate authority epochs on dispose', E2E, async (t) => {
+  const a = await asking(t, ASKS, { kept: 0, registerHostCleanup: () => {} })
+  answerWith(a.holds, '4')
+  await a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'one', context: null }, a.caller)
+  const id = String(a.holds.held[0]!.id)
+  const b = await desk(t, undefined, { stateDir: a.d.stateDir, skipStart: true, registerHostCleanup: () => {} })
+  const directory = join(a.d.stateDir, 'consult-authority')
+  assert.equal((await readdir(directory)).length, 2)
+  assert.deepEqual(await b.host.ceilingGate.admit({ startedAt: Date.now(), tool: 'board_read', args: undefined, needs: 'read', scope: { runtime: 'holdfake' as never, sessionId: id as never }, quiet: true }), { admitted: true })
+  await b.host.dispose()
+  assert.equal((await readdir(directory)).length, 1)
+  assert.deepEqual(await admitRead(a, 'holdfake', id), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
+  await a.d.host.dispose()
+  const c = await desk(t, undefined, { stateDir: a.d.stateDir, skipStart: true, registerHostCleanup: () => {} })
+  try {
+    assert.deepEqual(await c.host.ceilingGate.admit({ startedAt: Date.now(), tool: 'board_read', args: undefined, needs: 'read', scope: { runtime: 'holdfake' as never, sessionId: id as never }, quiet: true }), { admitted: true })
+  } finally { await c.host.dispose() }
+})
+
+test('stale discard cannot remove or close a newly associated consult', E2E, async (t) => {
+  const a = await asking(t, ASK_TWICE('holdfake'), { kept: 0 })
+  let release!: () => void
+  let deleting = false
+  ;(a.holds as { deleteSession: HoldFake['deleteSession'] }).deleteSession = async () => {
+    deleting = true
+    await new Promise<void>(resolve => { release = resolve })
+    return { disposition: 'removed', removed: 1 }
+  }
+  answerWith(a.holds, '4')
+  const first = a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'one', context: null }, a.caller)
+  await whenChanged(a.d, () => deleting ? true : null, 'old discard is waiting')
+  for (const timer of [...a.timers.live.values()].filter(one => one.ms === 10_000)) timer.fire()
+  await first
+  const id = String(a.holds.held[0]!.id)
+  // Simulate an independently removed old registry record while its runtime delete is in flight.
+  a.d.host.registry.delete('holdfake' as never, id as never)
+  a.holds.reuseId = id
+  let sent = false
+  let secondFailure: unknown = null
+  a.holds.onSend = () => { sent = true }
+  const second = a.d.host.consultPlane.ask({ agent: 'holdfake', question: 'two', context: null }, a.caller)
+  void second.catch(error => { secondFailure = error })
+  await whenChanged(a.d, () => { if (secondFailure) throw secondFailure; return sent ? true : null }, 'new incarnation is running')
+  assert.deepEqual(await admitRead(a, 'holdfake', id), { admitted: true })
+  release()
+  ;(a.holds as { deleteSession: HoldFake['deleteSession'] }).deleteSession = async () => ({ disposition: 'removed', removed: 1 })
+  await new Promise<void>(resolve => setImmediate(resolve))
+  assert.ok(a.d.host.registry.get('holdfake' as never, id as never), 'stale discard retained the new registry record')
+  assert.deepEqual(await admitRead(a, 'holdfake', id), { admitted: true }, 'stale close did not close the new incarnation')
+  for (const timer of [...a.timers.live.values()].filter(one => one.ms === 30_000)) timer.fire()
+  await assert.rejects(second, code('askTimeout'))
+  assert.deepEqual(await admitRead(a, 'holdfake', id), { admitted: false, refusal: CONSULT_CLOSED_REFUSAL })
 })
 
 test('round 3: each opening holds only its own runtime’s announcements, and only until its own bound — an overlapping opening never extends it', E2E, async (t) => {
