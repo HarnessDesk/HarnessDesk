@@ -174,14 +174,14 @@ test('paired phone Lead Command fact shows the full working folder for an inform
 })
 
 test('paired phone Lead Command fact keeps the public-key guard, desk review and No', async () => {
-  const secret = 'synthetic-broker-key-for-public-guard', s = await commandWorker(`echo ${secret}`)
+  const brokerFixture = 'synthetic-broker-key-for-public-guard', s = await commandWorker(`echo ${brokerFixture}`)
   try {
     const phone = await s.pair(), read = await phone.request('lead/thread/read', {})
     const action = read.result.personActions[0]
     assert.deepEqual(action.choices, ['no'])
     assert.match(action.request, /desk/)
     assert.equal(action.details, undefined)
-    assert.ok(!JSON.stringify(read.result).includes(secret))
+    assert.ok(!JSON.stringify(read.result).includes(brokerFixture))
     const input = { id: action.id, contractDigest: contract.digest, choice: 'yes-once' }
     const refused = await phone.request('lead/action/perform', input)
     assert.equal(refused.error.code, 'lead-operation-refused')
