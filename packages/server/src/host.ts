@@ -1262,7 +1262,10 @@ export class Host {
   constructor(private readonly options: HostOptions) {
     this.#recoveryDescriptors = new DescriptorCache(options.transcriptDescriptorBudgetBytes ?? 8 * 1024 * 1024)
     this.registry.onBodyChanged(record => { if (!this.#runtimeFolds.has(recordKey(record))) this.#invalidateTranscriptCache(record) })
-    this.registry.onDeleted(record => this.#transcripts.unbindBase(record.session, record.bodyGeneration))
+    this.registry.onDeleted(record => {
+      this.#transcripts.unbindBase(record.session, record.bodyGeneration)
+      this.#forgetRecoveredBody(record.runtime, record.session.id)
+    })
     this.registry.onReconciled((record, previous) => this.#recordRegistryMutation(record, previous))
     this.registry.onDetached((record, previous) => this.#recordRegistryMutation(record, previous))
     this.#logger = options.logger.child('host')
@@ -11744,14 +11747,20 @@ export class Host {
    * a dispatch, a drain or a transcript operation still in flight is left as it
    * is: it is not settled, and the quit reports it rather than guess.
    */
-  async #saveQuietRecoveredTranscripts(): Promise<unknown> {
-    // A conversation deleted since its read is out of the registry, and its forgotten transcript holds no protected
-    // change: nothing of it is left to save, so it is not reported as unsaved either.
+  /**
+   * A conversation deleted for good leaves no body to save: once its record is out of
+   * the registry and its transcript forgotten, its recovered entry is dropped. A
+   * removal Undo still holds never reaches here, and a transcript the desk kept
+   * with protected changes stays reported.
+   */
+  #forgetRecoveredBody(runtime: RuntimeId, id: SessionId): void {
+    if (this.#transcripts.hasProtectedChanges(runtime, id)) return
     for (const [generation, entry] of this.#recoveredTranscriptBases) {
-      if (!entry.saving && !this.registry.get(entry.runtime, entry.id) && !this.#transcripts.hasProtectedChanges(entry.runtime, entry.id)) {
-        this.#recoveredTranscriptBases.delete(generation)
-      }
+      if (!entry.saving && entry.runtime === runtime && entry.id === id) this.#recoveredTranscriptBases.delete(generation)
     }
+  }
+
+  async #saveQuietRecoveredTranscripts(): Promise<unknown> {
     for (const record of this.registry.all()) {
       const key = recordKey(record)
       if (!this.#recoveredTranscriptBases.has(record.bodyGeneration) || record.running.size > 0 ||

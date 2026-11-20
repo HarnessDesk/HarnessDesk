@@ -641,6 +641,16 @@ test('a quit after the recovered conversation was deleted has nothing left to sa
   assert.equal(db.read(created.runtime, created.id), null, 'the deleted conversation is not written back')
 })
 
+test('a quit still reports a recovered conversation whose Remove was refused', async t => {
+  const root = tempDir('hd-dispose-recovered-removed-')
+  const { host, db, created } = await protectedReadNeverTouchedAgain(root)
+  t.after(() => db.close())
+  // Remove is not Delete: it keeps the body for Undo, so with the save still refused it is refused itself,
+  // and the conversation's unsaved body stays the desk's to report at quit.
+  await assert.rejects(host.call('session/remove', { runtime: created.runtime, sessionId: created.id, removed: true }), /protected changes that could not be saved/)
+  await assert.rejects(host.dispose(), /remains unsaved .*\(recovered 1, /)
+})
+
 test('a quit that cannot save a recovered body names the conversation and the counts', async t => {
   const root = tempDir('hd-dispose-recovered-refused-')
   const { host, db, created, saved } = await protectedReadNeverTouchedAgain(root)
