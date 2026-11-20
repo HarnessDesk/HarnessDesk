@@ -81,5 +81,24 @@ describe('HostClockController', () => {
     expect(clock.read()).toBeNull()
     clock.disconnect()
   })
+  it('fences an in-flight reply after cumulative small wall steps exceed the sample limit', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(1_000_000)
+    const resolvers: ((sample: unknown) => void)[] = []
+    const request = vi.fn(() => new Promise(resolve => resolvers.push(resolve)))
+    const clock = new HostClockController(request, () => {})
+    clock.connect(true)
+    resolvers[0]!({ hostNowMs: 1_000_000, clockEpoch: 'one' }); await Promise.resolve(); await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(30_000)
+    for (const step of [750, 1500]) {
+      vi.setSystemTime(1_030_000 + step)
+      expect(clock.read()).not.toBeNull()
+    }
+    vi.setSystemTime(1_032_250)
+    expect(clock.read()).toBeNull()
+    expect(request).toHaveBeenCalledTimes(2)
+    resolvers[1]!({ hostNowMs: 1_030_000, clockEpoch: 'one' }); await Promise.resolve(); await Promise.resolve()
+    expect(clock.read()).toBeNull()
+    clock.disconnect()
+  })
 
 })

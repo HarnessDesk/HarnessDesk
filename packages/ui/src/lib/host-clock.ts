@@ -1,13 +1,13 @@
 export interface HostClockSample { readonly hostNowMs: number; readonly clockEpoch: string }
 export interface HostTimeInterval { readonly lowerMs: number; readonly upperMs: number }
 type Observation = { monoMs: number; wallMs: number }
-type Estimate = HostTimeInterval & { receivedMonoMs: number }
+type Estimate = HostTimeInterval & { receivedMonoMs: number; receivedWallMs: number }
 const MAX_RTT_MS = 5_000
 const MAX_AGE_MS = 60_000
 const MAX_DISCONTINUITY_MS = 2_000
 const MAX_DATE_MS = 8_640_000_000_000_000
 
-/** A bounded estimate for one transport generation; wall time only detects discontinuities. */
+/** A bounded estimate for one transport generation; wall drift contributes uncertainty. */
 export class HostClockEstimator {
   private generation: number | null = null
   private epoch: string | null = null
@@ -44,7 +44,7 @@ export class HostClockEstimator {
       if (elapsed > MAX_AGE_MS || sample.hostNowMs > this.estimate.upperMs + elapsed || upperMs < this.estimate.lowerMs + elapsed) return fail()
     }
     this.epoch = sample.clockEpoch
-    this.estimate = { lowerMs: sample.hostNowMs, upperMs, receivedMonoMs }
+    this.estimate = { lowerMs: sample.hostNowMs, upperMs, receivedMonoMs, receivedWallMs }
     this.observation = { monoMs: receivedMonoMs, wallMs: receivedWallMs }
     return true
   }
@@ -54,9 +54,14 @@ export class HostClockEstimator {
     if (!this.isContinuous(timing.monoMs, timing.wallMs)) { this.invalidate(); return null }
     const elapsed = timing.monoMs - this.estimate.receivedMonoMs
     if (elapsed < 0 || elapsed > MAX_AGE_MS) { this.invalidate(); return null }
-    const lowerMs = this.estimate.lowerMs + elapsed
-    const upperMs = this.estimate.upperMs + elapsed
-    if (!Number.isSafeInteger(Math.ceil(upperMs)) || upperMs > MAX_DATE_MS) { this.invalidate(); return null }
+    // Keep the sample's wall anchor: replacing it on every read hides cumulative
+    // small steps. Either a local Host shares the adjustment or a remote one does
+    // not, so widen both ends until a fresh sample resolves that uncertainty.
+    const uncertainty = Math.abs((timing.wallMs - this.estimate.receivedWallMs) - elapsed)
+    if (!Number.isFinite(uncertainty) || uncertainty > MAX_DISCONTINUITY_MS) { this.invalidate(); return null }
+    const lowerMs = this.estimate.lowerMs + elapsed - uncertainty
+    const upperMs = this.estimate.upperMs + elapsed + uncertainty
+    if (!Number.isFinite(lowerMs) || lowerMs < 0 || !Number.isSafeInteger(Math.ceil(upperMs)) || upperMs > MAX_DATE_MS) { this.invalidate(); return null }
     this.observation = { monoMs: timing.monoMs, wallMs: timing.wallMs }
     return { lowerMs, upperMs }
   }
