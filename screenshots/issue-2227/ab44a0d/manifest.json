@@ -1,0 +1,42 @@
+{
+  "scope": "Four current native surfaces at constant plus30minute renderer skew with an actual Host and one synthetic account",
+  "identity": "Synthetic dev@example.com and the shot seed helper\u2019s Work Mac preference; saved post-run preference and production selection branch inspected. Prelaunch state bytes were not retained.",
+  "observations": "Dated usage remains Short/40percent with Host-relative age; undated limits retain values and currentness unverified. Parent inspected all four original frames, complete privacy bodies remain identical.",
+  "lifecycle": "Normal production quit and owned group absence confirmed",
+  "limits": "Small and cumulative clock-step causal coverage is unit-test evidence, not a physical OS-clock change. Separate optional Demo-name setup attempt produced no frames and is retained as unverified setup. No live provider/account or whole-app equivalence claim.",
+  "head": "ab44a0d470279434e5cb127eb5aab275e377aa0e",
+  "frames": [
+    {
+      "path": "screenshots/issue-2227/ab44a0d/dashboard.png",
+      "sha256": "f53d8c0959b7d56666e4c96dab4d1e7343d005e7cef784d00f1410cbab003dc3",
+      "sourceHead": "ab44a0d470279434e5cb127eb5aab275e377aa0e",
+      "sourceTree": "f1a4bc9f306c6a7b8baaac02a4934e6073e10e43",
+      "surface": "actual production Electron and Host, one synthetic account",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-2227/ab44a0d/settings.png",
+      "sha256": "336d29fa3e14a83e805316a9dfe87d9bdbc16c3154cf282e1a98f42281e3f68b",
+      "sourceHead": "ab44a0d470279434e5cb127eb5aab275e377aa0e",
+      "sourceTree": "f1a4bc9f306c6a7b8baaac02a4934e6073e10e43",
+      "surface": "actual production Electron and Host, one synthetic account",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-2227/ab44a0d/account-detail.png",
+      "sha256": "cec2abf464533bcd797755b50b15ddaa8deef0205a39b54677faf54a2f9d9895",
+      "sourceHead": "ab44a0d470279434e5cb127eb5aab275e377aa0e",
+      "sourceTree": "f1a4bc9f306c6a7b8baaac02a4934e6073e10e43",
+      "surface": "actual production Electron and Host, one synthetic account",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-2227/ab44a0d/composer-context.png",
+      "sha256": "4a16bd5fb855e43928ad9cca4ad38476002c5837e4a0a93b217c2b486ec2a3e9",
+      "sourceHead": "ab44a0d470279434e5cb127eb5aab275e377aa0e",
+      "sourceTree": "f1a4bc9f306c6a7b8baaac02a4934e6073e10e43",
+      "surface": "actual production Electron and Host, one synthetic account",
+      "parentVisuallyInspected": true
+    }
+  ]
+}
