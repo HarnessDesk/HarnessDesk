@@ -4143,7 +4143,15 @@ export class Host {
     await this.#loadouts.close()
     let transcriptFailure: unknown
     await this.#carryOn.storageIdle()
+    /* A read that met protected changes leaves its recovered body to be saved
+       by the next reopen, release or event, and a conversation read once and
+       never touched again reaches the quit with none of those. Every runtime
+       subscription is gone by now, so no event changes a body from here on;
+       save each quiet one while the transcript store is still open, before the
+       flush that would otherwise refuse its protected write (#2280). */
+    const recoveredFailure = await this.#saveQuietRecoveredTranscripts()
     try { await this.#transcripts.flush() } catch (error) { transcriptFailure = error }
+    transcriptFailure ??= recoveredFailure
     await this.#removalSweepWork
     for (const session of this.#indexPending.values()) this.#recordSessionIndex(session, true)
     await this.#sessionIndexSeed
@@ -4162,9 +4170,9 @@ export class Host {
     await removedGone
     await this.#runtimeCache.flush()
     await Promise.all(this.#runtimeNoticeWrites)
-    await Promise.all([...this.#recoveredTranscriptBases.values()].flatMap(entry => entry.saving ? [entry.saving] : []))
+    transcriptFailure ??= await this.#recoveredSavesSettled()
     if (this.#pendingTranscriptOverlays.size || this.#recoveredTranscriptBases.size || this.#conflictingTranscripts.size) {
-      transcriptFailure = new Error('Conversation activity remains unsaved because its saved history is unavailable.', { cause: transcriptFailure })
+      transcriptFailure = new Error(`Conversation activity remains unsaved because its saved history is unavailable. ${this.#unsavedTranscriptSummary()}`, { cause: transcriptFailure })
     }
     try { await this.#transcripts.close() } catch (error) { transcriptFailure ??= error }
     this.#runtimes.clear()
@@ -11729,6 +11737,53 @@ export class Host {
       }
       else if (record.running.size === 0) this.#saveRecoveredTranscript(record)
     })()
+  }
+
+  /**
+   * The quit's one last save of every quiet recovered body. A body with a turn,
+   * a dispatch, a drain or a transcript operation still in flight is left as it
+   * is: it is not settled, and the quit reports it rather than guess.
+   */
+  async #saveQuietRecoveredTranscripts(): Promise<unknown> {
+    for (const record of this.registry.all()) {
+      const key = recordKey(record)
+      if (!this.#recoveredTranscriptBases.has(record.bodyGeneration) || record.running.size > 0 ||
+          this.#transcriptOperations.has(key) || this.#dispatching.has(key) || this.#draining.has(key)) continue
+      this.#saveRecoveredTranscript(record)
+    }
+    return this.#recoveredSavesSettled()
+  }
+
+  /** Await every recovered save, including one a finished save starts; returns the first rejection. */
+  async #recoveredSavesSettled(): Promise<unknown> {
+    const awaited = new Set<Promise<void>>()
+    let failure: unknown
+    for (;;) {
+      // A rejected save keeps its promise on the entry, so each is awaited once.
+      const fresh = [...this.#recoveredTranscriptBases.values()].flatMap(entry => entry.saving && !awaited.has(entry.saving) ? [entry.saving] : [])
+      if (!fresh.length) return failure
+      for (const saving of fresh) awaited.add(saving)
+      await Promise.all(fresh.map(saving => saving.catch((error: unknown) => { failure ??= error })))
+    }
+  }
+
+  /** Counts per map and the conversations left, so an unsaved quit can be followed up. */
+  #unsavedTranscriptSummary(): string {
+    const byGeneration = new Map<string, string>()
+    for (const [generation, owner] of this.#descriptorOwners) {
+      const record = owner.deref()
+      if (record) byGeneration.set(generation, `${record.runtime}/${record.session.id}`)
+    }
+    for (const record of this.registry.all()) byGeneration.set(record.bodyGeneration, `${record.runtime}/${record.session.id}`)
+    const conversations = new Set<string>()
+    for (const generation of [...this.#recoveredTranscriptBases.keys(), ...this.#pendingTranscriptOverlays.keys()]) {
+      conversations.add(byGeneration.get(generation) ?? `unknown conversation ${generation}`)
+    }
+    for (const conflict of this.#conflictingTranscripts.values()) conversations.add(`${conflict.runtime}/${conflict.id}`)
+    const listed = [...conversations], shown = listed.slice(0, 20)
+    const more = listed.length > shown.length ? `, and ${listed.length - shown.length} more` : ''
+    return `(recovered ${this.#recoveredTranscriptBases.size}, overlays ${this.#pendingTranscriptOverlays.size}, ` +
+      `conflicts ${this.#conflictingTranscripts.size}: ${shown.join(', ')}${more})`
   }
 
   #foldEvent(runtime: RuntimeId, event: AgentEvent, initialBase?: import('./transcripts.js').DurableTranscriptBase, source?: AgentRuntime, replayOnlyBody = false): void {
