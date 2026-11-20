@@ -980,3 +980,56 @@ test('phone refuses permission commands when material meaning or location is hid
   assert.equal(ask.type, 'approval'); if (ask.type === 'approval') assert.equal(ask.command, 'echo ok')
   await r.work.approvalDecide({ id: 'ap-1', session: key, allow: true }); assert.equal(r.responded[0].decision.optionId, 'allow')
 })
+
+for (const [name, control] of [
+  ['OSC', '\u001b]0;hidden\u0007'], ['NUL', '\u0000'], ['C1', '\u009b'], ['Bidi', '\u202e'],
+  ['ZWSP', '\u200b'], ['lone surrogate', '\ud800'], ['line separator', '\u2028'], ['paragraph separator', '\u2029'],
+]) for (const field of ['command', 'cwd']) test(`phone permission controls: ${name} in ${field} requires desk review`, async () => {
+  const value = field === 'command' ? `echo before${control}after` : 'git status'
+  const where = field === 'cwd' ? `${CWD}/before${control}after` : CWD
+  const approval: Extract<Approval, { type: 'permission' }> = {
+    id: approvalId('ap-1'), sessionId: SID, requestedAt: 1, type: 'permission',
+    summary: value, cwd: where, facts: [{ label: 'Command', value }], options: [allow, forTool, deny],
+  }
+  const original = structuredClone(approval)
+  const r = rig({ live: () => ({ running: false, pending: [approval], cwd: where }) })
+  r.setSession(session([], { cwd: where }))
+  await assert.rejects(r.work.approvalDecide({ id: 'ap-1', session: key, allow: true }), /too long or too sensitive/)
+  assert.equal(r.responded.length, 0, 'forged Allow must have no responder effects')
+  assert.deepEqual(approval, original)
+  const view = assessApproval(approval, where, { home: HOME, seat: 'Agent A' })!
+  assert.equal(view.readable, false)
+  assert.match(view.turn.command, /Review this request on the desk/)
+  const thread = await r.work.threadRead({ id: key })
+  const ask = thread.turns.find(one => one.type === 'approval')
+  assert.equal(ask?.type, 'approval')
+  if (!ask || ask.type !== 'approval') throw new Error('missing approval')
+  assert.match(ask.command, /Review this request on the desk/)
+  assert.equal(ask.highRisk, true)
+  assert.equal(ask.sessionGrant, undefined)
+  await r.work.approvalDecide({ id: 'ap-1', session: key, allow: false })
+  assert.equal(r.responded.length, 1)
+  assert.equal(r.responded[0].decision.optionId, 'deny')
+})
+
+test('phone permission controls: safe text remains allow-once and legacy command behavior is unchanged', async () => {
+  for (const value of ['git status', 'echo café😀']) {
+    const approval: Extract<Approval, { type: 'permission' }> = {
+      id: approvalId('ap-1'), sessionId: SID, requestedAt: 1, type: 'permission', summary: value,
+      cwd: CWD, facts: [{ label: 'Command', value }], options: [allow, forTool, deny],
+    }
+    const view = assessApproval(approval, CWD, { home: HOME, seat: 'Agent A' })!
+    assert.equal(view.readable, true)
+    assert.equal(view.turn.command, value)
+    assert.equal(view.turn.highRisk, true)
+    assert.equal(view.turn.sessionGrant, undefined)
+    const r = rig(); r.setPending([approval])
+    await r.work.approvalDecide({ id: 'ap-1', session: key, allow: true })
+    assert.equal(r.responded.length, 1)
+    assert.equal(r.responded[0].decision.optionId, 'allow')
+  }
+  const value = 'echo before\u202eafter'
+  const legacy = assessApproval(command(value), CWD, { home: HOME, seat: 'Agent A' })!
+  assert.equal(legacy.readable, true)
+  assert.equal(legacy.turn.command, value)
+})

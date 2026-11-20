@@ -3721,3 +3721,42 @@ test('permission input uses whole wire replacements and stays inside its turn', 
     }
   } finally { await runtime.dispose() }
 })
+
+const epochOldInput = { command: 'echo old', cwd: '/tmp/old' }
+const epochFreshInput = { command: 'echo fresh', cwd: '/tmp/fresh' }
+const epochExecute = { sessionUpdate: 'tool_call', kind: 'execute', rawInput: epochOldInput }
+const epochRead = { sessionUpdate: 'tool_call', kind: 'read', rawInput: epochOldInput }
+for (const spec of [
+  { name: 'notification execute/read/execute', updates: [epochExecute, { kind: 'read' }, { kind: 'execute' }], requests: [{}], expected: [[null, '/tmp/w']] },
+  { name: 'notification execute/clear/execute', updates: [epochExecute, { kind: null }, { kind: 'execute' }], requests: [{}], expected: [[null, '/tmp/w']] },
+  { name: 'notification read/execute', updates: [epochRead, { kind: 'execute' }], requests: [{}], expected: [[null, '/tmp/w']] },
+  { name: 'notification untyped/execute', updates: [{ sessionUpdate: 'tool_call', rawInput: epochOldInput }, { kind: 'execute' }], requests: [{}], expected: [[null, '/tmp/w']] },
+  { name: 'notification leaving execute clears cwd immediately', updates: [epochExecute, { kind: 'read' }], requests: [{}], expected: [[null, '/tmp/w']] },
+  { name: 'permission execute/read/execute/omitted', updates: [epochExecute], requests: [{ kind: 'read' }, { kind: 'execute' }, {}], expected: [[null, '/tmp/w'], [null, '/tmp/w'], [null, '/tmp/w']] },
+  { name: 'permission execute/clear/execute/omitted', updates: [epochExecute], requests: [{ kind: null }, { kind: 'execute' }, {}], expected: [[null, '/tmp/w'], [null, '/tmp/w'], [null, '/tmp/w']] },
+  { name: 'permission read/execute/omitted', updates: [epochRead], requests: [{ kind: 'execute' }, {}], expected: [[null, '/tmp/w'], [null, '/tmp/w']] },
+  { name: 'notification read then permission execute', updates: [epochExecute, { kind: 'read' }], requests: [{ kind: 'execute' }, {}], expected: [[null, '/tmp/w'], [null, '/tmp/w']] },
+  { name: 'omitted and same notification kinds retain input', updates: [epochExecute, { title: 'Still the same tool' }, { kind: 'execute' }], requests: [{}], expected: [['echo old', '/tmp/old']] },
+  { name: 'omitted and same permission kinds retain input', updates: [epochExecute], requests: [{}, { kind: 'execute' }, {}], expected: [['echo old', '/tmp/old'], ['echo old', '/tmp/old'], ['echo old', '/tmp/old']] },
+  { name: 'notification changed kind accepts fresh replacement', updates: [epochRead, { kind: 'execute', rawInput: epochFreshInput }], requests: [{}], expected: [['echo fresh', '/tmp/fresh']] },
+  { name: 'permission changed kind accepts fresh replacement', updates: [epochRead], requests: [{ kind: 'execute', rawInput: epochFreshInput }, {}], expected: [['echo fresh', '/tmp/fresh'], ['echo fresh', '/tmp/fresh']] },
+  { name: 'permission explicit null input remains cleared after reentry', updates: [epochExecute], requests: [{ kind: 'read', rawInput: null }, { kind: 'execute' }, {}], expected: [[null, '/tmp/w'], [null, '/tmp/w'], [null, '/tmp/w']] },
+]) test(`permission input epoch: ${spec.name}`, async () => {
+  const runtime = make()
+  try {
+    await runtime.start()
+    const tape = record(runtime)
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: `wire permission sequence ${JSON.stringify(spec)}` }])
+    const actual: (string | null | undefined)[][] = []
+    for (const _request of spec.requests) {
+      const event = await tape.until(one => one.type === 'approval/requested')
+      tape.events.splice(tape.events.indexOf(event), 1)
+      if (event.type !== 'approval/requested' || event.approval.type !== 'permission') throw new Error('expected permission')
+      actual.push([event.approval.facts?.[0]?.value ?? null, event.approval.cwd])
+      await session.respondToApproval(event.approval.id, { type: 'option', optionId: 'no' })
+    }
+    await tape.until(one => one.type === 'turn/completed')
+    assert.deepEqual(actual, spec.expected)
+  } finally { await runtime.dispose() }
+})

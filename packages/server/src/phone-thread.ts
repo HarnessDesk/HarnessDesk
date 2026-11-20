@@ -168,9 +168,11 @@ export const assessApproval = (approval: Approval, cwd: string | null | undefine
       // The existing phone fields cannot represent a distinct scope, extra facts, or a different working directory.
       // Keep those decisions on the desk instead of making a partial question look complete.
       readable = typeof value === 'string' && value.trim().length > 0 && value.length <= 600 &&
+        !/[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(value) &&
         approval.summary === value && approval.facts?.length === 1 && !approval.gateway &&
         !approval.filesystem?.length && !approval.network?.length && !approval.flowBoardTool &&
-        !approval.extraGrants?.length && !approval.reason && !!approval.cwd && !!cwd && isAbsolute(approval.cwd) && isAbsolute(cwd) && approval.cwd === cwd &&
+        !approval.extraGrants?.length && !approval.reason && !!approval.cwd && !/[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(approval.cwd) &&
+        !!cwd && isAbsolute(approval.cwd) && isAbsolute(cwd) && approval.cwd === cwd &&
         view.whole && view.text === value && scrub(value, 600) === value && view.text.trim().length > 0 && !view.text.includes('…')
       command = readable ? view.text : `${scrub(approval.summary, 300)}\nReview this request on the desk.`.trim()
     } else command = scrub(approval.summary, 300)
