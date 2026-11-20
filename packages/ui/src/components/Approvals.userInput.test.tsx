@@ -38,9 +38,10 @@ const info = {
 
 const PANE = 'pane-1' as never
 
-const mount = (approval: Approval, runtimeInfo: RuntimeInfo = info) => {
+const mount = (approval: Approval, runtimeInfo: RuntimeInfo = info, context: Partial<AppSnapshot> = {}) => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
+    ...context,
     status: 'open',
     contributions: [boardToolContribution],
     activeRuntime: RUNTIME,
@@ -323,6 +324,7 @@ it('renders a structured multiline permission command as preformatted code', () 
   const code = container.querySelector('pre')
   expect(code?.textContent).toBe(command)
   expect(container.textContent?.split(command)).toHaveLength(2)
+  expect(container.textContent).not.toContain('Unicode escapes')
 })
 
 
@@ -338,4 +340,94 @@ it('keeps an unrelated permission title with a command fact', () => {
   mount({ ...boardApproval('Execute tool', SESSION_SET), facts: [{ label: 'Command', value: 'git status' }] })
   expect(container.textContent).toContain('Execute tool')
   expect(container.querySelector('pre')?.textContent).toBe('git status')
+})
+
+it.each([
+  ['BEL', '\u0007', '\\u0007'],
+  ['ST', '\u001b\\', '\\u001b\\'],
+])('keeps executable lines inside an OSC span visible with the %s terminator', (_name, terminator, shownTerminator) => {
+  // These are display fixtures only: the line inside the terminal title must
+  // remain readable when the identical summary is replaced by a short heading.
+  const inner = "printf 'inside OSC\\n'"
+  const command = `printf 'before\\n'\n# \u001b]0;title\n${inner}\n# ${terminator}\nprintf 'after\\n'`
+  const shown = `printf 'before\\n'\n# \\u001b]0;title\n${inner}\n# ${shownTerminator}\nprintf 'after\\n'`
+  const facts = Object.freeze([Object.freeze({ label: 'Command', value: command })])
+  const approval = Object.freeze({ ...boardApproval(command, SESSION_SET), facts })
+  const store = mount(approval)
+
+  const code = container.querySelector('pre')
+  expect(code?.textContent).toContain(inner)
+  expect(code?.textContent).toBe(shown)
+  expect(container.querySelector('h2')?.textContent).toBe('Run this command?')
+  expect(container.textContent).toContain('Control and invisible characters are shown as Unicode escapes.')
+  expect(store.getSnapshot().approvals[0]?.approval).toBe(approval)
+  expect(approval.summary).toBe(command)
+  expect(approval.facts).toBe(facts)
+  expect(approval.facts[0]?.value).toBe(command)
+  const allow = approval.options.find(option => option.intent === 'approve')!
+  act(() => buttonsOf().find(button => button.getAttribute('aria-label') === allow.label)!.click())
+  expect(store.respondToApproval).toHaveBeenCalledWith(KEY, approval.id, { type: 'option', optionId: allow.id })
+})
+
+it.each([
+  ['CSI', '\u001b[31mred\u001b[0m', '\\u001b[31mred\\u001b[0m'],
+  ['C0 controls and CR', '\u0000\u0008\u000b\u000c\r\u001f\u007f', '\\u0000\\u0008\\u000b\\u000c\\u000d\\u001f\\u007f'],
+  ['C1 controls', '\u0085\u009b31m\u009dtitle\u009c', '\\u0085\\u009b31m\\u009dtitle\\u009c'],
+  ['Bidi and format', '\u202eabc\u202c\u2066def\u2069\u200b\ufeff', '\\u202eabc\\u202c\\u2066def\\u2069\\u200b\\ufeff'],
+  ['line and paragraph separators', '\u2028\u2029', '\\u2028\\u2029'],
+  ['unpaired surrogates', '\ud800x\udfff', '\\ud800x\\udfff'],
+  ['supplementary format', '\u{e0001}', '\\u{e0001}'],
+])('shows %s as Unicode escapes while preserving literal markup, newlines and tabs', (_name, raw, shown) => {
+  const command = `printf '<script>literal & text</script> 😀'\n\t${raw}\nprintf 'tail'`
+  const approval = { ...boardApproval(command, SESSION_SET), facts: [{ label: 'Command', value: command }] }
+  mount(approval)
+
+  const code = container.querySelector('pre')
+  expect(code?.textContent).toBe(`printf '<script>literal & text</script> 😀'\n\t${shown}\nprintf 'tail'`)
+  expect(code?.querySelector('script')).toBeNull()
+  expect(container.textContent).toContain('Control and invisible characters are shown as Unicode escapes.')
+  expect(approval.summary).toBe(command)
+  expect(approval.facts[0]?.value).toBe(command)
+})
+
+it.each([
+  ['/work/storefront/packages/ui', 'storefront/packages/ui'],
+  ['/work/other-checkout', '~/other-checkout'],
+])('locates a permission command in its actual folder %s instead of the session folder', (cwd, shown) => {
+  mount({ ...boardApproval('Execute tool', SESSION_SET), cwd, facts: [{ label: 'Command', value: 'git status' }] }, info, {
+    home: '/work',
+    workspace: { path: '/work/workspace', name: 'workspace', lastOpenedAt: 0 },
+    sessions: new Map([[KEY, {
+      id: SESSION as never, runtime: RUNTIME, cwd: '/work/storefront', status: { type: 'idle' as const },
+      createdAt: 0, updatedAt: 0, turns: [], itemsLoaded: true,
+    }]]),
+  })
+
+  const folder = container.querySelector('[data-slot="approval-meta"][data-kind="folder"]')
+  expect(folder?.getAttribute('title')).toBe(cwd)
+  expect(folder?.textContent).toBe(`in${shown}`)
+  expect(container.querySelectorAll('[data-kind="folder"]')).toHaveLength(1)
+  expect(container.querySelector('pre')?.textContent).toBe('git status')
+})
+
+it('keeps a permission command without cwd free of an inferred session folder', () => {
+  mount({ ...boardApproval('Execute tool', SESSION_SET), facts: [{ label: 'Command', value: 'git status' }] })
+  expect(container.querySelector('[data-kind="folder"]')).toBeNull()
+})
+
+it('preserves legacy permission facts and scope without applying command presentation', () => {
+  mount({
+    ...boardApproval('Additional access', SESSION_SET), cwd: '/work/other-checkout',
+    facts: [{ label: 'Tool', value: '\u001b[31mread <literal>\u001b[0m' }],
+    reason: 'The file is outside the workspace.',
+    filesystem: ['/work/other-checkout/file.txt'], network: ['example.com'],
+  })
+  expect(container.querySelector('h2')?.textContent).toBe('Additional access')
+  expect(container.querySelector('[data-slot="approval-meta"]')?.textContent).toBe('Toolread <literal>')
+  expect(container.querySelector('pre')).toBeNull()
+  expect(container.querySelector('[data-kind="folder"]')).toBeNull()
+  expect(container.textContent).toContain('The file is outside the workspace.')
+  expect(container.textContent).toContain('Filesystem/work/other-checkout/file.txt')
+  expect(container.textContent).toContain('Networkexample.com')
+  expect(container.textContent).not.toContain('Unicode escapes')
 })

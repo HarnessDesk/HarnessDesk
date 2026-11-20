@@ -113,8 +113,24 @@ const FileChangeBody = ({ approval }: { approval: Extract<Approval, { type: 'fil
   </>
 )
 
-const PermissionBody = ({ approval, hideSummary = false }: {
+/** Escape before sanitizing: terminal spans may contain executable lines. */
+const PermissionCommand = ({ value }: { value: string }) => {
+  const shown = value.replace(/[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/gu, character => {
+    if (character === '\n' || character === '\t') return character
+    const point = character.codePointAt(0)!
+    const hex = point.toString(16)
+    return point <= 0xffff ? `\\u${hex.padStart(4, '0')}` : `\\u{${hex}}`
+  })
+  return <>
+    <ApprovalCode>{sanitizeText(shown)}</ApprovalCode>
+    {shown !== value && <ApprovalReason>Control and invisible characters are shown as Unicode escapes.</ApprovalReason>}
+  </>
+}
+
+const PermissionBody = ({ approval, home, project, hideSummary = false }: {
   approval: Extract<Approval, { type: 'permission' }>
+  home: string | null
+  project: string | null
   hideSummary?: boolean
 }) => (
   <>
@@ -122,7 +138,8 @@ const PermissionBody = ({ approval, hideSummary = false }: {
     {/* Why the agent is asking, when it said. The summary is the tool it wants
         to run; a decision needs the sentence under it — "the file is outside
         the workspace" is the part that answers allow or reject. */}
-    {approval.facts?.map(fact => fact.label === 'Command' ? <ApprovalCode key={fact.label}>{sanitizeText(fact.value)}</ApprovalCode> : <ApprovalMeta key={fact.label} label={fact.label}>{sanitizeText(fact.value)}</ApprovalMeta>)}
+    {approval.facts?.map(fact => fact.label === 'Command' ? <PermissionCommand key={fact.label} value={fact.value} /> : <ApprovalMeta key={fact.label} label={fact.label}>{sanitizeText(fact.value)}</ApprovalMeta>)}
+    {approval.cwd && approval.facts?.some(fact => fact.label === 'Command') && <FolderMeta cwd={approval.cwd} home={home} project={project} />}
     {approval.reason && <ApprovalReason className={styles.reason}>{approval.reason}</ApprovalReason>}
     {(approval.filesystem?.length ?? 0) > 0 && (
       <>
@@ -343,7 +360,12 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false, requester,
           )}
           {approval.type === 'fileChange' && <FileChangeBody approval={approval} />}
           {approval.type === 'permission' && <>
-            <PermissionBody approval={approval} hideSummary={explainBoardTool} />
+            <PermissionBody
+              approval={approval}
+              home={home ?? null}
+              project={(key && sessions.get(key)?.cwd) || workspace?.path || null}
+              hideSummary={explainBoardTool}
+            />
             {approvalNote && <ApprovalReason className={styles.reason} title={approvalNote.title}>{approvalNote.text}</ApprovalReason>}
           </>}
           {approval.type === 'userInput' && (
