@@ -788,6 +788,147 @@ test('the auto-compact window is a control too: spawned with it, and moved by re
   }
 })
 
+test('reconfiguring one Claude session keeps its selected model and the other session’s controls', async () => {
+  const config = scratch('claude-acp-model-config-')
+  const runtime = make({ CLAUDE_CONFIG_DIR: config })
+  const tape = record(runtime)
+  await runtime.start()
+  try {
+    const a = await runtime.createSession({ cwd: WORKDIR, options: { effort: 'low', autocompact: '500k' } })
+    const b = await runtime.createSession({ cwd: WORKDIR, options: { model: 'haiku', autocompact: '100k' } })
+    await ask(runtime, a, 'first turn', tape)
+    storedSession(config, a.id, WORKDIR, [
+      said('first turn'),
+      { type: 'assistant', message: { model: 'claude-opus-5[1m]', content: [{ type: 'text', text: 'First answer.' }] } },
+    ])
+    assert.match(await ask(runtime, b, 'other session', tape), /autocompact=100k; .*model=haiku/)
+
+    // The new model hasn't answered a turn yet, so the transcript can't restore it.
+    await a.setOption('model', 'sonnet')
+    await a.setOption('autocompact', '200k')
+    const reply = await ask(runtime, a, 'after respawn', tape)
+    assert.match(reply, /effort=low; autocompact=200k; .*model=sonnet/)
+    assert.ok(reply.includes(`resumed=${a.id}`))
+    assert.match(await ask(runtime, b, 'still isolated', tape), /autocompact=100k; .*resumed=none; .*model=haiku/)
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a hook refusal during model restore reports the actual model and applied control', async () => {
+  const runtime = make({ FAKE_CLAUDE_REFUSE_RESUMED_MODEL_SWITCH: '1' })
+  const tape = record(runtime)
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: WORKDIR, options: { model: 'sonnet' } })
+    assert.match(await ask(runtime, session, 'first turn', tape), /model=sonnet/)
+    await session.setOption('autocompact', '200k')
+    assert.equal(session.options().find(option => option.id === 'model')?.currentValue, 'default')
+    assert.match(await ask(runtime, session, 'after the refusal', tape), /autocompact=200k; .*model=default/)
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a newer model request wins over model restoration during reconfiguration', async t => {
+  const id = 'concurrent-model'
+  const gate = () => {
+    let release!: () => void
+    const promise = new Promise<void>(resolve => { release = resolve })
+    return { promise, release }
+  }
+  const restoringMode = gate()
+  const allowMode = gate()
+  const allowPicker = gate()
+  const modelOption = (value: string) => ({
+    id: 'model', name: 'Model', category: 'model', type: 'select' as const,
+    currentValue: value, options: ['default', 'sonnet', 'haiku'].map(model => ({ value: model, name: model })),
+  })
+  t.mock.method(ClaudeAcpAgent.prototype, 'newSession', async function (this: ClaudeAcpAgent) {
+    const configOptions = [modelOption('sonnet')]
+    this.sessions[id] = { configOptions, query: { setPermissionMode: async () => {} } } as unknown as (typeof this.sessions)[string]
+    return { sessionId: id, configOptions }
+  })
+  t.mock.method(ClaudeAcpAgent.prototype, 'closeSession', async function (this: ClaudeAcpAgent) {
+    delete this.sessions[id]
+    return {}
+  })
+  t.mock.method(ClaudeAcpAgent.prototype, 'resumeSession', async function (this: ClaudeAcpAgent) {
+    const configOptions = [modelOption('default')]
+    const query = { setPermissionMode: async () => { restoringMode.release(); await allowMode.promise } }
+    this.sessions[id] = { configOptions, query } as unknown as (typeof this.sessions)[string]
+    return { sessionId: id, configOptions }
+  })
+  let modelChanges = Promise.resolve({ configOptions: [modelOption('default')] })
+  t.mock.method(ClaudeAcpAgent.prototype, 'setSessionConfigOption', function (this: ClaudeAcpAgent, { value }: { value: string }) {
+    modelChanges = modelChanges.then(async () => {
+      if (value === 'haiku') await allowPicker.promise
+      const configOptions = [modelOption(value)]
+      this.sessions[id]!.configOptions = configOptions
+      return { configOptions }
+    })
+    return modelChanges
+  })
+  t.mock.method(ClaudeAcpAgent.prototype, 'prompt', async () => ({ stopReason: 'end_turn' }))
+  const client = { sessionUpdate: async () => {}, requestPermission: async () => ({ outcome: { outcome: 'cancelled' } }) }
+  const agent = new HarnessDeskClaudeAgent(client as never, { stateDir: scratch('claude-model-order-'), log: () => {} })
+  await agent.newSession({ cwd: WORKDIR, mcpServers: [], _meta: { harnessdesk: { ceiling: 'read' } } })
+  await agent.prompt({ sessionId: id, prompt: [] })
+  const respawn = agent.setSessionConfigOption({ sessionId: id, configId: 'autocompact', value: '200k' })
+  await restoringMode.promise
+  const picker = agent.setSessionConfigOption({ sessionId: id, configId: 'model', value: 'haiku' })
+  allowMode.release()
+  await new Promise<void>(resolve => setImmediate(resolve))
+  allowPicker.release()
+  await Promise.all([respawn, picker])
+  assert.equal(agent.sessions[id]?.configOptions[0]?.currentValue, 'haiku')
+})
+
+test('the bridge disables speculative shell startup on new and replacement Claude processes', async () => {
+  const runtime = make({ CLAUDE_CODE_DISABLE_SHELL_HEAD_START: '0' })
+  const tape = record(runtime)
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: WORKDIR })
+    assert.equal(await ask(runtime, session, 'bridge shell head start', tape), 'shell-head-start=1')
+    await session.setOption('autocompact', '200k')
+    assert.equal(await ask(runtime, session, 'bridge shell head start', tape), 'shell-head-start=1')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('session environment and flag settings cannot re-enable speculative shell startup', () => {
+  const { claudeCode } = withOptions({
+    claudeCode: { options: {
+      env: { KEEP_ENV: 'yes', CLAUDE_CODE_DISABLE_SHELL_HEAD_START: '0' },
+      settings: { env: { KEEP_SETTING: 'yes', CLAUDE_CODE_DISABLE_SHELL_HEAD_START: '0' } },
+    } },
+  }, {}, new AbortController()) as { claudeCode: { options: Record<string, unknown> } }
+  assert.deepEqual(claudeCode.options['env'], { KEEP_ENV: 'yes', CLAUDE_CODE_DISABLE_SHELL_HEAD_START: '1' })
+  assert.deepEqual(claudeCode.options['settings'], { env: { KEEP_SETTING: 'yes', CLAUDE_CODE_DISABLE_SHELL_HEAD_START: '1' } })
+})
+
+test('the shell guard preserves a settings file whose name is a JSON literal', () => {
+  const cwd = scratch('claude-acp-flag-settings-')
+  writeFileSync(join(cwd, 'true'), JSON.stringify({ env: { KEEP_SETTING: 'yes' } }))
+  const { claudeCode } = withOptions({
+    claudeCode: { options: { settings: 'true' } },
+  }, {}, new AbortController(), cwd) as { claudeCode: { options: Record<string, unknown> } }
+  assert.deepEqual(claudeCode.options['settings'], { env: { KEEP_SETTING: 'yes', CLAUDE_CODE_DISABLE_SHELL_HEAD_START: '1' } })
+})
+
+test('the shell guard keeps a raw SDK settings path out of inline process arguments', () => {
+  const cwd = scratch('claude-acp-private-settings-')
+  writeFileSync(join(cwd, 'private.json'), JSON.stringify({ env: { PRIVATE_SETTING: 'fixture-only' } }))
+  const { claudeCode } = withOptions({
+    claudeCode: { options: { extraArgs: { settings: 'private.json' } } },
+  }, {}, new AbortController(), cwd) as { claudeCode: { options: Record<string, unknown> } }
+  assert.deepEqual(claudeCode.options['extraArgs'], { settings: 'private.json' })
+  assert.equal(claudeCode.options['settings'], undefined)
+  assert.deepEqual(claudeCode.options['env'], { CLAUDE_CODE_DISABLE_SHELL_HEAD_START: '1' })
+})
+
 test('changing the effort mid-conversation resumes the same conversation in a new process', async () => {
   const log = join(scratch('claude-acp-log-'), 'spawns.log')
   const runtime = make({ FAKE_CLAUDE_LOG: log })
@@ -897,31 +1038,28 @@ test('an output style travels as --settings JSON, and never as a slash command',
   const styled = withOptions({}, { output_style: 'Explanatory' }, new AbortController()) as {
     claudeCode: { options: Record<string, unknown> }
   }
-  assert.deepEqual(styled.claudeCode.options['extraArgs'], {
-    settings: JSON.stringify({ outputStyle: 'Explanatory' }),
-  })
+  const env = { CLAUDE_CODE_DISABLE_SHELL_HEAD_START: '1' }
+  assert.deepEqual(styled.claudeCode.options['settings'], { env, outputStyle: 'Explanatory' })
   // A caller's own settings JSON keeps its other keys.
   const merged = withOptions(
     { claudeCode: { options: { extraArgs: { settings: JSON.stringify({ theme: 'dark' }) } } } },
     { output_style: 'Concise' },
     new AbortController(),
   ) as typeof styled
-  assert.deepEqual(merged.claudeCode.options['extraArgs'], {
-    settings: JSON.stringify({ theme: 'dark', outputStyle: 'Concise' }),
-  })
-  // Back to default: only outputStyle leaves; a lone outputStyle takes the
-  // whole flag with it.
+  assert.deepEqual(merged.claudeCode.options['settings'], { theme: 'dark', env, outputStyle: 'Concise' })
+  // Back to default removes the output style override.
   const restored = withOptions(
     { claudeCode: { options: { extraArgs: { settings: JSON.stringify({ theme: 'dark', outputStyle: 'Concise' }) } } } },
     { output_style: 'default' },
     new AbortController(),
   ) as typeof styled
-  assert.deepEqual(restored.claudeCode.options['extraArgs'], { settings: JSON.stringify({ theme: 'dark' }) })
+  assert.deepEqual(restored.claudeCode.options['settings'], { theme: 'dark', env })
   const bare = withOptions(
     { claudeCode: { options: { extraArgs: { settings: JSON.stringify({ outputStyle: 'Concise' }) } } } },
     { output_style: 'default' },
     new AbortController(),
   ) as typeof styled
+  assert.deepEqual(bare.claudeCode.options['settings'], { env })
   assert.equal(bare.claudeCode.options['extraArgs'], undefined)
   // Style changes are respawns, never commands — the command is refused.
   assert.deepEqual(commandsFor({ output_style: 'Explanatory' }, {}), [])

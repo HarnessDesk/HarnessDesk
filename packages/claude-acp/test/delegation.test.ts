@@ -313,6 +313,7 @@ test('a delegation crosses the wire as a sub-agent row, not one more tool row', 
     // And the session's own snapshot agrees with the events — a pane opened
     // after the fact must read the same as one that watched it happen.
     const stored = await runtime.readSession(session.id)
+    assert.equal(stored.usage?.contextWindow, 200_000, 'the root reports its own window when children have different limits')
     const items: readonly AgentItem[] = stored.turns.flatMap((turn): readonly AgentItem[] => turn.items)
     assert.equal(items.filter((item) => item.type === 'subagent').length, 2)
     assert.equal(
