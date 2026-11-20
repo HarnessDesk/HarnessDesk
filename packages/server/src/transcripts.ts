@@ -1325,6 +1325,11 @@ export class TranscriptStore {
     for (const row of this.removedBodies()) if (row.removed_at <= before) await this.forget(row.runtime, row.id, { removedBefore: before })
   }
 
+  #forgotten: ((runtime: RuntimeId, id: SessionId) => void) | undefined
+
+  /** Told once a conversation's body is gone from the database, never when dropping it failed. */
+  onForgotten(listener: (runtime: RuntimeId, id: SessionId) => void): void { this.#forgotten = listener }
+
   /** Cancel queued writes and atomically drop this body, and optionally its index row. */
   async forget(runtime: RuntimeId, id: SessionId, options: { deleteIndex?: boolean; removedBefore?: number } = {}): Promise<void> {
     const key = keyOf(runtime, id)
@@ -1348,6 +1353,7 @@ export class TranscriptStore {
     this.#verifiedRows.delete(key)
     this.#generationConflicts.delete(key)
     this.#database.forget(runtime, id, options)
+    this.#forgotten?.(runtime, id)
     this.onDurableChange(runtime, id)
   }
 
