@@ -1,0 +1,56 @@
+{
+  "scope": "Two actual Electron+Host frames and four actual paired native iOS frames, synthetic only/no command execution. Native phone trustedDeny only; separate Host-forgedAllow refusal, Allowonce remainsvisible/rawBidi fallback mayreorder. No Swift pre/postAX equality. Electron full canonical equality, exact source/artifact hashes and ownedcleanup verified.",
+  "fixtureIdentity": "Demo desk / Demo Agent",
+  "iosSource": "c7e47a3a4730aba87e2bbbd9bc300e7f65b0603f",
+  "head": "dbce86a87caafeae6901772bf88dc87569076180",
+  "frames": [
+    {
+      "path": "screenshots/issue-1620/dbce86a/native-command.png",
+      "sha256": "5b4b9c8a19c57f900835b59b55bcc006bf32181af2b5a9d3a29756a8e2218e92",
+      "sourceHead": "dbce86a87caafeae6901772bf88dc87569076180",
+      "sourceTree": "3ad42e5b0738d1f00774523945bfa98d7826063e",
+      "surface": "native Electron",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-1620/dbce86a/native-epoch.png",
+      "sha256": "df83428bc4c74762b2a8b5a060932cdce2c5ea0644728994bf25b2c8d8eecc87",
+      "sourceHead": "dbce86a87caafeae6901772bf88dc87569076180",
+      "sourceTree": "3ad42e5b0738d1f00774523945bfa98d7826063e",
+      "surface": "native Electron",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-1620/dbce86a/phone-control-denied.png",
+      "sha256": "0db78fe23ac0bdb47140f636b78b6e7cf8b3af369d92449c6637e45c4a930383",
+      "sourceHead": "dbce86a87caafeae6901772bf88dc87569076180",
+      "sourceTree": "3ad42e5b0738d1f00774523945bfa98d7826063e",
+      "surface": "actual native iOS over paired encrypted phone",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-1620/dbce86a/phone-control-pending.png",
+      "sha256": "5589f46c49cd0e89c63816c6dcb08ae809ba5be95ef5950484f3179483d2aa53",
+      "sourceHead": "dbce86a87caafeae6901772bf88dc87569076180",
+      "sourceTree": "3ad42e5b0738d1f00774523945bfa98d7826063e",
+      "surface": "actual native iOS over paired encrypted phone",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-1620/dbce86a/phone-safe-denied.png",
+      "sha256": "3e89c0192f25dcbacc93869d89f5882c637d4f82d240a555c53cab4959b5079e",
+      "sourceHead": "dbce86a87caafeae6901772bf88dc87569076180",
+      "sourceTree": "3ad42e5b0738d1f00774523945bfa98d7826063e",
+      "surface": "actual native iOS over paired encrypted phone",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-1620/dbce86a/phone-safe-pending.png",
+      "sha256": "29ca116602a93cea6d01ec3ed4b3e2d79f2a574353c87cf618c391c85330f2d6",
+      "sourceHead": "dbce86a87caafeae6901772bf88dc87569076180",
+      "sourceTree": "3ad42e5b0738d1f00774523945bfa98d7826063e",
+      "surface": "actual native iOS over paired encrypted phone",
+      "parentVisuallyInspected": true
+    }
+  ]
+}
