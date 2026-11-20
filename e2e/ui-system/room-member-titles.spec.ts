@@ -31,7 +31,7 @@ for (const theme of ['light', 'dark'] as const) {
   })
   test(`room member context stays whole beside compact names and models in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
-    await page.goto(`/preview.html?side-by-side&theme=${theme}`)
+    await page.goto(`/preview.html?side-by-side&isolate&frames=side-by-side-two&theme=${theme}`)
     const frame = page.locator('[data-frame-id="side-by-side-two"]')
     const members = await teamSeats(frame)
     await expect(members.getByRole('button', { name: /^Actions for / })).toHaveCount(4)

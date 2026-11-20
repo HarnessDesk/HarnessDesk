@@ -764,10 +764,10 @@ test.describe('preview coverage', () => {
     test('coverage carry-on card over the composer', async () => {
       test.setTimeout(120_000)
       // The scene owns a store and its pushes, so it gets a page of its own,
-      // as the Lead scenes below do, rather than the inventory's long-lived one.
-      const page = await getPage().context().browser()!.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' })
+      // as the Lead scenes below do.
+      const page = await getPage().context().browser()!.newPage({ baseURL: String(test.info().project.use.baseURL), viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' })
       try {
-        await page.goto(new URL('/preview.html?notices=carry-on', getPage().url()).href)
+        await page.goto('/preview.html?notices=carry-on')
         // The card mounts only once the scene's carryOn/changed push lands.
         await expect(page.locator('[data-slot="decision-notice"]')).toBeVisible({ timeout: 30_000 })
         const result = await collectCoverage(page)
@@ -778,12 +778,8 @@ test.describe('preview coverage', () => {
 
     for (const query of ['lead-synthetic=app-shell', 'lead-synthetic=result-person-gate', 'lead-synthetic=memory-proposal', 'lead-synthetic=autonomy-proposal', 'lead-synthetic=settings-configured', 'lead-synthetic=work-ledger', 'lead-synthetic=first-name', 'lead-synthetic=opening-jobs', 'lead-synthetic=wake-ledger', 'lead-chat=lead', 'desk-account=pending', 'desk-account=settings']) test(`coverage Lead and account scene: ${query}`, async () => {
       test.setTimeout(360_000)
-      // These app scenes own timers and subscriptions. Give each its own context
-      // rather than retaining them on the inventory's long-lived page: every
-      // Lead scene loaded there makes a later visit of that page likelier to
-      // stall with its module graph aborted and a blank document.
-      // The configured base URL, not the shared page's: a worker that restarts
-      // after a failure starts that page on about:blank.
+      // These app scenes own timers and subscriptions, so each gets its own context.
+      // Use the configured base URL: the inventory page starts on about:blank.
       const page = await getPage().context().browser()!.newPage({ baseURL: String(test.info().project.use.baseURL), viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' })
       try {
         await page.goto(`/preview.html?${query}`)
@@ -1042,7 +1038,7 @@ test.describe('preview coverage', () => {
       if (label === 'Library') expect(result.covered).toEqual(expect.arrayContaining(['components/SkillRow.tsx#SkillList', 'components/SkillRow.tsx#SkillRow']))
       if (label === 'Panels') expect(result.covered).toContain('panels/Workbench.tsx#Workbench')
     })
-  })
+  }, {}, { pageLifetime: 'case' })
 
   test('preview shows a counted host approval notice as desk data', async ({ page }) => {
     await page.goto('/preview.html?lead-chat=lead')
