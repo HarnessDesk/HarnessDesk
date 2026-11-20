@@ -1352,8 +1352,8 @@ export class TranscriptStore {
     this.#authorities.delete(key)
     this.#verifiedRows.delete(key)
     this.#generationConflicts.delete(key)
-    this.#database.forget(runtime, id, options)
-    this.#forgotten?.(runtime, id)
+    // A timed sweep that finds the body reopened drops nothing, and confirms nothing.
+    if (this.#database.forget(runtime, id, options)) this.#forgotten?.(runtime, id)
     this.onDurableChange(runtime, id)
   }
 
