@@ -194,8 +194,10 @@ function commandWrite(command: string, depth: number, alias?: GitAliasResolver):
     if (!parsed) continue
     if (!complex && i === 0) return { write: parsed, binary: tokens[i] }
     // A compound is refused whole, but it keeps what its command was, so it is worded as that kind.
+    // A credential read is refused for its own reason, inside a compound or not.
+    if (parsed.kind === 'unmappable' && parsed.credential) return { write: parsed, binary: tokens[i] }
     const compound = refuse('Compound shell commands cannot be translated safely.', parsed.kind === 'push' ? undefined : parsed.tool)
-    const marks = parsed.kind === 'unmappable' && parsed.credential ? { credential: true as const } : parsed.kind === 'forge' || parsed.kind === 'unmappable' && parsed.forge ? { forge: true as const } : {}
+    const marks = parsed.kind === 'forge' || parsed.kind === 'unmappable' && parsed.forge ? { forge: true as const } : {}
     return { write: { ...compound, ...marks } as GitWrite, binary: tokens[i] }
   }
   return { write: null }

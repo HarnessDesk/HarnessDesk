@@ -147,6 +147,13 @@ test('a refusal is worded by what the command was: a push, a forge change or a c
   const helper = await f.command('gh', ['auth', 'git-credential', 'get'])
   assert.equal(helper.code, 1); assert.match(helper.stdout, /^HarnessDesk: refused — /m)
   assert.equal(f.tools.length, 0)
+  // A seat that may only read still hears the credential refusal, not a refusal to publish.
+  f.admit(false)
+  const ceiling = await f.command('gh', ['auth', 'token'])
+  assert.equal(ceiling.code, 1)
+  assert.match(ceiling.stdout, /^HarnessDesk: refused — HarnessDesk does not hand out forge credentials/m)
+  assert.doesNotMatch(ceiling.stdout, /Read ceiling refused/)
+  f.admit(true)
   const forge = await f.command('gh', ['release', 'create', 'v1'])
   assert.equal(forge.code, 1); assert.match(forge.stdout, /HarnessDesk: forge change refused — This forge mutation cannot be translated safely\./)
   assert.ok(f.rows.some(row => row.startsWith('Forge change refused · gh release create v1 · This forge mutation cannot be translated safely.')), JSON.stringify(f.rows))

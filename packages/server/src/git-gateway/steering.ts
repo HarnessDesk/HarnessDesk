@@ -176,6 +176,8 @@ export class GitSteering {
     try {
       signal?.throwIfAborted()
       if (!await this.sameCheckout(scope.cwd, cwd)) throw new Error('The command is in a different repository.')
+      // A credential read is refused whatever the seat may do; asking to publish first would word it as a push.
+      if (write.kind === 'unmappable' && write.credential) throw new Error(write.reason)
       if (write) await this.port.admit(scope, write.kind === 'push' ? 'git_push' : write.tool ?? 'git_push', write.kind === 'forge' ? write.args : {})
       const translated = write && await this.#translate(scope, write, cwd)
       if (!translated) throw new Error('This command cannot be translated. Use git_push or the pr_* tools.')

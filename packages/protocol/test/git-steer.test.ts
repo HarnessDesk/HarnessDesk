@@ -5,6 +5,7 @@ import { parseGitWrite, parseGitCommand } from '../src/git-steer.js'
 test('a refused compound keeps what its command was', () => {
   const credential = parseGitCommand('gh auth token | cat')
   assert.ok(credential?.kind === 'unmappable' && credential.credential && !credential.forge, JSON.stringify(credential))
+  assert.equal(credential.reason, 'HarnessDesk does not hand out forge credentials; use the pr_* tools for forge work.')
   for (const command of ['gh release create v1; true', 'true && gh pr comment 5 --body hi']) {
     const forge = parseGitCommand(command)
     assert.ok(forge?.kind === 'unmappable' && forge.forge && !forge.credential, `${command}: ${JSON.stringify(forge)}`)
