@@ -260,15 +260,80 @@ export const rejectionFor = (error: WireError): Error =>
  * the same banner ending in why it failed is.
  */
 export const sentenceOf = (error: WireError): string => {
-  const details =
-    typeof error?.details === 'string'
-      ? error.details.trim()
-      : typeof error?.details === 'number' || typeof error?.details === 'boolean'
-        ? String(error.details).trim()
-        : null
   const message = typeof error?.message === 'string' ? error.message : 'Request failed'
+  const details = detailWords(error?.details)
   if (!details || details === message) return message
+  // The detail can open with the message's own words: print them once.
+  if (details.startsWith(`${message} (`)) return details
   return `${message} — ${details}`
+}
+
+/**
+ * The named fields of an error object cut short in transit: an agent's detail
+ * is truncated after its JSON is written, so it no longer parses. Its readable
+ * string fields are kept and the rest of the fragment is dropped.
+ */
+const salvaged = (text: string): Record<string, string> => {
+  const fields: Record<string, string> = {}
+  const named = new Set(['message', 'errorName', 'name', 'code', 'reason'])
+  // Walk the fragment's own level only, as JSON.parse would: a nested object's fields are not the error's.
+  let depth = 0, at = 0, key: string | null = null
+  const stringAt = (from: number): [string, number] | null => {
+    let end = from + 1
+    while (end < text.length && text[end] !== '"') end += text[end] === '\\' ? 2 : 1
+    if (end >= text.length) return null
+    try { return [JSON.parse(text.slice(from, end + 1)) as string, end + 1] } catch { return null }
+  }
+  while (at < text.length) {
+    const char = text[at]!
+    if (char === '"') {
+      const read = stringAt(at)
+      if (!read) break
+      const [value, next] = read
+      at = next
+      while (text[at] === ' ' || text[at] === '\n' || text[at] === '\t' || text[at] === '\r') at++
+      if (depth === 1 && key === null && text[at] === ':') { key = value; at++; continue }
+      if (depth === 1 && key !== null && named.has(key) && !(key in fields)) fields[key] = value
+      key = null
+      continue
+    }
+    if (char === '{' || char === '[') depth++
+    else if (char === '}' || char === ']') depth--
+    else if (char === ',') { if (depth === 1) key = null }
+    // A value that is not a string (a number, true, null) ends this key at its own level.
+    else if (depth === 1 && key !== null && !/\s/.test(char)) key = null
+    at++
+  }
+  return fields
+}
+
+const wordOf = (value: unknown): string =>
+  typeof value === 'string' ? value.trim() : typeof value === 'number' ? String(value) : ''
+
+/**
+ * The readable part of an error's detail. An agent's error object reaches the
+ * host as JSON text; people get its message and name, never the braces.
+ */
+const detailWords = (details: unknown): string => {
+  if (typeof details === 'number' || typeof details === 'boolean') return String(details)
+  let value: unknown = details
+  if (typeof details === 'string') {
+    const text = details.trim()
+    if (!text.startsWith('{')) return text
+    // Text that only opens with a brace, and holds no JSON field, is prose: kept as it is.
+    try { value = JSON.parse(text) } catch { if (!/"\s*:/.test(text)) return text; value = salvaged(text) }
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return ''
+  const fields = value as Record<string, unknown>
+  const said = wordOf(fields.message)
+  const named = wordOf(fields.errorName) || wordOf(fields.name)
+  const code = wordOf(fields.code)
+  const reason = wordOf(fields.reason)
+  const lead = said || reason
+  const tags = [named, code].filter((tag, at, all) => tag && tag !== lead && all.indexOf(tag) === at)
+  if (!lead) return tags.join(', ')
+  const body = said && reason && reason !== said ? `${said}: ${reason}` : lead
+  return tags.length > 0 ? `${body} (${tags.join(', ')})` : body
 }
 
 /**
