@@ -10817,6 +10817,7 @@ export class Host {
     for (const [what, forget] of forgets) {
       try {
         await forget()
+        if (what === 'transcript') this.#forgetRecoveredBody(runtime, id)
       } catch (error) {
         this.#logger.warn('a seat passed over could not be forgotten everywhere', {
           runtime: String(runtime),
