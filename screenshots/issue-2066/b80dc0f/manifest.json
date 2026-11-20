@@ -1,0 +1,15 @@
+{
+  "scope": "Actual Host/Electron basic observer defaultOff, unconfigured provider. Full canonical snapshots, source/compiled hash pin, production quit and ownedcleanup verified. No native marker-injection/capacity-fault, liveprovider or billing proof.",
+  "fixtureIdentity": "Demo desk",
+  "head": "b80dc0fb29db28d9c8faa02aede5d19d20b73ab7",
+  "frames": [
+    {
+      "path": "screenshots/issue-2066/b80dc0f/after-default-off.png",
+      "sha256": "7f46c17b2250b91dae01a8ba3b8483c77a229c3e61e6f68b5ba4e11968212845",
+      "sourceHead": "b80dc0fb29db28d9c8faa02aede5d19d20b73ab7",
+      "sourceTree": "6d9a95064dab0a38a7abf72ce6a4cd3b82f62416",
+      "surface": "actual production Electron and Host; synthetic defaultOff observer",
+      "parentVisuallyInspected": true
+    }
+  ]
+}
