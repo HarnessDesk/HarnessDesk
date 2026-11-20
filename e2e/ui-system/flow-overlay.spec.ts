@@ -196,7 +196,7 @@ for (const theme of ['light', 'dark']) {
         const from = await at(0.2)
         const to = await at(0.7)
         await at(0.2)
-        animation.play()
+        // Hold this phase until both snapshot-retention checks finish.
         return Math.hypot(to.x - from.x, to.y - from.y)
       })
       expect(glide).toBeGreaterThan(20)
@@ -206,7 +206,9 @@ for (const theme of ['light', 'dark']) {
       const old = await graph(page).locator('[data-slot="flow-baton"]').getAttribute('data-path')
       await advance(page, 'check-again')
       await expect(graph(page).locator('[data-slot="flow-baton"]')).toHaveAttribute('data-path', old!)
+      expect(await graph(page).locator('[data-slot="flow-baton"]').evaluate(el => el === (window as any).__baton && el.getAnimations()[0] === (window as any).__batonAnimation)).toBe(true)
       // Finishing the current curve avoids a visible teleport on a host push.
+      await graph(page).locator('[data-slot="flow-baton"]').evaluate(el => el.getAnimations()[0]!.play())
       await expect(graph(page).locator('[data-slot="flow-baton"]')).not.toHaveAttribute('data-path', old!, { timeout: 7000 })
       expect(await graph(page).locator('[data-slot="flow-baton"]').evaluate(el => el === (window as any).__baton)).toBe(true)
       await page.emulateMedia({ reducedMotion: 'reduce' })
