@@ -132,7 +132,7 @@ import { CliMcp, type AcpMcpCommands } from './mcp.js'
 import { decodeLoadout, loadoutItem, loadoutPart } from './loadout.js'
 import { AcpTasks } from './tasks.js'
 import { usageLimits } from './usage.js'
-import { patchPermissionWire, projectToolItem, type ToolItemState } from './tool-items.js'
+import { patchPermissionWire, projectToolItem, type PermissionWireSnapshot, type ToolItemState } from './tool-items.js'
 import { whichOnPath } from './which.js'
 import { ACP_STEER, ACP_GOAL, supportsSteering, supportsGoals, goalUpdate } from './session-controls.js'
 
@@ -5025,6 +5025,7 @@ class AcpSession implements AgentSession {
     if (open) {
       // History keeps no stop reason, so replayed children read as completed.
       this.#finishToolDelegations(open, 'end_turn')
+      open.permissionWires?.clear()
       this.#currentTurn = null
       this.#turns.push({
         id: open.id,
@@ -5642,6 +5643,7 @@ class AcpSession implements AgentSession {
       if (open) {
         // History keeps no stop reason, so replayed children read as completed.
         this.#finishToolDelegations(open, 'end_turn')
+        open.permissionWires?.clear()
         this.#currentTurn = null
         this.#turns.push({
           id: open.id,
@@ -5921,9 +5923,20 @@ class AcpSession implements AgentSession {
     }
   }
 
+  #permissionWire(turn: MutableTurn | null, update: { readonly toolCallId: string; readonly kind?: unknown; readonly rawInput?: unknown }): PermissionWireSnapshot {
+    const wire = patchPermissionWire(turn?.permissionWires?.get(update.toolCallId), update)
+    if (turn) {
+      turn.permissionWires ??= new Map()
+      turn.permissionWires.set(update.toolCallId, wire)
+    }
+    return wire
+  }
+
   #projectTool(turn: MutableTurn, update: AcpToolCallUpdate, call: Extract<AgentItem, { type: 'toolCall' }>): ToolItemState['item'] {
     turn.tools ??= new Map()
-    const state = projectToolItem(call, update, turn.tools.get(update.toolCallId), this.#cwd)
+    // The turn map is canonical even when a permission preceded this notice.
+    // The projector's wire member is a view, never the source for runtime approvals.
+    const state = { ...projectToolItem(call, update, turn.tools.get(update.toolCallId), this.#cwd), permissionWire: this.#permissionWire(turn, update) }
     turn.tools.set(update.toolCallId, state)
     const tools = this.#host.delegationTools
     if (!tools) return state.item
@@ -6202,9 +6215,7 @@ class AcpSession implements AgentSession {
     if (this.#reopenPhase) return Promise.resolve({ outcome: { outcome: 'cancelled' } })
     const id = approvalId(`acp-${request.toolCall.toolCallId}-${Date.now().toString(36)}`)
     // A question can still replace or clear this tool's permission-input epoch.
-    const priorTool = this.#currentTurn?.tools?.get(request.toolCall.toolCallId)
-    const wire = patchPermissionWire(priorTool?.permissionWire, request.toolCall)
-    if (priorTool) this.#currentTurn?.tools?.set(request.toolCall.toolCallId, { ...priorTool, permissionWire: wire })
+    const wire = this.#permissionWire(this.#currentTurn, request.toolCall)
     // A question is not a permission. Our Claude bridge carries Claude Code's
     // `AskUserQuestion` as a permission request whose options are the
     // answers, with the question beside them; drawn as a permission it would
@@ -6314,6 +6325,7 @@ class AcpSession implements AgentSession {
     this.#runningDelegations = new Map()
     this.#strandDelegations()
     const turn = this.#currentTurn
+    turn?.permissionWires?.clear()
     if (turn && !this.#replaying) this.#finishTurn(turn, 'cancelled')
     this.#abandonPermissions('The conversation closed.')
   }
@@ -6386,6 +6398,7 @@ class AcpSession implements AgentSession {
     const completedAt = Date.now()
     const reason = typeof stopReason === 'string' ? stopReason : stopReason == null ? 'end_turn' : String(stopReason)
     this.#finishToolDelegations(turn, reason)
+    turn.permissionWires?.clear()
     const status =
       reason === 'cancelled' ? 'interrupted' : reason === 'end_turn' ? 'completed' : 'failed'
     const finished: Turn = {
@@ -6436,6 +6449,7 @@ class AcpSession implements AgentSession {
     if (this.#currentTurn?.id !== turn.id) return
     const completedAt = Date.now()
     this.#finishToolDelegations(turn, 'failed')
+    turn.permissionWires?.clear()
     this.#currentTurn = null
     const finished: Turn = {
       id: turn.id,
@@ -6472,6 +6486,8 @@ interface MutableTurn {
   controls?: Set<Promise<unknown>>
   items: AgentItem[]
   tools?: Map<string, ToolItemState>
+  /** Permission requests can precede any tool notice; snapshots never create transcript rows. */
+  permissionWires?: Map<string, PermissionWireSnapshot>
   /** The message id the agent gave the text item last written, when it gave one (`#appendText`). */
   textMessage?: { readonly itemId: ItemId; readonly messageId: string }
   /**
