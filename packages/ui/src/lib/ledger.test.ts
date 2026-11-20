@@ -101,6 +101,56 @@ describe('stackDaily', () => {
 })
 
 describe('stackDailyMetric turns honesty', () => {
+  it('distinguishes missing records, unavailable zero and known zero without changing known-share arithmetic', () => {
+    const known = runtimeId('known')
+    const unavailable = runtimeId('unavailable')
+    const day = (back: number) => new Date(2026, 7, 22 - back).getTime()
+    const ledger = report(4, [
+      { day: day(2), runtime: unavailable, cost: 0, tokens: 0 },
+      { day: day(1), runtime: known, cost: 0, tokens: 0, turns: 0 },
+      { day: day(0), runtime: known, cost: 1, tokens: 10, turns: 5 },
+      { day: day(0), runtime: unavailable, cost: 2, tokens: 20 },
+    ], day(20), [known])
+    const turns = stackDailyMetric(ledger, NOON, 'turns')
+    expect(turns.days.map(day => [day.total, day.unknown, day.unknownReason])).toEqual([
+      [0, true, 'no-record'], [0, true, 'metric-unavailable'], [0, false, undefined], [5, false, undefined],
+    ])
+    expect(turns.keys).toEqual([unavailable, known])
+    expect(turns.days.at(-1)?.parts).toEqual([0, 5])
+    expect([turns.total, turns.peak]).toEqual([5, 5])
+    expect(periodTotals(turns, [1, 4])).toEqual([
+      { days: 1, label: 'Today', cost: 5, unknown: false, daysRead: 1 },
+      { days: 4, label: 'Last 4 days', cost: 5, unknown: false, daysRead: 2 },
+    ])
+    for (const [metric, total] of [['cost', 3], ['tokens', 30]] as const) {
+      const series = stackDailyMetric(ledger, NOON, metric)
+      expect(series.days.map(day => [day.total, day.unknown, day.unknownReason])).toEqual([
+        [0, true, 'no-record'], [0, false, undefined], [0, false, undefined], [total, false, undefined],
+      ])
+      expect([series.total, series.peak]).toEqual([total, total])
+      expect(periodTotals(series, [4])[0]?.daysRead).toBe(3)
+    }
+  })
+
+  it.each([0, 10])('keeps comparisons gated with a recorded-unavailable day %s days back', back => {
+    const known = runtimeId('known')
+    const unavailable = runtimeId('unavailable')
+    const daily = Array.from({ length: 14 }, (_, index) => ({
+      day: new Date(2026, 7, 22 - index).getTime(), runtime: index === back ? unavailable : known,
+      cost: 1, tokens: 10, ...(index === back ? {} : { turns: 2 }),
+    }))
+    const series = stackDailyMetric(report(14, daily, null, [known]), NOON, 'turns')
+    const previous = previousPeriod(series, 7, back === 0 ? 12 : 14)
+    expect(previous.complete).toBe(false)
+    expect(previous.change).toBeNull()
+    expect(previous.total).toBe(back === 10 ? 12 : 14)
+    const byRuntime = previousByRuntime(series, 7)
+    expect(byRuntime.complete).toBe(false)
+    expect(byRuntime.totals.get(known)).toBe(previous.total)
+    expect(alignGhost(7, previous.daily)).toEqual(back === 10 ? [2, 2, 2, null, 2, 2, 2] : [2, 2, 2, 2, 2, 2, 2])
+    expect(series.days.find(day => day.day === daily[back]?.day)?.unknownReason).toBe('metric-unavailable')
+  })
+
   it('marks a day unknown, not zero, when every runtime that spent that day is turn-unknown', () => {
     const ledger = report(
       2,

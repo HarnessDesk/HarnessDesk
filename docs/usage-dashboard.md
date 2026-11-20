@@ -573,16 +573,15 @@ fill — and OpenCode's Go tier has no reader yet (`bootstrap.ts`'s
 the field comments in `usage.ts` for exactly what each kind may never be
 collapsed with.
 
-`SpendCoverage.earliestDay` is the other new field here, and it is not one of
-the five shapes — it is what makes **Tokens** honest on a calendar. It is the
-earliest day the ledger has *any* row for, unwindowed — not a scan horizon,
-since the scan reads every file each time: a day before `earliestDay` simply
-has no record and draws as "no record yet," while a day at or after it with
-no row had no recorded use (for session-total runtimes — OpenCode, Cline —
-whose whole session lands on the day it was last touched, a gap is not proof
-the agent was idle throughout). `daysCovered` answers "how much of the window
-I asked for came back"; `earliestDay` answers "how far back does this
-agent's history go at all," and the two are read for different questions.
+`SpendCoverage.earliestDay` is not one of the five shapes. It is the earliest
+day the ledger has *any* row for, unwindowed — a row horizon, not a scan
+horizon. `daysCovered` counts dates with recorded rows in the requested
+window. Neither proves that a rowless date was scanned or idle. The current
+heatmap does not consume `coverage.earliestDay`: it uses the first **loaded**
+daily row as its heuristic boundary and treats later rowless dates as zero.
+Spend instead treats every rowless day as unknown, regardless of that boundary.
+For session-total runtimes — OpenCode, Cline — the whole session lands on the
+day it was last touched; its gaps cannot establish when the agent was idle.
 
 ## Turns
 
@@ -1120,14 +1119,25 @@ too. The window's own total is the headline above them and is never repeated
 as a third tile.
 
 **Every “Last N days” figure includes today.** The shorter figures and the
-selected range sum the same local-day buckets. When every day has a recorded
-row, the shorter figures carry **so far** because the last day is still running.
-A partly recorded period instead names its **days with history**; a period
-with no rows says **No record yet**. These rolling tiles have no comparison
-percentage. The selected range can still name its separate previous-period
-comparison. Days without a recorded row are gaps in both chart modes; an explicitly
-recorded zero remains zero. Row dates do not establish scan coverage, so the
-figure names how many days have history rather than calling them scanned.
+selected range sum the same local-day buckets. When every day has an available
+value for the selected metric, the shorter figures carry **so far** because
+the last day is still running. A partial period with only rowless gaps names
+its **days with history**; a period with no rows says **No record yet**. A
+recorded day whose runtimes supply no turn counts is also unknown in Turns,
+but says **Turns unavailable** in the chart's tooltip and accessible readings.
+An entirely unknown period containing such a day says **Turns unavailable**;
+a partly available one says **N of M days with turn counts**, counting days
+with an available selected-metric value. A mixed-runtime day's number can still
+be only the known share; the existing runtime coverage sentence explains the
+rest. If the whole window has no positive known turn count and no positive
+prior total, the existing empty chart stays empty and names unavailable turn
+counts when present, rather than claiming no turns occurred.
+These rolling tiles have no comparison percentage. The selected range can
+still name its separate previous-period comparison. Both rowless and
+turn-unavailable days are gaps in both chart modes; an explicitly recorded
+zero remains numeric zero when the selected metric is available. Cost and
+Tokens retain their existing availability rules. Row dates and metric
+availability do not establish scan coverage.
 
 **Days are stepped by the calendar, never by 86,400,000 ms.** The host buckets
 by *local* midnight, and local midnights are 23 or 25 hours apart across a
@@ -1187,21 +1197,22 @@ empty, and the one unusual day is still the top of the scale, without erasing
 the six.
 
 **Three kinds of nothing, because a blank cell answers a different question
-each time.** A **zero** is a scanned day the ledger genuinely has nothing
-for — a weekend, a day off — and draws as an empty cell, level 0. **No
-record yet** is a day before the ledger holds any row at all, which is not
-"nothing happened" but "this screen cannot say" — the fixed ledger shape
-(`LedgerDay`) carries no per-day scanned flag, so the heatmap uses the
-earliest day with any row as its current boundary, and everything before it is hatched
-rather than left blank. The label says "no record yet" rather than "not
-scanned" for exactly that reason — the host has no scan-horizon field of its
-own yet (`coverage.earliestDay` is a data-side follow-up), so this screen is
-honest about a guess rather than claiming a fact it cannot back. And with
+each time.** In the current heatmap heuristic, a **zero** is a day at or after
+the first loaded daily row whose selected quantity totals zero, and draws as
+an empty cell, level 0. This includes rowless dates and does not prove that
+the day was scanned or idle. **No record yet** is a day
+before that loaded-row boundary, which is not "nothing happened" but "this
+screen cannot say". The fixed ledger shape (`LedgerDay`) carries no per-day
+scanned flag, so everything before that boundary is hatched rather than left
+blank. `coverage.earliestDay` already exists as an unwindowed row horizon but
+is not consumed by this heatmap; it is not a positive scan calendar. That
+calendar remains a separate follow-up under #1580. And with
 **Cost** selected, a day whose tokens were spent but whose cost reads as
 nothing is marked the same hatched way rather than as `$0` — real usage the
 ledger cannot price is not a free day, and `LedgerDay` has no per-day price
-flag to say otherwise, so `tokens > 0` with `cost <= 0` on an
-otherwise-scanned day is read as unpriced rather than free. The same honesty
+flag to say otherwise, so `tokens > 0` with `cost <= 0` on a
+day within the heuristic boundary is read as unpriced rather than free. The
+same honesty
 applies to the facts card and the tooltip footer: a scope nothing in it can
 be priced reads "unpriced", never `$0`.
 

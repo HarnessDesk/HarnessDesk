@@ -2,6 +2,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import { runtimeId, type LedgerReport } from '@harnessdesk/protocol'
+import type { ChartMetric } from '../../lib/ledger'
 
 import { Spend } from './shared'
 
@@ -101,4 +102,118 @@ it.each(['cost', 'tokens', 'turns'] as const)('uses record-based wording for a r
   expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('Today—No record yet')
   render({ ...base, daily: [...base.daily, { day: today, runtime, cost: 0, tokens: 0, turns: 0 }] })
   expect(host.querySelector('[data-slot="stat"]')?.textContent).not.toContain('No record yet')
+})
+
+const NOW = new Date(2026, 9, 16, 12).getTime()
+const day = (back: number) => new Date(2026, 9, 16 - back).getTime()
+const known = runtimeId('known')
+const unavailable = runtimeId('unavailable')
+const counted = (back: number, turns = 2) => ({ day: day(back), runtime: known, cost: 1, tokens: 10, turns })
+const uncounted = (back: number, zero = false) => ({ day: day(back), runtime: unavailable, cost: zero ? 0 : 3, tokens: zero ? 0 : 30 })
+const withDaily = (daily: LedgerReport['daily']): LedgerReport => ({
+  ...emptyLedger(30), daily,
+  rows: [...new Set(daily.map(row => row.runtime))].map(runtime => ({
+    key: String(runtime), label: String(runtime), runtime, hasUnpriced: false,
+    cost: daily.filter(row => row.runtime === runtime).reduce((sum, row) => sum + row.cost, 0),
+    tokens: daily.filter(row => row.runtime === runtime).reduce((sum, row) => sum + row.tokens, 0),
+  })),
+  totalCost: daily.reduce((sum, row) => sum + row.cost, 0),
+  totalTokens: daily.reduce((sum, row) => sum + row.tokens, 0),
+  coverage: { ...emptyLedger(30).coverage, turnsKnownFor: [known] },
+})
+const renderMetric = (ledger: LedgerReport, mode: 'bars' | 'line' = 'bars', metric: ChartMetric = 'turns') =>
+  act(() => root.render(<Spend ledger={ledger} wideLedger={null} byId={new Map()} tintOf={() => 'blue'} scan={null} now={NOW} range={30} mode={mode} metric={metric} onModeChange={() => {}} onScan={() => {}} />))
+const stat = (label: string) => [...host.querySelectorAll('[data-slot="stat"]')].find(stat => stat.textContent?.startsWith(label))!
+const press = (key: string) => act(() => host.querySelector('[role="group"]')!.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })))
+
+it.each(['bars', 'line'] as const)('names recorded unavailable Today in %s while retaining the dash', mode => {
+  renderMetric(withDaily([counted(1), uncounted(0)]), mode)
+  expect(stat('Today').querySelector('[data-role="metric"]')?.textContent).toBe('—')
+  expect(stat('Today').textContent).toBe('Today—Turns unavailable')
+  expect(host.querySelector('[data-slot="day-columns"]')).not.toBeNull()
+})
+
+it.each(['bars', 'line'] as const)('names a recorded unavailable week in %s while retaining the dash', mode => {
+  renderMetric(withDaily([counted(8), ...Array.from({ length: 7 }, (_, back) => uncounted(back))]), mode)
+  expect(stat('Last 7 days').querySelector('[data-role="metric"]')?.textContent).toBe('—')
+  expect(stat('Last 7 days').textContent).toBe('Last 7 days—Turns unavailable')
+})
+
+it('describes six available days in a fully recorded week as turn counts, retaining the sum', () => {
+  renderMetric(withDaily([uncounted(0), ...Array.from({ length: 6 }, (_, index) => counted(index + 1))]))
+  expect(stat('Last 7 days').querySelector('[data-role="metric"]')?.textContent).toBe('12')
+  expect(stat('Last 7 days').textContent).toContain('6 of 7 days with turn counts')
+  expect(stat('Last 7 days').textContent).not.toContain('with history')
+  expect(stat('Last 7 days').textContent).not.toContain('so far')
+  // An unavailable day outside a tile must not change that tile's caption.
+  renderMetric(withDaily([uncounted(8), ...Array.from({ length: 7 }, (_, back) => counted(back))]))
+  expect(stat('Last 7 days').textContent).toBe('Last 7 days14so far')
+  renderMetric(withDaily([uncounted(8), counted(1)]))
+  expect(stat('Today').textContent).toBe('Today—No record yet')
+  expect(stat('Last 7 days').textContent).toContain('1 of 7 days with history')
+})
+
+it.each(['bars', 'line'] as const)('propagates both unknown causes through the %s chart’s pointer, keyboard and accessible series', mode => {
+  renderMetric(withDaily([uncounted(0), uncounted(1), ...[3, 4, 5, 6].map(back => counted(back))]), mode)
+  expect(stat('Last 7 days').textContent).toContain('4 of 7 days with turn counts')
+  const plot = host.querySelector('[role="group"]')!
+  const list = host.querySelector('ul.sr-only')!
+  expect(list.children[29]?.textContent).toContain('Turns unavailable')
+  expect(list.children[27]?.textContent).toContain('No record yet')
+  for (const [index, label] of [[29, 'Turns unavailable'], [27, 'No record yet']] as const) {
+    act(() => plot.children[index]!.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+    expect(host.querySelector('[data-slot="chart-tip"]')?.textContent).toContain(label)
+    expect(host.querySelector('[aria-live]')?.textContent).toContain(label)
+    expect((plot.children[index]!.firstElementChild as HTMLElement).style.background).toContain('--hd-chart-heat-not-scanned')
+  }
+  press('End')
+  expect(host.querySelector('[aria-live]')?.textContent).toContain('Turns unavailable')
+  press('ArrowLeft')
+  press('ArrowLeft')
+  expect(host.querySelector('[aria-live]')?.textContent).toContain('No record yet')
+  if (mode === 'line') expect(host.querySelector('svg path[stroke-width="4.5"]')).toBeNull()
+})
+
+it('keeps explicit known zero numeric, unsupported zero unavailable and mixed-runtime known share available', () => {
+  renderMetric(withDaily([counted(1), { ...counted(0, 0), cost: 0, tokens: 0 }]))
+  expect(stat('Today').textContent).toBe('Today0so far')
+  press('End')
+  expect(host.querySelector('[data-slot="chart-tip"]')?.textContent).toContain('No turns yet')
+  renderMetric(withDaily([counted(1), uncounted(0, true)]))
+  expect(stat('Today').textContent).toBe('Today—Turns unavailable')
+  renderMetric(withDaily([counted(0, 5), uncounted(0)]))
+  expect(stat('Today').textContent).toBe('Today5so far')
+  expect(host.querySelector('[data-slot="chart-title"]')?.textContent).toBe('—')
+  expect(host.textContent).toContain('turns known for 1 of 2 runtimes')
+  press('End')
+  expect(host.querySelector('[aria-live]')?.textContent).not.toMatch(/unavailable|No record/)
+})
+
+it.each(['cost', 'tokens'] as const)('keeps recorded %s available regardless of turns support', metric => {
+  renderMetric(withDaily(Array.from({ length: 7 }, (_, back) => uncounted(back))), 'bars', metric)
+  expect(stat('Last 7 days').textContent).toContain('so far')
+  expect(stat('Last 7 days').querySelector('[data-role="metric"]')?.textContent).toBe(metric === 'cost' ? '$21.00' : '210')
+  expect(host.textContent).not.toContain('Turns unavailable')
+  renderMetric(withDaily([uncounted(0)]), 'bars', metric)
+  expect(stat('Last 7 days').textContent).toContain('1 of 7 days with history')
+})
+
+it('qualifies the existing empty state only when recorded turn counts are unavailable', () => {
+  for (const daily of [[uncounted(0)], [uncounted(0, true)], [uncounted(0), counted(1, 0)]]) {
+    renderMetric(withDaily(daily))
+    expect(host.querySelector('[data-slot="empty-state"]')?.textContent).toBe('Turn counts unavailable in this window')
+    expect(stat('Last 7 days').textContent).toContain(daily.some(row => row.runtime === known) ? '1 of 7 days with turn counts' : 'Turns unavailable')
+    expect(host.querySelector('[data-slot="day-columns"]')).toBeNull()
+    expect(host.textContent).not.toContain('No turns yet in this window')
+  }
+  for (const daily of [[], [{ ...counted(0, 0), cost: 0, tokens: 0 }]]) {
+    renderMetric(withDaily(daily))
+    expect(host.querySelector('[data-slot="empty-state"]')?.textContent).toBe('No turns yet in this window')
+    expect(host.querySelector('[data-slot="day-columns"]')).toBeNull()
+  }
+  for (const metric of ['cost', 'tokens'] as const) {
+    renderMetric(withDaily([uncounted(0, true)]), 'bars', metric)
+    expect(host.querySelector('[data-slot="empty-state"]')?.textContent).toBe(metric === 'cost' ? 'No priced usage in this window' : 'No tokens yet in this window')
+    expect(host.querySelector('[data-slot="day-columns"]')).toBeNull()
+  }
 })

@@ -827,6 +827,7 @@ export const Spend = ({
         total: day.total,
         parts: day.parts,
         unknown: day.unknown,
+        unknownLabel: day.unknownReason === 'metric-unavailable' ? 'Turns unavailable' : undefined,
       })),
     [series.days],
   )
@@ -855,10 +856,18 @@ export const Spend = ({
               />
             )}
           </ChartHead>
-          <DashboardStats facts={periods.map(period => ({id:String(period.days),label:period.label,value:period.unknown ? '—' : format(period.cost),
-            caption:period.unknown ? 'No record yet' : period.daysRead < period.days ? `${period.daysRead} of ${period.days} ${period.days === 1 ? 'day' : 'days'} with history` : undefined,
-            qualifier:!period.unknown && period.daysRead === period.days ? 'so far' : undefined,
-          }))} />
+          <DashboardStats facts={periods.map(period => {
+            const metricUnavailable = series.days.slice(-period.days).some(day => day.unknownReason === 'metric-unavailable')
+            return {
+              id: String(period.days), label: period.label, value: period.unknown ? '—' : format(period.cost),
+              caption: period.unknown
+                ? metricUnavailable ? 'Turns unavailable' : 'No record yet'
+                : period.daysRead < period.days
+                  ? `${period.daysRead} of ${period.days} ${period.days === 1 ? 'day' : 'days'} with ${metricUnavailable ? 'turn counts' : 'history'}`
+                  : undefined,
+              qualifier: !period.unknown && period.daysRead === period.days ? 'so far' : undefined,
+            }
+          })} />
         </ChartCard>
 
         {series.peak > 0 || previous.total > 0 ? (
@@ -898,7 +907,9 @@ export const Spend = ({
                   ? 'Reading transcripts'
                   : metric === 'cost'
                     ? noRecordedUsage ? 'No usage recorded in this window' : 'No priced usage in this window'
-                    : `${words.empty} in this window`
+                    : metric === 'turns' && series.days.some(day => day.unknownReason === 'metric-unavailable')
+                      ? 'Turn counts unavailable in this window'
+                      : `${words.empty} in this window`
               }
               description={scan?.running ? `${scan.filesDone} of ${scan.filesTotal} files` : undefined}
             />
