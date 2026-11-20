@@ -83,6 +83,7 @@ const door = async (chooseModel = false, canDelete = false) => {
     phone: { state: () => attached?.state() ?? phoneLinkOff, pairing: () => attached!.pairing(), allow: (...a: never[]) => (attached!.allow as any)(...a),
       deny: (id: string) => attached!.deny(id), revoke: (d: string) => attached!.revoke(d) },
     phoneWork: work,
+    sessionIndex: { opened: (runtime: unknown, id: unknown) => { state.actions.push(['opened', runtime, id]) } },
     // The phone's stop is the person's: the host records it for the work ledger right before the stop is sent.
     personStopping: (chat: string) => { stopping.push(chat); return () => {} },
   } as unknown as HostContext
@@ -165,6 +166,24 @@ test('encrypted phone page and action requests dispatch only the visible choices
   } finally { await d.done() }
 })
 
+test('only a Read-granted phone can open its own session', async () => {
+  const d = await door()
+  try {
+    const reader = await d.pair(['read'])
+    assert.equal((await reader.request('workspace/session/opened', { id: KEY })).ok, true)
+    assert.deepEqual(d.state.actions, [['opened', RT, SID]])
+    for (const id of ['', 'agent-a:unknown', 'other:s1']) {
+      assert.equal((await reader.request('workspace/session/opened', { id })).ok, false)
+    }
+    assert.equal(d.state.actions.length, 1)
+    reader.close()
+    const runner = await d.pair(['run'])
+    assert.equal((await runner.request('workspace/session/opened', { id: KEY })).error.code, 'tierNotGranted')
+    assert.equal(d.state.actions.length, 1)
+    runner.close()
+  } finally { await d.done() }
+})
+
 test('session paging needs Read and session start, send and stop each need Run', async () => {
   const d = await door()
   try {
@@ -207,7 +226,7 @@ test('the phone surface carries workspace controls at the tiers a phone needs, a
   assert.equal(PHONE_POLICY.methods['workspace/approval/decide'], 'answer')
   assert.equal(PHONE_POLICY.methods['workspace/team/wrap'], 'run')
   assert.equal(PHONE_POLICY.topics.workspace, 'read')
-  assert.deepEqual(Object.keys(PHONE_POLICY.methods).filter(name => name.startsWith('workspace/')).sort(), ['workspace/approval/decide', 'workspace/read', 'workspace/session/archive', 'workspace/session/delete', 'workspace/session/pin', 'workspace/session/rename', 'workspace/session/send', 'workspace/session/start', 'workspace/sessions/list', 'workspace/stop', 'workspace/team/wrap', 'workspace/thread/read'])
+  assert.deepEqual(Object.keys(PHONE_POLICY.methods).filter(name => name.startsWith('workspace/')).sort(), ['workspace/approval/decide', 'workspace/read', 'workspace/session/archive', 'workspace/session/delete', 'workspace/session/opened', 'workspace/session/pin', 'workspace/session/rename', 'workspace/session/send', 'workspace/session/start', 'workspace/sessions/list', 'workspace/stop', 'workspace/team/wrap', 'workspace/thread/read'])
 })
 
 test('a phone that may read gets the snapshot and a conversation, and both scrub machine paths, addresses and output tokens', async () => {
