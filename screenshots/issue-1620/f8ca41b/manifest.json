@@ -1,0 +1,27 @@
+{
+  "scope": "Actual Electron and Host, synthetic ACP permission whose unchanged input is omitted from the permission update",
+  "before": "The approval code omitted a harmless executable line embedded inside an OSC control span and omitted the requested working folder",
+  "after": "The complete command is shown with Unicode escapes and the actual requested working folder; original raw approval fields are unchanged",
+  "fixture": "Synthetic Demo desk preference, same display-only printf command, requested sibling cwd; fixture commands never executed",
+  "verification": "Both trusted Deny responses reached the synthetic peer; turns completed, apps quit normally and owned process groups disappeared; complete privacy snapshots stable and parent reviewed raw pixels",
+  "limits": "One baseline capture was refused for a changing tool timer; diagnosed timing setup correction retained original audit/deadlines. No live provider, real account or shipped-sandbox claim.",
+  "head": "f8ca41b478a88c1073b153b1365bb1dccb53d3ba",
+  "frames": [
+    {
+      "path": "screenshots/issue-1620/f8ca41b/command-baseline.png",
+      "sha256": "3906fcb09c9460e02ab397151ae200b66f6d1f0720db31601d91de14cda33ffe",
+      "sourceHead": "dd42f6b9cd3eee49e9c36cad461c974a04c27dc0",
+      "sourceTree": "78029cb27eca2d153618be13d0c61f5e26e05777",
+      "surface": "actual production Electron and Host with synthetic ACP",
+      "parentVisuallyInspected": true
+    },
+    {
+      "path": "screenshots/issue-1620/f8ca41b/command-candidate.png",
+      "sha256": "0a88368dd716d78eafffebd7762685ebe791cb6deb99a5ca1e5fc41a2e263348",
+      "sourceHead": "f8ca41b478a88c1073b153b1365bb1dccb53d3ba",
+      "sourceTree": "359d1a54cb3b54e13c920f8de5779584f161f5d3",
+      "surface": "actual production Electron and Host with synthetic ACP",
+      "parentVisuallyInspected": true
+    }
+  ]
+}
