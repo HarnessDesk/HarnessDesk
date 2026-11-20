@@ -1016,7 +1016,7 @@ export class Host {
   readonly #pendingTranscriptOverlays = new Map<string, PendingSessionOverlay>()
   readonly #conflictingTranscripts = new Map<string, { runtime: RuntimeId; id: SessionId; owner: object; capture: PendingTranscript }>()
   readonly #pendingTranscriptBases = new Map<string, Session>()
-  readonly #recoveredTranscriptBases = new Map<string, { base: import('./transcripts.js').DurableTranscriptBase; saving: Promise<void> | null }>()
+  readonly #recoveredTranscriptBases = new Map<string, { base: import('./transcripts.js').DurableTranscriptBase; saving: Promise<void> | null; runtime: RuntimeId; id: SessionId }>()
   readonly #protectedReadBases = new WeakMap<Session, import('./transcripts.js').DurableTranscriptBase>()
   /** A client may have received a pending projection without changing writable facts. */
   readonly #servedHistoryPending = new WeakSet<SessionRecord>()
@@ -11697,7 +11697,7 @@ export class Host {
     record.transcriptIncomplete = false
     this.#pendingTranscriptOverlays.delete(generation)
     this.#pendingTranscriptBases.delete(generation)
-    this.#recoveredTranscriptBases.set(generation, { base: { kind: 'body', identity: descriptor.durableIdentity }, saving: null })
+    this.#recoveredTranscriptBases.set(generation, { base: { kind: 'body', identity: descriptor.durableIdentity }, saving: null, runtime: record.runtime, id: record.session.id })
     this.#recoveryDescriptors.remove(generation)
     this.#descriptorOwners.delete(generation)
     this.#push({ method: 'event', params: { runtime: record.runtime, event: { type: 'session/started', session: recovered },
@@ -11707,7 +11707,7 @@ export class Host {
 
   #holdProtectedRead(session: Session, base: import('./transcripts.js').DurableTranscriptBase): Session {
     const record = this.registry.upsert(session, this.registry.get(session.runtime, session.id)?.live ?? null)
-    if (!this.#recoveredTranscriptBases.has(record.bodyGeneration)) this.#recoveredTranscriptBases.set(record.bodyGeneration, { base, saving: null })
+    if (!this.#recoveredTranscriptBases.has(record.bodyGeneration)) this.#recoveredTranscriptBases.set(record.bodyGeneration, { base, saving: null, runtime: record.runtime, id: record.session.id })
     return this.#historyPendingView(record, session)
   }
 
@@ -11745,6 +11745,13 @@ export class Host {
    * is: it is not settled, and the quit reports it rather than guess.
    */
   async #saveQuietRecoveredTranscripts(): Promise<unknown> {
+    // A conversation deleted since its read is out of the registry, and its forgotten transcript holds no protected
+    // change: nothing of it is left to save, so it is not reported as unsaved either.
+    for (const [generation, entry] of this.#recoveredTranscriptBases) {
+      if (!entry.saving && !this.registry.get(entry.runtime, entry.id) && !this.#transcripts.hasProtectedChanges(entry.runtime, entry.id)) {
+        this.#recoveredTranscriptBases.delete(generation)
+      }
+    }
     for (const record of this.registry.all()) {
       const key = recordKey(record)
       if (!this.#recoveredTranscriptBases.has(record.bodyGeneration) || record.running.size > 0 ||
@@ -11780,7 +11787,8 @@ export class Host {
     }
     for (const record of this.registry.all()) byGeneration.set(record.bodyGeneration, `${record.runtime}/${record.session.id}`)
     const conversations = new Set<string>()
-    for (const generation of [...this.#recoveredTranscriptBases.keys(), ...this.#pendingTranscriptOverlays.keys()]) {
+    for (const entry of this.#recoveredTranscriptBases.values()) conversations.add(`${entry.runtime}/${entry.id}`)
+    for (const generation of this.#pendingTranscriptOverlays.keys()) {
       conversations.add(byGeneration.get(generation) ?? `unknown conversation ${generation}`)
     }
     for (const conflict of this.#conflictingTranscripts.values()) conversations.add(`${conflict.runtime}/${conflict.id}`)

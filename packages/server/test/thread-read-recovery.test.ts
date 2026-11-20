@@ -630,6 +630,17 @@ test('a quit saves a recovered body that was read once and never touched again',
   assert.deepEqual(db.read(created.runtime, created.id)!.turns, replay.turns, 'the quit saved the recovered body')
 })
 
+test('a quit after the recovered conversation was deleted has nothing left to save for it', async t => {
+  const root = tempDir('hd-dispose-recovered-deleted-')
+  const { host, db, created } = await protectedReadNeverTouchedAgain(root)
+  t.after(() => db.close())
+  // Storage stays refused; the person deletes the conversation before quitting.
+  await host.call('session/delete', { runtime: created.runtime, sessionId: created.id })
+  assert.equal(host.registry.get(created.runtime, created.id), undefined)
+  await host.dispose()
+  assert.equal(db.read(created.runtime, created.id), null, 'the deleted conversation is not written back')
+})
+
 test('a quit that cannot save a recovered body names the conversation and the counts', async t => {
   const root = tempDir('hd-dispose-recovered-refused-')
   const { host, db, created, saved } = await protectedReadNeverTouchedAgain(root)
