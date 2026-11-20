@@ -210,7 +210,7 @@ export const TrajectoryCard = ({ hideEmpty = false }: { hideEmpty?: boolean }) =
   const session = useActiveSession()
   if (hideEmpty && session?.itemsLoaded && !session.turns.some(turn => turn.items.length > 0 || turn.durationMs != null || turn.status !== 'completed')) return null
   const turns = session?.turns ?? [], elapsed = trajectoryElapsed(turns)
-  return <ToolSection label="Trajectory" value={elapsed ? <span title={trajectorySummary(turns)}>{elapsed}</span> : 'No timing yet'} fold defaultOpen={false}>
+  return <ToolSection label="Trajectory" value={elapsed || 'No timing yet'} valueTitle={elapsed ? trajectorySummary(turns) : undefined} fold defaultOpen={false}>
     <ToolBodySections><ToolFooterSuppressed><TrajectoryView /></ToolFooterSuppressed></ToolBodySections>
   </ToolSection>
 }

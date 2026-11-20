@@ -35,7 +35,10 @@ it('keeps conversation facts, plan and its background work beside a folded time 
   const trajectory = container.querySelector('[aria-label="Trajectory"]')!
   expect(trajectory.querySelector('[data-slot="tool-section-fold"]')?.getAttribute('aria-expanded')).toBe('false')
   expect(trajectory.querySelector('[data-slot="tool-section-value"]')?.textContent).toBe('6m')
-  expect(trajectory.querySelector('[data-slot="tool-section-value"] [title]')?.getAttribute('title')).toBe('6m · 1m in commands')
+  expect(trajectory.querySelector('[data-slot="tool-section-value"]')?.getAttribute('title')).toBe('6m · 1m in commands')
+  // The fold is described by the phrase in full, not by its short form.
+  const described = trajectory.querySelector('[data-slot="tool-section-fold"]')?.getAttribute('aria-describedby')
+  expect(described && trajectory.ownerDocument.getElementById(described)?.textContent).toBe('6m · 1m in commands')
   for (const section of container.querySelectorAll('[data-slot="tool-section"]')) {
     expect(section.querySelector('[data-slot="tool-section-fold"]'), section.getAttribute('aria-label')!).not.toBeNull()
   }
