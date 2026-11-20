@@ -1,0 +1,32 @@
+{
+  "scope": "Actual Electron and production Host, synthetic ACP replay of OpenCode2.0.32 workdir wire shape; no live provider or command execution",
+  "currentTree": "e2d4eb51af9d7c6a66457262a2127aa7a1615e10",
+  "nativeAfterHead": "932fff76269193726640cb0c872152ca23bcc1f1",
+  "nativeAfterQualification": "Local test binding only; literal and guard assertions identical; every production source path byte-identical. Native932 evidence is qualified inherited evidence, not a fresh80dc launch.",
+  "canonicalAudit": "Complete six-key before/after bodies equal; independent audit replay zero reasons. Parent inspected all three originals.",
+  "normal": "Current80dc normal pending;932 normal failed credential fixture naming check and is not passing evidence.",
+  "head": "80dc6d65ff9a139e156d06e82abde6eacba19ae4",
+  "frames": [
+    {
+      "sha256": "99e8c5c01f5c1a78885cceb1d059167aaa9f7cd73e7e15bebb75945340454158",
+      "path": "screenshots/issue-1620/80dc6d6/before-workdir.png",
+      "nativeHead": "b760a1a0b001895f000fdf6d9e94f44e82f54b66",
+      "caption": "Before: OpenCode workdir incorrectly displays session folder",
+      "parentVisuallyInspected": true
+    },
+    {
+      "sha256": "8c5fe5141cec78f048557c06cfb115a03799b81f29fa89069cdb5bfd138d9045",
+      "path": "screenshots/issue-1620/80dc6d6/after-workdir-first.png",
+      "nativeHead": "932fff76269193726640cb0c872152ca23bcc1f1",
+      "caption": "After: permission-first request displays actual requested folder",
+      "parentVisuallyInspected": true
+    },
+    {
+      "sha256": "c68fac55e5436be8c6d6d834b4be9889799b3506d72cea76ccf8b7215e160c18",
+      "path": "screenshots/issue-1620/80dc6d6/after-workdir-omitted.png",
+      "nativeHead": "932fff76269193726640cb0c872152ca23bcc1f1",
+      "caption": "After: same-tool omitted input preserves command and requested folder",
+      "parentVisuallyInspected": true
+    }
+  ]
+}
