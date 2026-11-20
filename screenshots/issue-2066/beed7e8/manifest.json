@@ -1,0 +1,15 @@
+{
+  "scope": "Fresh actual Host/Electron basic default-Off proof; full canonical privacy snapshots, exact source/compiled hashes, production quit and owned cleanup verified. No native500capacity fault, live provider or billing proof.",
+  "fixtureIdentity": "Demo desk",
+  "head": "beed7e83ed8631f4fd859c0e4b919e32335b3692",
+  "frames": [
+    {
+      "path": "screenshots/issue-2066/beed7e8/after-default-off.png",
+      "sha256": "c84b088b6afad1f06c64c84c2fc2c6325f00c3877a7a70afd5a77f2cdaf13c8d",
+      "sourceHead": "beed7e83ed8631f4fd859c0e4b919e32335b3692",
+      "sourceTree": "3b403debcb8c2dc79ab06c6cf45aea0c8f1d786a",
+      "surface": "actual production Electron and Host; synthetic unconfigured observer default Off",
+      "parentVisuallyInspected": true
+    }
+  ]
+}
