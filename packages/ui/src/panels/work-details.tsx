@@ -45,11 +45,6 @@ export const ConversationDetails = ({ session, placeAction }: { session: Session
         {branch && <SummaryItem label="Branch" icon={<BranchIcon />} kind="path">{branch}</SummaryItem>}
         <SummaryItem label="Context" icon={<UsageIcon />}>{context?.fill ? `${context.fill.percent}% full` : context?.total ? `${formatTokens(context.total.totalTokens)} tokens` : context ? 'Window not reported' : 'No usage yet'}</SummaryItem>
       </SummaryList>
-      {session && (!shown || !branch) && <ToolProse variant="note">
-        {!shown && <>Permission level not reported for this {session ? 'conversation' : 'draft'}.</>}
-        {!shown && !branch && ' '}
-        {!branch && <>Branch not reported for this {session ? 'conversation' : 'draft'}.</>}
-      </ToolProse>}
       {(shown || context || armed) && <ToolFold label="Details">
         {armed && <ToolProse>Source folder; the worktree is made when the message goes.</ToolProse>}
         {shown && <ToolProse>{ceilingTitle(shown.ceiling, shown.note)}</ToolProse>}

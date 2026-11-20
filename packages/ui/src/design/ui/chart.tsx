@@ -616,13 +616,13 @@ export interface DayBucket {
   /** One value per entry of `series`, in the same order. */
   readonly parts: readonly number[]
   /**
-   * No record for this day at all — before the ledger's own coverage, or a
-   * ledger with no history yet. Drawn hatched in both modes, never as an
-   * empty, priced day: the old chart drew a day nobody had scanned exactly
-   * like a day that was scanned and spent nothing, and a fortnight before an
-   * agent was ever added read as a fortnight of quiet work.
+   * No available reading for this day, whether its record is missing or its
+   * selected quantity is unavailable. Drawn hatched in both modes, never as
+   * a known zero. This flag alone controls gaps and plotting geometry.
    */
   readonly unknown?: boolean
+  /** Unknown-day wording for tooltip and accessible text; defaults to "No record yet". Ignored for known buckets. */
+  readonly unknownLabel?: string
 }
 
 /**
@@ -859,11 +859,9 @@ const DayColumns = ({
                 className="group/col flex h-full min-w-0 flex-1 cursor-default flex-col justify-end"
               >
                 {bucket.unknown ? (
-                  /* "No record yet", never an empty $0 gap — the same hatch
-                     the calendar heatmap draws for a day before its own
-                     coverage, so the two charts agree on what "unknown"
-                     looks like. Full height: the point is that there is
-                     nothing to scale, not a reading of zero. */
+                  /* A missing or unavailable reading, never an empty $0 gap.
+                     Full height: there is nothing to scale, not a reading of
+                     zero. The label explains the cause without changing it. */
                   <span
                     className={cn(
                       'h-full w-full rounded-t-(--hd-radius-2xs) opacity-70',
@@ -1034,7 +1032,7 @@ const DayColumns = ({
             <ChartTip at={at}>
               <div className="mb-1 font-medium">{shown.label}</div>
               {shown.unknown ? (
-                <div className="text-(--hd-muted-foreground)">No record yet</div>
+                <div className="text-(--hd-muted-foreground)">{shown.unknownLabel ?? 'No record yet'}</div>
               ) : shown.total <= 0 && !signedLine ? (
                 <div className="text-(--hd-muted-foreground)">{emptyLabel}</div>
               ) : (
@@ -1078,13 +1076,13 @@ const DayColumns = ({
 
       <span aria-live="polite" className="sr-only">
         {shown
-          ? `${shown.label}: ${shown.unknown ? 'No record yet' : signedLine || shown.total > 0 ? format(shown.total) : emptyLabel}`
+          ? `${shown.label}: ${shown.unknown ? shown.unknownLabel ?? 'No record yet' : signedLine || shown.total > 0 ? format(shown.total) : emptyLabel}`
           : ''}
       </span>
       <ul className="sr-only">
         {buckets.map((bucket, index) => (
           <li key={index}>
-            {`${bucket.label}: ${bucket.unknown ? 'No record yet' : signedLine || bucket.total > 0 ? format(bucket.total) : emptyLabel}`}
+            {`${bucket.label}: ${bucket.unknown ? bucket.unknownLabel ?? 'No record yet' : signedLine || bucket.total > 0 ? format(bucket.total) : emptyLabel}`}
           </li>
         ))}
       </ul>

@@ -157,7 +157,7 @@ test('a session row carries only the redacted fields, and the live figure beats 
     const list = f.workspace.sessionsList({})
     assert.deepEqual(list.rows.map(row => row.id), ['fake-agent:running', 'fake-agent:waiting', 'fake-agent:done-new', 'fake-agent:foreign-money', 'fake-agent:done-old'])
     const [running, waiting, doneNew, foreign] = list.rows
-    assert.deepEqual(Object.keys(running!).sort(), ['archived', 'canDelete', 'cost', 'id', 'lastActivityAt', 'pinned', 'project', 'seat', 'startedAt', 'startedBy', 'state', 'title'])
+    assert.deepEqual(Object.keys(running!).sort(), ['archived', 'canDelete', 'cost', 'id', 'lastActivityAt', 'pinned', 'project', 'seat', 'startedAt', 'startedBy', 'state', 'title', 'unread'])
     assert.deepEqual({ project: running!.project, state: running!.state, startedBy: running!.startedBy, seat: running!.seat, cost: running!.cost, pinned: running!.pinned },
       { project: 'acme-api', state: 'running', startedBy: 'you', seat: 'Fake Agent', cost: 2.5, pinned: false })
     assert.equal(running!.lastActivityAt, NOW - HOUR)

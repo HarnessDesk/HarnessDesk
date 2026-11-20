@@ -6,7 +6,7 @@ import { turnId, wrapContext, type AgentItem, type Session, type Turn } from '@h
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { Trajectory, trajectorySummary } from './Trajectory'
+import { Trajectory, trajectoryElapsed, trajectorySummary } from './Trajectory'
 import styles from './Trajectory.module.css'
 import sheet from './Trajectory.module.css?raw'
 
@@ -81,6 +81,16 @@ it('keeps the folded card summary to elapsed time and the largest measured kind'
     item('tool-time', { type: 'toolCall', tool: 'read', durationMs: 30_000 }),
   ] } as unknown as Turn
   expect(trajectorySummary([turn])).toBe('6m · 1m in commands')
+  expect(trajectoryElapsed([turn])).toBe('6m')
+})
+
+it('folds to the elapsed time alone, which fits where the phrase was cut', () => {
+  const untimed = { ...TURN, status: 'completed', durationMs: 2 * 60_000, items: [
+    item('untimed-tool', { type: 'toolCall', tool: 'read' }),
+  ] } as unknown as Turn
+  expect(trajectoryElapsed([untimed])).toBe('2m')
+  expect(trajectorySummary([untimed])).toBe('2m · no measured steps')
+  expect(trajectoryElapsed([])).toBe('')
 })
 
 it('leaves the footer empty when the current filter has no steps', async () => {

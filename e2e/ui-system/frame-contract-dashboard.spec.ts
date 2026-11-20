@@ -35,10 +35,10 @@ test('FIX3 Dashboard Plans link text starts on its section text edge', async ({ 
   expect(Math.abs(geometry.textLeft - geometry.headingLeft), 'link text aligns with the section name').toBeLessThanOrEqual(1)
 })
 
-test('FIX3 partial spend qualifier sits beside its figure', async ({ page }) => {
+test('FIX3 complete period qualifier sits beside its figure', async ({ page }) => {
   await openFrame(page, 'frame-wall=dashboard&frame-view=spend', 'light', 1440)
   const qualifiers = page.locator('[data-page-destination="dashboard"]:visible').getByText('so far', { exact: true })
-  await expect(qualifiers).toHaveCount(2)
+  await expect(qualifiers).toHaveCount(1)
   for (const node of await qualifiers.all()) {
     const positions = await node.evaluate(node => {
       const stat = node.closest('[data-slot="stat"]')!

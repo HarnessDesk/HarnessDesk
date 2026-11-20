@@ -28,7 +28,7 @@ it('warns about an unconfirmed setting and waits for the authoritative option ev
   expect(store.getSnapshot().sessions.get(key)?.options?.[0]?.currentValue).toBe('read')
   reject(new Error(message))
   await pending
-  expect(store.getSnapshot().notices).toContainEqual(expect.objectContaining({ level: 'warning', message }))
+  expect(store.getSnapshot().notices).toContainEqual(expect.objectContaining({ level: 'warning', message: `Couldn't change the agent's option: ${message}` }))
   expect(store.getSnapshot().sessions.get(key)?.options?.[0]?.currentValue).toBe('read')
   handlers.onEvent(runtime, { type: 'session/options', sessionId: id, options: [option('full')] }, { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 })
   expect(store.getSnapshot().sessions.get(key)?.options?.[0]?.currentValue).toBe('full')

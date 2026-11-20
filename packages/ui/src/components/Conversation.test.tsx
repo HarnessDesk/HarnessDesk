@@ -529,7 +529,7 @@ it('Details reports the recorded held or asked ceiling, and leaves unknown facts
   expect(container.textContent).toContain("The desk's own tools still refuse anything above it.")
   render(rig(session({ settings: { cwd: '/repo', model: 'gpt-5.6' } })).store)
   expect(ceiling()).toBeUndefined()
-  expect(container.textContent).toContain('Permission level not reported for this conversation.')
+  expect(container.textContent).not.toContain('not reported')
 })
 
 it('the conversation’s menu offers Save as an Agent…', () => {

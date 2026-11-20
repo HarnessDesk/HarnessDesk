@@ -36,7 +36,7 @@ it('keeps the current radio and shows a persistent warning until the real event 
     const radio = (text: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(row => row.textContent?.trim() === text)!
     expect(radio('Read').getAttribute('aria-checked')).toBe('true')
     await act(async () => store.setOption('permissions', 'full', key))
-    expect(showToast).toHaveBeenCalledWith(expect.objectContaining({ tone: 'warning', title: message }), { persist: true })
+    expect(showToast).toHaveBeenCalledWith(expect.objectContaining({ tone: 'warning', title: `Couldn't change Agent's option: ${message}` }), { persist: true })
     expect(trigger().textContent).toContain('Read')
     await act(async () => {
       handlers.onEvent(runtime, { type: 'session/options', sessionId: id, options: [option('full')] }, { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 })

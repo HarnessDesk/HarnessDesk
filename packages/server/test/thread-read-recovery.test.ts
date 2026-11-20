@@ -592,3 +592,76 @@ for (const method of ['session/read', 'workspace/thread/read'] as const) for (co
     assert.equal(reads, 2)
   })
 }
+
+/** A read that meets refused storage leaves a recovered body that nothing reopens before the quit (#2280). */
+async function protectedReadNeverTouchedAgain(root: string) {
+  const options = { logger: silent, state: new StateStore(join(root, 'state.json')), builtinAgents: root, catalogRefreshMs: 0 }
+  const first = new Host(options), writer = new FakeRuntime()
+  first.register(writer); await first.start()
+  const created = await first.call('session/create', { runtime: writer.info.id, options: { cwd: root } }) as Session
+  const turn = { id: turnId('one'), status: 'inProgress' as const, items: [] }
+  writer.emit({ type: 'turn/started', sessionId: created.id, turn })
+  writer.emit({ type: 'item/completed', sessionId: created.id, turnId: turn.id,
+    item: { id: itemId('saved'), type: 'assistantMessage', text: 'saved answer' } })
+  writer.emit({ type: 'turn/completed', sessionId: created.id, turn: { ...turn, status: 'completed' } })
+  const saved = structuredClone(first.registry.get(created.runtime, created.id)!.session)
+  await first.dispose()
+  const host = new Host(options), runtime = new FakeRuntime()
+  host.register(runtime); await host.start()
+  const replay: Session = { ...saved, turns: [{ ...saved.turns[0]!, items: [...saved.turns[0]!.items,
+    { id: itemId('recent'), type: 'assistantMessage', text: 'recent unsaved answer' }] }] }
+  runtime.readSession = async () => replay
+  host.registry.upsert({ ...saved, turns: [], itemsLoaded: false }, null)
+  const db = new TranscriptDatabase(join(root, 'sessions.sqlite'))
+  db.db.exec("CREATE TRIGGER refuse_body BEFORE INSERT ON bodies BEGIN SELECT RAISE(FAIL, 'synthetic storage refusal'); END")
+  const read = await host.call('session/read', { runtime: created.runtime, sessionId: created.id })
+  assert.equal(read.historyPending, true, 'the read meets protected changes')
+  assert.deepEqual(db.read(created.runtime, created.id)!.turns, saved.turns)
+  return { host, db, created, saved, replay }
+}
+
+test('a quit saves a recovered body that was read once and never touched again', async t => {
+  const root = tempDir('hd-dispose-recovered-')
+  const { host, db, created, replay } = await protectedReadNeverTouchedAgain(root)
+  t.after(() => db.close())
+  // Storage recovers; no reopen, release or event follows before the quit.
+  db.db.exec('DROP TRIGGER refuse_body')
+  await host.dispose()
+  assert.deepEqual(db.read(created.runtime, created.id)!.turns, replay.turns, 'the quit saved the recovered body')
+})
+
+test('a quit after the recovered conversation was deleted has nothing left to save for it', async t => {
+  const root = tempDir('hd-dispose-recovered-deleted-')
+  const { host, db, created } = await protectedReadNeverTouchedAgain(root)
+  t.after(() => db.close())
+  // Storage stays refused; the person deletes the conversation before quitting.
+  await host.call('session/delete', { runtime: created.runtime, sessionId: created.id })
+  assert.equal(host.registry.get(created.runtime, created.id), undefined)
+  await host.dispose()
+  assert.equal(db.read(created.runtime, created.id), null, 'the deleted conversation is not written back')
+})
+
+test('a quit still reports a recovered conversation whose Remove was refused', async t => {
+  const root = tempDir('hd-dispose-recovered-removed-')
+  const { host, db, created } = await protectedReadNeverTouchedAgain(root)
+  t.after(() => db.close())
+  // Remove is not Delete: it keeps the body for Undo, so with the save still refused it is refused itself,
+  // and the conversation's unsaved body stays the desk's to report at quit.
+  await assert.rejects(host.call('session/remove', { runtime: created.runtime, sessionId: created.id, removed: true }), /protected changes that could not be saved/)
+  await assert.rejects(host.dispose(), /remains unsaved .*\(recovered 1, /)
+})
+
+test('a quit that cannot save a recovered body names the conversation and the counts', async t => {
+  const root = tempDir('hd-dispose-recovered-refused-')
+  const { host, db, created, saved } = await protectedReadNeverTouchedAgain(root)
+  t.after(() => db.close())
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  await assert.rejects(host.dispose(), (error: Error) => {
+    assert.match(error.message, /^Conversation activity remains unsaved because its saved history is unavailable\. /)
+    assert.match(error.message, new RegExp(`\\(recovered 1, overlays 0, conflicts 0: ${escape(`${created.runtime}/${created.id}`)}\\)$`))
+    // A refused write resolves and leaves the body pending, so the cause is the flush's refusal of the protected write.
+    assert.match((error.cause as Error | undefined)?.message ?? '', /protected changes that could not be saved/)
+    return true
+  })
+  assert.deepEqual(db.read(created.runtime, created.id)!.turns, saved.turns, 'the refused save left the old body')
+})

@@ -164,6 +164,7 @@ export class PhoneWorkspace {
       // A start the agent never recorded, or one later than the last activity, is left out rather than guessed.
       ...(this.#ports.knowsStart?.(summary.runtime) === true && Number.isFinite(summary.createdAt) && summary.createdAt > 0 &&
         summary.createdAt <= summary.updatedAt ? { startedAt: summary.createdAt } : {}),
+      unread: (summary.lastCompletedAt ?? 0) > (summary.lastOpenedAt ?? 0),
       pinned: summary.pinned === true,
       archived: summary.archived === true,
     }
@@ -496,7 +497,7 @@ export class PhoneWorkspace {
     const { stage, reason: stageReason } = this.#sessionStage(live, row.state === 'archived')
     return {
       stage, stageReason, id: row.id, kind: 'session', title: row.title, ...(row.project ? { project: row.project } : {}),
-      canDelete: row.canDelete, pinned: row.pinned, archived: row.archived === true,
+      canDelete: row.canDelete, pinned: row.pinned, archived: row.archived === true, unread: row.unread,
       phase: row.state === 'needs-you' ? 'needsYou' : row.state === 'running' ? 'running' : 'done',
       line: row.state === 'archived' ? 'Archived' : row.state === 'needs-you' ? 'Waiting on you' : row.state === 'running' ? 'Working' : stageReason === 'stopped' ? 'Stopped' : 'Done',
       agent: { name: row.seat, ...(row.brand ? { brand: row.brand } : {}) }, ...(lead ? { by: lead } : {}),

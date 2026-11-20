@@ -946,8 +946,9 @@ export class MentionTriage {
   /**
    * One comment, offered to one mention arm. Resolves once it is decided
    * and recorded, joined, counted, or found to be nothing for this trigger;
-   * throws — so the source keeps it and offers it again — when anything it
-   * needs could not be read or admitted now.
+   * A failure before a durable decision keeps the source pending for replay.
+   * Once a provisional decision is durable, replay preserves it without another
+   * assessment; only an explicit Re-evaluate starts a new assessment.
    */
   judge(arm: ArmedTrigger, fact: TriggerFact, admit: Admit, route?: MentionSubscriber): Promise<void> {
     return this.#serial.run(async () => {

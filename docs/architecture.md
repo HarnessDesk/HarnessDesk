@@ -1157,6 +1157,8 @@ An 80% or 95% crossing is kept in the inbox under `usageCrossingKey` (agent, acc
 cycle or back under the line, and an older crossing notice with no figures in its key once every reading of the agent its title names is newer.
 The window removes them from the saved inbox when readings arrive, and the host leaves them out of `lead/inbox/read`
 (`#currentNotices`), so the bell and the phone drop them together.
+Session rows carry the desk index's `unread` comparison of last completed and last opened times. The phone explicitly sends `workspace/session/opened` when a person opens a conversation; previews continue to use `workspace/thread/read` alone. The Read-tier opening validates the same own-session boundary as a thread read and calls the desk's `session/opened` path. Older phones can ignore the additive field and older desks leave it absent.
+
 `workspace/sessions/list` pages the same session index for active
 and archived conversations, so the recent snapshot is not a limit on what a
 phone can show. The native client follows those pages and refreshes them on

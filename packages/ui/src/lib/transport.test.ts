@@ -4,6 +4,16 @@ import { runtimeId } from '@harnessdesk/protocol'
 import { rejectionFor, sentenceOf } from './transport'
 
 describe('sentenceOf', () => {
+  it('reads a JSON detail cut short in transit by its named fields, never its fragment', () => {
+    const cut = `{"errorName":"LocationNotFoundError","context":"${'x'.repeat(380)}`
+    expect(sentenceOf({ code: 'internal', message: 'Internal service failure', details: cut })).toBe('Internal service failure — LocationNotFoundError')
+    expect(sentenceOf({ code: 'internal', message: 'Failed', details: '{"context":"' + 'y'.repeat(390) })).toBe('Failed')
+    expect(sentenceOf({ code: 'internal', message: 'Failed', details: '{not json at all}' })).toBe('Failed — {not json at all}')
+    const nested = `{"errorName":"LocationNotFoundError","context":{"message":"Project loaded","code":"project-42"},"pad":"${'z'.repeat(380)}`
+    expect(sentenceOf({ code: 'internal', message: 'Internal service failure', details: nested })).toBe('Internal service failure — LocationNotFoundError')
+    expect(sentenceOf({ code: 'internal', message: 'Failed', details: `{"count":3,"message":"No such folder","code":"ENOENT","pad":"${'z'.repeat(390)}` })).toBe('Failed — No such folder (ENOENT)')
+  })
+
   it('adds the reason the agent gave, because the message alone says nothing', () => {
     expect(
       sentenceOf({
@@ -41,6 +51,23 @@ describe('sentenceOf', () => {
         details: { object: true } as unknown as string,
       }),
     ).toBe('bad')
+  })
+
+  it('reads an agent error object instead of printing it as JSON (#2281)', () => {
+    const base = { code: 'internal', message: 'Internal service failure' }
+    expect(sentenceOf({ ...base, details: '{"errorName":"LocationNotFoundError"}' }))
+      .toBe('Internal service failure — LocationNotFoundError')
+    expect(sentenceOf({ ...base, details: { message: 'No such folder', name: 'LocationNotFoundError', code: 'ENOENT' } as never }))
+      .toBe('Internal service failure — No such folder (LocationNotFoundError, ENOENT)')
+    expect(sentenceOf({ ...base, details: '{"message":"Internal service failure","errorName":"X"}' }))
+      .toBe('Internal service failure (X)')
+  })
+
+  it('drops a detail with nothing readable in it, and keeps plain text', () => {
+    const base = { code: 'internal', message: 'Internal error' }
+    expect(sentenceOf({ ...base, details: '{}' })).toBe('Internal error')
+    expect(sentenceOf({ ...base, details: { nested: { a: 1 } } as never })).toBe('Internal error')
+    expect(sentenceOf({ ...base, details: 'the query closed' })).toBe('Internal error — the query closed')
   })
 })
 

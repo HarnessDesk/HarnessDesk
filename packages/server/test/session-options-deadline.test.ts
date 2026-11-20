@@ -29,7 +29,7 @@ test('a dispatched setting still in flight returns an unconfirmed outcome at the
     await began
     const result = await Promise.race([response, new Promise<{ kind: 'pending'; message: string }>(resolve => setTimeout(() => resolve({ kind: 'pending', message: '' }), 7_000))])
     assert.equal(result.kind, 'error', 'the public caller is bounded while the native operation remains held')
-    assert.match(result.message, /may still|unconfirmed/i)
+    assert.equal(result.message, 'The agent did not confirm this setting change in time. It may still take effect. Check the current setting before trying again.')
     assert.equal(calls, 1)
     release()
     await completed
@@ -66,7 +66,7 @@ test('an acquisition that outlives the caller deadline never dispatches that set
     await began
     const result = await Promise.race([response, new Promise<{ kind: 'pending'; message: string }>(resolve => setTimeout(() => resolve({ kind: 'pending', message: '' }), 7_000))])
     assert.equal(result.kind, 'error', 'the total caller wait includes acquisition')
-    assert.match(result.message, /not sent/i)
+    assert.equal(result.message, 'The session did not open in time. This setting change was not sent.')
     assert.equal(calls, 0)
     release()
     await finished
@@ -179,7 +179,7 @@ test('timely outcomes retain errors, validate before dispatch, and clear caller 
     await assert.rejects(client.call('session/options/set', { ...params, optionId: 'model', value: 'fake-2' }), /native refusal/)
     checkedTimer(baseline)
     baseline = captured.length
-    await assert.rejects(client.call('session/options/set', { ...params, optionId: 'model', value: 'invalid' }))
+    await assert.rejects(client.call('session/options/set', { ...params, optionId: 'model', value: 'invalid' }), { code: 'methodFailed', message: '"invalid" is not one of the values Model offers.' })
     checkedTimer(baseline)
     assert.equal(calls, 2, 'validation did not invoke the setter')
   } finally {

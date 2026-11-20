@@ -119,15 +119,17 @@ test('dashboard without plan reports explains the absence once', async ({ page }
   await expect(page.getByText('No runtime here reports plan usage.', { exact: true })).toHaveCount(1)
 })
 
-test('spend keeps unscanned days as gaps in bars and line beside its coverage', async ({ page }) => {
+test('spend keeps rowless days unknown and explicit zero known in bars and line', async ({ page }) => {
   await openFrame(page, 'frame-wall=dashboard&frame-view=spend&frame-fix8-ledger=1')
   const range = page.getByRole('combobox', { name: 'How far back', exact: true })
   await range.selectOption('7')
   const plot = page.locator('[data-slot="day-columns"]').first()
-  await expect(plot.locator('li').filter({ hasText: 'No record yet' })).toHaveCount(0)
+  await expect(plot.locator('li').filter({ hasText: 'No record yet' })).toHaveCount(3)
+  await expect(plot.locator('li').filter({ hasText: 'Nothing spent' })).toHaveCount(2)
   await expect(page.locator('[data-slot="chart-head"]').first()).toContainText('4 of 7 days with usage')
   await page.getByRole('combobox', { name: 'Bars or line', exact: true }).selectOption('line')
-  await expect(plot.locator('li').filter({ hasText: 'No record yet' })).toHaveCount(0)
+  await expect(plot.locator('li').filter({ hasText: 'No record yet' })).toHaveCount(3)
+  await expect(plot.locator('li').filter({ hasText: 'Nothing spent' })).toHaveCount(2)
 })
 
 test('projects empty usage has one message and headings follow the grouping', async ({ page }) => {

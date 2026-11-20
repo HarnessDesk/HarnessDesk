@@ -66,7 +66,7 @@ test('a session without read ceiling gets no hook and no forced permission chang
   assert.equal(meta.claudeCode.options['hooks'], undefined)
   assert.equal(meta.claudeCode.options['permissionMode'], undefined)
   assert.equal(meta.claudeCode.options['allowDangerouslySkipPermissions'], undefined)
-  assert.equal(meta.claudeCode.options['settings'], undefined)
+  assert.deepEqual(meta.claudeCode.options['settings'], { env: { CLAUDE_CODE_DISABLE_SHELL_HEAD_START: '1' } })
   assert.equal(meta.claudeCode.options['settingSources'], undefined)
   assert.equal(meta.claudeCode.options['strictMcpConfig'], undefined)
   assert.deepEqual(optionsIn({ harnessdesk: { options: { effort: 'high' } } }), { effort: 'high' })
@@ -82,7 +82,9 @@ test('read ceiling options force a non-bypass mode and install a pre-tool hook',
   assert.equal(options['allowDangerouslySkipPermissions'], false)
   assert.deepEqual(options['settingSources'], ['user'], 'only user settings load; repository project/local settings do not')
   assert.equal(options['strictMcpConfig'], true, 'only bridge supplied MCP servers are started')
-  assert.deepEqual(options['settings'], { disableAllHooks: true }, 'settings-layer hooks and statusLine commands are disabled')
+  assert.deepEqual(options['settings'], {
+    disableAllHooks: true, env: { CLAUDE_CODE_DISABLE_SHELL_HEAD_START: '1' },
+  }, 'settings-layer hooks and statusLine commands are disabled')
   assert.deepEqual(options['disallowedTools'], ['Write', 'Edit', 'MultiEdit', 'NotebookEdit'])
   const hooks = options['hooks'] as { PreToolUse: { hooks: ((input: { tool_name: string; tool_input: unknown }) => unknown)[] }[] }
   const deniedHook = await hooks.PreToolUse[0]!.hooks[0]!({ tool_name: 'Edit', tool_input: {} }) as {
@@ -109,6 +111,7 @@ test('read flag settings preserve caller settings while disabling file hooks', (
   }
   assert.deepEqual(meta.claudeCode.options['settings'], {
     outputStyle: 'Explanatory', hooks: { SessionStart: [{ hooks: [] }] }, disableAllHooks: true,
+    env: { CLAUDE_CODE_DISABLE_SHELL_HEAD_START: '1' },
   })
   const hooks = meta.claudeCode.options['hooks'] as { PreToolUse: unknown[] }
   assert.equal(hooks.PreToolUse.length, 1, 'the bridge SDK callback remains installed')

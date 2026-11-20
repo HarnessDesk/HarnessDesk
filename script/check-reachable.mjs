@@ -72,6 +72,8 @@ const UNREACHED = {
     'likewise — the native phone pages active and archived sessions here; its Swift caller is outside the directories searched',
   'workspace/session/start':
     'likewise — the native phone starts an ordinary session here; the window uses session/create and turn/send',
+  'workspace/session/opened':
+    'likewise — the native phone marks a visible session opened here; its Swift caller is outside the directories searched, and the window uses session/opened',
   'workspace/session/send':
     'likewise — the native phone replies here; the window uses turn/send directly',
   'workspace/session/rename':

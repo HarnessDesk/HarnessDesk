@@ -238,6 +238,16 @@ const summarise = (turns: readonly Turn[]) => {
   }
 }
 
+/**
+ * The folded card's value: the elapsed time alone. The card's head gives its
+ * value half a narrow row, so a phrase there is cut mid-word; the phrase
+ * (`trajectorySummary`) rides on the value's hover and the open card says it in full.
+ */
+export const trajectoryElapsed = (turns: readonly Turn[]): string => {
+  const overview = summarise(turns)
+  return overview.wall === null ? '' : formatMs(overview.wall)
+}
+
 /** The rail reads the same completed-turn timing as the expanded ledger. */
 export const trajectorySummary = (turns: readonly Turn[]): string => {
   const overview = summarise(turns)

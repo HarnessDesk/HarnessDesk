@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Set a separate allowance for mention assessments.** Automatic mention assessments now have their own daily allowance in Settings › Lead, separate from goal spending. They start Off until you set a cap.
+
 - **Your account, desk and app icon each have their own setting.** Edit your account's display name with Save/Cancel, rename this desk under General even while signed out, and change the app and Dock artwork under Appearance. Missing account pictures use a person glyph. Room messages keep their recorded author across account switches; older anonymous messages remain You.
 
 - **Repair an incomplete installation.** If the installed app is missing its interface, it offers Downloads and keeps update checks available instead of asking for a source build.

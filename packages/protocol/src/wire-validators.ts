@@ -1111,6 +1111,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'workspace/session/delete': phoneShape({ id: phoneText(300) }),
   'workspace/stop': phoneShape({ id: phoneText(300) }),
   'workspace/thread/read': shape({ id: isString }),
+  'workspace/session/opened': phoneShape({ id: phoneText(300) }),
   'workspace/team/wrap': phoneShape({ team: phoneText(300) }),
   'workspace/approval/decide': shape({ id: isString, session: isString, allow: isBoolean, scope: optional(literalUnion('once', 'session')) }),
   'lead/usage/summary': phoneShape({}),

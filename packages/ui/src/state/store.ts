@@ -2624,6 +2624,12 @@ export class AppStore {
     }
   }
 
+  /** The agent a failure belongs to, as a possessive from its presentation name. */
+  #agentPossessive(runtime: RuntimeId | null): string {
+    const name = this.#snapshot.runtimes.find(entry => entry.id === runtime)?.presentation.name
+    return name ? `${name}'s` : "the agent's"
+  }
+
   /**
    * Refreshes what the next session would start with. Draft picks the user
    * already made ride along so the runtime re-declares the list with them
@@ -2634,7 +2640,7 @@ export class AppStore {
     const runtime = this.#snapshot.activeRuntime
     if (!runtime) return
     const options = await this.newSessionDefaultsFor(runtime).catch(error => {
-      if (this.#snapshot.activeRuntime === runtime && !explainedBySignIn(error, this.#snapshot.accountsByRuntime[runtime])) this.resultNotice('warning', describe(error))
+      if (this.#snapshot.activeRuntime === runtime && !explainedBySignIn(error, this.#snapshot.accountsByRuntime[runtime])) this.resultNotice('warning', `Couldn't load ${this.#agentPossessive(runtime)} options: ${describe(error)}`)
       return []
     })
     if (this.#snapshot.activeRuntime !== runtime) return
@@ -3796,7 +3802,7 @@ export class AppStore {
       await this.transport.request('runtime/options/set', { runtime, optionId: id, value })
       if (runtime === this.#snapshot.activeRuntime) await this.refreshRuntime()
     } catch (error) {
-      this.resultNotice('warning', describe(error))
+      this.resultNotice('warning', `Couldn't change ${this.#agentPossessive(runtime)} option: ${describe(error)}`)
     }
   }
 
@@ -8097,7 +8103,7 @@ export class AppStore {
     try {
       await this.transport.request('session/options/set', { ...address(key), optionId: id, value })
     } catch (error) {
-      this.resultNotice('warning', describe(error))
+      this.resultNotice('warning', `Couldn't change ${this.#agentPossessive(this.#snapshot.sessions.get(key)?.runtime ?? null)} option: ${describe(error)}`)
     }
   }
 
@@ -10466,7 +10472,7 @@ export class AppStore {
     const next = reduceSession(existing, event)
     if (next !== existing) this.#setSession(next)
     if (event.type === 'session/options' && Object.keys(this.#draftsByRuntime[runtime] ?? {}).length > 0) {
-      void this.newSessionDefaultsFor(runtime).catch(error => this.resultNotice('warning', describe(error)))
+      void this.newSessionDefaultsFor(runtime).catch(error => this.resultNotice('warning', `Couldn't load ${this.#agentPossessive(runtime)} options: ${describe(error)}`))
     }
   }
 
