@@ -15,7 +15,7 @@ import { tempDir } from './scratch.js'
 import { writeTriggers } from '../src/authoring/model.js'
 import { Logger } from '../src/log.js'
 import { parseTriggers } from '../src/intake/definition.js'
-import { addressesHandle, asksToStop, parseAssessment, MentionTriage, ASSESS_UNCONFIRMED, type MentionAssessInput, type MentionAssessor, type WorkItemsPort } from '../src/intake/mentions.js'
+import { addressesHandle, asksToStop, parseAssessment, MentionTriage, ASSESS_UNCONFIRMED, ASSESS_UNAVAILABLE, type MentionAssessInput, type MentionAssessor, type WorkItemsPort } from '../src/intake/mentions.js'
 import { PHONE_POLICY } from '../src/phone-link.js'
 import { LeadAutomaticGoals } from '../src/lead/automatic-goals.js'
 import { Admission } from '../src/intake/admission.js'
@@ -171,6 +171,18 @@ test('the assessment answer is one decision and one sentence: anything else in i
   assert.equal(parseAssessment('not json'), null)
   const long = parseAssessment(`{"decision":"ask","reason":"${'a'.repeat(900)}"}`)
   assert.ok(long && long.reason.length <= 300, 'a reason is clipped to one short sentence')
+})
+
+test('an assessment cannot supply Host-only outcome reasons', () => {
+  for (const reason of [ASSESS_UNCONFIRMED, ASSESS_UNAVAILABLE]) {
+    for (const decision of ['accept', 'ignore', 'stop', 'ask']) {
+      for (const value of [reason, `\u0000\t ${reason}\n\u007f`]) {
+        assert.equal(parseAssessment(JSON.stringify({ decision, reason: value })), null)
+      }
+    }
+    const ordinary = `${reason} More context.`
+    assert.deepEqual(parseAssessment(JSON.stringify({ decision: 'ask', reason: ordinary })), { decision: 'ask', reason: ordinary })
+  }
 })
 
 // ------------------------------------------------------------- the gate
@@ -2314,7 +2326,7 @@ test('a no-send crossing UTC midnight releases its captured day before the next 
   assert.deepEqual(ledger.assessed, { day: '2026-01-02', count: 1 })
 })
 
-test('a failed no-send count read retains the cursor and durable provisional decision', E2E, async t => {
+test('a failed no-send count write retains the cursor and durable provisional decision', E2E, async t => {
   const d = await desk(t)
   const file = join(d.stateDir, LEDGER), saved = join(d.stateDir, 'mentions-held.json')
   let moved = false
@@ -2327,7 +2339,7 @@ test('a failed no-send count read retains the cursor and durable provisional dec
     await say(d, 1, '@dex please fix this', NAMED)
     assert.equal(await readFile(cursor, 'utf8'), before, 'the source cursor did not advance')
     const ledger = JSON.parse(await readFile(saved, 'utf8'))
-    assert.equal(ledger.assessed.count, 1, 'failed refund read never removes the conservative count')
+    assert.equal(ledger.assessed.count, 1, 'failed refund rename never removes the conservative count')
     assert.equal(ledger.decisions.at(-1).reason, ASSESS_UNCONFIRMED)
     assert.equal(d.model.inputs.length, 1)
   } finally {

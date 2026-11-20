@@ -327,8 +327,9 @@ coordinates desk processes; it stores no assessment content. A settlement record
 usage; an unknown outcome counts the authorized hold as unconfirmed. A durable
 manual decision is recorded before dispatch, so a crash does
 not automatically send the same comment again. Up to 500 unconfirmed decisions
-are protected from history rotation; if protected history is full, further
-assessments wait for a person. Explicit Re-evaluate remains a new person request.
+are protected from history rotation; if protected history is full, new decision
+records and forge-stop reservations are refused, and the source cursor stays put.
+Existing records remain available for review. Explicit Re-evaluate remains a new person request.
 The hold is admission accounting, not a guarantee about invoices outside the reported usage
 contract. Days use the host's local date and are assigned when the request starts;
 a clock moving backwards does not create fresh credit. Existing Lead goal amounts

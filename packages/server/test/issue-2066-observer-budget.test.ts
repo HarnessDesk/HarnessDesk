@@ -48,9 +48,7 @@ test('characterize default Host mention observer and its real journal', { timeou
   }
   await say(1)
   assert.equal(calls.length, 0, 'unassembled Host has no journal budget and sends nothing')
-  console.log('PHASE first', JSON.stringify({calls: calls.length, decisions: await d.host.call('trigger/decisions', { root: repo.dir, id: 'ask' })}))
   await d.host.call('lead/thread/read', {})
   await say(2)
   assert.equal(calls.length, 0, 'automatic assessments default off even with an assembled Lead budget')
-  console.log('PHASE assembled', JSON.stringify({calls: calls.length, models: calls.map(x => x.model), decisions: await d.host.call('trigger/decisions', { root: repo.dir, id: 'ask' })}))
 })

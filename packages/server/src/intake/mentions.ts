@@ -107,7 +107,9 @@ export const parseAssessment = (text: string): MentionAssessment | null => {
   if (typeof reason !== 'string') return null
   const clean = reason.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim()
   if (!clean) return null
-  return { decision: decision as TriggerTriage, reason: clean.length > REASON ? `${clean.slice(0, REASON - 1)}…` : clean }
+  const bounded = clean.length > REASON ? `${clean.slice(0, REASON - 1)}…` : clean
+  if (bounded === ASSESS_UNCONFIRMED || bounded === ASSESS_UNAVAILABLE) return null
+  return { decision: decision as TriggerTriage, reason: bounded }
 }
 
 /** What one assessment is shown: the comment as data, and what accepting would open, told rather than asked. */
